@@ -65,6 +65,7 @@ pub mod composition;
 pub mod cfg;
 pub mod layers;
 pub mod algorithms;
+pub mod ctc;
 
 // #[cfg(feature = "error-grammar")]
 // pub mod error_grammar;
@@ -122,5 +123,10 @@ pub mod prelude {
         AutoQueue, QueueType, single_source_shortest_distance,
         single_source_shortest_distance_with_queue, all_pairs_shortest_distance,
         ShortestDistanceConfig,
+    };
+    pub use crate::ctc::{
+        CtcTopology, CtcTopologyInfo, CtcLabel,
+        correct_ctc, compact_ctc, minimal_ctc,
+        selfless_correct_ctc, selfless_compact_ctc,
     };
 }

@@ -14,6 +14,10 @@ use lling_llang::algorithms::{
     determinize, DeterminizeConfig, is_deterministic,
     minimize, MinimizeConfig,
 };
+use lling_llang::ctc::{
+    correct_ctc, compact_ctc, minimal_ctc,
+    selfless_correct_ctc, selfless_compact_ctc,
+};
 use lling_llang::backend::{HashMapBackend, LatticeBackend};
 use lling_llang::cfg::{GrammarBuilder, EarleyParser};
 use lling_llang::lattice::{LatticeBuilder, EdgeMetadata};
@@ -977,6 +981,78 @@ fn minimize_benchmarks(c: &mut Criterion) {
 }
 
 // ============================================================================
+// Phase 5: CTC Topology Benchmarks
+// ============================================================================
+
+fn ctc_topology_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("ctc");
+
+    // Benchmark topology construction for various vocabulary sizes
+    for vocab_size in [10, 100, 500, 1000].iter() {
+        // Correct-CTC: N states, N² arcs
+        group.bench_with_input(
+            BenchmarkId::new("correct_ctc_construct", vocab_size),
+            vocab_size,
+            |b, &vocab_size| {
+                b.iter(|| black_box(correct_ctc::<LogWeight>(vocab_size)))
+            },
+        );
+
+        // Compact-CTC: N states, 3N-2 arcs
+        group.bench_with_input(
+            BenchmarkId::new("compact_ctc_construct", vocab_size),
+            vocab_size,
+            |b, &vocab_size| {
+                b.iter(|| black_box(compact_ctc::<LogWeight>(vocab_size)))
+            },
+        );
+
+        // Minimal-CTC: 1 state, N arcs
+        group.bench_with_input(
+            BenchmarkId::new("minimal_ctc_construct", vocab_size),
+            vocab_size,
+            |b, &vocab_size| {
+                b.iter(|| black_box(minimal_ctc::<LogWeight>(vocab_size)))
+            },
+        );
+
+        // Selfless Correct-CTC
+        group.bench_with_input(
+            BenchmarkId::new("selfless_correct_ctc_construct", vocab_size),
+            vocab_size,
+            |b, &vocab_size| {
+                b.iter(|| black_box(selfless_correct_ctc::<LogWeight>(vocab_size)))
+            },
+        );
+
+        // Selfless Compact-CTC
+        group.bench_with_input(
+            BenchmarkId::new("selfless_compact_ctc_construct", vocab_size),
+            vocab_size,
+            |b, &vocab_size| {
+                b.iter(|| black_box(selfless_compact_ctc::<LogWeight>(vocab_size)))
+            },
+        );
+    }
+
+    // Memory usage comparison (measure arc count as proxy)
+    group.bench_function("arc_count_comparison_1000", |b| {
+        b.iter(|| {
+            let correct = correct_ctc::<LogWeight>(1000);
+            let compact = compact_ctc::<LogWeight>(1000);
+            let minimal = minimal_ctc::<LogWeight>(1000);
+            black_box((
+                correct.info().num_arcs,
+                compact.info().num_arcs,
+                minimal.info().num_arcs,
+            ))
+        })
+    });
+
+    group.finish();
+}
+
+// ============================================================================
 // Main Benchmark Groups
 // ============================================================================
 
@@ -991,6 +1067,7 @@ criterion_group!(
     epsilon_removal_benchmarks,
     connect_benchmarks,
     determinize_benchmarks,
-    minimize_benchmarks
+    minimize_benchmarks,
+    ctc_topology_benchmarks
 );
 criterion_main!(benches);
