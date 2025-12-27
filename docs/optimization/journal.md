@@ -397,3 +397,84 @@ The optimization saves one `SmallVec` clone per path extension. For diamond latt
 
 The improvement scales better for N-best (up to -21%) because it explores exponentially more paths than beam search, amplifying the clone reduction benefit.
 
+---
+
+### Hypothesis 8: Earley State Clone Reduction
+
+**Date**: 2025-12-26
+**Status**: ❌ REJECTED
+
+**Rationale**: Apply the same move-last pattern to Earley parser's `advance_*` methods:
+- Added `advance_move()`, `advance_with_terminal_move()`, `advance_with_nonterminal_move()` methods
+- Modified scanner to take ownership and use move for last matching edge
+- Modified completer to use move for last waiting item
+- Modified main loop to use move for epsilon/nullable handling
+
+**Results**:
+
+| Benchmark | Before | After | Change | p-value |
+|-----------|--------|-------|--------|---------|
+| earley_3_word_sentence | 4.89 µs | 5.38 µs | **+10.0%** | < 0.05 |
+| earley_5_word_sentence | 7.84 µs | 8.12 µs | **+4.0%** | < 0.05 |
+| earley_lattice_with_alternatives | 5.66 µs | 5.73 µs | -0.9% | > 0.05 |
+
+**Analysis**:
+The move-last pattern that worked well for path extraction algorithms (beam search, N-best) caused regression in Earley parsing. Key differences:
+
+1. **Iteration overhead**: Earley scanner uses `filter()` to find matching edges, adding overhead even when no edges match. Path algorithms always have edges to process.
+
+2. **SmallVec size**: Earley states use `SmallVec<[T; 4]>` (inline 4 elements), while path algorithms use `SmallVec<[EdgeId; 16]>`. Smaller inline capacity means clones are faster.
+
+3. **Grammar structure**: Small grammars have few matching edges per terminal, so the "save one clone" benefit is minimal.
+
+4. **Delayed processing overhead**: The move-last pattern requires tracking the last element, which adds bookkeeping cost that exceeds clone savings.
+
+Reverted.
+
+---
+
+## Optimization Summary
+
+**Date**: 2025-12-26
+**Total Hypotheses Tested**: 8
+
+### Accepted Optimizations (4)
+
+| # | Optimization | Impact | Key Insight |
+|---|-------------|--------|-------------|
+| 1 | Topological Sort O(V²)→O(V+E) | **-94%** (200 nodes) | Built edge_id→target lookup table |
+| 3 | log_sum_exp fast path | **-10%** | Skip exp/ln when diff > 20 |
+| 5 | Eliminate beam.rs Vec | **-23%** | Direct iteration, no intermediate allocation |
+| 7 | Path extend clone reduction | **-25%** | Move-last pattern for SmallVec<[EdgeId; 16]> |
+
+### Rejected Optimizations (4)
+
+| # | Optimization | Result | Reason |
+|---|-------------|--------|--------|
+| 2 | Semiring #[inline(always)] | Mixed | Compiler already optimized; forced inlining caused bloat |
+| 4 | Beam search select_nth | +19% to +28% | O(n) vs O(n log n) only helps for large n |
+| 6 | Earley chart merge HashSet | +5% to +11% | SmallVec<4> too small for HashSet benefit |
+| 8 | Earley state clone reduction | +4% to +10% | SmallVec<4> clones cheaper than move-last overhead |
+
+### Key Learnings
+
+1. **Asymptotic improvements require scale**: O(n) vs O(n log n) or O(1) vs O(n) optimizations only help when n is large. For n < 20, constant factors dominate.
+
+2. **SmallVec capacity matters**: Optimizations that help SmallVec<[T; 16]> may regress SmallVec<[T; 4]> because smaller inline capacity means faster clones.
+
+3. **HashSet overhead**: For collections with < 10 elements, linear scan beats hash-based approaches due to allocation and hashing overhead.
+
+4. **Move-last pattern**: Works well for path algorithms with many extensions (beam search, N-best) but regresses for parsers with fewer iterations per item.
+
+5. **Profile first**: The topological sort optimization (94% improvement) was identified by profiling and targeted the actual hotspot. Other optimizations had smaller impact because they weren't targeting the true bottleneck.
+
+### Final Performance (vs Initial Baseline)
+
+| Category | Representative Benchmark | Improvement |
+|----------|--------------------------|-------------|
+| Graph algorithms | topo_sort_diamond/200 | **17.6×** faster |
+| Path extraction | beam_search_diamond_10/10 | **~35%** faster |
+| N-best search | nbest_diamond_10/10 | **~25%** faster |
+| Log semiring ops | log_plus | **~10%** faster |
+| Earley parsing | earley_5_word_sentence | ~5% faster |
+
