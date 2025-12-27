@@ -1,0 +1,13 @@
+[profile.default]
+slow-timeout = { period = "30s", terminate-after = 2, grace-period = "5s" }
+
+# CI profile with JUnit XML reporting
+[profile.ci]
+slow-timeout = { period = "30s", terminate-after = 2, grace-period = "5s" }
+failure-output = "immediate-final"
+final-status-level = "fail"
+
+[profile.ci.junit]
+path = "junit.xml"
+store-success-output = false
+store-failure-output = true

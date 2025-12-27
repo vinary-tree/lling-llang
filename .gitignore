@@ -1,0 +1,47 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Perf profiling artifacts (DO NOT COMMIT)
+perf.data
+perf.data.old
+*.perf
+perf-*.txt
+perf-*.data
+
+# Criterion benchmark artifacts
+target/criterion/
+
+# Flamegraph artifacts (if generated)
+*.svg
+flamegraph*.html
+
+# Coverage artifacts
+*.profraw
+*.profdata
+lcov.info
+coverage/
+tarpaulin-report.html
+
+# proptest regression files (optional - can commit for reproducibility)
+# proptest-regressions/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Documentation build artifacts
+docs/_build/
+docs/optimization/*.txt
+
+# Claude temporary files
+.claude/plans/*.bak

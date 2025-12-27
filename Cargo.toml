@@ -1,0 +1,81 @@
+[package]
+name = "lling-llang"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dylon Edwards <dylon.edwards@f1r3fly.io>"]
+description = "WFST framework for text normalization and grammar correction"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/f1r3fly-io/lling-llang"
+keywords = ["wfst", "lattice", "cfg", "text-normalization", "grammar-correction"]
+categories = ["text-processing", "algorithms"]
+
+[dependencies]
+# Core dependencies (optional - for liblevenshtein integration)
+liblevenshtein = { path = "../liblevenshtein-rust", optional = true }
+
+# F1R3FLY.io dependencies (optional)
+pathmap = { path = "../PathMap", optional = true }
+
+# Data structures
+smallvec = { version = "1.11", features = ["union"] }
+indexmap = "2.0"
+ahash = "0.8"
+rustc-hash = "1.1"
+
+# Numerics
+ordered-float = "4.0"
+
+# Hashing
+blake3 = "1.5"
+
+# Serialization (optional)
+serde = { version = "1.0", features = ["derive"], optional = true }
+bincode = { version = "1.3", optional = true }
+
+[dev-dependencies]
+proptest = "1.4"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[features]
+# Default: standalone WFST framework with no external dependencies
+default = []
+
+# === Core Optional Features ===
+# Integration with liblevenshtein for lexical correction
+levenshtein = ["dep:liblevenshtein"]
+
+# Probabilistic CFG support
+pcfg = []
+
+# Predefined error grammars (English, etc.)
+error-grammar = []
+
+# === Extension Layers ===
+# POS tagging layer
+pos-tagging = []
+
+# Language model reranking layer
+lm-rerank = []
+
+# === F1R3FLY.io Integration (optional) ===
+# Full F1R3FLY.io stack: PathMap, MORK, MeTTaTron, MeTTaIL
+f1r3fly = ["dep:pathmap", "levenshtein", "sexpr"]
+
+# S-expression path format for MORK compatibility
+sexpr = []
+
+# PathMap-optimized backend (part of f1r3fly)
+pathmap-backend = ["dep:pathmap"]
+
+# === Serialization ===
+serde = ["dep:serde", "liblevenshtein?/serde"]
+bincode-ser = ["dep:bincode", "serde"]
+
+# Benchmarks will be enabled once implemented
+# [[bench]]
+# name = "lattice_benchmarks"
+# harness = false
+
+# [[bench]]
+# name = "composition_benchmarks"
+# harness = false
