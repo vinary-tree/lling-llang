@@ -11,6 +11,8 @@ use lling_llang::algorithms::{
     all_pairs_shortest_distance, single_source_shortest_distance, ShortestDistanceConfig,
     push_weights, PushConfig, remove_epsilon, EpsilonRemovalConfig,
     connect, ConnectConfig, is_connected,
+    determinize, DeterminizeConfig, is_deterministic,
+    minimize, MinimizeConfig,
 };
 use lling_llang::backend::{HashMapBackend, LatticeBackend};
 use lling_llang::cfg::{GrammarBuilder, EarleyParser};
@@ -810,6 +812,171 @@ fn connect_benchmarks(c: &mut Criterion) {
 }
 
 // ============================================================================
+// Phase 3: Determinization & Minimization Benchmarks
+// ============================================================================
+
+/// Build a non-deterministic WFST for benchmarking determinization.
+/// Creates a graph where each state has multiple outgoing transitions with the same label.
+fn build_non_deterministic_wfst(size: usize, branching: usize) -> VectorWfst<char, TropicalWeight> {
+    let mut fst = VectorWfst::new();
+    // Create size + 1 states (0 through size)
+    fst.add_states(size * branching + 2);
+    fst.set_start(0);
+
+    // Create non-deterministic structure:
+    // From state 0, we have 'branching' paths with same label 'a'
+    // Each path goes through different intermediate states
+    for b in 0..branching {
+        let intermediate_start = 1 + b * size;
+        // Add transition with same label from start
+        fst.add_arc(
+            0,
+            Some('a'),
+            Some('a'),
+            intermediate_start as StateId,
+            TropicalWeight::new(1.0 + b as f64 * 0.1),
+        );
+
+        // Build a chain from this intermediate
+        for i in 0..(size - 1) {
+            let from = intermediate_start + i;
+            let to = intermediate_start + i + 1;
+            let label = (b'b' + (i % 26) as u8) as char;
+            fst.add_arc(
+                from as StateId,
+                Some(label),
+                Some(label),
+                to as StateId,
+                TropicalWeight::new(1.0),
+            );
+        }
+
+        // Final state
+        let final_state = (intermediate_start + size - 1) as StateId;
+        fst.set_final(final_state, TropicalWeight::one());
+    }
+
+    fst
+}
+
+/// Build a redundant (but deterministic) WFST for benchmarking minimization.
+/// Creates equivalent states that should be merged.
+fn build_redundant_deterministic_wfst(size: usize) -> VectorWfst<char, TropicalWeight> {
+    let mut fst = VectorWfst::new();
+    // Create duplicate branches that are equivalent
+    let num_duplicates = 2;
+    fst.add_states(size * num_duplicates + 1);
+    fst.set_start(0);
+
+    // Create num_duplicates identical branches from start
+    for dup in 0..num_duplicates {
+        let chain_start = 1 + dup * size;
+        let label = (b'a' + dup as u8) as char; // Different first label
+        fst.add_arc(
+            0,
+            Some(label),
+            Some(label),
+            chain_start as StateId,
+            TropicalWeight::new(1.0),
+        );
+
+        // Build chain - all branches have same structure after first transition
+        for i in 0..(size - 1) {
+            let from = chain_start + i;
+            let to = chain_start + i + 1;
+            let arc_label = (b'x' + (i % 3) as u8) as char; // Same labels across branches
+            fst.add_arc(
+                from as StateId,
+                Some(arc_label),
+                Some(arc_label),
+                to as StateId,
+                TropicalWeight::new(1.0),
+            );
+        }
+
+        // Same final weight - makes states equivalent
+        let final_state = (chain_start + size - 1) as StateId;
+        fst.set_final(final_state, TropicalWeight::one());
+    }
+
+    fst
+}
+
+fn determinize_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("determinize");
+
+    // Benchmark determinization on non-deterministic WFSTs
+    for size in [10, 25, 50] {
+        for branching in [2, 3] {
+            group.bench_with_input(
+                BenchmarkId::new(format!("nondet_b{}", branching), size),
+                &(size, branching),
+                |b, &(size, branching)| {
+                    b.iter_with_setup(
+                        || build_non_deterministic_wfst(size, branching),
+                        |fst| {
+                            black_box(determinize(&fst, DeterminizeConfig::standard()))
+                        },
+                    )
+                },
+            );
+        }
+    }
+
+    // Benchmark is_deterministic check
+    for size in [10, 50, 100, 200] {
+        group.bench_with_input(
+            BenchmarkId::new("is_deterministic_linear", size),
+            &size,
+            |b, &size| {
+                let fst = build_linear_wfst(size);
+                b.iter(|| black_box(is_deterministic(&fst)))
+            },
+        );
+    }
+
+    group.finish();
+}
+
+fn minimize_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("minimize");
+
+    // Benchmark minimization on redundant WFSTs
+    for size in [10, 25, 50] {
+        group.bench_with_input(
+            BenchmarkId::new("redundant", size),
+            &size,
+            |b, &size| {
+                b.iter_with_setup(
+                    || build_redundant_deterministic_wfst(size),
+                    |fst| {
+                        black_box(minimize(&fst, MinimizeConfig::standard()))
+                    },
+                )
+            },
+        );
+    }
+
+    // Benchmark minimization on already-minimal WFSTs (should be fast)
+    for size in [10, 50, 100] {
+        group.bench_with_input(
+            BenchmarkId::new("already_minimal_linear", size),
+            &size,
+            |b, &size| {
+                b.iter_with_setup(
+                    || build_linear_wfst(size),
+                    |fst| {
+                        black_box(minimize(&fst, MinimizeConfig::standard()))
+                    },
+                )
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ============================================================================
 // Main Benchmark Groups
 // ============================================================================
 
@@ -822,6 +989,8 @@ criterion_group!(
     shortest_distance_benchmarks,
     weight_push_benchmarks,
     epsilon_removal_benchmarks,
-    connect_benchmarks
+    connect_benchmarks,
+    determinize_benchmarks,
+    minimize_benchmarks
 );
 criterion_main!(benches);

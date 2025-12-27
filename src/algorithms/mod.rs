@@ -20,6 +20,12 @@
 //! - **Connect (Trim)**:
 //!   - [`connect`]: Remove non-useful states
 //!
+//! - **Determinization**:
+//!   - [`determinize`]: Produce deterministic WFST via powerset construction
+//!
+//! - **Minimization**:
+//!   - [`minimize`]: Produce minimal WFST via partition refinement
+//!
 //! # Queue Selection Guide
 //!
 //! | Graph Type | Semiring | Recommended Queue | Complexity |
@@ -34,7 +40,9 @@
 //! - Mohri, M., Pereira, F., & Riley, M. (2002). "WFSTs in Speech Recognition"
 
 mod connect;
+mod determinize;
 mod epsilon_removal;
+mod minimize;
 mod push;
 mod queue;
 mod shortest_distance;
@@ -80,4 +88,19 @@ pub use shortest_distance::{
     reverse_shortest_distance,
     shortest_distance_to_final,
     ShortestDistanceConfig,
+};
+
+pub use determinize::{
+    determinize,
+    is_deterministic,
+    non_determinism_degree,
+    DeterminizeConfig,
+    DeterminizeError,
+};
+
+pub use minimize::{
+    minimize,
+    estimate_reduction,
+    MinimizeConfig,
+    MinimizeError,
 };
