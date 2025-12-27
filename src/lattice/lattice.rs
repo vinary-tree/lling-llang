@@ -174,7 +174,7 @@ impl<W: Semiring, B: LatticeBackend> Lattice<W, B> {
     /// graph contains a cycle.
     pub fn topological_order(&mut self) -> Option<&[NodeId]> {
         if self.topo_order.is_none() {
-            self.topo_order = super::algorithms::topological_sort(&self.nodes);
+            self.topo_order = super::algorithms::topological_sort(&self.nodes, &self.edges);
         }
         self.topo_order.as_deref()
     }

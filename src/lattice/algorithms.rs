@@ -12,13 +12,19 @@ use super::lattice::Lattice;
 /// Returns `None` if the graph contains a cycle.
 ///
 /// Time complexity: O(V + E)
-/// Space complexity: O(V)
-pub fn topological_sort(nodes: &[Node]) -> Option<Vec<NodeId>> {
+/// Space complexity: O(V + E) for the edge target lookup
+pub fn topological_sort<W: Semiring>(nodes: &[Node], edges: &[Edge<W>]) -> Option<Vec<NodeId>> {
     if nodes.is_empty() {
         return Some(Vec::new());
     }
 
     let n = nodes.len();
+
+    // Build edge_id -> target lookup table: O(E)
+    // This is the key optimization: instead of scanning all nodes for each edge,
+    // we do a single pass over edges to build a direct lookup.
+    let edge_targets: Vec<NodeId> = edges.iter().map(|e| e.target).collect();
+
     let mut in_degree: Vec<usize> = nodes.iter().map(|node| node.incoming.len()).collect();
     let mut queue: Vec<NodeId> = Vec::with_capacity(n);
     let mut result: Vec<NodeId> = Vec::with_capacity(n);
@@ -33,20 +39,15 @@ pub fn topological_sort(nodes: &[Node]) -> Option<Vec<NodeId>> {
     while let Some(node_id) = queue.pop() {
         result.push(node_id);
 
-        // Decrease in-degree for all neighbors
+        // Decrease in-degree for all neighbors: O(out_degree) per node
         if let Some(node) = nodes.get(node_id.0 as usize) {
             for &edge_id in &node.outgoing {
-                // Find the target node of this edge
-                // We need to look at all nodes to find which one has this edge as incoming
-                for other_node in nodes {
-                    if other_node.incoming.contains(&edge_id) {
-                        let idx = other_node.id.0 as usize;
-                        in_degree[idx] -= 1;
-                        if in_degree[idx] == 0 {
-                            queue.push(other_node.id);
-                        }
-                        break;
-                    }
+                // O(1) lookup instead of O(V) scan
+                let target = edge_targets[edge_id.0 as usize];
+                let idx = target.0 as usize;
+                in_degree[idx] -= 1;
+                if in_degree[idx] == 0 {
+                    queue.push(target);
                 }
             }
         }
@@ -231,7 +232,7 @@ mod tests {
     #[test]
     fn test_topological_sort_linear() {
         let lattice = linear_lattice(3);
-        let order = topological_sort(lattice.nodes()).unwrap();
+        let order = topological_sort(lattice.nodes(), lattice.edges()).unwrap();
 
         assert_eq!(order.len(), 4); // 4 nodes for 3 positions
 
@@ -247,7 +248,7 @@ mod tests {
     #[test]
     fn test_topological_sort_diamond() {
         let lattice = diamond_lattice();
-        let order = topological_sort(lattice.nodes()).unwrap();
+        let order = topological_sort(lattice.nodes(), lattice.edges()).unwrap();
 
         assert_eq!(order.len(), 4);
 
@@ -260,7 +261,8 @@ mod tests {
 
     #[test]
     fn test_topological_sort_empty() {
-        let order = topological_sort(&[]);
+        let empty_edges: &[Edge<TropicalWeight>] = &[];
+        let order = topological_sort(&[], empty_edges);
         assert_eq!(order, Some(vec![]));
     }
 
