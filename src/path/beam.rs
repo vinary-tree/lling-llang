@@ -169,13 +169,9 @@ pub fn beam_search_with_config<W: Semiring, B: LatticeBackend>(
                 continue;
             }
 
-            // Expand outgoing edges
-            let outgoing: Vec<_> = lattice.outgoing_edges(hyp.node)
-                .map(|e| (e.id, e.target, e.weight))
-                .collect();
-
-            for (edge_id, target, edge_weight) in outgoing {
-                let extended = hyp.extend(edge_id, target, edge_weight);
+            // Expand outgoing edges - iterate directly without intermediate Vec
+            for edge in lattice.outgoing_edges(hyp.node) {
+                let extended = hyp.extend(edge.id, edge.target, edge.weight);
                 next_beam.push(extended);
             }
         }
