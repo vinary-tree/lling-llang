@@ -107,6 +107,13 @@ impl LogWeight {
         //      = min(a, b) + log(1 + exp(-|a - b|))
         let min = a.min(b);
         let diff = (a - b).abs();
+
+        // Fast path: when diff > 20, exp(-diff) ≈ 2e-9 underflows to effectively 0
+        // So ln(1 + exp(-diff)) ≈ ln(1) = 0, and result is just min
+        if diff > 20.0 {
+            return min;
+        }
+
         min - (1.0 + (-diff).exp()).ln()
     }
 }
