@@ -133,6 +133,25 @@ pub trait MutableWfst<L, W: Semiring>: Wfst<L, W> {
 
     /// Reserve capacity for transitions from a specific state.
     fn reserve_transitions(&mut self, state: StateId, additional: usize);
+
+    /// Clear all transitions from a state.
+    ///
+    /// This removes all outgoing transitions from the specified state
+    /// but keeps the state itself.
+    fn clear_transitions(&mut self, state: StateId);
+
+    /// Replace all transitions from a state with new ones.
+    ///
+    /// This is more efficient than clearing and adding individually.
+    fn set_transitions(&mut self, state: StateId, transitions: Vec<WeightedTransition<L, W>>)
+    where
+        L: Clone,
+    {
+        self.clear_transitions(state);
+        for trans in transitions {
+            self.add_transition(trans);
+        }
+    }
 }
 
 /// Caching policy for lazy state expansion.

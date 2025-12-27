@@ -9,6 +9,8 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use lling_llang::algorithms::{
     all_pairs_shortest_distance, single_source_shortest_distance, ShortestDistanceConfig,
+    push_weights, PushConfig, remove_epsilon, EpsilonRemovalConfig,
+    connect, ConnectConfig, is_connected,
 };
 use lling_llang::backend::{HashMapBackend, LatticeBackend};
 use lling_llang::cfg::{GrammarBuilder, EarleyParser};
@@ -190,6 +192,84 @@ fn build_cyclic_wfst(n: usize) -> VectorWfst<char, TropicalWeight> {
             Some('b'),
             1,
             TropicalWeight::new(0.5), // Lower weight to prefer cycle
+        );
+    }
+
+    fst
+}
+
+/// Build a WFST with epsilon transitions for epsilon removal benchmarks
+fn build_epsilon_chain_wfst(n: usize) -> VectorWfst<char, TropicalWeight> {
+    // Alternating epsilon and label transitions: 0 --ε--> 1 --a--> 2 --ε--> 3 --b--> ...
+    let states = n * 2 + 1;
+    let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::with_capacity(states);
+
+    for _ in 0..states {
+        fst.add_state();
+    }
+    fst.set_start(0);
+    fst.set_final((states - 1) as StateId, TropicalWeight::one());
+
+    for i in 0..n {
+        let from = (i * 2) as StateId;
+        let mid = (i * 2 + 1) as StateId;
+        let to = (i * 2 + 2) as StateId;
+        let label = (b'a' + (i as u8 % 26)) as char;
+
+        // Epsilon transition
+        fst.add_epsilon(from, mid, TropicalWeight::new(0.5));
+        // Label transition
+        fst.add_arc(mid, Some(label), Some(label), to, TropicalWeight::new(1.0));
+    }
+
+    fst
+}
+
+/// Build a WFST with unreachable and dead-end states for connect benchmarks
+fn build_disconnected_wfst(n: usize) -> VectorWfst<char, TropicalWeight> {
+    // Main path: 0 -> 1 -> ... -> n (useful states)
+    // Plus n dead-end states and n unreachable states
+    let total_states = n * 3 + 1;
+    let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::with_capacity(total_states);
+
+    for _ in 0..total_states {
+        fst.add_state();
+    }
+    fst.set_start(0);
+    fst.set_final(n as StateId, TropicalWeight::one());
+
+    // Main path (useful)
+    for i in 0..n {
+        fst.add_arc(
+            i as StateId,
+            Some('a'),
+            Some('a'),
+            (i + 1) as StateId,
+            TropicalWeight::new(1.0),
+        );
+    }
+
+    // Dead-end states (accessible but not coaccessible)
+    for i in 0..n {
+        let dead_end = (n + 1 + i) as StateId;
+        fst.add_arc(
+            (i % n) as StateId,
+            Some('d'),
+            Some('d'),
+            dead_end,
+            TropicalWeight::new(2.0),
+        );
+    }
+
+    // Unreachable states (coaccessible but not accessible)
+    for i in 0..n {
+        let unreachable = (2 * n + 1 + i) as StateId;
+        fst.add_arc(
+            unreachable,
+            Some('u'),
+            Some('u'),
+            n as StateId,  // Point to final state
+            TropicalWeight::new(2.0),
         );
     }
 
@@ -587,6 +667,149 @@ fn shortest_distance_benchmarks(c: &mut Criterion) {
 }
 
 // ============================================================================
+// Core WFST Operations Benchmarks (Phase 2)
+// ============================================================================
+
+fn weight_push_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("weight_push");
+
+    // Weight pushing on linear and diamond WFSTs
+    for size in [10, 50, 100, 200].iter() {
+        group.bench_with_input(
+            BenchmarkId::new("backward_linear", size),
+            size,
+            |b, &size| {
+                b.iter_with_setup(
+                    || build_linear_wfst(size),
+                    |mut fst| {
+                        black_box(push_weights(&mut fst, PushConfig::backward()).ok())
+                    },
+                )
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("forward_linear", size),
+            size,
+            |b, &size| {
+                b.iter_with_setup(
+                    || build_linear_wfst(size),
+                    |mut fst| {
+                        black_box(push_weights(&mut fst, PushConfig::forward()).ok())
+                    },
+                )
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("backward_diamond", size),
+            size,
+            |b, &size| {
+                b.iter_with_setup(
+                    || build_diamond_wfst(size, 3),
+                    |mut fst| {
+                        black_box(push_weights(&mut fst, PushConfig::backward()).ok())
+                    },
+                )
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("forward_diamond", size),
+            size,
+            |b, &size| {
+                b.iter_with_setup(
+                    || build_diamond_wfst(size, 3),
+                    |mut fst| {
+                        black_box(push_weights(&mut fst, PushConfig::forward()).ok())
+                    },
+                )
+            },
+        );
+    }
+
+    group.finish();
+}
+
+fn epsilon_removal_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("epsilon_removal");
+
+    // Epsilon removal on different sizes
+    for size in [5, 10, 25, 50].iter() {
+        group.bench_with_input(
+            BenchmarkId::new("epsilon_chain", size),
+            size,
+            |b, &size| {
+                b.iter_with_setup(
+                    || build_epsilon_chain_wfst(size),
+                    |mut fst| {
+                        black_box(remove_epsilon(&mut fst, EpsilonRemovalConfig::default()).ok())
+                    },
+                )
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("epsilon_chain_acyclic", size),
+            size,
+            |b, &size| {
+                b.iter_with_setup(
+                    || build_epsilon_chain_wfst(size),
+                    |mut fst| {
+                        black_box(remove_epsilon(&mut fst, EpsilonRemovalConfig::acyclic()).ok())
+                    },
+                )
+            },
+        );
+    }
+
+    group.finish();
+}
+
+fn connect_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("connect");
+
+    // Connect on already-connected FSTs (should be fast)
+    for size in [10, 50, 100, 200].iter() {
+        group.bench_with_input(
+            BenchmarkId::new("already_connected_linear", size),
+            size,
+            |b, &size| {
+                let fst = build_linear_wfst(size);
+                b.iter(|| black_box(is_connected(&fst)))
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("already_connected_diamond", size),
+            size,
+            |b, &size| {
+                let fst = build_diamond_wfst(size, 3);
+                b.iter(|| black_box(is_connected(&fst)))
+            },
+        );
+    }
+
+    // Connect on disconnected FSTs
+    for size in [10, 50, 100].iter() {
+        group.bench_with_input(
+            BenchmarkId::new("trim_disconnected", size),
+            size,
+            |b, &size| {
+                b.iter_with_setup(
+                    || build_disconnected_wfst(size),
+                    |mut fst| {
+                        black_box(connect(&mut fst, ConnectConfig::trim()))
+                    },
+                )
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ============================================================================
 // Main Benchmark Groups
 // ============================================================================
 
@@ -596,6 +819,9 @@ criterion_group!(
     lattice_benchmarks,
     path_extraction_benchmarks,
     cfg_benchmarks,
-    shortest_distance_benchmarks
+    shortest_distance_benchmarks,
+    weight_push_benchmarks,
+    epsilon_removal_benchmarks,
+    connect_benchmarks
 );
 criterion_main!(benches);

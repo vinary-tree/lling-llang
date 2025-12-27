@@ -191,6 +191,12 @@ impl<L: Clone + Send + Sync, W: Semiring> MutableWfst<L, W> for VectorWfst<L, W>
             s.transitions.reserve(additional);
         }
     }
+
+    fn clear_transitions(&mut self, state: StateId) {
+        if let Some(s) = self.states.get_mut(state as usize) {
+            s.transitions.clear();
+        }
+    }
 }
 
 /// Builder for constructing VectorWfst with a fluent API.
