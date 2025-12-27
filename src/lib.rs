@@ -64,6 +64,7 @@ pub mod path;
 pub mod composition;
 pub mod cfg;
 pub mod layers;
+pub mod algorithms;
 
 // #[cfg(feature = "error-grammar")]
 // pub mod error_grammar;
@@ -115,5 +116,11 @@ pub mod prelude {
         CorrectionLayer, LayerPipeline, LayerPipelineBuilder,
         LayerError, LayerResult, LayerStats,
         CfgFilterLayer,
+    };
+    pub use crate::algorithms::{
+        ShortestDistanceQueue, FifoQueue, TopologicalQueue, ShortestFirstQueue,
+        AutoQueue, QueueType, single_source_shortest_distance,
+        single_source_shortest_distance_with_queue, all_pairs_shortest_distance,
+        ShortestDistanceConfig,
     };
 }

@@ -7,11 +7,15 @@
 //! - CFG parsing (Earley on lattices)
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use lling_llang::algorithms::{
+    all_pairs_shortest_distance, single_source_shortest_distance, ShortestDistanceConfig,
+};
 use lling_llang::backend::{HashMapBackend, LatticeBackend};
 use lling_llang::cfg::{GrammarBuilder, EarleyParser};
 use lling_llang::lattice::{LatticeBuilder, EdgeMetadata};
 use lling_llang::path::{viterbi, nbest, beam_search};
 use lling_llang::semiring::{TropicalWeight, LogWeight, Semiring};
+use lling_llang::wfst::{VectorWfst, MutableWfst, StateId};
 
 // ============================================================================
 // Helper Functions for Building Test Data
@@ -103,6 +107,93 @@ fn build_sentence_lattice(
     }
 
     builder.build(words.len())
+}
+
+/// Build a linear chain WFST: 0 -> 1 -> 2 -> ... -> n
+fn build_linear_wfst(n: usize) -> VectorWfst<char, TropicalWeight> {
+    let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::with_capacity(n + 1);
+
+    for _ in 0..=n {
+        fst.add_state();
+    }
+    fst.set_start(0);
+    fst.set_final(n as StateId, TropicalWeight::one());
+
+    for i in 0..n {
+        fst.add_arc(
+            i as StateId,
+            Some('a'),
+            Some('a'),
+            (i + 1) as StateId,
+            TropicalWeight::new(1.0),
+        );
+    }
+
+    fst
+}
+
+/// Build a diamond WFST with multiple parallel paths
+fn build_diamond_wfst(n: usize, branching: usize) -> VectorWfst<char, TropicalWeight> {
+    // n positions with branching alternatives each
+    // States: 0, 1, ..., n
+    let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::with_capacity(n + 1);
+
+    for _ in 0..=n {
+        fst.add_state();
+    }
+    fst.set_start(0);
+    fst.set_final(n as StateId, TropicalWeight::one());
+
+    for pos in 0..n {
+        for branch in 0..branching {
+            let label = (b'a' + (branch as u8 % 26)) as char;
+            fst.add_arc(
+                pos as StateId,
+                Some(label),
+                Some(label),
+                (pos + 1) as StateId,
+                TropicalWeight::new(1.0 + branch as f64 * 0.1),
+            );
+        }
+    }
+
+    fst
+}
+
+/// Build a WFST with cycles for testing non-acyclic algorithms
+#[allow(dead_code)]
+fn build_cyclic_wfst(n: usize) -> VectorWfst<char, TropicalWeight> {
+    let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::with_capacity(n);
+
+    for _ in 0..n {
+        fst.add_state();
+    }
+    fst.set_start(0);
+    fst.set_final((n - 1) as StateId, TropicalWeight::one());
+
+    // Forward chain
+    for i in 0..(n - 1) {
+        fst.add_arc(
+            i as StateId,
+            Some('f'),
+            Some('f'),
+            (i + 1) as StateId,
+            TropicalWeight::new(1.0),
+        );
+    }
+
+    // Add back edge creating a cycle (if n > 2)
+    if n > 2 {
+        fst.add_arc(
+            (n - 2) as StateId,
+            Some('b'),
+            Some('b'),
+            1,
+            TropicalWeight::new(0.5), // Lower weight to prefer cycle
+        );
+    }
+
+    fst
 }
 
 // ============================================================================
@@ -345,6 +436,157 @@ fn cfg_benchmarks(c: &mut Criterion) {
 }
 
 // ============================================================================
+// Shortest-Distance Algorithm Benchmarks
+// ============================================================================
+
+fn shortest_distance_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("shortest_distance");
+
+    // Single-source shortest distance with different queue disciplines
+    for size in [10, 50, 100, 200].iter() {
+        // Linear WFST - acyclic, should benefit from TopologicalQueue
+        group.bench_with_input(
+            BenchmarkId::new("single_source_linear_auto", size),
+            size,
+            |b, &size| {
+                let fst = build_linear_wfst(size);
+                b.iter(|| {
+                    black_box(single_source_shortest_distance(
+                        &fst,
+                        ShortestDistanceConfig::default(),
+                    ))
+                })
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("single_source_linear_topological", size),
+            size,
+            |b, &size| {
+                let fst = build_linear_wfst(size);
+                b.iter(|| {
+                    black_box(single_source_shortest_distance(
+                        &fst,
+                        ShortestDistanceConfig::acyclic(),
+                    ))
+                })
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("single_source_linear_tropical", size),
+            size,
+            |b, &size| {
+                let fst = build_linear_wfst(size);
+                b.iter(|| {
+                    black_box(single_source_shortest_distance(
+                        &fst,
+                        ShortestDistanceConfig::tropical(),
+                    ))
+                })
+            },
+        );
+
+        // Diamond WFST - multiple paths, tests semiring combination
+        group.bench_with_input(
+            BenchmarkId::new("single_source_diamond_auto", size),
+            size,
+            |b, &size| {
+                let fst = build_diamond_wfst(size, 3);
+                b.iter(|| {
+                    black_box(single_source_shortest_distance(
+                        &fst,
+                        ShortestDistanceConfig::default(),
+                    ))
+                })
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("single_source_diamond_topological", size),
+            size,
+            |b, &size| {
+                let fst = build_diamond_wfst(size, 3);
+                b.iter(|| {
+                    black_box(single_source_shortest_distance(
+                        &fst,
+                        ShortestDistanceConfig::acyclic(),
+                    ))
+                })
+            },
+        );
+    }
+
+    // All-pairs shortest distance - O(n³) so use smaller sizes
+    for size in [5, 10, 20, 30].iter() {
+        group.bench_with_input(
+            BenchmarkId::new("all_pairs_linear", size),
+            size,
+            |b, &size| {
+                let fst = build_linear_wfst(size);
+                b.iter(|| black_box(all_pairs_shortest_distance(&fst)))
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("all_pairs_diamond", size),
+            size,
+            |b, &size| {
+                let fst = build_diamond_wfst(size, 3);
+                b.iter(|| black_box(all_pairs_shortest_distance(&fst)))
+            },
+        );
+    }
+
+    // Queue discipline comparison - varying edge density
+    for branching in [2, 4, 8].iter() {
+        group.bench_with_input(
+            BenchmarkId::new("queue_fifo_diamond_50", branching),
+            branching,
+            |b, &branching| {
+                let fst = build_diamond_wfst(50, branching);
+                b.iter(|| {
+                    black_box(single_source_shortest_distance(
+                        &fst,
+                        ShortestDistanceConfig::default(),
+                    ))
+                })
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("queue_topological_diamond_50", branching),
+            branching,
+            |b, &branching| {
+                let fst = build_diamond_wfst(50, branching);
+                b.iter(|| {
+                    black_box(single_source_shortest_distance(
+                        &fst,
+                        ShortestDistanceConfig::acyclic(),
+                    ))
+                })
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("queue_shortest_first_diamond_50", branching),
+            branching,
+            |b, &branching| {
+                let fst = build_diamond_wfst(50, branching);
+                b.iter(|| {
+                    black_box(single_source_shortest_distance(
+                        &fst,
+                        ShortestDistanceConfig::tropical(),
+                    ))
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ============================================================================
 // Main Benchmark Groups
 // ============================================================================
 
@@ -353,6 +595,7 @@ criterion_group!(
     semiring_benchmarks,
     lattice_benchmarks,
     path_extraction_benchmarks,
-    cfg_benchmarks
+    cfg_benchmarks,
+    shortest_distance_benchmarks
 );
 criterion_main!(benches);
