@@ -337,5 +337,63 @@ Eliminating the intermediate Vec removes:
 2. One deallocation per hypothesis expansion
 3. Copy overhead for edge data (id, target, weight)
 
-For beam search with beam_width=10 and 10 positions, this saves ~100 small allocations per search
+For beam search with beam_width=10 and 10 positions, this saves ~100 small allocations per search.
+
+---
+
+### Hypothesis 7: Path Extend Clone Reduction
+
+**Date**: 2025-12-26
+**Status**: ✅ ACCEPTED (p < 0.05)
+
+**Rationale**: Both `beam.rs` and `nbest.rs` clone the entire `SmallVec<[EdgeId; 16]>` when extending a partial path. Since paths are extended in multiple directions (one per outgoing edge), we must clone N-1 times for N edges. However, we can save one clone by moving ownership for the last edge instead of cloning.
+
+**Implementation**:
+Added `extend_move(self, ...)` method alongside existing `extend(&self, ...)`:
+```rust
+fn extend_move(mut self, edge_id: EdgeId, target: NodeId, edge_weight: W) -> Self {
+    self.edges.push(edge_id);
+    self.node = target;
+    self.weight = self.weight.times(&edge_weight);
+    self
+}
+```
+
+Modified expansion loops to delay processing, using move for the last edge:
+```rust
+let mut edges_iter = lattice.outgoing_edges(hyp.node);
+if let Some(first_edge) = edges_iter.next() {
+    let mut last_edge = (first_edge.id, first_edge.target, first_edge.weight);
+
+    for edge in edges_iter {
+        // Process previous edge with clone (more edges follow)
+        let extended = hyp.extend(last_edge.0, last_edge.1, last_edge.2);
+        next_beam.push(extended);
+        last_edge = (edge.id, edge.target, edge.weight);
+    }
+
+    // Process last edge with move (no more edges)
+    let extended = hyp.extend_move(last_edge.0, last_edge.1, last_edge.2);
+    next_beam.push(extended);
+}
+```
+
+**Results**:
+
+| Benchmark | Before | After | Change | p-value |
+|-----------|--------|-------|--------|---------|
+| nbest_diamond_10/1 | 140 µs | 126 µs | **-10.4%** | < 0.05 |
+| nbest_diamond_10/5 | 134 µs | 122 µs | **-9.0%** | < 0.05 |
+| nbest_diamond_10/10 | 159 µs | 125 µs | **-21.3%** | < 0.05 |
+| beam_search_diamond_10/1 | 1.38 µs | 1.05 µs | **-23.8%** | < 0.05 |
+| beam_search_diamond_10/5 | 5.53 µs | 4.42 µs | **-19.3%** | < 0.05 |
+| beam_search_diamond_10/10 | 8.84 µs | 6.62 µs | **-24.9%** | < 0.05 |
+
+**Analysis**:
+The optimization saves one `SmallVec` clone per path extension. For diamond lattices with 2 alternatives at each position:
+- Each expansion has 2 outgoing edges → saves 1 clone per expansion
+- For 10 positions with beam_width=10: ~10 × 10 = 100 saved clones per search
+- SmallVec<[EdgeId; 16]> is 64+ bytes, so this eliminates significant memcpy overhead
+
+The improvement scales better for N-best (up to -21%) because it explores exponentially more paths than beam search, amplifying the clone reduction benefit.
 

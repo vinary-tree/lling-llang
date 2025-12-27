@@ -39,6 +39,14 @@ impl<W: Semiring> PartialPath<W> {
         }
     }
 
+    /// Extend by taking ownership (avoids clone for the last extension).
+    fn extend_move(mut self, edge_id: EdgeId, target: NodeId, edge_weight: W) -> Self {
+        self.edges.push(edge_id);
+        self.node = target;
+        self.weight = self.weight.times(&edge_weight);
+        self
+    }
+
     fn into_lattice_path(self) -> LatticePath<W> {
         let mut path = LatticePath::with_weight(self.weight);
         path.edges = self.edges;
@@ -136,9 +144,20 @@ impl<'a, W: Semiring, B: LatticeBackend> Iterator for NBestIterator<'a, W, B> {
                 return Some(partial.into_lattice_path());
             }
 
-            // Expand to successors
-            for edge in self.lattice.outgoing_edges(partial.node) {
-                let extended = partial.extend(edge.id, edge.target, edge.weight);
+            // Expand to successors - use move for the last edge to avoid one clone
+            let mut edges_iter = self.lattice.outgoing_edges(partial.node);
+            if let Some(first_edge) = edges_iter.next() {
+                let mut last_edge = (first_edge.id, first_edge.target, first_edge.weight);
+
+                for edge in edges_iter {
+                    // Process the previous edge with clone (more edges follow)
+                    let extended = partial.extend(last_edge.0, last_edge.1, last_edge.2);
+                    self.heap.push(OrderedPath(extended));
+                    last_edge = (edge.id, edge.target, edge.weight);
+                }
+
+                // Process the last edge with move (no more edges)
+                let extended = partial.extend_move(last_edge.0, last_edge.1, last_edge.2);
                 self.heap.push(OrderedPath(extended));
             }
         }

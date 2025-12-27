@@ -79,6 +79,14 @@ impl<W: Semiring> Hypothesis<W> {
         }
     }
 
+    /// Extend by taking ownership (avoids clone for the last extension).
+    fn extend_move(mut self, edge_id: EdgeId, target: NodeId, edge_weight: W) -> Self {
+        self.edges.push(edge_id);
+        self.node = target;
+        self.weight = self.weight.times(&edge_weight);
+        self
+    }
+
     fn into_lattice_path(self) -> LatticePath<W> {
         let mut path = LatticePath::with_weight(self.weight);
         path.edges = self.edges;
@@ -169,9 +177,20 @@ pub fn beam_search_with_config<W: Semiring, B: LatticeBackend>(
                 continue;
             }
 
-            // Expand outgoing edges - iterate directly without intermediate Vec
-            for edge in lattice.outgoing_edges(hyp.node) {
-                let extended = hyp.extend(edge.id, edge.target, edge.weight);
+            // Expand outgoing edges - use move for the last edge to avoid one clone
+            let mut edges_iter = lattice.outgoing_edges(hyp.node);
+            if let Some(first_edge) = edges_iter.next() {
+                let mut last_edge = (first_edge.id, first_edge.target, first_edge.weight);
+
+                for edge in edges_iter {
+                    // Process the previous edge with clone (more edges follow)
+                    let extended = hyp.extend(last_edge.0, last_edge.1, last_edge.2);
+                    next_beam.push(extended);
+                    last_edge = (edge.id, edge.target, edge.weight);
+                }
+
+                // Process the last edge with move (no more edges)
+                let extended = hyp.extend_move(last_edge.0, last_edge.1, last_edge.2);
                 next_beam.push(extended);
             }
         }
