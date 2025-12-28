@@ -370,3 +370,119 @@ mod tests {
         assert_eq!(paths[2].weight.value(), 3.0);
     }
 }
+
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use crate::test_utils::{arb_tropical_lattice, arb_linear_lattice, arb_diamond_lattice};
+    use proptest::prelude::*;
+    use proptest::strategy::ValueTree;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// N-best on a linear lattice returns exactly 1 path.
+        #[test]
+        fn nbest_linear_returns_one(
+            mut lattice in arb_linear_lattice(4)
+        ) {
+            let paths = nbest(&mut lattice, 100);
+            prop_assert_eq!(paths.len(), 1);
+        }
+
+        /// N-best returns paths in sorted order (ascending weight).
+        #[test]
+        fn nbest_returns_sorted(
+            mut lattice in arb_tropical_lattice(3, 3)
+        ) {
+            let paths = nbest(&mut lattice, 50);
+
+            // Verify sorted order
+            for i in 1..paths.len() {
+                prop_assert!(
+                    paths[i - 1].weight.value() <= paths[i].weight.value() + 1e-9,
+                    "Path {} (weight {}) > Path {} (weight {})",
+                    i - 1, paths[i - 1].weight.value(),
+                    i, paths[i].weight.value()
+                );
+            }
+        }
+
+        /// N-best respects limit parameter.
+        #[test]
+        fn nbest_respects_limit(
+            mut lattice in arb_diamond_lattice(4),  // 2^4 = 16 paths
+            n in 1usize..10
+        ) {
+            let paths = nbest(&mut lattice, n);
+            prop_assert!(paths.len() <= n);
+        }
+
+        /// N-best returns at least one path for non-empty lattice.
+        #[test]
+        fn nbest_returns_at_least_one(
+            mut lattice in arb_tropical_lattice(2, 2)
+        ) {
+            let paths = nbest(&mut lattice, 10);
+            prop_assert!(!paths.is_empty());
+        }
+
+        /// N-best first path matches Viterbi result.
+        #[test]
+        fn nbest_first_matches_viterbi(
+            mut lattice in arb_tropical_lattice(3, 2)
+        ) {
+            use crate::path::viterbi;
+
+            let viterbi_result = viterbi(&mut lattice);
+            let nbest_paths = nbest(&mut lattice, 1);
+
+            prop_assert!(viterbi_result.success);
+            prop_assert_eq!(nbest_paths.len(), 1);
+
+            // Weights should match (or be very close)
+            let diff = (viterbi_result.path.weight.value() - nbest_paths[0].weight.value()).abs();
+            prop_assert!(diff < 1e-9, "Weight mismatch: viterbi={}, nbest={}",
+                         viterbi_result.path.weight.value(), nbest_paths[0].weight.value());
+        }
+
+        /// Diamond lattice produces 2^n paths.
+        #[test]
+        fn nbest_diamond_path_count(n in 1usize..5) {
+            let mut lattice = arb_diamond_lattice(n)
+                .new_tree(&mut proptest::test_runner::TestRunner::deterministic())
+                .expect("generate lattice")
+                .current();
+
+            let expected_count = 1usize << n; // 2^n
+            let paths = nbest(&mut lattice, 1000);
+            prop_assert_eq!(paths.len(), expected_count);
+        }
+
+        /// All n-best paths are complete.
+        #[test]
+        fn nbest_paths_complete(
+            mut lattice in arb_tropical_lattice(3, 2)
+        ) {
+            let paths = nbest(&mut lattice, 10);
+            for path in &paths {
+                prop_assert!(path.is_complete);
+            }
+        }
+
+        /// All n-best paths have the same length (equal to positions).
+        #[test]
+        fn nbest_paths_same_length(
+            mut lattice in arb_tropical_lattice(4, 2)
+        ) {
+            let paths = nbest(&mut lattice, 20);
+            for path in &paths {
+                prop_assert_eq!(path.len(), 4, "Path length {} != expected 4", path.len());
+            }
+        }
+    }
+}

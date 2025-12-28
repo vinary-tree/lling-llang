@@ -386,6 +386,98 @@ mod tests {
     use crate::semiring::TropicalWeight;
     use crate::wfst::{VectorWfst, VectorWfstBuilder};
 
+    // Property-based tests
+    mod property_tests {
+        use super::*;
+        use crate::test_utils::arb_deterministic_wfst_tropical;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// Determinize should always produce a deterministic output.
+            #[test]
+            fn determinize_produces_deterministic(
+                fst in arb_deterministic_wfst_tropical(8, 3)
+            ) {
+                let result = determinize(&fst, DeterminizeConfig::standard());
+                if let Ok(det_fst) = result {
+                    prop_assert!(
+                        is_deterministic(&det_fst),
+                        "Determinized FST should be deterministic"
+                    );
+                }
+            }
+
+            /// Determinizing a deterministic FST should not increase state count significantly.
+            #[test]
+            fn determinize_already_deterministic(
+                fst in arb_deterministic_wfst_tropical(8, 3)
+            ) {
+                if fst.num_states() == 0 {
+                    return Ok(());
+                }
+
+                prop_assert!(is_deterministic(&fst), "Test FST should be deterministic");
+
+                let result = determinize(&fst, DeterminizeConfig::standard());
+                if let Ok(det_fst) = result {
+                    // Determinizing a deterministic FST shouldn't dramatically increase states
+                    // (it may increase slightly due to trim/connect behavior)
+                    prop_assert!(
+                        det_fst.num_states() <= fst.num_states() + 2,
+                        "Determinizing deterministic FST grew from {} to {} states",
+                        fst.num_states(),
+                        det_fst.num_states()
+                    );
+                }
+            }
+
+            /// Determinize is idempotent: det(det(F)) ≈ det(F).
+            #[test]
+            fn determinize_idempotent(
+                fst in arb_deterministic_wfst_tropical(6, 2)
+            ) {
+                if fst.num_states() == 0 {
+                    return Ok(());
+                }
+
+                let det1 = determinize(&fst, DeterminizeConfig::standard());
+                if let Ok(det1_fst) = det1 {
+                    let det2 = determinize(&det1_fst, DeterminizeConfig::standard());
+                    if let Ok(det2_fst) = det2 {
+                        // Both should be deterministic
+                        prop_assert!(is_deterministic(&det1_fst));
+                        prop_assert!(is_deterministic(&det2_fst));
+
+                        // State count should be similar (idempotent)
+                        prop_assert!(
+                            det2_fst.num_states() <= det1_fst.num_states() + 1,
+                            "det(det(F)) has {} states, det(F) has {}",
+                            det2_fst.num_states(),
+                            det1_fst.num_states()
+                        );
+                    }
+                }
+            }
+
+            /// Non-determinism degree should be 1 for deterministic FSTs.
+            #[test]
+            fn non_determinism_degree_deterministic(
+                fst in arb_deterministic_wfst_tropical(8, 3)
+            ) {
+                if fst.num_states() == 0 {
+                    return Ok(());
+                }
+
+                let degree = non_determinism_degree(&fst);
+                prop_assert!(
+                    degree <= 1,
+                    "Deterministic FST should have degree 0 or 1, got {}",
+                    degree
+                );
+            }
+        }
+    }
+
     fn build_deterministic_fst() -> VectorWfst<char, TropicalWeight> {
         // Already deterministic: 0 --a--> 1 --b--> 2 (final)
         VectorWfstBuilder::new()

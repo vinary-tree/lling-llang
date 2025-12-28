@@ -725,3 +725,243 @@ mod tests {
         assert_eq!(extended.weight.value(), 1.0);
     }
 }
+
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use crate::semiring::TropicalWeight;
+    use crate::wfst::{VectorWfst, VectorWfstBuilder};
+    use proptest::prelude::*;
+
+    /// Strategy for building simple transducer chains.
+    fn arb_simple_transducer(len: usize) -> impl Strategy<Value = VectorWfst<char, TropicalWeight>> {
+        let weights = proptest::collection::vec(0.0f64..10.0, len);
+        weights.prop_map(move |ws| {
+            let mut builder = VectorWfstBuilder::new().add_states(len + 1).start(0);
+            builder = builder.final_state(len as u32, TropicalWeight::one());
+
+            for (i, w) in ws.iter().enumerate() {
+                // Use different labels for input/output to enable testing
+                let input = (b'a' + (i % 26) as u8) as char;
+                let output = (b'A' + (i % 26) as u8) as char;
+                builder = builder.arc(i as u32, Some(input), Some(output), (i + 1) as u32, TropicalWeight::new(*w));
+            }
+
+            builder.build()
+        })
+    }
+
+    /// Strategy for building identity transducers (same input and output).
+    fn arb_identity_transducer(len: usize) -> impl Strategy<Value = VectorWfst<char, TropicalWeight>> {
+        let weights = proptest::collection::vec(0.0f64..10.0, len);
+        weights.prop_map(move |ws| {
+            let mut builder = VectorWfstBuilder::new().add_states(len + 1).start(0);
+            builder = builder.final_state(len as u32, TropicalWeight::one());
+
+            for (i, w) in ws.iter().enumerate() {
+                let label = (b'A' + (i % 26) as u8) as char;
+                builder = builder.arc(i as u32, Some(label), Some(label), (i + 1) as u32, TropicalWeight::new(*w));
+            }
+
+            builder.build()
+        })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(30))]
+
+        /// Empty composition (no matching labels) produces no paths.
+        #[test]
+        fn no_match_produces_no_paths(len1 in 1usize..4, len2 in 1usize..4) {
+            // FST1 outputs lowercase, FST2 expects digits - no match possible
+            let fst1 = VectorWfstBuilder::new()
+                .add_states(2)
+                .start(0)
+                .final_state(1, TropicalWeight::one())
+                .arc(0, Some('a'), Some('x'), 1, TropicalWeight::new(1.0))
+                .build();
+
+            let fst2 = VectorWfstBuilder::new()
+                .add_states(2)
+                .start(0)
+                .final_state(1, TropicalWeight::one())
+                .arc(0, Some('y'), Some('b'), 1, TropicalWeight::new(1.0))
+                .build();
+
+            let mut composed = compose(fst1, fst2);
+            let paths: Vec<_> = composed.accepting_paths().collect();
+
+            prop_assert!(paths.is_empty());
+        }
+
+        /// Composing identity transducers preserves the transduction.
+        #[test]
+        fn identity_composition_preserves(len in 1usize..4) {
+            let fst1 = arb_simple_transducer(len);
+            let fst2 = arb_identity_transducer(len);
+
+            proptest!(|(fst1 in fst1, fst2 in fst2)| {
+                // When FST2 is identity on FST1's output alphabet, composition
+                // preserves the input-output mapping (modulo weight combination)
+                let mut composed = compose(fst1, fst2);
+                let paths: Vec<_> = composed.accepting_paths().take(10).collect();
+
+                // If there are paths, they should maintain input->output structure
+                for path in &paths {
+                    prop_assert!(path.weight.value() >= 0.0);
+                }
+            });
+        }
+
+        /// Composition weight is sum of component weights (tropical).
+        #[test]
+        fn composition_weight_is_sum(w1 in 0.0f64..100.0, w2 in 0.0f64..100.0) {
+            let fst1 = VectorWfstBuilder::new()
+                .add_states(2)
+                .start(0)
+                .final_state(1, TropicalWeight::one())
+                .arc(0, Some('a'), Some('x'), 1, TropicalWeight::new(w1))
+                .build();
+
+            let fst2 = VectorWfstBuilder::new()
+                .add_states(2)
+                .start(0)
+                .final_state(1, TropicalWeight::one())
+                .arc(0, Some('x'), Some('b'), 1, TropicalWeight::new(w2))
+                .build();
+
+            let mut composed = compose(fst1, fst2);
+            let paths: Vec<_> = composed.accepting_paths().collect();
+
+            prop_assert_eq!(paths.len(), 1);
+            let expected_weight = w1 + w2;
+            let actual_weight = paths[0].weight.value();
+            prop_assert!((expected_weight - actual_weight).abs() < 1e-9,
+                "Expected weight {} but got {}", expected_weight, actual_weight);
+        }
+
+        /// Composed paths maintain input/output sequence integrity.
+        #[test]
+        fn paths_maintain_sequence_integrity(
+            n_transitions in 1usize..4
+        ) {
+            // Build composable FSTs
+            let mut builder1 = VectorWfstBuilder::new()
+                .add_states(n_transitions + 1)
+                .start(0)
+                .final_state(n_transitions as u32, TropicalWeight::one());
+
+            let mut builder2 = VectorWfstBuilder::new()
+                .add_states(n_transitions + 1)
+                .start(0)
+                .final_state(n_transitions as u32, TropicalWeight::one());
+
+            for i in 0..n_transitions {
+                let in1 = (b'a' + i as u8) as char;
+                let mid = (b'A' + i as u8) as char;
+                let out2 = (b'0' + i as u8) as char;
+
+                builder1 = builder1.arc(i as u32, Some(in1), Some(mid), (i + 1) as u32, TropicalWeight::new(1.0));
+                builder2 = builder2.arc(i as u32, Some(mid), Some(out2), (i + 1) as u32, TropicalWeight::new(1.0));
+            }
+
+            let fst1 = builder1.build();
+            let fst2 = builder2.build();
+
+            let mut composed = compose(fst1, fst2);
+            let paths: Vec<_> = composed.accepting_paths().collect();
+
+            prop_assert_eq!(paths.len(), 1);
+            prop_assert_eq!(paths[0].inputs.len(), n_transitions);
+            prop_assert_eq!(paths[0].outputs.len(), n_transitions);
+        }
+
+        /// Product state ID equality is reflexive.
+        #[test]
+        fn product_state_eq_reflexive(s1 in 0u32..10, s2 in 0u32..10) {
+            for filter in [FilterState::None, FilterState::Eps1, FilterState::Eps2] {
+                let state = ProductStateId::new(s1, s2, filter);
+                prop_assert_eq!(state, state);
+            }
+        }
+
+        /// Product state ID equality is symmetric.
+        #[test]
+        fn product_state_eq_symmetric(
+            s1a in 0u32..10, s2a in 0u32..10,
+            s1b in 0u32..10, s2b in 0u32..10
+        ) {
+            let state_a = ProductStateId::new(s1a, s2a, FilterState::None);
+            let state_b = ProductStateId::new(s1b, s2b, FilterState::None);
+
+            prop_assert_eq!(state_a == state_b, state_b == state_a);
+        }
+
+        /// Different filter states produce different product states.
+        #[test]
+        fn filter_state_distinguishes(s1 in 0u32..10, s2 in 0u32..10) {
+            let state_none = ProductStateId::new(s1, s2, FilterState::None);
+            let state_eps1 = ProductStateId::new(s1, s2, FilterState::Eps1);
+            let state_eps2 = ProductStateId::new(s1, s2, FilterState::Eps2);
+
+            prop_assert_ne!(state_none, state_eps1);
+            prop_assert_ne!(state_none, state_eps2);
+            prop_assert_ne!(state_eps1, state_eps2);
+        }
+
+        /// Cache can be cleared and reused.
+        #[test]
+        fn cache_clearable(
+            w in 0.0f64..10.0
+        ) {
+            let fst1 = VectorWfstBuilder::new()
+                .add_states(2)
+                .start(0)
+                .final_state(1, TropicalWeight::one())
+                .arc(0, Some('a'), Some('b'), 1, TropicalWeight::new(w))
+                .build();
+
+            let fst2 = VectorWfstBuilder::new()
+                .add_states(2)
+                .start(0)
+                .final_state(1, TropicalWeight::one())
+                .arc(0, Some('b'), Some('c'), 1, TropicalWeight::new(w))
+                .build();
+
+            let mut composed = compose(fst1, fst2);
+
+            // Compute paths
+            let paths1: Vec<_> = composed.accepting_paths().collect();
+            let cached_states = composed.computed_states();
+            prop_assert!(cached_states > 0);
+
+            // Clear cache
+            composed.clear_cache();
+            prop_assert_eq!(composed.computed_states(), 0);
+
+            // Recompute - should get same results
+            let paths2: Vec<_> = composed.accepting_paths().collect();
+            prop_assert_eq!(paths1.len(), paths2.len());
+        }
+
+        /// ComposedPath weight accumulation is correct.
+        #[test]
+        fn composed_path_weight_accumulation(
+            w1 in 0.0f64..100.0,
+            w2 in 0.0f64..100.0
+        ) {
+            let path: ComposedPath<char, TropicalWeight> = ComposedPath::new();
+            prop_assert_eq!(path.weight.value(), 0.0); // TropicalWeight::one() is 0.0
+
+            let p1 = path.extend(Some('a'), Some('b'), TropicalWeight::new(w1));
+            prop_assert_eq!(p1.weight.value(), w1);
+
+            let p2 = p1.extend(Some('c'), Some('d'), TropicalWeight::new(w2));
+            prop_assert!((p2.weight.value() - (w1 + w2)).abs() < 1e-9);
+        }
+    }
+}

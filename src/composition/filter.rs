@@ -311,3 +311,167 @@ mod tests {
         assert!(!match_);
     }
 }
+
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Strategy for generating arbitrary filter types.
+    fn arb_filter_type() -> impl Strategy<Value = EpsilonFilterType> {
+        prop_oneof![
+            Just(EpsilonFilterType::None),
+            Just(EpsilonFilterType::Sequencing),
+            Just(EpsilonFilterType::Matching),
+        ]
+    }
+
+    /// Strategy for generating arbitrary filter states.
+    fn arb_filter_state() -> impl Strategy<Value = FilterState> {
+        prop_oneof![
+            Just(FilterState::None),
+            Just(FilterState::Eps1),
+            Just(FilterState::Eps2),
+        ]
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        /// next_state is deterministic - same inputs always produce same output.
+        #[test]
+        fn next_state_deterministic(
+            filter_type in arb_filter_type(),
+            state in arb_filter_state(),
+            eps1 in any::<bool>(),
+            eps2 in any::<bool>()
+        ) {
+            let filter = EpsilonFilter::new(filter_type);
+            let result1 = filter.next_state(state, eps1, eps2);
+            let result2 = filter.next_state(state, eps1, eps2);
+            prop_assert_eq!(result1, result2);
+        }
+
+        /// No filter type always returns FilterState::None.
+        #[test]
+        fn no_filter_always_none(
+            state in arb_filter_state(),
+            eps1 in any::<bool>(),
+            eps2 in any::<bool>()
+        ) {
+            let filter = EpsilonFilter::new(EpsilonFilterType::None);
+            let result = filter.next_state(state, eps1, eps2);
+            prop_assert_eq!(result, FilterState::None);
+        }
+
+        /// No filter allows all moves in all states.
+        #[test]
+        fn no_filter_allows_all(state in arb_filter_state()) {
+            let filter = EpsilonFilter::new(EpsilonFilterType::None);
+            let (eps1, eps2, match_) = filter.allowed_moves(state);
+            prop_assert!(eps1);
+            prop_assert!(eps2);
+            prop_assert!(match_);
+        }
+
+        /// Sequencing filter allows matching in all states.
+        #[test]
+        fn sequencing_allows_match(state in arb_filter_state()) {
+            let filter = EpsilonFilter::new(EpsilonFilterType::Sequencing);
+            let (_, _, match_) = filter.allowed_moves(state);
+            prop_assert!(match_);
+        }
+
+        /// Matching filter disallows matching in Eps1 and Eps2.
+        #[test]
+        fn matching_disallows_match_in_eps_states(state in arb_filter_state()) {
+            let filter = EpsilonFilter::new(EpsilonFilterType::Matching);
+            let (_, _, match_) = filter.allowed_moves(state);
+            match state {
+                FilterState::None => prop_assert!(match_),
+                FilterState::Eps1 | FilterState::Eps2 => prop_assert!(!match_),
+            }
+        }
+
+        /// From None state, both filters start fresh.
+        #[test]
+        fn none_state_symmetric(filter_type in arb_filter_type()) {
+            let filter = EpsilonFilter::new(filter_type);
+            let (eps1, eps2, match_) = filter.allowed_moves(FilterState::None);
+            // From None, both eps1 and eps2 should be allowed
+            prop_assert!(eps1);
+            prop_assert!(eps2);
+            prop_assert!(match_);
+        }
+
+        /// Sequencing filter state transitions are symmetric for eps1/eps2.
+        #[test]
+        fn sequencing_symmetric(eps1_only in any::<bool>()) {
+            let filter = EpsilonFilter::new(EpsilonFilterType::Sequencing);
+
+            // Test that eps1 alone leads to Eps1 state, eps2 alone to Eps2
+            if eps1_only {
+                let next = filter.next_state(FilterState::None, true, false);
+                prop_assert_eq!(next, FilterState::Eps1);
+            } else {
+                let next = filter.next_state(FilterState::None, false, true);
+                prop_assert_eq!(next, FilterState::Eps2);
+            }
+        }
+
+        /// Match transition resets to None for sequencing filter.
+        #[test]
+        fn sequencing_match_resets(state in arb_filter_state()) {
+            let filter = EpsilonFilter::new(EpsilonFilterType::Sequencing);
+            // A match (both non-eps) should reset to None
+            let next = filter.next_state(state, false, false);
+            prop_assert_eq!(next, FilterState::None);
+        }
+
+        /// is_transition_allowed is consistent with allowed_moves.
+        #[test]
+        fn is_transition_allowed_consistent(
+            filter_type in arb_filter_type(),
+            state in arb_filter_state()
+        ) {
+            let filter = EpsilonFilter::new(filter_type);
+            let (can_eps1, can_eps2, can_match) = filter.allowed_moves(state);
+
+            // Check match case
+            prop_assert_eq!(
+                filter.is_transition_allowed(state, false, false, true),
+                can_match
+            );
+
+            // Check eps1 only case
+            prop_assert_eq!(
+                filter.is_transition_allowed(state, true, false, false),
+                can_eps1
+            );
+
+            // Check eps2 only case
+            prop_assert_eq!(
+                filter.is_transition_allowed(state, false, true, false),
+                can_eps2
+            );
+        }
+
+        /// Both eps transitions need at least one allowed.
+        #[test]
+        fn both_eps_needs_at_least_one(
+            filter_type in arb_filter_type(),
+            state in arb_filter_state()
+        ) {
+            let filter = EpsilonFilter::new(filter_type);
+            let (can_eps1, can_eps2, _) = filter.allowed_moves(state);
+
+            // Both eps is allowed if either is allowed
+            let both_eps_allowed = filter.is_transition_allowed(state, true, true, false);
+            prop_assert_eq!(both_eps_allowed, can_eps1 || can_eps2);
+        }
+    }
+}

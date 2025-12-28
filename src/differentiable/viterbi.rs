@@ -241,6 +241,225 @@ fn compute_topological_order<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>)
     order
 }
 
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use crate::wfst::{VectorWfst, MutableWfst, Wfst};
+    use proptest::prelude::*;
+
+    /// Strategy for generating parallel path WFSTs.
+    fn arb_parallel_wfst(max_paths: usize) -> impl Strategy<Value = VectorWfst<char, LogWeight>> {
+        proptest::collection::vec(-5.0f64..5.0, 1..=max_paths)
+            .prop_map(|weights| {
+                let mut fst = VectorWfst::new();
+                let s0 = fst.add_state();
+                let s1 = fst.add_state();
+                fst.set_start(s0);
+                fst.set_final(s1, LogWeight::one());
+                for (i, w) in weights.iter().enumerate() {
+                    let label = (b'a' + (i % 26) as u8) as char;
+                    fst.add_arc(s0, Some(label), Some(label), s1, LogWeight::new(*w));
+                }
+                fst
+            })
+    }
+
+    /// Strategy for generating chain WFSTs.
+    fn arb_chain_wfst(max_length: usize) -> impl Strategy<Value = VectorWfst<char, LogWeight>> {
+        (1..=max_length).prop_flat_map(|len| {
+            proptest::collection::vec(-5.0f64..5.0, len).prop_map(move |weights| {
+                let mut fst = VectorWfst::new();
+                for _ in 0..=len {
+                    fst.add_state();
+                }
+                fst.set_start(0);
+                fst.set_final(len as u32, LogWeight::one());
+                for (i, w) in weights.iter().enumerate() {
+                    let label = (b'a' + (i % 26) as u8) as char;
+                    fst.add_arc(i as u32, Some(label), Some(label), (i + 1) as u32, LogWeight::new(*w));
+                }
+                fst
+            })
+        })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// Viterbi finds the minimum weight path for parallel paths.
+        #[test]
+        fn viterbi_finds_min_weight(fst in arb_parallel_wfst(5)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            let score = viterbi_score(&grad_fst);
+
+            // Find minimum weight manually
+            let min_weight = fst.transitions(0).iter()
+                .map(|arc| arc.weight.value())
+                .fold(f64::INFINITY, f64::min);
+
+            prop_assert!((score.value() - min_weight).abs() < 1e-6,
+                "Viterbi score {} != min weight {}", score.value(), min_weight);
+        }
+
+        /// Viterbi score equals chain weight sum.
+        #[test]
+        fn viterbi_chain_equals_sum(fst in arb_chain_wfst(5)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            let score = viterbi_score(&grad_fst);
+
+            // For a chain, Viterbi score = sum of arc weights
+            let expected: f64 = fst.transitions(0).iter()
+                .chain((1..fst.num_states() as u32).flat_map(|s| fst.transitions(s).iter()))
+                .map(|arc| arc.weight.value())
+                .sum();
+
+            prop_assert!((score.value() - expected).abs() < 1e-6,
+                "Viterbi chain score {} != expected {}", score.value(), expected);
+        }
+
+        /// Viterbi score is deterministic.
+        #[test]
+        fn viterbi_deterministic(fst in arb_parallel_wfst(4)) {
+            let grad_fst1 = GradientWfst::from_wfst(&fst);
+            let grad_fst2 = GradientWfst::from_wfst(&fst);
+
+            let score1 = viterbi_score(&grad_fst1);
+            let score2 = viterbi_score(&grad_fst2);
+
+            prop_assert!((score1.value() - score2.value()).abs() < 1e-9,
+                "Viterbi scores differ: {} vs {}", score1.value(), score2.value());
+        }
+
+        /// Viterbi score <= forward score (best path <= total).
+        #[test]
+        fn viterbi_leq_forward(fst in arb_parallel_wfst(5)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            let viterbi = viterbi_score(&grad_fst);
+
+            // Reset and compute forward score
+            grad_fst.reset();
+            let forward = super::super::forward_score::forward_score(&grad_fst);
+
+            // Viterbi (min) <= Forward (log-sum-exp)
+            prop_assert!(viterbi.value() >= forward.value() - 1e-6,
+                "Viterbi {} < forward {} (should be >=)", viterbi.value(), forward.value());
+        }
+
+        /// Viterbi path has correct length.
+        #[test]
+        fn viterbi_path_correct_length(fst in arb_chain_wfst(4)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            let result = viterbi_path_with_grad(&grad_fst);
+
+            // Chain should have path length = number of arcs
+            let expected_len = fst.num_states() - 1;
+            prop_assert_eq!(result.path.len(), expected_len,
+                "Path length {} != expected {}", result.path.len(), expected_len);
+        }
+
+        /// Viterbi path gradients sum to path length.
+        #[test]
+        fn viterbi_path_grad_sum(fst in arb_chain_wfst(4)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            let result = viterbi_path_with_grad(&grad_fst);
+
+            // Each arc on path has gradient 1.0
+            let grad_sum: f64 = result.gradients.arc_gradients.iter()
+                .map(|g| g.gradient)
+                .sum();
+
+            prop_assert!((grad_sum - result.path.len() as f64).abs() < 1e-6,
+                "Gradient sum {} != path length {}", grad_sum, result.path.len());
+        }
+
+        /// Viterbi path only contains best arc when parallel.
+        #[test]
+        fn viterbi_path_selects_best(fst in arb_parallel_wfst(5)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            let result = viterbi_path_with_grad(&grad_fst);
+
+            // Should have exactly one arc in path
+            prop_assert_eq!(result.path.len(), 1);
+
+            // Find the minimum weight arc index
+            let min_idx = fst.transitions(0).iter()
+                .enumerate()
+                .min_by(|(_, a), (_, b)| {
+                    a.weight.value().partial_cmp(&b.weight.value()).unwrap()
+                })
+                .map(|(i, _)| i)
+                .unwrap();
+
+            prop_assert_eq!(result.path[0].arc_idx, min_idx,
+                "Path arc {} != min arc {}", result.path[0].arc_idx, min_idx);
+        }
+
+        /// Viterbi path score matches score function.
+        #[test]
+        fn viterbi_path_score_matches(fst in arb_parallel_wfst(4)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            let score = viterbi_score(&grad_fst);
+
+            let grad_fst2 = GradientWfst::from_wfst(&fst);
+            let result = viterbi_path_with_grad(&grad_fst2);
+
+            prop_assert!((score.value() - result.score.value()).abs() < 1e-9,
+                "viterbi_score {} != viterbi_path_with_grad score {}",
+                score.value(), result.score.value());
+        }
+
+        /// Viterbi path arcs form valid sequence.
+        #[test]
+        fn viterbi_path_valid_sequence(fst in arb_chain_wfst(4)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            let result = viterbi_path_with_grad(&grad_fst);
+
+            // Verify path starts at state 0
+            if !result.path.is_empty() {
+                prop_assert_eq!(result.path[0].from, 0,
+                    "Path should start at state 0, got {}", result.path[0].from);
+            }
+
+            // Verify consecutive arcs connect
+            for i in 1..result.path.len() {
+                let prev_arc = &result.path[i - 1];
+                let curr_arc = &result.path[i];
+                // Each arc should start where the previous one ends
+                // In a chain: arc[i].from = i
+                prop_assert_eq!(curr_arc.from as usize, i,
+                    "Arc {} should start at state {}", i, i);
+            }
+        }
+
+        /// Viterbi gradient non-zero only on path arcs.
+        #[test]
+        fn viterbi_gradient_sparse(fst in arb_parallel_wfst(5)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            let result = viterbi_path_with_grad(&grad_fst);
+
+            // Only arcs on path should have non-zero gradient
+            let num_arcs = fst.transitions(0).len();
+            for arc_idx in 0..num_arcs {
+                let arc = ArcIndex::new(0, arc_idx);
+                let grad = result.gradients.get_gradient(arc);
+                let on_path = result.path.iter().any(|p| *p == arc);
+
+                if on_path {
+                    prop_assert!((grad - 1.0).abs() < 1e-6,
+                        "Path arc gradient {} should be 1.0", grad);
+                } else {
+                    prop_assert!((grad - 0.0).abs() < 1e-6,
+                        "Non-path arc gradient {} should be 0.0", grad);
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

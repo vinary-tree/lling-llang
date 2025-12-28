@@ -378,6 +378,120 @@ mod tests {
     use crate::semiring::TropicalWeight;
     use crate::wfst::{VectorWfst, VectorWfstBuilder};
 
+    // Property-based tests
+    mod property_tests {
+        use super::*;
+        use crate::test_utils::arb_acyclic_wfst_tropical;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// Weight pushing should preserve structure (state count).
+            #[test]
+            fn push_preserves_state_count(
+                fst in arb_acyclic_wfst_tropical(8, 3)
+            ) {
+                if fst.num_states() == 0 || fst.start() == NO_STATE {
+                    return Ok(());
+                }
+
+                let original_states = fst.num_states();
+                let mut pushed_fst = fst.clone();
+                let result = push_weights(&mut pushed_fst, PushConfig::backward());
+
+                if result.is_ok() {
+                    prop_assert_eq!(
+                        pushed_fst.num_states(),
+                        original_states,
+                        "Push changed state count from {} to {}",
+                        original_states,
+                        pushed_fst.num_states()
+                    );
+                }
+            }
+
+            /// Weight pushing should preserve transition count (when no trimming).
+            #[test]
+            fn push_preserves_transitions(
+                fst in arb_acyclic_wfst_tropical(6, 2)
+            ) {
+                if fst.num_states() == 0 || fst.start() == NO_STATE {
+                    return Ok(());
+                }
+
+                let original_arc_count: usize = (0..fst.num_states())
+                    .map(|s| fst.transitions(s as StateId).len())
+                    .sum();
+
+                let mut pushed_fst = fst.clone();
+                let config = PushConfig {
+                    direction: PushDirection::Forward,
+                    remove_non_coaccessible: false,
+                    distance_config: ShortestDistanceConfig::default(),
+                };
+                let result = push_weights(&mut pushed_fst, config);
+
+                if result.is_ok() {
+                    let new_arc_count: usize = (0..pushed_fst.num_states())
+                        .map(|s| pushed_fst.transitions(s as StateId).len())
+                        .sum();
+
+                    // Transition count should be preserved or slightly reduced
+                    // (edges to unreachable states may be removed)
+                    prop_assert!(
+                        new_arc_count <= original_arc_count,
+                        "Push increased arc count from {} to {}",
+                        original_arc_count,
+                        new_arc_count
+                    );
+                }
+            }
+
+            /// Forward and backward push should both preserve valid structure.
+            #[test]
+            fn push_both_directions_valid(
+                fst in arb_acyclic_wfst_tropical(6, 2)
+            ) {
+                if fst.num_states() == 0 || fst.start() == NO_STATE {
+                    return Ok(());
+                }
+
+                // Forward push
+                let mut forward_fst = fst.clone();
+                let forward_result = push_weights(&mut forward_fst, PushConfig::forward());
+
+                // Backward push
+                let mut backward_fst = fst.clone();
+                let backward_result = push_weights(&mut backward_fst, PushConfig::backward());
+
+                // Both should either succeed or fail consistently for valid FSTs
+                if forward_result.is_ok() {
+                    prop_assert!(forward_fst.start() != NO_STATE || fst.num_states() == 0);
+                }
+                if backward_result.is_ok() {
+                    prop_assert!(backward_fst.start() != NO_STATE || fst.num_states() == 0);
+                }
+            }
+
+            /// Push on empty FST should succeed.
+            #[test]
+            fn push_empty_succeeds(_seed in 0u32..100) {
+                let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::new();
+                let result = push_weights(&mut fst, PushConfig::backward());
+                prop_assert!(result.is_ok());
+            }
+
+            /// Push with no start state should fail.
+            #[test]
+            fn push_no_start_fails(_seed in 0u32..100) {
+                let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::new();
+                fst.add_state();
+                // Don't set start state
+                let result = push_weights(&mut fst, PushConfig::backward());
+                prop_assert!(matches!(result, Err(PushError::NoStartState)));
+            }
+        }
+    }
+
     fn build_simple_chain() -> VectorWfst<char, TropicalWeight> {
         // 0 --a/1.0--> 1 --b/2.0--> 2 (final, weight 0.5)
         VectorWfstBuilder::new()

@@ -152,6 +152,13 @@ impl DivisibleSemiring for TropicalWeight {
     }
 }
 
+impl super::traits::NumericalWeight for TropicalWeight {
+    #[inline]
+    fn numerical_value(&self) -> f64 {
+        self.value()
+    }
+}
+
 impl StarSemiring for TropicalWeight {
     /// Kleene closure for tropical semiring.
     ///

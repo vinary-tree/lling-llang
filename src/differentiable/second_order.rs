@@ -479,6 +479,278 @@ pub fn gradient_and_hessian<L: Clone + Send + Sync>(
     }
 }
 
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use crate::wfst::{MutableWfst, Wfst};
+    use proptest::prelude::*;
+
+    /// Strategy for generating simple parallel path WFSTs.
+    fn arb_parallel_wfst(max_paths: usize) -> impl Strategy<Value = VectorWfst<char, LogWeight>> {
+        proptest::collection::vec(0.1f64..5.0, 1..=max_paths)
+            .prop_map(|weights| {
+                let mut fst = VectorWfst::new();
+                let s0 = fst.add_state();
+                let s1 = fst.add_state();
+                fst.set_start(s0);
+                fst.set_final(s1, LogWeight::one());
+                for (i, w) in weights.iter().enumerate() {
+                    let label = (b'a' + (i % 26) as u8) as char;
+                    fst.add_arc(s0, Some(label), Some(label), s1, LogWeight::new(*w));
+                }
+                fst
+            })
+    }
+
+    /// Strategy for generating chain WFSTs.
+    fn arb_chain_wfst(max_length: usize) -> impl Strategy<Value = VectorWfst<char, LogWeight>> {
+        (1..=max_length).prop_flat_map(|len| {
+            proptest::collection::vec(0.1f64..5.0, len).prop_map(move |weights| {
+                let mut fst = VectorWfst::new();
+                for _ in 0..=len {
+                    fst.add_state();
+                }
+                fst.set_start(0);
+                fst.set_final(len as u32, LogWeight::one());
+                for (i, w) in weights.iter().enumerate() {
+                    let label = (b'a' + (i % 26) as u8) as char;
+                    fst.add_arc(i as u32, Some(label), Some(label), (i + 1) as u32, LogWeight::new(*w));
+                }
+                fst
+            })
+        })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(30))]
+
+        /// Diagonal Hessian values are finite.
+        #[test]
+        fn diagonal_hessian_finite(fst in arb_parallel_wfst(5)) {
+            let so_wfst = SecondOrderWfst::from_wfst(&fst);
+            let hessian = compute_diagonal_hessian(&so_wfst);
+
+            for i in 0..hessian.size {
+                let h_ii = hessian.get(i, i);
+                prop_assert!(h_ii.is_finite(), "H[{},{}] = {} is not finite", i, i, h_ii);
+            }
+        }
+
+        /// Fisher matrix is symmetric (F[i,j] = F[j,i]).
+        #[test]
+        fn fisher_symmetric(fst in arb_parallel_wfst(4)) {
+            let grad_wfst = GradientWfst::from_wfst(&fst);
+            let _ = forward_score(&grad_wfst);
+            let grads = backward(&grad_wfst);
+
+            let fisher = compute_fisher_information(&grads);
+
+            for i in 0..fisher.size {
+                for j in 0..fisher.size {
+                    prop_assert!((fisher.get(i, j) - fisher.get(j, i)).abs() < 1e-9,
+                        "Fisher not symmetric: F[{},{}]={} != F[{},{}]={}",
+                        i, j, fisher.get(i, j), j, i, fisher.get(j, i));
+                }
+            }
+        }
+
+        /// Fisher diagonal equals gradient squared.
+        #[test]
+        fn fisher_diagonal_is_grad_squared(fst in arb_parallel_wfst(4)) {
+            let grad_wfst = GradientWfst::from_wfst(&fst);
+            let _ = forward_score(&grad_wfst);
+            let grads = backward(&grad_wfst);
+
+            let fisher = compute_diagonal_fisher(&grads);
+
+            for (i, arc_grad) in grads.arc_gradients.iter().enumerate() {
+                let expected = arc_grad.gradient * arc_grad.gradient;
+                prop_assert!((fisher.get(i, i) - expected).abs() < 1e-9,
+                    "Fisher[{},{}] = {} != g^2 = {}", i, i, fisher.get(i, i), expected);
+            }
+        }
+
+        /// Fisher matrix is positive semi-definite (all eigenvalues ≥ 0).
+        /// For diagonal, just check all diagonal elements ≥ 0.
+        #[test]
+        fn fisher_positive_semidefinite(fst in arb_parallel_wfst(4)) {
+            let grad_wfst = GradientWfst::from_wfst(&fst);
+            let _ = forward_score(&grad_wfst);
+            let grads = backward(&grad_wfst);
+
+            let fisher = compute_diagonal_fisher(&grads);
+
+            for i in 0..fisher.size {
+                prop_assert!(fisher.get(i, i) >= -1e-9,
+                    "Fisher[{},{}] = {} < 0", i, i, fisher.get(i, i));
+            }
+        }
+
+        /// HessianMatrix diagonal get/set consistency.
+        #[test]
+        fn hessian_diagonal_consistency(size in 1usize..10, values in proptest::collection::vec(-10.0f64..10.0, 1..10)) {
+            let mut h = HessianMatrix::diagonal(size);
+
+            for (i, v) in values.iter().enumerate() {
+                if i < size {
+                    h.set(i, i, *v);
+                    prop_assert!((h.get(i, i) - *v).abs() < 1e-9);
+                }
+            }
+
+            // Off-diagonal should be 0
+            for i in 0..size {
+                for j in 0..size {
+                    if i != j {
+                        prop_assert_eq!(h.get(i, j), 0.0);
+                    }
+                }
+            }
+        }
+
+        /// HessianMatrix full get/set consistency.
+        #[test]
+        fn hessian_full_consistency(size in 1usize..5, row in 0usize..5, col in 0usize..5, val in -10.0f64..10.0) {
+            let mut h = HessianMatrix::full(size);
+
+            if row < size && col < size {
+                h.set(row, col, val);
+                prop_assert!((h.get(row, col) - val).abs() < 1e-9);
+            }
+        }
+
+        /// HessianMatrix add accumulates correctly.
+        #[test]
+        fn hessian_add_accumulates(size in 1usize..5, idx in 0usize..5, v1 in -10.0f64..10.0, v2 in -10.0f64..10.0) {
+            let mut h = HessianMatrix::diagonal(size);
+
+            if idx < size {
+                h.set(idx, idx, v1);
+                h.add(idx, idx, v2);
+                prop_assert!((h.get(idx, idx) - (v1 + v2)).abs() < 1e-9);
+            }
+        }
+
+        /// HVP with zero vector gives zero result.
+        #[test]
+        fn hvp_zero_vector(size in 1usize..10) {
+            let h = HessianMatrix::diagonal(size);
+            let v = vec![0.0; size];
+            let result = h.hvp(&v);
+
+            for r in result {
+                prop_assert!((r - 0.0).abs() < 1e-9);
+            }
+        }
+
+        /// HVP with identity diagonal and unit vector.
+        #[test]
+        fn hvp_identity_diagonal(size in 1usize..10) {
+            let mut h = HessianMatrix::diagonal(size);
+            for i in 0..size {
+                h.set(i, i, 1.0);
+            }
+
+            let v: Vec<f64> = (0..size).map(|i| i as f64).collect();
+            let result = h.hvp(&v);
+
+            prop_assert_eq!(result.len(), size);
+            for (i, r) in result.iter().enumerate() {
+                prop_assert!((r - i as f64).abs() < 1e-9);
+            }
+        }
+
+        /// Natural gradient divides by Fisher diagonal.
+        #[test]
+        fn natural_gradient_divides(grad_val in 0.1f64..10.0, fisher_val in 0.1f64..10.0) {
+            let mut grads = GradientAccumulator::new();
+            grads.add_gradient(super::super::gradient::ArcIndex::new(0, 0), grad_val);
+
+            let mut fisher = HessianMatrix::diagonal(1);
+            fisher.set(0, 0, fisher_val);
+
+            let damping = 0.0;
+            let nat_grad = natural_gradient(&grads, &fisher, damping);
+
+            let expected = grad_val / fisher_val;
+            prop_assert!((nat_grad[0] - expected).abs() < 1e-6,
+                "Natural grad {} != expected {}", nat_grad[0], expected);
+        }
+
+        /// Natural gradient with damping prevents division by zero.
+        #[test]
+        fn natural_gradient_damping(grad_val in 0.1f64..10.0, damping in 1e-6f64..1.0) {
+            let mut grads = GradientAccumulator::new();
+            grads.add_gradient(super::super::gradient::ArcIndex::new(0, 0), grad_val);
+
+            let fisher = HessianMatrix::diagonal(1); // All zeros
+
+            let nat_grad = natural_gradient(&grads, &fisher, damping);
+
+            let expected = grad_val / damping;
+            prop_assert!((nat_grad[0] - expected).abs() < 1e-6,
+                "Damped natural grad {} != expected {}", nat_grad[0], expected);
+        }
+
+        /// SecondOrderWfst reset clears state.
+        #[test]
+        fn second_order_reset(fst in arb_chain_wfst(3)) {
+            let so_wfst = SecondOrderWfst::from_wfst(&fst);
+            let _ = compute_diagonal_hessian(&so_wfst);
+
+            so_wfst.reset_second_order();
+            // Should be able to recompute
+            let hessian = compute_diagonal_hessian(&so_wfst);
+            prop_assert!(hessian.size > 0);
+        }
+
+        /// gradient_and_hessian returns consistent results.
+        #[test]
+        fn gradient_and_hessian_consistent(fst in arb_parallel_wfst(4)) {
+            let config = SecondOrderConfig::default();
+            let result = gradient_and_hessian(&fst, &config);
+
+            // Gradients should be non-empty and finite
+            prop_assert!(!result.gradients.arc_gradients.is_empty());
+            for g in &result.gradients.arc_gradients {
+                prop_assert!(g.gradient.is_finite());
+            }
+
+            // Hessian should be diagonal
+            prop_assert!(result.hessian.is_diagonal);
+
+            // Natural gradient should exist
+            prop_assert!(result.natural_grad.is_some());
+        }
+
+        /// Diagonal elements from full Hessian match diagonal_elements().
+        #[test]
+        fn full_hessian_diagonal_extraction(size in 1usize..5, values in proptest::collection::vec(-10.0f64..10.0, 1..25)) {
+            let mut h = HessianMatrix::full(size);
+
+            for i in 0..size {
+                for j in 0..size {
+                    let idx = i * size + j;
+                    if idx < values.len() {
+                        h.set(i, j, values[idx]);
+                    }
+                }
+            }
+
+            let diagonal = h.diagonal_elements();
+            prop_assert_eq!(diagonal.len(), size);
+
+            for (i, d) in diagonal.iter().enumerate() {
+                prop_assert!((d - h.get(i, i)).abs() < 1e-9);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

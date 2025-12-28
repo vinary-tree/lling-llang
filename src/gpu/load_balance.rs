@@ -531,3 +531,255 @@ mod tests {
         assert_eq!(total, 100);
     }
 }
+
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        // =====================================================================
+        // WorkItem Properties
+        // =====================================================================
+
+        /// WorkItem stores data correctly.
+        #[test]
+        fn work_item_stores_data(data in 0i32..1000, num_subtasks in 0usize..100) {
+            let item = WorkItem::new(data, num_subtasks);
+            prop_assert_eq!(item.data, data);
+            prop_assert_eq!(item.num_subtasks, num_subtasks);
+            prop_assert_eq!(item.priority, 0.0);
+        }
+
+        /// WorkItem with_priority stores all fields.
+        #[test]
+        fn work_item_priority(data in 0i32..1000, num_subtasks in 0usize..100, priority in -10.0f32..10.0) {
+            let item = WorkItem::with_priority(data, num_subtasks, priority);
+            prop_assert_eq!(item.data, data);
+            prop_assert_eq!(item.num_subtasks, num_subtasks);
+            prop_assert!((item.priority - priority).abs() < 1e-6);
+        }
+
+        // =====================================================================
+        // WorkQueue Properties
+        // =====================================================================
+
+        /// WorkQueue tracks total subtasks correctly.
+        #[test]
+        fn work_queue_subtask_sum(subtasks in proptest::collection::vec(0usize..50, 1..20)) {
+            let items: Vec<_> = subtasks.iter().map(|&s| WorkItem::new(s, s)).collect();
+            let expected_total: usize = subtasks.iter().sum();
+            let queue = WorkQueue::new(items);
+
+            prop_assert_eq!(queue.total_subtasks(), expected_total);
+            prop_assert_eq!(queue.len(), subtasks.len());
+        }
+
+        /// WorkQueue dispatches all items exactly once.
+        #[test]
+        fn work_queue_dispatch_all(num_items in 1usize..50) {
+            let items: Vec<_> = (0..num_items).map(|i| WorkItem::new(i, 1)).collect();
+            let queue = WorkQueue::new(items);
+
+            let mut dispatched = Vec::new();
+            while let Some(idx) = queue.request_next() {
+                dispatched.push(idx);
+            }
+
+            prop_assert_eq!(dispatched.len(), num_items);
+
+            // All indices 0..num_items should be present exactly once
+            dispatched.sort();
+            let expected: Vec<_> = (0..num_items).collect();
+            prop_assert_eq!(dispatched, expected);
+        }
+
+        /// WorkQueue reset allows re-dispatch.
+        #[test]
+        fn work_queue_reset_enables_redispatch(num_items in 1usize..20) {
+            let items: Vec<_> = (0..num_items).map(|i| WorkItem::new(i, 1)).collect();
+            let queue = WorkQueue::new(items);
+
+            // First dispatch
+            while queue.request_next().is_some() {}
+            prop_assert!(queue.request_next().is_none());
+
+            // Reset and redispatch
+            queue.reset();
+            let mut count = 0;
+            while queue.request_next().is_some() {
+                count += 1;
+            }
+            prop_assert_eq!(count, num_items);
+        }
+
+        /// WorkQueue progress reflects dispatch state.
+        #[test]
+        fn work_queue_progress_accurate(num_items in 2usize..20, dispatch_count in 0usize..20) {
+            let items: Vec<_> = (0..num_items).map(|i| WorkItem::new(i, 1)).collect();
+            let queue = WorkQueue::new(items);
+
+            for _ in 0..dispatch_count {
+                queue.request_next();
+            }
+
+            let (dispatched, total) = queue.progress();
+            prop_assert_eq!(total, num_items);
+            prop_assert_eq!(dispatched, dispatch_count.min(num_items));
+        }
+
+        // =====================================================================
+        // WorkGroup Properties
+        // =====================================================================
+
+        /// WorkGroup thread 0 is dispatcher.
+        #[test]
+        fn work_group_thread_zero_is_dispatcher(size in 1usize..64, id in 0usize..100) {
+            let group = WorkGroup::new(size, id, 0);
+            prop_assert!(group.is_dispatcher());
+
+            for rank in 1..size {
+                let non_dispatch = WorkGroup::new(size, id, rank);
+                prop_assert!(!non_dispatch.is_dispatcher());
+            }
+        }
+
+        /// WorkGroup subtask_range covers all subtasks with correct stride.
+        #[test]
+        fn work_group_subtask_range_covers_all(
+            size in 2usize..8,
+            num_subtasks in 1usize..50
+        ) {
+            let mut all_subtasks = std::collections::HashSet::new();
+
+            for rank in 0..size {
+                let group = WorkGroup::new(size, 0, rank);
+                for subtask in group.subtask_range(num_subtasks) {
+                    all_subtasks.insert(subtask);
+                }
+            }
+
+            // All subtasks 0..num_subtasks should be covered
+            let expected: std::collections::HashSet<_> = (0..num_subtasks).collect();
+            prop_assert_eq!(all_subtasks, expected);
+        }
+
+        /// WorkGroup subtask_range has correct step size.
+        #[test]
+        fn work_group_subtask_step(size in 2usize..16, rank in 0usize..16, num_subtasks in 10usize..50) {
+            prop_assume!(rank < size);
+            let group = WorkGroup::new(size, 0, rank);
+
+            let subtasks: Vec<_> = group.subtask_range(num_subtasks).collect();
+
+            // First element should be rank
+            if !subtasks.is_empty() {
+                prop_assert_eq!(subtasks[0], rank);
+            }
+
+            // Consecutive elements should differ by size
+            for i in 1..subtasks.len() {
+                prop_assert_eq!(subtasks[i] - subtasks[i-1], size);
+            }
+        }
+
+        // =====================================================================
+        // WorkDispatcher Properties
+        // =====================================================================
+
+        /// WorkDispatcher stats are consistent.
+        #[test]
+        fn work_dispatcher_stats_consistent(
+            num_items in 1usize..30,
+            num_groups in 1usize..8,
+            group_size in 1usize..32
+        ) {
+            let items: Vec<_> = (0..num_items).map(|i| WorkItem::new(i, i + 1)).collect();
+            let dispatcher = WorkDispatcher::new(items, num_groups, group_size);
+
+            let stats = dispatcher.stats();
+            prop_assert_eq!(stats.total_items, num_items);
+            prop_assert_eq!(stats.num_groups, num_groups);
+            prop_assert_eq!(stats.group_size, group_size);
+            prop_assert_eq!(stats.total_workers(), num_groups * group_size);
+
+            let expected_subtasks: usize = (1..=num_items).sum();
+            prop_assert_eq!(stats.total_subtasks, expected_subtasks);
+        }
+
+        /// WorkDispatcher completion_ratio progresses correctly.
+        #[test]
+        fn work_dispatcher_completion_ratio(num_items in 2usize..20) {
+            let items: Vec<_> = (0..num_items).map(|i| WorkItem::new(i, 1)).collect();
+            let dispatcher = WorkDispatcher::with_default_group_size(items, 1);
+
+            let initial = dispatcher.stats().completion_ratio();
+            prop_assert!((initial - 0.0).abs() < 0.01);
+
+            // Dispatch half
+            for _ in 0..num_items/2 {
+                dispatcher.queue().request_next();
+            }
+
+            let half = dispatcher.stats().completion_ratio();
+            let expected_half = (num_items / 2) as f64 / num_items as f64;
+            prop_assert!((half - expected_half).abs() < 0.01);
+        }
+
+        // =====================================================================
+        // LoadBalancer Properties
+        // =====================================================================
+
+        /// LoadBalancer num_groups is ceiling division.
+        #[test]
+        fn load_balancer_num_groups(num_workers in 1usize..1000) {
+            let balancer = LoadBalancer::new(num_workers);
+            let group_size = WORK_GROUP_SIZE.min(num_workers);
+            let expected_groups = (num_workers + group_size - 1) / group_size;
+
+            prop_assert_eq!(balancer.num_groups(), expected_groups);
+        }
+
+        /// LoadBalancer estimate_workers returns reasonable values.
+        #[test]
+        fn load_balancer_estimate_reasonable(num_items in 1usize..1000, avg_subtasks in 1usize..100) {
+            let workers = LoadBalancer::estimate_workers(num_items, avg_subtasks);
+
+            // Should be at least one warp
+            prop_assert!(workers >= WORK_GROUP_SIZE.min(num_items * avg_subtasks));
+
+            // Should be a multiple of group size or at least 1
+            prop_assert!(workers >= 1);
+        }
+
+        // =====================================================================
+        // DispatchStats Properties
+        // =====================================================================
+
+        /// DispatchStats avg_subtasks_per_worker is correct.
+        #[test]
+        fn dispatch_stats_avg_subtasks(
+            total_subtasks in 1usize..1000,
+            num_groups in 1usize..10,
+            group_size in 1usize..32
+        ) {
+            let stats = DispatchStats {
+                total_items: 10,
+                dispatched_items: 5,
+                total_subtasks,
+                num_groups,
+                group_size,
+            };
+
+            let total_workers = num_groups * group_size;
+            let expected_avg = total_subtasks as f64 / total_workers as f64;
+            prop_assert!((stats.avg_subtasks_per_worker() - expected_avg).abs() < 1e-10);
+        }
+    }
+}

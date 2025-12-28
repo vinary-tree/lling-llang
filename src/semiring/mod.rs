@@ -22,7 +22,7 @@ mod probability;
 mod string;
 mod expectation;
 
-pub use traits::{Semiring, DivisibleSemiring, StarSemiring};
+pub use traits::{Semiring, DivisibleSemiring, StarSemiring, NumericalWeight};
 pub use tropical::TropicalWeight;
 pub use log::LogWeight;
 pub use boolean::BoolWeight;

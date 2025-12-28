@@ -630,3 +630,232 @@ mod tests {
         assert!(filtered.num_valid_edges() < filtered.total_edges());
     }
 }
+
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use crate::backend::HashMapBackend;
+    use crate::cfg::GrammarBuilder;
+    use crate::lattice::{LatticeBuilder, EdgeMetadata};
+    use crate::semiring::TropicalWeight;
+    use proptest::prelude::*;
+
+    /// Build a simple NP grammar for testing.
+    fn np_grammar() -> Grammar {
+        // NP → Det N
+        // Det → "the" | "a"
+        // N → "dog" | "cat" | "bird"
+        GrammarBuilder::new()
+            .start("NP")
+            .rule("NP", &["Det", "N"])
+            .rule("Det", &["the"])
+            .rule("Det", &["a"])
+            .rule("N", &["dog"])
+            .rule("N", &["cat"])
+            .rule("N", &["bird"])
+            .build()
+            .expect("valid grammar")
+    }
+
+    /// Build a lattice from determiners and nouns.
+    fn build_np_lattice(
+        det: &str,
+        noun: &str,
+        grammar: &Grammar,
+    ) -> Lattice<TropicalWeight, HashMapBackend> {
+        let mut backend = HashMapBackend::new();
+        let _det_str = backend.intern(det);
+        let _noun_str = backend.intern(noun);
+
+        let det_id = grammar.terminal_by_name(det).map(|t| t.vocab_id());
+        let noun_id = grammar.terminal_by_name(noun).map(|t| t.vocab_id());
+
+        let mut builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
+
+        if let Some(d) = det_id {
+            builder.add_correction_by_id(0, 1, d, TropicalWeight::one(), EdgeMetadata::default());
+        }
+        if let Some(n) = noun_id {
+            builder.add_correction_by_id(1, 2, n, TropicalWeight::one(), EdgeMetadata::default());
+        }
+
+        builder.build(2)
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(20))]
+
+        /// Valid NP patterns always parse.
+        #[test]
+        fn valid_np_parses(
+            det in prop_oneof![Just("the"), Just("a")],
+            noun in prop_oneof![Just("dog"), Just("cat"), Just("bird")]
+        ) {
+            let grammar = np_grammar();
+            let lattice = build_np_lattice(&det, &noun, &grammar);
+
+            let mut composition = LazyCfgComposition::new(&grammar, &lattice);
+
+            prop_assert!(composition.has_valid_parse());
+        }
+
+        /// has_valid_parse is idempotent.
+        #[test]
+        fn has_valid_parse_idempotent(
+            det in prop_oneof![Just("the"), Just("a")],
+            noun in prop_oneof![Just("dog"), Just("cat"), Just("bird")]
+        ) {
+            let grammar = np_grammar();
+            let lattice = build_np_lattice(&det, &noun, &grammar);
+
+            let mut composition = LazyCfgComposition::new(&grammar, &lattice);
+
+            let result1 = composition.has_valid_parse();
+            let result2 = composition.has_valid_parse();
+            let result3 = composition.has_valid_parse();
+
+            prop_assert_eq!(result1, result2);
+            prop_assert_eq!(result2, result3);
+        }
+
+        /// Clear cache resets parsed state.
+        #[test]
+        fn clear_cache_resets(
+            det in prop_oneof![Just("the"), Just("a")],
+            noun in prop_oneof![Just("dog"), Just("cat")]
+        ) {
+            let grammar = np_grammar();
+            let lattice = build_np_lattice(&det, &noun, &grammar);
+
+            let mut composition = LazyCfgComposition::new(&grammar, &lattice);
+
+            // Parse first
+            let _ = composition.has_valid_parse();
+            prop_assert!(composition.parsed);
+
+            // Clear
+            composition.clear_cache();
+            prop_assert!(!composition.parsed);
+
+            // Can still parse again
+            let result = composition.has_valid_parse();
+            prop_assert!(result);
+        }
+
+        /// filtered.reduction_ratio() is in [0, 1].
+        #[test]
+        fn reduction_ratio_bounded(
+            det in prop_oneof![Just("the"), Just("a")],
+            noun in prop_oneof![Just("dog"), Just("cat"), Just("bird")]
+        ) {
+            let grammar = np_grammar();
+            let lattice = build_np_lattice(&det, &noun, &grammar);
+
+            let mut composition = LazyCfgComposition::new(&grammar, &lattice);
+
+            if let Ok(filtered) = composition.filter() {
+                let ratio = filtered.reduction_ratio();
+                prop_assert!(ratio >= 0.0);
+                prop_assert!(ratio <= 1.0);
+            }
+        }
+
+        /// valid_edges count <= total_edges.
+        #[test]
+        fn valid_edges_bounded(
+            det in prop_oneof![Just("the"), Just("a")],
+            noun in prop_oneof![Just("dog"), Just("cat"), Just("bird")]
+        ) {
+            let grammar = np_grammar();
+            let lattice = build_np_lattice(&det, &noun, &grammar);
+
+            let mut composition = LazyCfgComposition::new(&grammar, &lattice);
+
+            if let Ok(filtered) = composition.filter() {
+                prop_assert!(filtered.num_valid_edges() <= filtered.total_edges());
+            }
+        }
+
+        /// all_parses respects limit.
+        #[test]
+        fn all_parses_respects_limit(
+            det in prop_oneof![Just("the"), Just("a")],
+            noun in prop_oneof![Just("dog"), Just("cat")],
+            limit in 1usize..10
+        ) {
+            let grammar = np_grammar();
+            let lattice = build_np_lattice(&det, &noun, &grammar);
+
+            let mut composition = LazyCfgComposition::new(&grammar, &lattice);
+
+            let parses = composition.all_parses(limit);
+            prop_assert!(parses.len() <= limit);
+        }
+
+        /// stats values are non-negative.
+        #[test]
+        fn stats_non_negative(
+            det in prop_oneof![Just("the"), Just("a")],
+            noun in prop_oneof![Just("dog"), Just("cat"), Just("bird")]
+        ) {
+            let grammar = np_grammar();
+            let lattice = build_np_lattice(&det, &noun, &grammar);
+
+            let mut composition = LazyCfgComposition::new(&grammar, &lattice);
+
+            let stats = composition.stats();
+            // All stats should be non-negative (they're usize so can't be negative,
+            // but verify the values are meaningful)
+            prop_assert!(stats.lattice_edges >= 0);
+            prop_assert!(stats.valid_edges >= 0);
+            prop_assert!(stats.forest_nodes >= 0);
+            prop_assert!(stats.complete_parses >= 0);
+        }
+
+        /// valid_paths iterator yields complete paths.
+        #[test]
+        fn valid_paths_complete(
+            det in prop_oneof![Just("the"), Just("a")],
+            noun in prop_oneof![Just("dog"), Just("cat")]
+        ) {
+            let grammar = np_grammar();
+            let lattice = build_np_lattice(&det, &noun, &grammar);
+
+            let mut composition = LazyCfgComposition::new(&grammar, &lattice);
+
+            for path in composition.valid_paths() {
+                prop_assert!(path.is_complete);
+            }
+        }
+    }
+
+    /// CompositionStats default values are zero.
+    #[test]
+    fn stats_default_zero() {
+        let stats = CompositionStats::default();
+        assert_eq!(stats.chart_items, 0);
+        assert_eq!(stats.forest_nodes, 0);
+        assert_eq!(stats.complete_parses, 0);
+        assert_eq!(stats.lattice_edges, 0);
+        assert_eq!(stats.valid_edges, 0);
+    }
+
+    /// ParseState variants are distinguishable.
+    #[test]
+    fn parse_state_variants() {
+        let unexplored = ParseState::Unexplored;
+        let in_progress = ParseState::InProgress;
+        let complete = ParseState::Complete(SmallVec::new());
+        let failed = ParseState::Failed;
+
+        // Just verify we can match on them
+        assert!(matches!(unexplored, ParseState::Unexplored));
+        assert!(matches!(in_progress, ParseState::InProgress));
+        assert!(matches!(complete, ParseState::Complete(_)));
+        assert!(matches!(failed, ParseState::Failed));
+    }
+}

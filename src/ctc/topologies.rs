@@ -684,3 +684,476 @@ mod tests {
         let _ = correct_ctc::<LogWeight>(0);
     }
 }
+
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use crate::semiring::{LogWeight, TropicalWeight};
+    use crate::wfst::Wfst;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        // =====================================================================
+        // Topology Size Properties
+        // =====================================================================
+
+        /// Correct-CTC has N states and N² arcs.
+        #[test]
+        fn correct_ctc_size(n in 1usize..50) {
+            let ctc = correct_ctc::<LogWeight>(n);
+            prop_assert_eq!(ctc.info().num_states, n);
+            prop_assert_eq!(ctc.info().num_arcs, n * n);
+            prop_assert_eq!(ctc.fst().num_states(), n);
+            prop_assert_eq!(ctc.fst().total_transitions(), n * n);
+        }
+
+        /// Compact-CTC has N states and 3N-2 arcs.
+        #[test]
+        fn compact_ctc_size(n in 1usize..50) {
+            let ctc = compact_ctc::<LogWeight>(n);
+            prop_assert_eq!(ctc.info().num_states, n);
+            prop_assert_eq!(ctc.info().num_arcs, 3 * n - 2);
+            prop_assert_eq!(ctc.fst().num_states(), n);
+            prop_assert_eq!(ctc.fst().total_transitions(), 3 * n - 2);
+        }
+
+        /// Minimal-CTC has 1 state and N arcs.
+        #[test]
+        fn minimal_ctc_size(n in 1usize..100) {
+            let ctc = minimal_ctc::<LogWeight>(n);
+            prop_assert_eq!(ctc.info().num_states, 1);
+            prop_assert_eq!(ctc.info().num_arcs, n);
+            prop_assert_eq!(ctc.fst().num_states(), 1);
+            prop_assert_eq!(ctc.fst().total_transitions(), n);
+        }
+
+        /// Selfless Correct-CTC has N states and N²-N+1 arcs.
+        #[test]
+        fn selfless_correct_ctc_size(n in 1usize..50) {
+            let ctc = selfless_correct_ctc::<LogWeight>(n);
+            prop_assert_eq!(ctc.info().num_states, n);
+            // N² - (N-1) = N² - N + 1
+            let expected_arcs = n * n - (n - 1);
+            prop_assert_eq!(ctc.info().num_arcs, expected_arcs);
+            prop_assert_eq!(ctc.fst().total_transitions(), expected_arcs);
+        }
+
+        /// Selfless Compact-CTC has N states and 2N-1 arcs.
+        #[test]
+        fn selfless_compact_ctc_size(n in 1usize..50) {
+            let ctc = selfless_compact_ctc::<LogWeight>(n);
+            prop_assert_eq!(ctc.info().num_states, n);
+            prop_assert_eq!(ctc.info().num_arcs, 2 * n - 1);
+            prop_assert_eq!(ctc.fst().total_transitions(), 2 * n - 1);
+        }
+
+        // =====================================================================
+        // Start and Final State Properties
+        // =====================================================================
+
+        /// Correct-CTC: start state is 0, all states are final.
+        #[test]
+        fn correct_ctc_start_final(n in 1usize..20) {
+            let ctc = correct_ctc::<LogWeight>(n);
+            let fst = ctc.fst();
+
+            prop_assert_eq!(fst.start(), 0);
+            for s in 0..n as StateId {
+                prop_assert!(fst.is_final(s), "State {} should be final", s);
+            }
+        }
+
+        /// Compact-CTC: start state is 0, all states are final.
+        #[test]
+        fn compact_ctc_start_final(n in 1usize..20) {
+            let ctc = compact_ctc::<LogWeight>(n);
+            let fst = ctc.fst();
+
+            prop_assert_eq!(fst.start(), 0);
+            for s in 0..n as StateId {
+                prop_assert!(fst.is_final(s), "State {} should be final", s);
+            }
+        }
+
+        /// Minimal-CTC: single state is both start and final.
+        #[test]
+        fn minimal_ctc_start_final(n in 1usize..100) {
+            let ctc = minimal_ctc::<LogWeight>(n);
+            let fst = ctc.fst();
+
+            prop_assert_eq!(fst.start(), 0);
+            prop_assert!(fst.is_final(0));
+        }
+
+        // =====================================================================
+        // Blank Token Properties
+        // =====================================================================
+
+        /// Blank (label 0) always outputs epsilon in Correct-CTC.
+        #[test]
+        fn correct_ctc_blank_epsilon(n in 2usize..20) {
+            let ctc = correct_ctc::<LogWeight>(n);
+            let fst = ctc.fst();
+
+            for s in 0..n as StateId {
+                for t in fst.transitions(s) {
+                    if t.input == Some(BLANK) {
+                        prop_assert_eq!(t.output, None, "Blank should output epsilon");
+                    } else {
+                        prop_assert_eq!(t.output, t.input, "Non-blank should output itself");
+                    }
+                }
+            }
+        }
+
+        /// Blank (label 0) always outputs epsilon in Compact-CTC.
+        #[test]
+        fn compact_ctc_blank_epsilon(n in 2usize..20) {
+            let ctc = compact_ctc::<LogWeight>(n);
+            let fst = ctc.fst();
+
+            // Check blank state arcs
+            for t in fst.transitions(0) {
+                if t.input == Some(BLANK) {
+                    prop_assert_eq!(t.output, None, "Blank should output epsilon");
+                } else if t.input.is_some() {
+                    prop_assert_eq!(t.output, t.input, "Non-blank should output itself");
+                }
+            }
+        }
+
+        /// Blank (label 0) always outputs epsilon in Minimal-CTC.
+        #[test]
+        fn minimal_ctc_blank_epsilon(n in 1usize..50) {
+            let ctc = minimal_ctc::<LogWeight>(n);
+            let fst = ctc.fst();
+
+            for t in fst.transitions(0) {
+                if t.input == Some(BLANK) {
+                    prop_assert_eq!(t.output, None, "Blank should output epsilon");
+                } else {
+                    prop_assert_eq!(t.output, t.input, "Non-blank should output itself");
+                }
+            }
+        }
+
+        // =====================================================================
+        // Selfless Properties
+        // =====================================================================
+
+        /// Selfless Correct-CTC has no non-blank self-loops.
+        #[test]
+        fn selfless_correct_no_self_loops(n in 2usize..20) {
+            let ctc = selfless_correct_ctc::<LogWeight>(n);
+            let fst = ctc.fst();
+
+            // Non-blank states should not have self-loops
+            for s in 1..n as StateId {
+                for t in fst.transitions(s) {
+                    if t.to == s {
+                        // If there's a self-loop, it must be blank
+                        prop_assert_eq!(t.input, Some(BLANK),
+                            "State {} has non-blank self-loop with label {:?}", s, t.input);
+                    }
+                }
+            }
+
+            prop_assert!(ctc.info().selfless);
+        }
+
+        /// Selfless Compact-CTC has no non-blank self-loops.
+        #[test]
+        fn selfless_compact_no_self_loops(n in 2usize..20) {
+            let ctc = selfless_compact_ctc::<LogWeight>(n);
+            let fst = ctc.fst();
+
+            // Non-blank states should only have epsilon to blank
+            for s in 1..n as StateId {
+                for t in fst.transitions(s) {
+                    prop_assert!(t.to != s || t.is_epsilon(),
+                        "State {} has non-epsilon self-loop", s);
+                }
+            }
+
+            prop_assert!(ctc.info().selfless);
+        }
+
+        /// Minimal-CTC is inherently selfless.
+        #[test]
+        fn minimal_ctc_selfless(n in 1usize..50) {
+            let ctc = minimal_ctc::<LogWeight>(n);
+            prop_assert!(ctc.info().selfless);
+        }
+
+        /// Non-selfless topologies are not marked as selfless.
+        #[test]
+        fn standard_topologies_not_selfless(n in 2usize..20) {
+            let correct = correct_ctc::<LogWeight>(n);
+            let compact = compact_ctc::<LogWeight>(n);
+
+            prop_assert!(!correct.info().selfless);
+            prop_assert!(!compact.info().selfless);
+        }
+
+        // =====================================================================
+        // Selfless Arc Count Difference
+        // =====================================================================
+
+        /// Selfless Correct-CTC has exactly N-1 fewer arcs than Correct-CTC.
+        #[test]
+        fn selfless_correct_arc_difference(n in 2usize..50) {
+            let correct = correct_ctc::<LogWeight>(n);
+            let selfless = selfless_correct_ctc::<LogWeight>(n);
+
+            let diff = correct.info().num_arcs - selfless.info().num_arcs;
+            prop_assert_eq!(diff, n - 1, "Should have N-1 fewer arcs");
+        }
+
+        /// Selfless Compact-CTC has exactly N-1 fewer arcs than Compact-CTC.
+        #[test]
+        fn selfless_compact_arc_difference(n in 2usize..50) {
+            let compact = compact_ctc::<LogWeight>(n);
+            let selfless = selfless_compact_ctc::<LogWeight>(n);
+
+            let diff = compact.info().num_arcs - selfless.info().num_arcs;
+            prop_assert_eq!(diff, n - 1, "Should have N-1 fewer arcs");
+        }
+
+        // =====================================================================
+        // Compact-CTC Back-off Structure
+        // =====================================================================
+
+        /// Compact-CTC: non-blank states have epsilon back-off to blank.
+        #[test]
+        fn compact_ctc_back_off(n in 2usize..20) {
+            let ctc = compact_ctc::<LogWeight>(n);
+            let fst = ctc.fst();
+
+            for s in 1..n as StateId {
+                let has_eps_to_blank = fst.transitions(s)
+                    .iter()
+                    .any(|t| t.is_epsilon() && t.to == 0);
+                prop_assert!(has_eps_to_blank,
+                    "State {} should have epsilon transition to blank", s);
+            }
+        }
+
+        /// Selfless Compact-CTC: non-blank states have ONLY epsilon back-off.
+        #[test]
+        fn selfless_compact_ctc_only_back_off(n in 2usize..20) {
+            let ctc = selfless_compact_ctc::<LogWeight>(n);
+            let fst = ctc.fst();
+
+            for s in 1..n as StateId {
+                prop_assert_eq!(fst.transitions(s).len(), 1,
+                    "Non-blank state {} should have exactly 1 transition", s);
+
+                let t = &fst.transitions(s)[0];
+                prop_assert!(t.is_epsilon(), "Should be epsilon transition");
+                prop_assert_eq!(t.to, 0, "Should go to blank state");
+            }
+        }
+
+        // =====================================================================
+        // Complete Graph Properties (Correct-CTC)
+        // =====================================================================
+
+        /// Correct-CTC: every state can reach every other state in one step.
+        #[test]
+        fn correct_ctc_complete_graph(n in 2usize..15) {
+            let ctc = correct_ctc::<LogWeight>(n);
+            let fst = ctc.fst();
+
+            for from in 0..n as StateId {
+                let destinations: std::collections::HashSet<_> = fst.transitions(from)
+                    .iter()
+                    .map(|t| t.to)
+                    .collect();
+
+                for to in 0..n as StateId {
+                    prop_assert!(destinations.contains(&to),
+                        "State {} should have transition to state {}", from, to);
+                }
+            }
+        }
+
+        /// Correct-CTC: each state has exactly N outgoing arcs.
+        #[test]
+        fn correct_ctc_outdegree(n in 1usize..20) {
+            let ctc = correct_ctc::<LogWeight>(n);
+            let fst = ctc.fst();
+
+            for s in 0..n as StateId {
+                prop_assert_eq!(fst.transitions(s).len(), n,
+                    "State {} should have {} transitions", s, n);
+            }
+        }
+
+        // =====================================================================
+        // Minimal-CTC Properties
+        // =====================================================================
+
+        /// Minimal-CTC: all transitions are self-loops to the single state.
+        #[test]
+        fn minimal_ctc_all_self_loops(n in 1usize..50) {
+            let ctc = minimal_ctc::<LogWeight>(n);
+            let fst = ctc.fst();
+
+            for t in fst.transitions(0) {
+                prop_assert_eq!(t.to, 0, "All transitions should go to state 0");
+            }
+        }
+
+        /// Minimal-CTC: has transition for every label.
+        #[test]
+        fn minimal_ctc_all_labels(n in 1usize..50) {
+            let ctc = minimal_ctc::<LogWeight>(n);
+            let fst = ctc.fst();
+
+            let labels: std::collections::HashSet<_> = fst.transitions(0)
+                .iter()
+                .filter_map(|t| t.input)
+                .collect();
+
+            for label in 0..n as CtcLabel {
+                prop_assert!(labels.contains(&label), "Should have arc for label {}", label);
+            }
+        }
+
+        // =====================================================================
+        // Vocabulary Size Properties
+        // =====================================================================
+
+        /// Vocab size accessor matches constructor parameter.
+        #[test]
+        fn vocab_size_matches(n in 1usize..100) {
+            prop_assert_eq!(correct_ctc::<LogWeight>(n).vocab_size(), n);
+            prop_assert_eq!(compact_ctc::<LogWeight>(n).vocab_size(), n);
+            prop_assert_eq!(minimal_ctc::<LogWeight>(n).vocab_size(), n);
+            prop_assert_eq!(selfless_correct_ctc::<LogWeight>(n).vocab_size(), n);
+            prop_assert_eq!(selfless_compact_ctc::<LogWeight>(n).vocab_size(), n);
+        }
+
+        /// Info vocab_size matches topology's vocab_size method.
+        #[test]
+        fn info_vocab_size_consistent(n in 1usize..50) {
+            let ctc = correct_ctc::<LogWeight>(n);
+            prop_assert_eq!(ctc.info().vocab_size, ctc.vocab_size());
+        }
+
+        // =====================================================================
+        // Weight Properties
+        // =====================================================================
+
+        /// All transitions have unit weight.
+        #[test]
+        fn all_unit_weights(n in 1usize..20) {
+            let ctc = correct_ctc::<LogWeight>(n);
+            let fst = ctc.fst();
+
+            for s in 0..n as StateId {
+                for t in fst.transitions(s) {
+                    prop_assert_eq!(t.weight, LogWeight::one(),
+                        "Transition weight should be one");
+                }
+            }
+        }
+
+        /// All final weights are one.
+        #[test]
+        fn all_final_weights_one(n in 1usize..20) {
+            let ctc = correct_ctc::<LogWeight>(n);
+            let fst = ctc.fst();
+
+            for s in 0..n as StateId {
+                if fst.is_final(s) {
+                    let w = fst.final_weight(s);
+                    prop_assert_eq!(w, LogWeight::one(),
+                        "Final weight should be one");
+                }
+            }
+        }
+
+        // =====================================================================
+        // Size Comparison Properties
+        // =====================================================================
+
+        /// Minimal-CTC is smaller than Compact-CTC for n > 1.
+        #[test]
+        fn minimal_smaller_than_compact(n in 2usize..50) {
+            let compact = compact_ctc::<LogWeight>(n);
+            let minimal = minimal_ctc::<LogWeight>(n);
+
+            prop_assert!(minimal.info().num_arcs < compact.info().num_arcs,
+                "Minimal ({}) should be smaller than Compact ({})",
+                minimal.info().num_arcs, compact.info().num_arcs);
+        }
+
+        /// Compact-CTC is smaller than Correct-CTC for n > 2.
+        #[test]
+        fn compact_smaller_than_correct(n in 3usize..50) {
+            let correct = correct_ctc::<LogWeight>(n);
+            let compact = compact_ctc::<LogWeight>(n);
+
+            prop_assert!(compact.info().num_arcs < correct.info().num_arcs,
+                "Compact ({}) should be smaller than Correct ({})",
+                compact.info().num_arcs, correct.info().num_arcs);
+        }
+
+        /// Size ordering: minimal < selfless_compact < compact < selfless_correct < correct.
+        #[test]
+        fn topology_size_ordering(n in 4usize..30) {
+            let correct = correct_ctc::<LogWeight>(n);
+            let selfless_c = selfless_correct_ctc::<LogWeight>(n);
+            let compact = compact_ctc::<LogWeight>(n);
+            let selfless_k = selfless_compact_ctc::<LogWeight>(n);
+            let minimal = minimal_ctc::<LogWeight>(n);
+
+            prop_assert!(minimal.info().num_arcs < selfless_k.info().num_arcs);
+            prop_assert!(selfless_k.info().num_arcs < compact.info().num_arcs);
+            prop_assert!(compact.info().num_arcs < selfless_c.info().num_arcs);
+            prop_assert!(selfless_c.info().num_arcs < correct.info().num_arcs);
+        }
+
+        // =====================================================================
+        // Generic Over Semiring Properties
+        // =====================================================================
+
+        /// Topologies work with TropicalWeight.
+        #[test]
+        fn works_with_tropical(n in 1usize..20) {
+            let ctc = correct_ctc::<TropicalWeight>(n);
+            prop_assert_eq!(ctc.info().num_states, n);
+            prop_assert_eq!(ctc.fst().num_states(), n);
+        }
+
+        /// into_fst preserves the FST structure.
+        #[test]
+        fn into_fst_preserves_structure(n in 1usize..20) {
+            let ctc = correct_ctc::<LogWeight>(n);
+            let info = ctc.info();
+            let fst = ctc.into_fst();
+
+            prop_assert_eq!(fst.num_states(), info.num_states);
+            prop_assert_eq!(fst.total_transitions(), info.num_arcs);
+        }
+
+        /// fst_mut allows modification.
+        #[test]
+        fn fst_mut_allows_modification(n in 2usize..10) {
+            let mut ctc = correct_ctc::<LogWeight>(n);
+            let original_arcs = ctc.fst().total_transitions();
+
+            // Add an extra arc
+            ctc.fst_mut().add_arc(0, Some(0), None, 0, LogWeight::new(1.0));
+
+            prop_assert_eq!(ctc.fst().total_transitions(), original_arcs + 1);
+        }
+    }
+}

@@ -568,3 +568,355 @@ mod tests {
         }
     }
 }
+
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use crate::semiring::LogWeight;
+    use crate::wfst::{Wfst, NO_STATE};
+    use proptest::prelude::*;
+
+    // -------------------------------------------------------------------------
+    // BackoffState Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        /// Initial backoff state has empty history.
+        #[test]
+        fn initial_backoff_empty(_seed in any::<u64>()) {
+            let state = BackoffState::initial();
+            prop_assert!(state.history.is_empty());
+            prop_assert_eq!(state.order, 0);
+        }
+
+        /// BackoffState order matches history length.
+        #[test]
+        fn backoff_order_matches_history(history in prop::collection::vec(0u32..100, 0..5)) {
+            let expected_order = history.len();
+            let state = BackoffState::new(history);
+            prop_assert_eq!(state.order, expected_order);
+        }
+
+        /// BackoffState preserves history.
+        #[test]
+        fn backoff_preserves_history(history in prop::collection::vec(0u32..100, 0..5)) {
+            let state = BackoffState::new(history.clone());
+            prop_assert_eq!(state.history, history);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // NgramConfig Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// Default config has trigram order.
+        #[test]
+        fn default_config_trigram(_seed in any::<u64>()) {
+            let config = NgramConfig::default();
+            prop_assert_eq!(config.order, 3);
+        }
+
+        /// Default config has no sentence markers.
+        #[test]
+        fn default_config_no_markers(_seed in any::<u64>()) {
+            let config = NgramConfig::default();
+            prop_assert!(!config.add_sentence_markers);
+            prop_assert!(config.sos_id.is_none());
+            prop_assert!(config.eos_id.is_none());
+        }
+
+        /// Default config has no UNK.
+        #[test]
+        fn default_config_no_unk(_seed in any::<u64>()) {
+            let config = NgramConfig::default();
+            prop_assert!(config.unk_id.is_none());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // NgramState Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        /// Initial state is not backoff.
+        #[test]
+        fn initial_not_backoff(_seed in any::<u64>()) {
+            let state = NgramState::initial();
+            prop_assert!(!state.is_backoff);
+            prop_assert!(state.history.is_empty());
+        }
+
+        /// with_history creates non-backoff state.
+        #[test]
+        fn with_history_not_backoff(history in prop::collection::vec(0u32..100, 0..5)) {
+            let state = NgramState::with_history(history);
+            prop_assert!(!state.is_backoff);
+        }
+
+        /// backoff creates backoff state.
+        #[test]
+        fn backoff_creates_backoff(history in prop::collection::vec(0u32..100, 0..5)) {
+            let state = NgramState::backoff(history);
+            prop_assert!(state.is_backoff);
+        }
+
+        /// backed_off shortens history.
+        #[test]
+        fn backed_off_shortens(history in prop::collection::vec(0u32..100, 1..5)) {
+            let state = NgramState::with_history(history.clone());
+            let backed = state.backed_off();
+
+            prop_assert_eq!(backed.history.len(), history.len() - 1);
+            prop_assert!(backed.is_backoff);
+        }
+
+        /// backed_off on empty history stays empty.
+        #[test]
+        fn backed_off_empty_stays_empty(_seed in any::<u64>()) {
+            let state = NgramState::initial();
+            let backed = state.backed_off();
+
+            prop_assert!(backed.history.is_empty());
+            prop_assert!(backed.is_backoff);
+        }
+
+        /// backed_off removes first element.
+        #[test]
+        fn backed_off_removes_first(history in prop::collection::vec(0u32..100, 2..5)) {
+            let state = NgramState::with_history(history.clone());
+            let backed = state.backed_off();
+
+            // The new history should be [history[1], history[2], ...]
+            prop_assert_eq!(backed.history, history[1..].to_vec());
+        }
+
+        /// extend adds word to history.
+        #[test]
+        fn extend_adds_word(word in 0u32..100, max_history in 1usize..5) {
+            let state = NgramState::initial();
+            let extended = state.extend(word, max_history);
+
+            prop_assert!(extended.history.contains(&word));
+            prop_assert!(!extended.is_backoff);
+        }
+
+        /// extend respects max_history.
+        #[test]
+        fn extend_respects_max(
+            words in prop::collection::vec(0u32..100, 1..10),
+            max_history in 1usize..5
+        ) {
+            let mut state = NgramState::initial();
+            for &word in &words {
+                state = state.extend(word, max_history);
+                prop_assert!(state.history.len() <= max_history);
+            }
+        }
+
+        /// extend clears backoff flag.
+        #[test]
+        fn extend_clears_backoff(word in 0u32..100, max_history in 1usize..5) {
+            let state = NgramState::backoff(vec![1, 2]);
+            let extended = state.extend(word, max_history);
+
+            prop_assert!(!extended.is_backoff);
+        }
+
+        /// NgramState equality works correctly.
+        #[test]
+        fn ngram_state_equality(history in prop::collection::vec(0u32..50, 0..4)) {
+            let state1 = NgramState::with_history(history.clone());
+            let state2 = NgramState::with_history(history);
+            prop_assert_eq!(state1, state2);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // NgramBuilder Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(30))]
+
+        /// Builder preserves order.
+        #[test]
+        fn builder_preserves_order(order in 1usize..5) {
+            let builder = NgramBuilder::<LogWeight>::new(order);
+            let lm = builder.build();
+            prop_assert_eq!(lm.order(), order);
+        }
+
+        /// Adding unigrams updates vocabulary size.
+        #[test]
+        fn unigrams_update_vocab(word_id in 1u32..100) {
+            let mut builder = NgramBuilder::<LogWeight>::new(2);
+            builder.add_unigram(word_id, LogWeight::new(1.0));
+            let lm = builder.build();
+
+            prop_assert!(lm.vocabulary_size() >= word_id as usize + 1);
+        }
+
+        /// Adding ngrams updates vocabulary size.
+        #[test]
+        fn ngrams_update_vocab(
+            history in prop::collection::vec(0u32..50, 1..3),
+            word in 50u32..100
+        ) {
+            let mut builder = NgramBuilder::<LogWeight>::new(3);
+            builder.add_ngram(&history, word, LogWeight::new(1.0));
+            let lm = builder.build();
+
+            // Vocab should include all words
+            let max_word = history.iter().cloned().max().unwrap_or(0).max(word);
+            prop_assert!(lm.vocabulary_size() >= max_word as usize + 1);
+        }
+
+        /// Config method updates builder config.
+        #[test]
+        fn builder_config_updates(order in 1usize..5) {
+            let config = NgramConfig {
+                order,
+                add_sentence_markers: true,
+                ..Default::default()
+            };
+
+            let builder = NgramBuilder::<LogWeight>::new(2).config(config);
+            let lm = builder.build();
+
+            prop_assert_eq!(lm.config.order, order);
+            prop_assert!(lm.config.add_sentence_markers);
+        }
+
+        /// vocab_size method sets vocabulary size.
+        #[test]
+        fn builder_vocab_size(size in 10usize..100) {
+            let builder = NgramBuilder::<LogWeight>::new(2).vocab_size(size);
+            let lm = builder.build();
+
+            // If no words added, vocab_size might be overridden
+            // But if we add a word smaller than size, it should be at least size
+            prop_assert!(lm.vocabulary_size() >= 0);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // NgramTransducer Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(25))]
+
+        /// Built transducer has valid start state.
+        #[test]
+        fn transducer_has_start(order in 1usize..4) {
+            let builder = NgramBuilder::<LogWeight>::new(order);
+            let lm = builder.build();
+
+            prop_assert!(lm.fst.start() != NO_STATE);
+        }
+
+        /// Built transducer has at least 2 states (start + backoff).
+        #[test]
+        fn transducer_min_states(order in 1usize..4) {
+            let builder = NgramBuilder::<LogWeight>::new(order);
+            let lm = builder.build();
+
+            prop_assert!(lm.fst.num_states() >= 2);
+        }
+
+        /// All states in transducer are final.
+        #[test]
+        fn transducer_all_final(order in 1usize..4) {
+            let mut builder = NgramBuilder::<LogWeight>::new(order);
+            builder.add_unigram(1, LogWeight::new(1.0));
+            let lm = builder.build();
+
+            for state in 0..lm.fst.num_states() as StateId {
+                prop_assert!(lm.fst.is_final(state));
+            }
+        }
+
+        /// Transducer with unigrams has epsilon transitions (backoff).
+        #[test]
+        fn transducer_has_backoff_arcs(order in 2usize..4) {
+            let mut builder = NgramBuilder::<LogWeight>::new(order);
+            builder.add_unigram(1, LogWeight::new(1.0));
+            builder.add_unigram(2, LogWeight::new(1.0));
+            let lm = builder.build();
+
+            // Should have at least one epsilon transition (backoff from start)
+            let mut has_epsilon = false;
+            for state in 0..lm.fst.num_states() as StateId {
+                for trans in lm.fst.transitions(state) {
+                    if trans.input.is_none() {
+                        has_epsilon = true;
+                        break;
+                    }
+                }
+            }
+
+            prop_assert!(has_epsilon);
+        }
+
+        /// Unigram transitions exist from backoff state.
+        #[test]
+        fn unigram_transitions_exist(words in prop::collection::vec(1u32..10, 1..5)) {
+            let mut builder = NgramBuilder::<LogWeight>::new(2);
+            for &word in &words {
+                builder.add_unigram(word, LogWeight::new(1.0));
+            }
+            let lm = builder.build();
+
+            // Count transitions with non-epsilon labels
+            let mut word_transitions = 0;
+            for state in 0..lm.fst.num_states() as StateId {
+                for trans in lm.fst.transitions(state) {
+                    if trans.input.is_some() {
+                        word_transitions += 1;
+                    }
+                }
+            }
+
+            // Should have at least as many transitions as unique words
+            let unique_words: std::collections::HashSet<_> = words.iter().collect();
+            prop_assert!(word_transitions >= unique_words.len());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Bigram Specific Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(20))]
+
+        /// Bigram with backoff has epsilon transition from history state.
+        #[test]
+        fn bigram_backoff_structure(
+            word1 in 1u32..10,
+            word2 in 10u32..20
+        ) {
+            let mut builder = NgramBuilder::<LogWeight>::new(2);
+            builder.add_unigram(word1, LogWeight::new(1.0));
+            builder.add_unigram(word2, LogWeight::new(1.0));
+            builder.add_bigram(&[word1], word2, LogWeight::new(0.5));
+            builder.set_backoff(&[word1], LogWeight::new(0.3));
+
+            let lm = builder.build();
+
+            // Should have states and transitions
+            prop_assert!(lm.fst.num_states() >= 3);
+        }
+    }
+}

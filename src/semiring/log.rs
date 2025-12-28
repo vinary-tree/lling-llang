@@ -215,6 +215,13 @@ impl DivisibleSemiring for LogWeight {
     }
 }
 
+impl super::traits::NumericalWeight for LogWeight {
+    #[inline]
+    fn numerical_value(&self) -> f64 {
+        self.value()
+    }
+}
+
 impl StarSemiring for LogWeight {
     /// Kleene closure for log semiring.
     ///

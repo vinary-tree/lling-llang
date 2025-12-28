@@ -200,6 +200,13 @@ impl DivisibleSemiring for ProbabilityWeight {
     }
 }
 
+impl super::traits::NumericalWeight for ProbabilityWeight {
+    #[inline]
+    fn numerical_value(&self) -> f64 {
+        self.value()
+    }
+}
+
 impl StarSemiring for ProbabilityWeight {
     /// Kleene closure for probability semiring.
     ///

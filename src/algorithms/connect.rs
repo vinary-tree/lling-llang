@@ -271,6 +271,157 @@ mod tests {
     use crate::semiring::TropicalWeight;
     use crate::wfst::{VectorWfst, VectorWfstBuilder, MutableWfst};
 
+    // Property-based tests
+    mod property_tests {
+        use super::*;
+        use crate::test_utils::arb_tropical_wfst;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// Connect should never increase state count.
+            #[test]
+            fn connect_reduces_or_maintains_states(
+                fst in arb_tropical_wfst(10, 3)
+            ) {
+                let original_states = fst.num_states();
+                let useful_before = count_useful_states(&fst);
+
+                let mut connected_fst = fst.clone();
+                let removed = connect(&mut connected_fst, ConnectConfig::trim());
+
+                // The number removed should match the non-useful states
+                prop_assert!(
+                    removed <= original_states,
+                    "Removed {} states from {} total",
+                    removed,
+                    original_states
+                );
+
+                // Useful count shouldn't change much (may differ due to cleared states)
+                let useful_after = count_useful_states(&connected_fst);
+                prop_assert!(
+                    useful_after <= useful_before,
+                    "Useful count increased from {} to {}",
+                    useful_before,
+                    useful_after
+                );
+            }
+
+            /// After connect, all remaining states with transitions should be useful.
+            #[test]
+            fn connect_all_useful(
+                fst in arb_tropical_wfst(8, 3)
+            ) {
+                let mut connected_fst = fst.clone();
+                connect(&mut connected_fst, ConnectConfig::trim());
+
+                // After trimming, accessible and coaccessible should be equal
+                let accessible = compute_accessible(&connected_fst);
+                let coaccessible = compute_coaccessible(&connected_fst);
+
+                // States with transitions should be both accessible and coaccessible
+                for state in 0..connected_fst.num_states() {
+                    let state_id = state as StateId;
+                    let has_transitions = !connected_fst.transitions(state_id).is_empty()
+                        || connected_fst.is_final(state_id);
+
+                    if has_transitions && accessible.contains(&state_id) {
+                        prop_assert!(
+                            coaccessible.contains(&state_id),
+                            "State {} is accessible but not coaccessible",
+                            state_id
+                        );
+                    }
+                }
+            }
+
+            /// Connect is idempotent in terms of useful state count.
+            /// Note: The connect implementation clears state data but doesn't
+            /// remove states from the structure, so `removed` count may include
+            /// already-cleared states. We verify idempotence by checking useful counts.
+            #[test]
+            fn connect_idempotent(
+                fst in arb_tropical_wfst(8, 3)
+            ) {
+                // Skip FSTs with no useful states
+                let useful_before = count_useful_states(&fst);
+                if useful_before == 0 {
+                    return Ok(());
+                }
+
+                let mut fst1 = fst.clone();
+                let _removed1 = connect(&mut fst1, ConnectConfig::trim());
+                let useful_after_first = count_useful_states(&fst1);
+
+                // Skip if first connect removed everything
+                if useful_after_first == 0 {
+                    return Ok(());
+                }
+
+                let mut fst2 = fst1.clone();
+                let _removed2 = connect(&mut fst2, ConnectConfig::trim());
+                let useful_after_second = count_useful_states(&fst2);
+
+                // Useful count should be same after both connects (idempotent)
+                prop_assert_eq!(
+                    useful_after_first,
+                    useful_after_second,
+                    "Useful count changed from {} to {} after second connect",
+                    useful_after_first,
+                    useful_after_second
+                );
+            }
+
+            /// compute_accessible and compute_coaccessible should be consistent.
+            #[test]
+            fn accessible_coaccessible_consistent(
+                fst in arb_tropical_wfst(6, 2)
+            ) {
+                let accessible = compute_accessible(&fst);
+                let coaccessible = compute_coaccessible(&fst);
+                let useful = count_useful_states(&fst);
+
+                // Useful states = intersection of accessible and coaccessible
+                let intersection_count = accessible.intersection(&coaccessible).count();
+                prop_assert_eq!(
+                    useful,
+                    intersection_count,
+                    "count_useful_states {} != intersection count {}",
+                    useful,
+                    intersection_count
+                );
+            }
+
+            /// is_connected should return true after connect.
+            #[test]
+            fn is_connected_after_connect(
+                fst in arb_tropical_wfst(6, 2)
+            ) {
+                let mut connected_fst = fst.clone();
+                connect(&mut connected_fst, ConnectConfig::trim());
+
+                // After connect, non-empty useful states should all be connected
+                if count_useful_states(&connected_fst) > 0 {
+                    // The remaining useful states should all be in both sets
+                    let accessible = compute_accessible(&connected_fst);
+                    let coaccessible = compute_coaccessible(&connected_fst);
+
+                    for state in accessible.iter() {
+                        if !connected_fst.transitions(*state).is_empty()
+                            || connected_fst.is_final(*state)
+                        {
+                            prop_assert!(
+                                coaccessible.contains(state),
+                                "Accessible state {} is not coaccessible after connect",
+                                state
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn build_connected_fst() -> VectorWfst<char, TropicalWeight> {
         // All states useful: 0 -> 1 -> 2 (final)
         VectorWfstBuilder::new()

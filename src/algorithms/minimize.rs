@@ -32,8 +32,47 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use crate::semiring::{DivisibleSemiring, Semiring};
+use crate::semiring::{DivisibleSemiring, NumericalWeight, Semiring};
 use crate::wfst::{MutableWfst, StateId, WeightedTransition, Wfst, NO_STATE};
+
+/// Default epsilon for floating-point weight comparison during minimization.
+/// Weights within this tolerance are considered equal for partition refinement.
+/// This addresses floating-point artifacts introduced by weight pushing's division operations.
+const MINIMIZE_EPSILON: f64 = 1e-10;
+
+/// A weight quantized to fixed precision for hashable approximate comparison.
+///
+/// This enables HashMap-based partition refinement with floating-point weights
+/// by rounding to a fixed number of decimal places (determined by epsilon)
+/// before comparison. This addresses the issue where weight pushing introduces
+/// tiny floating-point differences that incorrectly separate equivalent states.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct QuantizedWeight {
+    /// Weight value quantized as integer (value / epsilon, rounded).
+    quantized: i64,
+}
+
+impl QuantizedWeight {
+    /// Create a quantized weight from a floating-point value.
+    ///
+    /// # Arguments
+    /// * `value` - The weight value to quantize
+    /// * `epsilon` - The quantization precision (values within epsilon are equal)
+    fn new(value: f64, epsilon: f64) -> Self {
+        // Handle special cases consistently
+        if value.is_nan() {
+            return Self { quantized: i64::MIN };
+        }
+        if value.is_infinite() {
+            return Self {
+                quantized: if value > 0.0 { i64::MAX } else { i64::MIN + 1 },
+            };
+        }
+        // Quantize by rounding to nearest epsilon
+        let quantized = (value / epsilon).round() as i64;
+        Self { quantized }
+    }
+}
 
 /// Configuration for minimization.
 #[derive(Clone, Debug)]
@@ -44,6 +83,10 @@ pub struct MinimizeConfig {
     pub push_direction: crate::algorithms::PushDirection,
     /// Whether to connect (trim) before minimization.
     pub connect_first: bool,
+    /// Epsilon for weight comparison during partition refinement.
+    /// Weights within this tolerance are considered equal.
+    /// This addresses floating-point artifacts from weight pushing.
+    pub weight_epsilon: f64,
 }
 
 impl Default for MinimizeConfig {
@@ -52,6 +95,7 @@ impl Default for MinimizeConfig {
             push_weights: true,
             push_direction: crate::algorithms::PushDirection::Forward,
             connect_first: true,
+            weight_epsilon: MINIMIZE_EPSILON,
         }
     }
 }
@@ -68,6 +112,15 @@ impl MinimizeConfig {
             push_weights: false,
             push_direction: crate::algorithms::PushDirection::Forward,
             connect_first: true,
+            weight_epsilon: MINIMIZE_EPSILON,
+        }
+    }
+
+    /// Create config with custom weight epsilon.
+    pub fn with_epsilon(epsilon: f64) -> Self {
+        Self {
+            weight_epsilon: epsilon,
+            ..Self::default()
         }
     }
 }
@@ -98,16 +151,18 @@ impl std::fmt::Display for MinimizeError {
 impl std::error::Error for MinimizeError {}
 
 /// A signature for a state, used for partition refinement.
-/// Contains (final_weight, [(label, weight, target_partition)])
+///
+/// Uses QuantizedWeight instead of raw weights to enable approximate comparison,
+/// addressing floating-point artifacts from weight pushing.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct StateSignature<L: Ord + Hash, W: Semiring + Hash + Eq> {
-    /// Final weight (or None if not final)
-    final_weight: Option<W>,
-    /// Sorted list of (input_label, output_label, weight, target_partition_id)
-    transitions: Vec<(Option<L>, Option<L>, W, usize)>,
+struct StateSignature<L: Ord + Hash> {
+    /// Quantized final weight (or None if not final)
+    final_weight: Option<QuantizedWeight>,
+    /// Sorted list of (input_label, output_label, quantized_weight, target_partition_id)
+    transitions: Vec<(Option<L>, Option<L>, QuantizedWeight, usize)>,
 }
 
-impl<L: Ord + Hash + Clone, W: Semiring + Hash + Eq + Clone> StateSignature<L, W> {
+impl<L: Ord + Hash + Clone> StateSignature<L> {
     fn new() -> Self {
         Self {
             final_weight: None,
@@ -142,7 +197,7 @@ impl<L: Ord + Hash + Clone, W: Semiring + Hash + Eq + Clone> StateSignature<L, W
 pub fn minimize<L, W, F>(fst: &F, config: MinimizeConfig) -> Result<F, MinimizeError>
 where
     L: Clone + Eq + Hash + Ord + Debug,
-    W: DivisibleSemiring + PartialOrd + Clone + Debug + Hash + Eq,
+    W: DivisibleSemiring + NumericalWeight + PartialOrd + Clone + Debug,
     F: MutableWfst<L, W> + Wfst<L, W> + Default + Clone,
 {
     let n = fst.num_states();
@@ -181,17 +236,20 @@ where
     }
 
     // Partition refinement to find equivalent states
-    let partitions = compute_partitions(&working)?;
+    let partitions = compute_partitions(&working, config.weight_epsilon)?;
 
     // Build minimized WFST from partitions
     build_minimized(&working, &partitions)
 }
 
 /// Compute state partitions using iterative refinement.
-fn compute_partitions<L, W, F>(fst: &F) -> Result<Vec<usize>, MinimizeError>
+///
+/// Uses quantized weights for approximate comparison to handle floating-point
+/// artifacts from weight pushing.
+fn compute_partitions<L, W, F>(fst: &F, epsilon: f64) -> Result<Vec<usize>, MinimizeError>
 where
     L: Clone + Eq + Hash + Ord + Debug,
-    W: Semiring + Clone + Debug + Hash + Eq,
+    W: NumericalWeight + Clone + Debug,
     F: Wfst<L, W>,
 {
     let n = fst.num_states();
@@ -199,17 +257,17 @@ where
         return Ok(Vec::new());
     }
 
-    // Initial partition: separate final and non-final states
+    // Initial partition: separate by quantized final weight
     let mut partition: Vec<usize> = vec![0; n];
-    let mut num_partitions = 1;
+    let mut num_partitions = 0;
 
-    // Separate by final weight
-    let mut final_weight_to_partition: HashMap<Option<W>, usize> = HashMap::new();
+    // Separate by quantized final weight
+    let mut final_weight_to_partition: HashMap<Option<QuantizedWeight>, usize> = HashMap::new();
 
     for state in 0..n {
         let state_id = state as StateId;
         let fw = if fst.is_final(state_id) {
-            Some(fst.final_weight(state_id))
+            Some(QuantizedWeight::new(fst.final_weight(state_id).numerical_value(), epsilon))
         } else {
             None
         };
@@ -230,27 +288,27 @@ where
         changed = false;
 
         // Compute signatures for each state based on current partition
-        let mut signature_to_partition: HashMap<StateSignature<L, W>, usize> = HashMap::new();
+        let mut signature_to_partition: HashMap<StateSignature<L>, usize> = HashMap::new();
         let mut new_partition: Vec<usize> = vec![0; n];
         let mut new_num_partitions = 0;
 
         for state in 0..n {
             let state_id = state as StateId;
 
-            // Build signature
+            // Build signature with quantized weights
             let mut sig = StateSignature::new();
 
             if fst.is_final(state_id) {
-                sig.final_weight = Some(fst.final_weight(state_id));
+                sig.final_weight = Some(QuantizedWeight::new(fst.final_weight(state_id).numerical_value(), epsilon));
             }
 
-            let mut trans_sigs: Vec<(Option<L>, Option<L>, W, usize)> = Vec::new();
+            let mut trans_sigs: Vec<(Option<L>, Option<L>, QuantizedWeight, usize)> = Vec::new();
             for trans in fst.transitions(state_id) {
                 let target_partition = partition[trans.to as usize];
                 trans_sigs.push((
                     trans.input.clone(),
                     trans.output.clone(),
-                    trans.weight.clone(),
+                    QuantizedWeight::new(trans.weight.numerical_value(), epsilon),
                     target_partition,
                 ));
             }
@@ -362,10 +420,23 @@ where
 /// Count the number of states that can be removed by minimization.
 ///
 /// This is a quick estimate without actually performing minimization.
+/// Uses the default weight epsilon for comparison.
 pub fn estimate_reduction<L, W, F>(fst: &F) -> usize
 where
     L: Clone + Eq + Hash + Ord + Debug,
-    W: Semiring + Clone + Debug + Hash + Eq,
+    W: NumericalWeight + Clone + Debug,
+    F: Wfst<L, W>,
+{
+    estimate_reduction_with_epsilon(fst, MINIMIZE_EPSILON)
+}
+
+/// Count the number of states that can be removed by minimization.
+///
+/// Uses a custom epsilon for weight comparison.
+pub fn estimate_reduction_with_epsilon<L, W, F>(fst: &F, epsilon: f64) -> usize
+where
+    L: Clone + Eq + Hash + Ord + Debug,
+    W: NumericalWeight + Clone + Debug,
     F: Wfst<L, W>,
 {
     let n = fst.num_states();
@@ -373,7 +444,7 @@ where
         return 0;
     }
 
-    if let Ok(partitions) = compute_partitions(fst) {
+    if let Ok(partitions) = compute_partitions(fst, epsilon) {
         let num_new_states = partitions.iter().max().map(|&m| m + 1).unwrap_or(0);
         n.saturating_sub(num_new_states)
     } else {
@@ -386,6 +457,118 @@ mod tests {
     use super::*;
     use crate::semiring::TropicalWeight;
     use crate::wfst::{VectorWfst, VectorWfstBuilder};
+
+    // Property-based tests
+    mod property_tests {
+        use super::*;
+        use crate::test_utils::arb_deterministic_wfst_tropical;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// Minimization should never increase state count.
+            ///
+            /// This property was previously disabled due to a bug where weight pushing
+            /// introduced floating-point artifacts that caused incorrect state separation.
+            /// Fixed by using QuantizedWeight for approximate comparison.
+            #[test]
+            fn minimize_reduces_or_maintains_states(
+                fst in arb_deterministic_wfst_tropical(8, 3)
+            ) {
+                if fst.num_states() == 0 {
+                    return Ok(());
+                }
+
+                let original_states = fst.num_states();
+                let result = minimize(&fst, MinimizeConfig::standard());
+
+                if let Ok(min_fst) = result {
+                    prop_assert!(
+                        min_fst.num_states() <= original_states,
+                        "Minimization increased states from {} to {}",
+                        original_states,
+                        min_fst.num_states()
+                    );
+                }
+            }
+
+            /// Minimization is idempotent: min(min(F)) ≈ min(F).
+            ///
+            /// Applying minimization twice should produce the same result as once.
+            #[test]
+            fn minimize_idempotent(
+                fst in arb_deterministic_wfst_tropical(6, 2)
+            ) {
+                if fst.num_states() == 0 {
+                    return Ok(());
+                }
+
+                let result1 = minimize(&fst, MinimizeConfig::standard());
+                if let Ok(min1) = result1 {
+                    let result2 = minimize(&min1, MinimizeConfig::standard());
+                    if let Ok(min2) = result2 {
+                        prop_assert_eq!(
+                            min1.num_states(),
+                            min2.num_states(),
+                            "Minimization not idempotent: first pass {} states, second pass {} states",
+                            min1.num_states(),
+                            min2.num_states()
+                        );
+                    }
+                }
+            }
+
+            /// Minimized FST should still be deterministic.
+            #[test]
+            fn minimize_preserves_determinism(
+                fst in arb_deterministic_wfst_tropical(8, 3)
+            ) {
+                if fst.num_states() == 0 {
+                    return Ok(());
+                }
+
+                let result = minimize(&fst, MinimizeConfig::standard());
+                if let Ok(min_fst) = result {
+                    prop_assert!(
+                        super::super::super::determinize::is_deterministic(&min_fst),
+                        "Minimized FST should be deterministic"
+                    );
+                }
+            }
+
+            /// Estimate reduction provides a reasonable bound.
+            /// Note: estimate_reduction doesn't do weight pushing, so it may differ
+            /// significantly from actual reduction. We only check it's non-negative
+            /// and doesn't exceed the state count.
+            #[test]
+            fn estimate_reduction_bounds(
+                fst in arb_deterministic_wfst_tropical(6, 2)
+            ) {
+                if fst.num_states() <= 1 {
+                    return Ok(());
+                }
+
+                let estimated = estimate_reduction(&fst);
+                let original_states = fst.num_states();
+
+                // Estimate should be bounded by state count
+                prop_assert!(
+                    estimated <= original_states,
+                    "Estimated reduction {} exceeds state count {}",
+                    estimated,
+                    original_states
+                );
+
+                // Just verify minimize works (actual comparison is unreliable
+                // because weight pushing changes state signatures)
+                let result = minimize(&fst, MinimizeConfig::standard());
+                prop_assert!(
+                    result.is_ok() || matches!(result, Err(MinimizeError::PushError(_))),
+                    "Minimize failed unexpectedly: {:?}",
+                    result
+                );
+            }
+        }
+    }
 
     fn build_redundant_fst() -> VectorWfst<char, TropicalWeight> {
         // Two equivalent branches that should be merged:

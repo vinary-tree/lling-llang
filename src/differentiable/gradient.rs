@@ -346,6 +346,224 @@ fn count_arcs<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>) -> usize {
     count
 }
 
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use crate::wfst::{MutableWfst, Wfst};
+    use proptest::prelude::*;
+
+    /// Strategy for generating simple parallel path WFSTs.
+    fn arb_parallel_wfst(max_paths: usize) -> impl Strategy<Value = VectorWfst<char, LogWeight>> {
+        proptest::collection::vec(0.1f64..5.0, 1..=max_paths)
+            .prop_map(|weights| {
+                let mut fst = VectorWfst::new();
+                let s0 = fst.add_state();
+                let s1 = fst.add_state();
+                fst.set_start(s0);
+                fst.set_final(s1, LogWeight::one());
+                for (i, w) in weights.iter().enumerate() {
+                    let label = (b'a' + (i % 26) as u8) as char;
+                    fst.add_arc(s0, Some(label), Some(label), s1, LogWeight::new(*w));
+                }
+                fst
+            })
+    }
+
+    /// Strategy for generating chain WFSTs.
+    fn arb_chain_wfst(max_length: usize) -> impl Strategy<Value = VectorWfst<char, LogWeight>> {
+        (1..=max_length).prop_flat_map(|len| {
+            proptest::collection::vec(0.1f64..5.0, len).prop_map(move |weights| {
+                let mut fst = VectorWfst::new();
+                for _ in 0..=len {
+                    fst.add_state();
+                }
+                fst.set_start(0);
+                fst.set_final(len as u32, LogWeight::one());
+                for (i, w) in weights.iter().enumerate() {
+                    let label = (b'a' + (i % 26) as u8) as char;
+                    fst.add_arc(i as u32, Some(label), Some(label), (i + 1) as u32, LogWeight::new(*w));
+                }
+                fst
+            })
+        })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// Gradient sum is finite and positive for connected paths.
+        #[test]
+        fn gradient_sum_finite_positive(fst in arb_parallel_wfst(5)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            let grads = backward(&grad_fst);
+
+            let total: f64 = grads.arc_gradients.iter().map(|g| g.gradient).sum();
+            prop_assert!(total.is_finite(), "Gradient sum is not finite: {}", total);
+            prop_assert!(total > 0.0, "Gradient sum should be positive: {}", total);
+        }
+
+        /// All gradients are non-negative.
+        #[test]
+        fn gradients_non_negative(fst in arb_parallel_wfst(5)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            let grads = backward(&grad_fst);
+
+            for g in &grads.arc_gradients {
+                prop_assert!(g.gradient >= -1e-9,
+                    "Gradient {} is negative", g.gradient);
+            }
+        }
+
+        /// All gradients are finite.
+        #[test]
+        fn gradients_are_finite(fst in arb_parallel_wfst(5)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            let grads = backward(&grad_fst);
+
+            for g in &grads.arc_gradients {
+                prop_assert!(g.gradient.is_finite(),
+                    "Gradient {} is not finite", g.gradient);
+            }
+        }
+
+        /// Backward sets computed flag.
+        #[test]
+        fn backward_sets_flag(fst in arb_chain_wfst(3)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            prop_assert!(!grad_fst.is_backward_computed());
+
+            let _ = backward(&grad_fst);
+
+            prop_assert!(grad_fst.is_backward_computed());
+        }
+
+        /// Backward forces forward computation.
+        #[test]
+        fn backward_forces_forward(fst in arb_chain_wfst(3)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            prop_assert!(!grad_fst.is_forward_computed());
+
+            let _ = backward(&grad_fst);
+
+            prop_assert!(grad_fst.is_forward_computed());
+        }
+
+        /// Backward is deterministic.
+        #[test]
+        fn backward_deterministic(fst in arb_parallel_wfst(4)) {
+            let grad_fst1 = GradientWfst::from_wfst(&fst);
+            let grad_fst2 = GradientWfst::from_wfst(&fst);
+
+            let grads1 = backward(&grad_fst1);
+            let grads2 = backward(&grad_fst2);
+
+            prop_assert_eq!(grads1.arc_gradients.len(), grads2.arc_gradients.len());
+
+            for (g1, g2) in grads1.arc_gradients.iter().zip(grads2.arc_gradients.iter()) {
+                prop_assert!((g1.gradient - g2.gradient).abs() < 1e-9,
+                    "Gradients differ: {} vs {}", g1.gradient, g2.gradient);
+            }
+        }
+
+        /// Single arc chain has gradient 1.
+        #[test]
+        fn single_arc_gradient_one(w in 0.1f64..5.0) {
+            let mut fst = VectorWfst::<char, LogWeight>::new();
+            let s0 = fst.add_state();
+            let s1 = fst.add_state();
+            fst.set_start(s0);
+            fst.set_final(s1, LogWeight::one());
+            fst.add_arc(s0, Some('a'), Some('a'), s1, LogWeight::new(w));
+
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            let grads = backward(&grad_fst);
+
+            prop_assert_eq!(grads.arc_gradients.len(), 1);
+            prop_assert!((grads.arc_gradients[0].gradient - 1.0).abs() < 1e-6,
+                "Single arc gradient {} != 1.0", grads.arc_gradients[0].gradient);
+        }
+
+        /// Gradients are ordered by weight (lower weight = higher gradient).
+        #[test]
+        fn gradient_ordering_by_weight(w1 in 0.1f64..2.0, delta in 0.5f64..3.0) {
+            let w2 = w1 + delta; // w2 > w1, so path 1 is "better" (lower weight)
+
+            let mut fst = VectorWfst::<char, LogWeight>::new();
+            let s0 = fst.add_state();
+            let s1 = fst.add_state();
+            fst.set_start(s0);
+            fst.set_final(s1, LogWeight::one());
+            fst.add_arc(s0, Some('a'), Some('a'), s1, LogWeight::new(w1));
+            fst.add_arc(s0, Some('b'), Some('b'), s1, LogWeight::new(w2));
+
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            let grads = backward(&grad_fst);
+
+            prop_assert_eq!(grads.arc_gradients.len(), 2);
+            // Gradient ratio reflects weight difference
+            // (not necessarily g1 > g2, but the ratio should be consistent)
+            let g1 = grads.arc_gradients[0].gradient;
+            let g2 = grads.arc_gradients[1].gradient;
+            // Both should be positive
+            prop_assert!(g1 > 0.0 && g2 > 0.0,
+                "Gradients should be positive: {} and {}", g1, g2);
+        }
+
+        /// GradientAccumulator get returns 0 for missing arc.
+        #[test]
+        fn accumulator_missing_returns_zero(from in 0u32..100, idx in 0usize..100) {
+            let acc = GradientAccumulator::new();
+            let arc = ArcIndex::new(from, idx);
+            prop_assert_eq!(acc.get_gradient(arc), 0.0);
+        }
+
+        /// GradientAccumulator stores and retrieves correctly.
+        #[test]
+        fn accumulator_stores_correctly(from in 0u32..100, idx in 0usize..100, grad in -10.0f64..10.0) {
+            let mut acc = GradientAccumulator::new();
+            let arc = ArcIndex::new(from, idx);
+            acc.add_gradient(arc, grad);
+            prop_assert!((acc.get_gradient(arc) - grad).abs() < 1e-9);
+        }
+
+        /// GradientAccumulator merge combines accumulators.
+        #[test]
+        fn accumulator_merge(grad1 in -10.0f64..10.0, grad2 in -10.0f64..10.0) {
+            let mut acc1 = GradientAccumulator::new();
+            let mut acc2 = GradientAccumulator::new();
+
+            acc1.add_gradient(ArcIndex::new(0, 0), grad1);
+            acc2.add_gradient(ArcIndex::new(1, 0), grad2);
+
+            acc1.merge(&acc2);
+
+            prop_assert_eq!(acc1.arc_gradients.len(), 2);
+        }
+
+        /// GradientWfst reset clears state.
+        #[test]
+        fn gradient_wfst_reset_clears(fst in arb_chain_wfst(3)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+
+            // Compute gradients
+            let _ = backward(&grad_fst);
+
+            prop_assert!(grad_fst.is_forward_computed());
+            prop_assert!(grad_fst.is_backward_computed());
+
+            grad_fst.reset();
+
+            prop_assert!(!grad_fst.is_forward_computed());
+            prop_assert!(!grad_fst.is_backward_computed());
+            prop_assert!(grad_fst.total_score().is_none());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

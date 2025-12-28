@@ -850,3 +850,557 @@ mod tests {
         assert!(buffer.needs_compaction()); // >50% pruned
     }
 }
+
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    // =========================================================================
+    // SoftToken Properties
+    // =========================================================================
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        /// Newly created SoftToken is always active and not pruned.
+        #[test]
+        fn soft_token_new_is_active(
+            data in any::<i32>(),
+            out_degree in 1u32..100,
+            frame in 0u32..1000,
+            cost in -1000.0f32..1000.0
+        ) {
+            let token = SoftToken::new(data, out_degree, frame, cost);
+            prop_assert!(token.is_active());
+            prop_assert!(!token.is_pruned());
+            prop_assert_eq!(*token.data(), data);
+            prop_assert_eq!(token.out_degree(), out_degree);
+            prop_assert_eq!(token.frame(), frame);
+            prop_assert!((token.cost() - cost).abs() < 1e-6);
+        }
+
+        /// soft_prune always makes token inactive and pruned.
+        #[test]
+        fn soft_prune_makes_inactive(
+            data in any::<i32>(),
+            out_degree in 1u32..100,
+            frame in 0u32..1000,
+            cost in -1000.0f32..1000.0
+        ) {
+            let token = SoftToken::new(data, out_degree, frame, cost);
+            token.soft_prune();
+            prop_assert!(!token.is_active());
+            prop_assert!(token.is_pruned());
+            prop_assert_eq!(token.out_degree(), 0);
+        }
+
+        /// prune_if_above prunes only when cost > threshold.
+        #[test]
+        fn prune_if_above_correct(
+            cost in 0.0f32..100.0,
+            threshold in 0.0f32..100.0
+        ) {
+            let token = SoftToken::new(42, 5, 0, cost);
+            let was_pruned = token.prune_if_above(threshold);
+
+            if cost > threshold {
+                prop_assert!(was_pruned);
+                prop_assert!(!token.is_active());
+            } else {
+                prop_assert!(!was_pruned);
+                prop_assert!(token.is_active());
+            }
+        }
+
+        /// Clone preserves all SoftToken fields.
+        #[test]
+        fn soft_token_clone_preserves_fields(
+            data in any::<i32>(),
+            out_degree in 0u32..100,
+            frame in 0u32..1000,
+            cost in -1000.0f32..1000.0
+        ) {
+            let token = SoftToken::new(data, out_degree, frame, cost);
+            let cloned = token.clone();
+
+            prop_assert_eq!(*cloned.data(), data);
+            prop_assert_eq!(cloned.out_degree(), out_degree);
+            prop_assert_eq!(cloned.frame(), frame);
+            prop_assert!((cloned.cost() - cost).abs() < 1e-6);
+            prop_assert_eq!(cloned.is_active(), token.is_active());
+        }
+
+        /// Token with out_degree=0 is considered pruned.
+        #[test]
+        fn zero_out_degree_is_pruned(
+            data in any::<i32>(),
+            frame in 0u32..1000,
+            cost in -1000.0f32..1000.0
+        ) {
+            let token = SoftToken::new(data, 0, frame, cost);
+            prop_assert!(token.is_pruned());
+        }
+    }
+
+    // =========================================================================
+    // SoftPruneConfig Properties
+    // =========================================================================
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// SoftPruneConfig preserves all settings.
+        #[test]
+        fn config_preserves_settings(
+            beam in 0.1f32..100.0,
+            max_active in 1usize..10000
+        ) {
+            let config = SoftPruneConfig::new(beam, max_active);
+            prop_assert!((config.beam - beam).abs() < 1e-6);
+            prop_assert_eq!(config.max_active, max_active);
+        }
+
+        /// Custom compaction settings are preserved.
+        #[test]
+        fn config_custom_compaction(
+            beam in 0.1f32..100.0,
+            max_active in 1usize..10000,
+            compact_threshold in 0.0f32..1.0,
+            min_tokens in 0usize..1000
+        ) {
+            let config = SoftPruneConfig::with_compaction(
+                beam,
+                max_active,
+                compact_threshold,
+                min_tokens,
+            );
+            prop_assert!((config.beam - beam).abs() < 1e-6);
+            prop_assert_eq!(config.max_active, max_active);
+            prop_assert!((config.compact_threshold - compact_threshold).abs() < 1e-6);
+            prop_assert_eq!(config.min_tokens_for_compact, min_tokens);
+        }
+    }
+
+    // =========================================================================
+    // SoftPruneBuffer Properties
+    // =========================================================================
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// Push increases active count for tokens within threshold.
+        #[test]
+        fn buffer_push_increases_active_count(
+            num_tokens in 1usize..20,
+            beam in 10.0f32..100.0
+        ) {
+            let config = SoftPruneConfig::new(beam, 1000);
+            let mut buffer = SoftPruneBuffer::new(config);
+
+            // Add tokens with costs well below the beam
+            for i in 0..num_tokens {
+                buffer.push(SoftToken::new(i as i32, 5, 0, i as f32 * 0.1));
+            }
+
+            prop_assert_eq!(buffer.active_count(), num_tokens);
+            prop_assert_eq!(buffer.total_count(), num_tokens);
+        }
+
+        /// Tokens exceeding threshold are rejected on push.
+        #[test]
+        fn buffer_rejects_high_cost_tokens(
+            base_cost in 0.0f32..10.0,
+            beam in 1.0f32..5.0
+        ) {
+            let config = SoftPruneConfig::new(beam, 1000);
+            let mut buffer = SoftPruneBuffer::new(config);
+
+            // Add first token to set best cost
+            let idx1 = buffer.push(SoftToken::new(1, 5, 0, base_cost));
+            prop_assert!(idx1.is_some());
+
+            // Add token that exceeds threshold
+            let high_cost = base_cost + beam + 1.0;
+            let idx2 = buffer.push(SoftToken::new(2, 5, 0, high_cost));
+            prop_assert!(idx2.is_none());
+
+            prop_assert_eq!(buffer.active_count(), 1);
+        }
+
+        /// Compact removes exactly the pruned tokens.
+        #[test]
+        fn buffer_compact_removes_pruned(
+            num_tokens in 5usize..20,
+            num_to_prune in 1usize..5
+        ) {
+            let config = SoftPruneConfig::new(100.0, 1000);
+            let mut buffer = SoftPruneBuffer::<i32>::new(config);
+
+            // Add tokens
+            for i in 0..num_tokens {
+                buffer.push(SoftToken::new(i as i32, 5, 0, i as f32));
+            }
+
+            // Prune some tokens
+            let actual_prune = num_to_prune.min(num_tokens);
+            for i in 0..actual_prune {
+                if let Some(token) = buffer.get(i) {
+                    token.soft_prune();
+                }
+            }
+
+            let removed = buffer.compact();
+            prop_assert_eq!(removed, actual_prune);
+            prop_assert_eq!(buffer.total_count(), num_tokens - actual_prune);
+        }
+
+        /// into_survivors returns only active tokens.
+        #[test]
+        fn buffer_into_survivors_only_active(
+            num_tokens in 2usize..10,
+            prune_indices in proptest::collection::vec(0usize..10, 0..5)
+        ) {
+            let config = SoftPruneConfig::new(100.0, 1000);
+            let mut buffer = SoftPruneBuffer::new(config);
+
+            for i in 0..num_tokens {
+                buffer.push(SoftToken::new(i as i32, 5, 0, i as f32 * 0.5));
+            }
+
+            // Prune tokens at specified indices
+            let mut pruned_count = 0;
+            for &idx in &prune_indices {
+                if idx < num_tokens {
+                    if let Some(token) = buffer.get(idx) {
+                        if token.is_active() {
+                            token.soft_prune();
+                            pruned_count += 1;
+                        }
+                    }
+                }
+            }
+
+            let survivors = buffer.into_survivors();
+            prop_assert_eq!(survivors.len(), num_tokens - pruned_count);
+        }
+
+        /// best_cost tracks minimum cost seen.
+        #[test]
+        fn buffer_tracks_best_cost(costs in proptest::collection::vec(0.0f32..100.0, 1..20)) {
+            let config = SoftPruneConfig::new(200.0, 1000);
+            let mut buffer = SoftPruneBuffer::new(config);
+
+            for (i, &cost) in costs.iter().enumerate() {
+                buffer.push(SoftToken::new(i as i32, 5, 0, cost));
+            }
+
+            let expected_best = costs.iter().cloned().fold(f32::INFINITY, f32::min);
+            prop_assert!((buffer.best_cost() - expected_best).abs() < 1e-6);
+        }
+
+        /// Clear resets buffer state.
+        #[test]
+        fn buffer_clear_resets(num_tokens in 1usize..20) {
+            let config = SoftPruneConfig::new(100.0, 1000);
+            let mut buffer = SoftPruneBuffer::new(config);
+
+            for i in 0..num_tokens {
+                buffer.push(SoftToken::new(i as i32, 5, 0, i as f32));
+            }
+
+            buffer.clear();
+
+            prop_assert_eq!(buffer.active_count(), 0);
+            prop_assert_eq!(buffer.total_count(), 0);
+            prop_assert!(buffer.best_cost().is_infinite());
+        }
+    }
+
+    // =========================================================================
+    // SoftPruneStats Properties
+    // =========================================================================
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        /// total_pruned = beam_pruned + limit_pruned.
+        #[test]
+        fn stats_total_pruned_correct(
+            beam_pruned in 0usize..1000,
+            limit_pruned in 0usize..1000
+        ) {
+            let mut stats = SoftPruneStats::new();
+            stats.record_beam_prune(beam_pruned);
+            stats.record_limit_prune(limit_pruned);
+
+            prop_assert_eq!(stats.total_pruned(), beam_pruned + limit_pruned);
+        }
+
+        /// prune_ratio is in [0, 1] when total_tokens > 0.
+        #[test]
+        fn stats_prune_ratio_bounded(
+            total_tokens in 1usize..1000,
+            beam_pruned in 0usize..500,
+            limit_pruned in 0usize..500
+        ) {
+            let mut stats = SoftPruneStats::new();
+            stats.record_tokens(total_tokens);
+            stats.record_beam_prune(beam_pruned.min(total_tokens));
+            stats.record_limit_prune(limit_pruned.min(total_tokens - beam_pruned.min(total_tokens)));
+
+            let ratio = stats.prune_ratio();
+            prop_assert!(ratio >= 0.0);
+            prop_assert!(ratio <= 1.0);
+        }
+
+        /// prune_ratio is 0 when no tokens processed.
+        #[test]
+        fn stats_prune_ratio_zero_tokens(
+            beam_pruned in 0usize..100,
+            limit_pruned in 0usize..100
+        ) {
+            let mut stats = SoftPruneStats::new();
+            stats.record_beam_prune(beam_pruned);
+            stats.record_limit_prune(limit_pruned);
+
+            prop_assert!((stats.prune_ratio() - 0.0).abs() < 1e-10);
+        }
+
+        /// Merge combines all stats correctly.
+        #[test]
+        fn stats_merge_correct(
+            total1 in 0usize..500,
+            beam1 in 0usize..250,
+            limit1 in 0usize..250,
+            compact1 in 0usize..100,
+            total2 in 0usize..500,
+            beam2 in 0usize..250,
+            limit2 in 0usize..250,
+            compact2 in 0usize..100
+        ) {
+            let mut stats1 = SoftPruneStats::new();
+            stats1.record_tokens(total1);
+            stats1.record_beam_prune(beam1);
+            stats1.record_limit_prune(limit1);
+            stats1.record_compaction(compact1);
+
+            let mut stats2 = SoftPruneStats::new();
+            stats2.record_tokens(total2);
+            stats2.record_beam_prune(beam2);
+            stats2.record_limit_prune(limit2);
+            stats2.record_compaction(compact2);
+
+            stats1.merge(&stats2);
+
+            prop_assert_eq!(stats1.total_tokens, total1 + total2);
+            prop_assert_eq!(stats1.beam_pruned, beam1 + beam2);
+            prop_assert_eq!(stats1.limit_pruned, limit1 + limit2);
+            prop_assert_eq!(stats1.compactions, 2);
+            prop_assert_eq!(stats1.compacted_tokens, compact1 + compact2);
+        }
+
+        /// compaction_efficiency is 0 when no compactions.
+        #[test]
+        fn stats_compaction_efficiency_zero(compacted in 0usize..100) {
+            let mut stats = SoftPruneStats::new();
+            // Don't record any compactions, just set compacted_tokens manually
+            stats.compacted_tokens = compacted;
+
+            prop_assert!((stats.compaction_efficiency() - 0.0).abs() < 1e-10);
+        }
+    }
+
+    // =========================================================================
+    // AdaptiveBeam Properties
+    // =========================================================================
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// Reset clears all bucket counts.
+        #[test]
+        fn adaptive_beam_reset_clears(
+            num_buckets in 5usize..50,
+            target in 10usize..100,
+            num_adds in 1usize..50
+        ) {
+            let mut beam = AdaptiveBeam::new(num_buckets, target);
+            beam.set_range(0.0, 100.0);
+
+            for i in 0..num_adds {
+                beam.add_with_range(i as f32, 0.0, 100.0);
+            }
+
+            beam.reset();
+
+            prop_assert_eq!(beam.total_count(), 0);
+            prop_assert!(beam.min_cost.is_infinite());
+            prop_assert!(beam.max_cost.is_infinite() && beam.max_cost.is_sign_negative());
+        }
+
+        /// total_count matches number of adds.
+        #[test]
+        fn adaptive_beam_total_count_correct(
+            num_buckets in 5usize..50,
+            target in 10usize..100,
+            costs in proptest::collection::vec(0.0f32..100.0, 1..50)
+        ) {
+            let beam = AdaptiveBeam::new(num_buckets, target);
+
+            for &cost in &costs {
+                beam.add_with_range(cost, 0.0, 100.0);
+            }
+
+            prop_assert_eq!(beam.total_count(), costs.len());
+        }
+
+        /// compute_threshold returns INFINITY when all tokens fit.
+        #[test]
+        fn adaptive_beam_threshold_infinity_when_fits(
+            num_buckets in 5usize..20,
+            num_costs in 1usize..10
+        ) {
+            // Target more than we'll add
+            let target = num_costs + 10;
+            let mut beam = AdaptiveBeam::new(num_buckets, target);
+            beam.set_range(0.0, 100.0);
+
+            for i in 0..num_costs {
+                beam.add_with_range(i as f32 * 5.0, 0.0, 100.0);
+            }
+
+            let threshold = beam.compute_threshold();
+            prop_assert!(threshold.is_infinite());
+        }
+
+        /// compute_threshold is between min_cost and max_cost when pruning needed.
+        #[test]
+        fn adaptive_beam_threshold_in_range(
+            num_buckets in 10usize..50,
+            costs in proptest::collection::vec(0.0f32..100.0, 20..100)
+        ) {
+            // Target less than half of what we add
+            let target = costs.len() / 3;
+            let mut beam = AdaptiveBeam::new(num_buckets, target);
+
+            let min_cost = costs.iter().cloned().fold(f32::INFINITY, f32::min);
+            let max_cost = costs.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+
+            if max_cost > min_cost {
+                beam.set_range(min_cost, max_cost);
+
+                for &cost in &costs {
+                    beam.add_with_range(cost, min_cost, max_cost);
+                }
+
+                let threshold = beam.compute_threshold();
+
+                // Threshold should be between min and max (or infinity if all fit)
+                if !threshold.is_infinite() {
+                    prop_assert!(threshold >= min_cost);
+                    prop_assert!(threshold <= max_cost + 1e-6);
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // SoftPruneManager Properties
+    // =========================================================================
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// advance_frame increments frame counter.
+        #[test]
+        fn manager_advance_frame_increments(num_advances in 1usize..10) {
+            let config = SoftPruneConfig::new(100.0, 1000);
+            let mut manager = SoftPruneManager::<i32>::new(config);
+
+            for i in 0..num_advances {
+                prop_assert_eq!(manager.frame(), i as u32);
+                manager.advance_frame();
+            }
+
+            prop_assert_eq!(manager.frame(), num_advances as u32);
+        }
+
+        /// Frame swap moves current to previous.
+        #[test]
+        fn manager_frame_swap(num_tokens in 1usize..10) {
+            let config = SoftPruneConfig::new(100.0, 1000);
+            let mut manager = SoftPruneManager::new(config);
+
+            // Add tokens to current frame
+            for i in 0..num_tokens {
+                manager.add_token(i as i32, 5, i as f32);
+            }
+
+            let current_count_before = manager.current().active_count();
+            manager.advance_frame();
+
+            // Previous should have the tokens from before
+            prop_assert_eq!(manager.previous().active_count(), current_count_before);
+            // Current should be empty
+            prop_assert_eq!(manager.current().active_count(), 0);
+        }
+
+        /// survivors only returns active tokens.
+        #[test]
+        fn manager_survivors_only_active(
+            num_tokens in 2usize..10,
+            prune_first in any::<bool>()
+        ) {
+            let config = SoftPruneConfig::new(100.0, 1000);
+            let mut manager = SoftPruneManager::new(config);
+
+            for i in 0..num_tokens {
+                manager.add_token(i as i32, 5, i as f32);
+            }
+
+            let expected_survivors = if prune_first {
+                manager.current().get(0).unwrap().soft_prune();
+                num_tokens - 1
+            } else {
+                num_tokens
+            };
+
+            let survivors = manager.survivors();
+            prop_assert_eq!(survivors.len(), expected_survivors);
+        }
+
+        /// Stats track tokens added.
+        #[test]
+        fn manager_stats_track_tokens(num_tokens in 1usize..20) {
+            let config = SoftPruneConfig::new(100.0, 1000);
+            let mut manager = SoftPruneManager::new(config);
+
+            for i in 0..num_tokens {
+                manager.add_token(i as i32, 5, i as f32);
+            }
+
+            prop_assert_eq!(manager.stats().total_tokens, num_tokens);
+        }
+
+        /// apply_pruning updates stats.
+        #[test]
+        fn manager_apply_pruning_updates_stats(num_tokens in 5usize..20) {
+            let beam = 5.0f32;
+            let config = SoftPruneConfig::new(beam, 1000);
+            let mut manager = SoftPruneManager::new(config);
+
+            // Add tokens with increasing costs - some will be beyond beam
+            for i in 0..num_tokens {
+                manager.add_token(i as i32, 5, i as f32);
+            }
+
+            let pruned = manager.apply_pruning();
+            prop_assert_eq!(manager.stats().beam_pruned, pruned);
+        }
+    }
+}

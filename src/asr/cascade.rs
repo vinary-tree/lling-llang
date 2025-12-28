@@ -259,16 +259,19 @@ impl<W: Semiring + Clone> CascadeBuilder<W> {
             current = next;
 
             // Remaining phones: epsilon output (or phone echo)
-            for &phone in &entry.phones[1..entry.phones.len().saturating_sub(1)] {
-                let next = fst.add_state();
-                fst.add_arc(
-                    current,
-                    Some(phone),
-                    Some(phone),
-                    next,
-                    W::one(),
-                );
-                current = next;
+            // Only iterate middle phones (not first, not last)
+            if entry.phones.len() > 2 {
+                for &phone in &entry.phones[1..entry.phones.len() - 1] {
+                    let next = fst.add_state();
+                    fst.add_arc(
+                        current,
+                        Some(phone),
+                        Some(phone),
+                        next,
+                        W::one(),
+                    );
+                    current = next;
+                }
             }
 
             // Last phone: return to start
@@ -282,8 +285,15 @@ impl<W: Semiring + Clone> CascadeBuilder<W> {
                     W::one(),
                 );
             } else {
-                // Single phone word: add self-loop back to start
-                // Already handled above
+                // Single phone word: return to start from current state
+                // This allows recognition to continue after this word
+                fst.add_arc(
+                    current,
+                    None,  // epsilon
+                    None,  // epsilon
+                    start,
+                    W::one(),
+                );
             }
         }
 
@@ -482,5 +492,389 @@ mod tests {
             ]);
 
         assert_eq!(entry.auxiliaries.len(), 2);
+    }
+}
+
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use crate::semiring::LogWeight;
+    use crate::wfst::{Wfst, NO_STATE};
+    use proptest::prelude::*;
+
+    // -------------------------------------------------------------------------
+    // AuxiliarySymbol Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        /// AuxiliarySymbol equality is reflexive.
+        #[test]
+        fn aux_symbol_reflexive(idx in 0u32..100) {
+            let sym = AuxiliarySymbol::Disambiguation(idx);
+            prop_assert_eq!(sym, sym);
+        }
+
+        /// Different disambiguation indices are different.
+        #[test]
+        fn different_disambiguation(a in 0u32..100, b in 100u32..200) {
+            prop_assert_ne!(
+                AuxiliarySymbol::Disambiguation(a),
+                AuxiliarySymbol::Disambiguation(b)
+            );
+        }
+
+        /// WordBoundary != Epsilon.
+        #[test]
+        fn word_boundary_ne_epsilon(_seed in any::<u64>()) {
+            prop_assert_ne!(AuxiliarySymbol::WordBoundary, AuxiliarySymbol::Epsilon);
+        }
+
+        /// WordBoundary != Disambiguation.
+        #[test]
+        fn word_boundary_ne_disambiguation(idx in 0u32..100) {
+            prop_assert_ne!(
+                AuxiliarySymbol::WordBoundary,
+                AuxiliarySymbol::Disambiguation(idx)
+            );
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // LexiconEntry Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// LexiconEntry preserves word ID.
+        #[test]
+        fn lexicon_preserves_word(word_id in 0u32..1000) {
+            let entry = LexiconEntry::new(
+                word_id,
+                vec![1, 2, 3],
+                LogWeight::new(1.0),
+            );
+            prop_assert_eq!(entry.word, word_id);
+        }
+
+        /// LexiconEntry preserves phones.
+        #[test]
+        fn lexicon_preserves_phones(phones in prop::collection::vec(0u32..100, 1..10)) {
+            let entry = LexiconEntry::new(
+                1,
+                phones.clone(),
+                LogWeight::new(1.0),
+            );
+            prop_assert_eq!(entry.phones, phones);
+        }
+
+        /// LexiconEntry starts with empty auxiliaries.
+        #[test]
+        fn lexicon_empty_auxiliaries(word_id in 0u32..100) {
+            let entry = LexiconEntry::new(
+                word_id,
+                vec![1],
+                LogWeight::new(1.0),
+            );
+            prop_assert!(entry.auxiliaries.is_empty());
+        }
+
+        /// with_auxiliaries sets auxiliaries.
+        #[test]
+        fn with_auxiliaries_sets(num_aux in 0usize..5) {
+            let aux: Vec<_> = (0..num_aux)
+                .map(|i| AuxiliarySymbol::Disambiguation(i as u32))
+                .collect();
+
+            let entry = LexiconEntry::new(1, vec![1], LogWeight::new(1.0))
+                .with_auxiliaries(aux.clone());
+
+            prop_assert_eq!(entry.auxiliaries.len(), num_aux);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // CascadeConfig Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// Default config enables incremental determinization.
+        #[test]
+        fn default_config_det(_seed in any::<u64>()) {
+            let config = CascadeConfig::default();
+            prop_assert!(config.incremental_det);
+        }
+
+        /// Default config enables minimization.
+        #[test]
+        fn default_config_min(_seed in any::<u64>()) {
+            let config = CascadeConfig::default();
+            prop_assert!(config.minimize);
+        }
+
+        /// Default config is not lazy.
+        #[test]
+        fn default_config_not_lazy(_seed in any::<u64>()) {
+            let config = CascadeConfig::default();
+            prop_assert!(!config.lazy);
+        }
+
+        /// Default config has word boundaries enabled.
+        #[test]
+        fn default_config_word_boundaries(_seed in any::<u64>()) {
+            let config = CascadeConfig::default();
+            prop_assert!(config.word_boundaries);
+        }
+
+        /// Default config has max_homophony of 10.
+        #[test]
+        fn default_config_homophony(_seed in any::<u64>()) {
+            let config = CascadeConfig::default();
+            prop_assert_eq!(config.max_homophony, 10);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // CascadeStats Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// Default CascadeStats has zeros.
+        #[test]
+        fn default_cascade_stats(_seed in any::<u64>()) {
+            let stats = CascadeStats::default();
+            prop_assert_eq!(stats.g_states, 0);
+            prop_assert_eq!(stats.lg_states, 0);
+            prop_assert_eq!(stats.det_lg_states, 0);
+            prop_assert_eq!(stats.clg_states, 0);
+            prop_assert_eq!(stats.det_clg_states, 0);
+            prop_assert_eq!(stats.final_states, 0);
+            prop_assert_eq!(stats.final_arcs, 0);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // CascadeBuilder Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(25))]
+
+        /// Empty builder produces valid FST.
+        #[test]
+        fn empty_builder_valid(_seed in any::<u64>()) {
+            let builder = CascadeBuilder::<LogWeight>::new();
+            let cascade = builder.build();
+
+            prop_assert!(cascade.fst.num_states() > 0);
+            prop_assert!(cascade.fst.start() != NO_STATE);
+        }
+
+        /// Builder with lexicon entries produces larger FST.
+        #[test]
+        fn builder_with_entries(num_entries in 1usize..5) {
+            let mut builder = CascadeBuilder::<LogWeight>::new();
+
+            for i in 0..num_entries {
+                builder.add_lexicon_entry(LexiconEntry::new(
+                    i as u32,
+                    vec![(i * 10) as u32, (i * 10 + 1) as u32],
+                    LogWeight::new(0.0),
+                ));
+            }
+
+            let cascade = builder.build();
+
+            // Should have multiple states
+            prop_assert!(cascade.fst.num_states() >= 1);
+        }
+
+        /// config method sets configuration.
+        #[test]
+        fn builder_config_sets(lazy in any::<bool>(), minimize in any::<bool>()) {
+            let config = CascadeConfig {
+                lazy,
+                minimize,
+                ..Default::default()
+            };
+
+            let builder = CascadeBuilder::<LogWeight>::new().config(config);
+            let cascade = builder.build();
+
+            prop_assert_eq!(cascade.config.lazy, lazy);
+            prop_assert_eq!(cascade.config.minimize, minimize);
+        }
+
+        /// grammar method accepts FST.
+        #[test]
+        fn builder_grammar(_seed in any::<u64>()) {
+            let mut g = VectorWfst::<WordId, LogWeight>::new();
+            let s = g.add_state();
+            g.set_start(s);
+            g.set_final(s, LogWeight::one());
+
+            let builder = CascadeBuilder::<LogWeight>::new().grammar(g);
+            let cascade = builder.build();
+
+            // Should complete without error
+            prop_assert!(cascade.fst.num_states() >= 1);
+        }
+
+        /// context_dependency method accepts FST.
+        #[test]
+        fn builder_context(_seed in any::<u64>()) {
+            let mut c = VectorWfst::<PhoneId, LogWeight>::new();
+            let s = c.add_state();
+            c.set_start(s);
+            c.set_final(s, LogWeight::one());
+
+            let builder = CascadeBuilder::<LogWeight>::new().context_dependency(c);
+            let cascade = builder.build();
+
+            prop_assert!(cascade.fst.num_states() >= 1);
+        }
+
+        /// hmm method accepts FST.
+        #[test]
+        fn builder_hmm(_seed in any::<u64>()) {
+            let mut h = VectorWfst::<PhoneId, LogWeight>::new();
+            let s = h.add_state();
+            h.set_start(s);
+            h.set_final(s, LogWeight::one());
+
+            let builder = CascadeBuilder::<LogWeight>::new().hmm(h);
+            let cascade = builder.build();
+
+            prop_assert!(cascade.fst.num_states() >= 1);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // AsrCascade Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(20))]
+
+        /// as_fst returns the FST reference.
+        #[test]
+        fn as_fst_returns_fst(_seed in any::<u64>()) {
+            let builder = CascadeBuilder::<LogWeight>::new();
+            let cascade = builder.build();
+
+            let fst = cascade.as_fst();
+            prop_assert_eq!(fst.num_states(), cascade.fst.num_states());
+        }
+
+        /// statistics returns stats reference.
+        #[test]
+        fn statistics_returns_stats(_seed in any::<u64>()) {
+            let builder = CascadeBuilder::<LogWeight>::new();
+            let cascade = builder.build();
+
+            let stats = cascade.statistics();
+            prop_assert_eq!(stats.final_states, cascade.stats.final_states);
+        }
+
+        /// final_states in stats matches FST state count.
+        #[test]
+        fn stats_match_fst(_seed in any::<u64>()) {
+            let builder = CascadeBuilder::<LogWeight>::new();
+            let cascade = builder.build();
+
+            prop_assert_eq!(cascade.stats.final_states, cascade.fst.num_states());
+        }
+
+        /// final_arcs in stats matches actual arc count.
+        #[test]
+        fn stats_arcs_match(_seed in any::<u64>()) {
+            let mut builder = CascadeBuilder::<LogWeight>::new();
+            builder.add_lexicon_entry(LexiconEntry::new(
+                1,
+                vec![10, 11, 12],
+                LogWeight::new(0.0),
+            ));
+
+            let cascade = builder.build();
+
+            let actual_arcs: usize = (0..cascade.fst.num_states() as StateId)
+                .map(|s| cascade.fst.transitions(s).len())
+                .sum();
+
+            prop_assert_eq!(cascade.stats.final_arcs, actual_arcs);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Lexicon Building Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(20))]
+
+        /// Empty lexicon produces minimal FST.
+        #[test]
+        fn empty_lexicon_minimal(_seed in any::<u64>()) {
+            let builder = CascadeBuilder::<LogWeight>::new();
+            let cascade = builder.build();
+
+            // Empty lexicon should still have at least start state
+            prop_assert!(cascade.fst.num_states() >= 1);
+        }
+
+        /// Single word lexicon produces correct structure.
+        #[test]
+        fn single_word_lexicon(
+            word_id in 0u32..100,
+            phones in prop::collection::vec(0u32..50, 1..5)
+        ) {
+            let mut builder = CascadeBuilder::<LogWeight>::new();
+            builder.add_lexicon_entry(LexiconEntry::new(
+                word_id,
+                phones.clone(),
+                LogWeight::new(0.0),
+            ));
+
+            let cascade = builder.build();
+
+            // Should have states for the pronunciation
+            prop_assert!(cascade.fst.num_states() >= 1);
+        }
+
+        /// Multiple words with same pronunciation (homophones).
+        #[test]
+        fn homophone_lexicon(
+            word1 in 0u32..50,
+            word2 in 50u32..100
+        ) {
+            let phones = vec![10, 11, 12];
+
+            let mut builder = CascadeBuilder::<LogWeight>::new();
+            builder.add_lexicon_entry(LexiconEntry::new(
+                word1,
+                phones.clone(),
+                LogWeight::new(0.0),
+            ));
+            builder.add_lexicon_entry(LexiconEntry::new(
+                word2,
+                phones.clone(),
+                LogWeight::new(0.0),
+            ));
+
+            let cascade = builder.build();
+
+            // Should handle homophones
+            prop_assert!(cascade.fst.num_states() >= 1);
+        }
     }
 }

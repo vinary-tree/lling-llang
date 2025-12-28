@@ -768,4 +768,193 @@ mod tests {
 
         assert!((sum_weights(&fst) - sum_weights(&rev)).abs() < 1e-10);
     }
+
+    // =========================================================================
+    // Property-Based Tests (proptest)
+    // =========================================================================
+    mod property_tests {
+        use super::*;
+        use crate::test_utils::arb_tropical_wfst;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// Inversion preserves state count.
+            #[test]
+            fn invert_preserves_states(
+                fst in arb_tropical_wfst(6, 2)
+            ) {
+                let inv = invert(&fst);
+                prop_assert_eq!(inv.num_states(), fst.num_states());
+            }
+
+            /// Inversion is involutive: (T⁻¹)⁻¹ ≡ T
+            #[test]
+            fn invert_is_involution(
+                fst in arb_tropical_wfst(5, 2)
+            ) {
+                if fst.num_states() == 0 {
+                    return Ok(());
+                }
+
+                let mut inv1 = invert(&fst);
+                // Expand first inversion
+                for s in 0..fst.num_states() as StateId {
+                    inv1.expand(s);
+                }
+                let mut inv2 = invert(&inv1);
+
+                // Check all transitions match original
+                for s in 0..fst.num_states() as StateId {
+                    let orig = fst.transitions(s);
+                    let double = inv2.transitions_lazy(s);
+
+                    prop_assert_eq!(orig.len(), double.len(), "State {} arc count", s);
+                    for (o, d) in orig.iter().zip(double.iter()) {
+                        prop_assert_eq!(o.input, d.input, "State {} input label", s);
+                        prop_assert_eq!(o.output, d.output, "State {} output label", s);
+                    }
+                }
+            }
+
+            /// Input projection preserves state count.
+            #[test]
+            fn project_input_preserves_states(
+                fst in arb_tropical_wfst(6, 2)
+            ) {
+                let pin = project_input(&fst);
+                prop_assert_eq!(pin.num_states(), fst.num_states());
+            }
+
+            /// Output projection preserves state count.
+            #[test]
+            fn project_output_preserves_states(
+                fst in arb_tropical_wfst(6, 2)
+            ) {
+                let pout = project_output(&fst);
+                prop_assert_eq!(pout.num_states(), fst.num_states());
+            }
+
+            /// Input projection is idempotent: ↓(↓T) ≡ ↓T
+            #[test]
+            fn project_input_idempotent(
+                fst in arb_tropical_wfst(5, 2)
+            ) {
+                if fst.num_states() == 0 {
+                    return Ok(());
+                }
+
+                let mut p1 = project_input(&fst);
+                for s in 0..fst.num_states() as StateId {
+                    p1.expand(s);
+                }
+                let mut p2 = project_input(&p1);
+
+                for s in 0..fst.num_states() as StateId {
+                    let t1 = p1.transitions_lazy(s);
+                    let t2 = p2.transitions_lazy(s);
+                    prop_assert_eq!(t1.len(), t2.len());
+                    for (a, b) in t1.iter().zip(t2.iter()) {
+                        prop_assert_eq!(a.input, b.input);
+                        prop_assert_eq!(a.output, b.output);
+                    }
+                }
+            }
+
+            /// Output projection is idempotent: (T↓)↓ ≡ T↓
+            #[test]
+            fn project_output_idempotent(
+                fst in arb_tropical_wfst(5, 2)
+            ) {
+                if fst.num_states() == 0 {
+                    return Ok(());
+                }
+
+                let mut p1 = project_output(&fst);
+                for s in 0..fst.num_states() as StateId {
+                    p1.expand(s);
+                }
+                let mut p2 = project_output(&p1);
+
+                for s in 0..fst.num_states() as StateId {
+                    let t1 = p1.transitions_lazy(s);
+                    let t2 = p2.transitions_lazy(s);
+                    prop_assert_eq!(t1.len(), t2.len());
+                    for (a, b) in t1.iter().zip(t2.iter()) {
+                        prop_assert_eq!(a.input, b.input);
+                        prop_assert_eq!(a.output, b.output);
+                    }
+                }
+            }
+
+            /// Reverse adds one super-start state.
+            #[test]
+            fn reverse_state_count(
+                fst in arb_tropical_wfst(6, 2)
+            ) {
+                if fst.num_states() == 0 {
+                    let rev = reverse(&fst);
+                    prop_assert!(rev.is_empty());
+                    return Ok(());
+                }
+
+                let rev = reverse(&fst);
+                prop_assert_eq!(rev.num_states(), fst.num_states() + 1);
+            }
+
+            /// Reverse preserves non-epsilon arc count.
+            #[test]
+            fn reverse_preserves_arc_count(
+                fst in arb_tropical_wfst(6, 2)
+            ) {
+                let rev = reverse(&fst);
+
+                let count_non_eps = |f: &VectorWfst<char, TropicalWeight>| {
+                    (0..f.num_states() as StateId)
+                        .flat_map(|s| f.transitions(s).to_vec())
+                        .filter(|t| !t.is_epsilon())
+                        .count()
+                };
+
+                prop_assert_eq!(count_non_eps(&fst), count_non_eps(&rev));
+            }
+
+            /// Reverse is involutive in structure: double reverse has same arc count.
+            #[test]
+            fn reverse_double_arc_count(
+                fst in arb_tropical_wfst(5, 2)
+            ) {
+                let rev1 = reverse(&fst);
+                let rev2 = reverse(&rev1);
+
+                let count_non_eps = |f: &VectorWfst<char, TropicalWeight>| {
+                    (0..f.num_states() as StateId)
+                        .flat_map(|s| f.transitions(s).to_vec())
+                        .filter(|t| !t.is_epsilon())
+                        .count()
+                };
+
+                prop_assert_eq!(count_non_eps(&fst), count_non_eps(&rev2));
+            }
+
+            /// Inversion preserves arc weights.
+            #[test]
+            fn invert_preserves_weights(
+                fst in arb_tropical_wfst(5, 2)
+            ) {
+                let mut inv = invert(&fst);
+
+                for s in 0..fst.num_states() as StateId {
+                    let orig = fst.transitions(s);
+                    let inverted = inv.transitions_lazy(s);
+
+                    for (o, i) in orig.iter().zip(inverted.iter()) {
+                        prop_assert!(
+                            o.weight.approx_eq(&i.weight, 1e-10),
+                            "Weight mismatch: {:?} vs {:?}", o.weight, i.weight
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

@@ -809,9 +809,14 @@ where
     dfs(fst, start, 0, &mut visited, &mut on_stack, &mut delays)
 }
 
+/// Maximum number of (state, delay) pairs to visit when computing max delay.
+/// This prevents runaway iteration for FSTs with many paths and accumulated delays.
+const MAX_DELAY_VISIT_LIMIT: usize = 100_000;
+
 /// Compute the maximum delay of a transducer.
 ///
-/// Returns `None` if the transducer has unbounded delay (cycles with non-zero delay).
+/// Returns `None` if the transducer has unbounded delay (cycles with non-zero delay)
+/// or if the computation exceeds the visit limit.
 ///
 /// # Arguments
 ///
@@ -819,7 +824,7 @@ where
 ///
 /// # Returns
 ///
-/// `Some(max_delay)` if bounded, `None` if unbounded.
+/// `Some(max_delay)` if bounded and computable, `None` otherwise.
 pub fn compute_max_delay<L, W, T>(fst: &T) -> Option<usize>
 where
     W: Semiring,
@@ -844,6 +849,11 @@ where
     visited.insert((start, 0i32));
 
     while let Some((state, delay)) = queue.pop_front() {
+        // Safety limit to prevent runaway iteration
+        if visited.len() > MAX_DELAY_VISIT_LIMIT {
+            return None;
+        }
+
         max_delay = max_delay.max(delay.abs());
 
         for trans in fst.transitions(state) {
@@ -1145,5 +1155,131 @@ mod tests {
 
         let synced = synchronize(&fst);
         assert_eq!(synced.start(), 0);
+    }
+}
+
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use crate::semiring::TropicalWeight;
+    use crate::test_utils::arb_tropical_wfst;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// Single-state transducers with no arcs always have bounded delay.
+        #[test]
+        fn single_state_has_bounded_delay(
+            fst in arb_tropical_wfst(1, 0)
+        ) {
+            prop_assert!(has_bounded_delay(&fst));
+        }
+
+        /// Single-state transducers have max delay of 0.
+        #[test]
+        fn single_state_max_delay_zero(
+            fst in arb_tropical_wfst(1, 0)
+        ) {
+            let max_delay = compute_max_delay(&fst);
+            prop_assert!(max_delay.is_some());
+            prop_assert_eq!(max_delay.unwrap(), 0);
+        }
+
+        /// Synchronization preserves start state validity for bounded-delay FSTs.
+        #[test]
+        fn synchronize_preserves_start_validity(
+            fst in arb_tropical_wfst(3, 1)
+        ) {
+            // Only synchronize if it has bounded delay
+            if has_bounded_delay(&fst) {
+                let synced = synchronize(&fst);
+                // If original has a start, synced should too
+                if fst.start() != NO_STATE {
+                    prop_assert!(synced.start() != NO_STATE);
+                }
+            }
+        }
+
+        /// Bounded delay implies max_delay returns Some (for small FSTs).
+        /// Note: compute_max_delay may return None for very complex FSTs that exceed
+        /// the visit limit, even if they have bounded delay.
+        #[test]
+        fn bounded_delay_implies_max_delay_some(
+            fst in arb_tropical_wfst(3, 1)
+        ) {
+            if has_bounded_delay(&fst) {
+                // For small FSTs, bounded delay should imply computable max delay
+                prop_assert!(compute_max_delay(&fst).is_some());
+            }
+        }
+
+        /// Unbounded delay implies max_delay returns None.
+        #[test]
+        fn unbounded_delay_implies_max_delay_none(
+            fst in arb_tropical_wfst(3, 1)
+        ) {
+            if !has_bounded_delay(&fst) {
+                prop_assert!(compute_max_delay(&fst).is_none());
+            }
+        }
+
+        /// StringDelay::empty is truly empty.
+        #[test]
+        fn string_delay_empty_properties(_dummy in 0..1i32) {
+            let delay: StringDelay<char> = StringDelay::empty();
+            prop_assert!(delay.is_empty());
+            prop_assert_eq!(delay.len(), 0);
+            prop_assert!(delay.car_input().is_none());
+            prop_assert!(delay.car_output().is_none());
+        }
+
+        /// StringDelay sync with identical strings results in empty.
+        #[test]
+        fn string_delay_sync_identical_is_empty(chars in prop::collection::vec(any::<char>(), 0..5)) {
+            let input: SmallVec<[char; 4]> = chars.iter().cloned().collect();
+            let output: SmallVec<[char; 4]> = chars.iter().cloned().collect();
+            let delay = StringDelay::sync(input, output);
+            prop_assert!(delay.is_empty());
+        }
+
+        /// SyncState::initial creates non-draining state with empty delay.
+        #[test]
+        fn sync_state_initial_properties(state_id in 0..100u32) {
+            let state: SyncState<char> = SyncState::initial(state_id);
+            prop_assert_eq!(state.original, state_id);
+            prop_assert!(state.delay.is_empty());
+            prop_assert!(!state.draining);
+        }
+
+        /// MutableSyncSource maintains state count >= 1 for non-empty FST.
+        #[test]
+        fn mutable_sync_source_state_count(
+            fst in arb_tropical_wfst(4, 2)
+        ) {
+            if fst.start() != NO_STATE && has_bounded_delay(&fst) {
+                let sync = MutableSyncSource::new(fst, 10);
+                prop_assert!(sync.num_states() >= 1);
+            }
+        }
+
+        /// MutableSyncSource start matches FST start validity.
+        #[test]
+        fn mutable_sync_source_start_consistency(
+            fst in arb_tropical_wfst(4, 2)
+        ) {
+            if has_bounded_delay(&fst) {
+                let sync: MutableSyncSource<char, TropicalWeight, _> = MutableSyncSource::new(fst.clone(), 10);
+                if fst.start() == NO_STATE {
+                    prop_assert_eq!(sync.start(), NO_STATE);
+                } else {
+                    prop_assert_eq!(sync.start(), 0);
+                }
+            }
+        }
     }
 }

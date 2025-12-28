@@ -561,3 +561,370 @@ mod tests {
         assert_eq!(csr.emitting_arc_indices()[1], 3);
     }
 }
+
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    // =========================================================================
+    // CsrArc Properties
+    // =========================================================================
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        /// CsrArc preserves all constructor arguments.
+        #[test]
+        fn csr_arc_preserves_fields(
+            to in 0u32..1000,
+            input in 0u32..u32::MAX,
+            output in 0u32..u32::MAX,
+            weight in -1000.0f32..1000.0
+        ) {
+            let arc: CsrArc<char> = CsrArc::new(to, input, output, weight);
+            prop_assert_eq!(arc.to, to);
+            prop_assert_eq!(arc.input, input);
+            prop_assert_eq!(arc.output, output);
+            prop_assert!((arc.weight - weight).abs() < 1e-6);
+        }
+
+        /// is_input_epsilon is true iff input == u32::MAX.
+        #[test]
+        fn is_input_epsilon_correct(input in 0u32..u32::MAX) {
+            let arc_non_eps: CsrArc<char> = CsrArc::new(0, input, 0, 0.0);
+            let arc_eps: CsrArc<char> = CsrArc::new(0, u32::MAX, 0, 0.0);
+
+            prop_assert!(!arc_non_eps.is_input_epsilon());
+            prop_assert!(arc_eps.is_input_epsilon());
+        }
+
+        /// is_output_epsilon is true iff output == u32::MAX.
+        #[test]
+        fn is_output_epsilon_correct(output in 0u32..u32::MAX) {
+            let arc_non_eps: CsrArc<char> = CsrArc::new(0, 0, output, 0.0);
+            let arc_eps: CsrArc<char> = CsrArc::new(0, 0, u32::MAX, 0.0);
+
+            prop_assert!(!arc_non_eps.is_output_epsilon());
+            prop_assert!(arc_eps.is_output_epsilon());
+        }
+
+        /// is_emitting is equivalent to !is_input_epsilon.
+        #[test]
+        fn is_emitting_consistent(input in 0u32..=u32::MAX) {
+            let arc: CsrArc<char> = CsrArc::new(0, input, 0, 0.0);
+            prop_assert_eq!(arc.is_emitting(), !arc.is_input_epsilon());
+        }
+    }
+
+    // =========================================================================
+    // CsrState Properties
+    // =========================================================================
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        /// CsrState flags are independent.
+        #[test]
+        fn csr_state_flags_independent(
+            is_start in any::<bool>(),
+            is_final in any::<bool>(),
+            has_emitting in any::<bool>()
+        ) {
+            let mut state = CsrState::default();
+
+            if is_start {
+                state.flags |= CsrState::FLAG_START;
+            }
+            if is_final {
+                state.flags |= CsrState::FLAG_FINAL;
+            }
+            if has_emitting {
+                state.flags |= CsrState::FLAG_HAS_EMITTING;
+            }
+
+            prop_assert_eq!(state.is_start(), is_start);
+            prop_assert_eq!(state.is_final(), is_final);
+            prop_assert_eq!(state.has_emitting_arcs(), has_emitting);
+        }
+
+        /// Default CsrState has no flags set.
+        #[test]
+        fn csr_state_default_no_flags(_dummy in 0..10i32) {
+            let state = CsrState::default();
+            prop_assert!(!state.is_start());
+            prop_assert!(!state.is_final());
+            prop_assert!(!state.has_emitting_arcs());
+            prop_assert_eq!(state.flags, 0);
+        }
+    }
+
+    // =========================================================================
+    // CsrBuilder Properties
+    // =========================================================================
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// Adding states returns sequential IDs starting from 0.
+        #[test]
+        fn builder_state_ids_sequential(num_states in 1usize..20) {
+            let mut builder: CsrBuilder<u32> = CsrBuilder::new();
+
+            for expected_id in 0..num_states {
+                let actual_id = builder.add_state();
+                prop_assert_eq!(actual_id as usize, expected_id);
+            }
+        }
+
+        /// Built CSR has correct state and arc counts.
+        #[test]
+        fn builder_counts_correct(
+            num_states in 2usize..10,
+            arcs_per_state in 0usize..5
+        ) {
+            let mut builder: CsrBuilder<u32> = CsrBuilder::new();
+
+            // Add states
+            for _ in 0..num_states {
+                builder.add_state();
+            }
+
+            // Add arcs
+            for state in 0..num_states as StateId {
+                builder.begin_state(state);
+                for arc_idx in 0..arcs_per_state {
+                    let to = ((state as usize + 1) % num_states) as StateId;
+                    builder.add_arc(to, arc_idx as u32, arc_idx as u32, 0.5);
+                }
+                builder.end_state();
+            }
+
+            let csr = builder.build();
+            prop_assert_eq!(csr.num_states(), num_states);
+            prop_assert_eq!(csr.num_arcs(), num_states * arcs_per_state);
+        }
+
+        /// Start state is correctly marked.
+        #[test]
+        fn builder_start_state_marked(num_states in 2usize..10, start in 0usize..10) {
+            let mut builder: CsrBuilder<u32> = CsrBuilder::new();
+
+            for _ in 0..num_states {
+                builder.add_state();
+            }
+
+            let start_state = (start % num_states) as StateId;
+            builder.set_start(start_state);
+
+            // Need to process states in order
+            for state in 0..num_states as StateId {
+                builder.begin_state(state);
+                builder.end_state();
+            }
+
+            let csr = builder.build();
+            prop_assert_eq!(csr.start_state(), start_state);
+            prop_assert!(csr.state(start_state).is_start());
+        }
+
+        /// Final states are correctly marked.
+        #[test]
+        fn builder_final_states_marked(
+            num_states in 2usize..10,
+            final_weight in 0.0f32..10.0
+        ) {
+            let mut builder: CsrBuilder<u32> = CsrBuilder::new();
+
+            for _ in 0..num_states {
+                builder.add_state();
+            }
+
+            let final_state = (num_states - 1) as StateId;
+            builder.set_final(final_state, final_weight);
+
+            for state in 0..num_states as StateId {
+                builder.begin_state(state);
+                builder.end_state();
+            }
+
+            let csr = builder.build();
+            prop_assert!(csr.is_final(final_state));
+            prop_assert!((csr.final_weight(final_state) - final_weight).abs() < 1e-6);
+        }
+    }
+
+    // =========================================================================
+    // CsrWfst Properties
+    // =========================================================================
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// arcs() returns correct slice for each state.
+        #[test]
+        fn csr_arcs_correct_per_state(num_states in 2usize..8) {
+            let mut builder: CsrBuilder<u32> = CsrBuilder::new();
+
+            for _ in 0..num_states {
+                builder.add_state();
+            }
+
+            // Each state has state_id number of arcs
+            let mut expected_arcs = Vec::new();
+            for state in 0..num_states as StateId {
+                builder.begin_state(state);
+                let num_arcs = state as usize;
+                expected_arcs.push(num_arcs);
+                for i in 0..num_arcs {
+                    let to = ((state as usize + 1) % num_states) as StateId;
+                    builder.add_arc(to, i as u32, i as u32, state as f32);
+                }
+                builder.end_state();
+            }
+
+            let csr = builder.build();
+
+            for state in 0..num_states as StateId {
+                let arcs = csr.arcs(state);
+                prop_assert_eq!(arcs.len(), expected_arcs[state as usize]);
+            }
+        }
+
+        /// all_arcs returns all arcs concatenated.
+        #[test]
+        fn csr_all_arcs_total(num_states in 2usize..8, arcs_per_state in 1usize..4) {
+            let mut builder: CsrBuilder<u32> = CsrBuilder::new();
+
+            for _ in 0..num_states {
+                builder.add_state();
+            }
+
+            for state in 0..num_states as StateId {
+                builder.begin_state(state);
+                for i in 0..arcs_per_state {
+                    let to = ((state as usize + 1) % num_states) as StateId;
+                    builder.add_arc(to, i as u32, i as u32, 0.5);
+                }
+                builder.end_state();
+            }
+
+            let csr = builder.build();
+            prop_assert_eq!(csr.all_arcs().len(), num_states * arcs_per_state);
+        }
+
+        /// all_states returns all state metadata.
+        #[test]
+        fn csr_all_states_count(num_states in 1usize..20) {
+            let mut builder: CsrBuilder<u32> = CsrBuilder::new();
+
+            for _ in 0..num_states {
+                builder.add_state();
+            }
+
+            for state in 0..num_states as StateId {
+                builder.begin_state(state);
+                builder.end_state();
+            }
+
+            let csr = builder.build();
+            prop_assert_eq!(csr.all_states().len(), num_states);
+        }
+
+        /// emitting_arc_indices tracks only emitting arcs.
+        #[test]
+        fn csr_emitting_indices_correct(num_states in 2usize..6) {
+            let mut builder: CsrBuilder<u32> = CsrBuilder::new();
+
+            for _ in 0..num_states {
+                builder.add_state();
+            }
+
+            let mut expected_emitting = 0;
+            for state in 0..num_states as StateId {
+                builder.begin_state(state);
+                let to = ((state as usize + 1) % num_states) as StateId;
+                // Add epsilon arc
+                builder.add_arc(to, u32::MAX, u32::MAX, 0.0);
+                // Add emitting arc
+                builder.add_arc(to, state, state, 1.0);
+                expected_emitting += 1;
+                builder.end_state();
+            }
+
+            let csr = builder.build();
+            prop_assert_eq!(csr.emitting_arc_indices().len(), expected_emitting);
+        }
+
+        /// memory_size is positive and grows with size.
+        #[test]
+        fn csr_memory_size_grows(num_states in 2usize..20, arcs_per_state in 1usize..5) {
+            let mut builder: CsrBuilder<u32> = CsrBuilder::new();
+
+            for _ in 0..num_states {
+                builder.add_state();
+            }
+
+            for state in 0..num_states as StateId {
+                builder.begin_state(state);
+                for i in 0..arcs_per_state {
+                    let to = ((state as usize + 1) % num_states) as StateId;
+                    builder.add_arc(to, i as u32, i as u32, 0.5);
+                }
+                builder.end_state();
+            }
+
+            let csr = builder.build();
+            let mem = csr.memory_size();
+
+            // Memory should be at least states * sizeof(CsrState) + arcs * sizeof(CsrArc)
+            prop_assert!(mem > 0);
+            prop_assert!(mem >= num_states * std::mem::size_of::<CsrState>());
+        }
+    }
+
+    // =========================================================================
+    // Memory Size Function Properties
+    // =========================================================================
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        /// csr_memory_size grows linearly with inputs.
+        #[test]
+        fn memory_size_linear(
+            num_states in 1usize..1000,
+            num_arcs in 1usize..5000,
+            num_emitting in 0usize..2500
+        ) {
+            let num_emitting = num_emitting.min(num_arcs);
+            let size = csr_memory_size(num_states, num_arcs, num_emitting);
+
+            // Verify components
+            let states_contribution = num_states * std::mem::size_of::<CsrState>();
+            let arcs_contribution = num_arcs * 16;
+            let emitting_contribution = num_emitting * 4;
+
+            prop_assert_eq!(size, states_contribution + arcs_contribution + emitting_contribution);
+        }
+
+        /// Doubling inputs approximately doubles memory.
+        #[test]
+        fn memory_size_scales(
+            num_states in 10usize..100,
+            num_arcs in 100usize..1000,
+            num_emitting in 10usize..100
+        ) {
+            let size1 = csr_memory_size(num_states, num_arcs, num_emitting);
+            let size2 = csr_memory_size(num_states * 2, num_arcs * 2, num_emitting * 2);
+
+            // Size should roughly double
+            prop_assert!(size2 >= size1);
+            prop_assert!(size2 <= size1 * 3); // Allow some overhead
+        }
+    }
+}

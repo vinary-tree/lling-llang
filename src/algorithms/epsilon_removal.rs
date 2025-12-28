@@ -358,6 +358,118 @@ mod tests {
     use crate::semiring::TropicalWeight;
     use crate::wfst::{VectorWfst, VectorWfstBuilder, MutableWfst};
 
+    // Property-based tests
+    mod property_tests {
+        use super::*;
+        use crate::test_utils::arb_tropical_wfst;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// Epsilon removal should produce a WFST with no epsilon transitions.
+            #[test]
+            fn epsilon_removal_complete(
+                mut fst in arb_tropical_wfst(8, 3)
+            ) {
+                if fst.num_states() == 0 || fst.start() == NO_STATE {
+                    return Ok(());
+                }
+
+                let result = remove_epsilon(&mut fst, EpsilonRemovalConfig::default());
+                if result.is_ok() {
+                    prop_assert!(
+                        !has_epsilon_transitions(&fst),
+                        "FST still has epsilon transitions after removal"
+                    );
+                }
+            }
+
+            /// Epsilon removal should preserve state count or reduce it.
+            #[test]
+            fn epsilon_removal_state_bound(
+                mut fst in arb_tropical_wfst(8, 3)
+            ) {
+                if fst.num_states() == 0 {
+                    return Ok(());
+                }
+
+                let original_states = fst.num_states();
+                let _ = remove_epsilon(&mut fst, EpsilonRemovalConfig::default());
+
+                // State count should not increase
+                prop_assert!(
+                    fst.num_states() <= original_states,
+                    "Epsilon removal increased states from {} to {}",
+                    original_states,
+                    fst.num_states()
+                );
+            }
+
+            /// has_epsilon_transitions should return false for epsilon-free WFSTs.
+            #[test]
+            fn has_epsilon_after_removal(
+                mut fst in arb_tropical_wfst(6, 2)
+            ) {
+                if fst.num_states() == 0 || fst.start() == NO_STATE {
+                    return Ok(());
+                }
+
+                let _ = remove_epsilon(&mut fst, EpsilonRemovalConfig::default());
+
+                // Verify the predicate matches reality
+                let predicate_result = has_epsilon_transitions(&fst);
+
+                // Actually check for epsilon transitions
+                let mut found_epsilon = false;
+                for state in 0..fst.num_states() {
+                    for trans in fst.transitions(state as StateId) {
+                        if trans.input.is_none() && trans.output.is_none() {
+                            found_epsilon = true;
+                            break;
+                        }
+                    }
+                    if found_epsilon {
+                        break;
+                    }
+                }
+
+                prop_assert_eq!(
+                    predicate_result,
+                    found_epsilon,
+                    "has_epsilon_transitions() returned {}, but manual check found {}",
+                    predicate_result,
+                    found_epsilon
+                );
+            }
+
+            /// Epsilon removal on already epsilon-free FST should be identity.
+            #[test]
+            fn epsilon_removal_identity_when_no_epsilon(
+                fst in arb_tropical_wfst(6, 2)
+            ) {
+                if fst.num_states() == 0 || fst.start() == NO_STATE {
+                    return Ok(());
+                }
+
+                // Remove any epsilons first
+                let mut clean_fst = fst.clone();
+                let _ = remove_epsilon(&mut clean_fst, EpsilonRemovalConfig::default());
+
+                if !has_epsilon_transitions(&clean_fst) {
+                    // Now remove again - should be essentially identity
+                    let original_states = clean_fst.num_states();
+                    let mut second_fst = clean_fst.clone();
+                    let _ = remove_epsilon(&mut second_fst, EpsilonRemovalConfig::default());
+
+                    prop_assert_eq!(
+                        second_fst.num_states(),
+                        original_states,
+                        "Second epsilon removal changed state count"
+                    );
+                }
+            }
+        }
+    }
+
     fn build_simple_epsilon_chain() -> VectorWfst<char, TropicalWeight> {
         // 0 --ε/1.0--> 1 --a/2.0--> 2 (final, weight 0.5)
         let mut fst = VectorWfst::new();

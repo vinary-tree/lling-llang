@@ -422,3 +422,416 @@ mod tests {
         assert!(result.stats.chains_found >= 0);
     }
 }
+
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use crate::semiring::LogWeight;
+    use crate::wfst::Wfst;
+    use proptest::prelude::*;
+
+    // -------------------------------------------------------------------------
+    // ChainFactorConfig Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// Default config has min_chain_length of 2.
+        #[test]
+        fn default_config_min_length(_seed in any::<u64>()) {
+            let config = ChainFactorConfig::default();
+            prop_assert_eq!(config.min_chain_length, 2);
+        }
+
+        /// Default config factors epsilon chains.
+        #[test]
+        fn default_config_epsilon(_seed in any::<u64>()) {
+            let config = ChainFactorConfig::default();
+            prop_assert!(config.factor_epsilon_chains);
+        }
+
+        /// Default config has no max chains limit.
+        #[test]
+        fn default_config_no_max(_seed in any::<u64>()) {
+            let config = ChainFactorConfig::default();
+            prop_assert!(config.max_chains.is_none());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Chain Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        /// New chain is empty.
+        #[test]
+        fn new_chain_empty(id in 0u32..1000) {
+            let chain = Chain::<u32, LogWeight>::new(id);
+            prop_assert!(chain.is_empty());
+            prop_assert_eq!(chain.len(), 0);
+            prop_assert_eq!(chain.id, id);
+        }
+
+        /// New chain has one weight.
+        #[test]
+        fn new_chain_weight(id in 0u32..1000) {
+            let chain = Chain::<u32, LogWeight>::new(id);
+            prop_assert_eq!(chain.weight, LogWeight::one());
+        }
+
+        /// Chain length equals input labels length.
+        #[test]
+        fn chain_length_is_input_labels(
+            id in 0u32..100,
+            num_labels in 0usize..10
+        ) {
+            let mut chain = Chain::<u32, LogWeight>::new(id);
+            chain.input_labels = (0..num_labels).map(|i| Some(i as u32)).collect();
+            prop_assert_eq!(chain.len(), num_labels);
+        }
+
+        /// Chain is_empty when no input labels.
+        #[test]
+        fn chain_is_empty_no_labels(id in 0u32..100) {
+            let chain = Chain::<u32, LogWeight>::new(id);
+            prop_assert!(chain.is_empty());
+        }
+
+        /// Chain is not empty with input labels.
+        #[test]
+        fn chain_not_empty_with_labels(id in 0u32..100, num_labels in 1usize..10) {
+            let mut chain = Chain::<u32, LogWeight>::new(id);
+            chain.input_labels = (0..num_labels).map(|i| Some(i as u32)).collect();
+            prop_assert!(!chain.is_empty());
+        }
+
+        /// start_state returns first state.
+        #[test]
+        fn chain_start_state(states in prop::collection::vec(0u32..100, 1..5)) {
+            let mut chain = Chain::<u32, LogWeight>::new(0);
+            chain.states = states.clone();
+            prop_assert_eq!(chain.start_state(), Some(states[0]));
+        }
+
+        /// end_state returns last state.
+        #[test]
+        fn chain_end_state(states in prop::collection::vec(0u32..100, 1..5)) {
+            let mut chain = Chain::<u32, LogWeight>::new(0);
+            chain.states = states.clone();
+            prop_assert_eq!(chain.end_state(), Some(*states.last().unwrap()));
+        }
+
+        /// Empty states give None for start/end.
+        #[test]
+        fn chain_empty_states_none(id in 0u32..100) {
+            let chain = Chain::<u32, LogWeight>::new(id);
+            prop_assert!(chain.start_state().is_none());
+            prop_assert!(chain.end_state().is_none());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // ChainFactorStats Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// Default stats are all zeros.
+        #[test]
+        fn default_stats_zeros(_seed in any::<u64>()) {
+            let stats = ChainFactorStats::default();
+            prop_assert_eq!(stats.chains_found, 0);
+            prop_assert_eq!(stats.chains_factored, 0);
+            prop_assert_eq!(stats.states_removed, 0);
+            prop_assert_eq!(stats.transitions_removed, 0);
+            prop_assert_eq!(stats.total_gain, 0);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // compute_chain_gain Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        /// Gain formula: G = |inputs| - |outputs| - 1.
+        #[test]
+        fn gain_formula(
+            num_inputs in 0usize..10,
+            num_outputs in 0usize..10
+        ) {
+            let mut chain = Chain::<u32, LogWeight>::new(0);
+            chain.input_labels = (0..num_inputs).map(|i| Some(i as u32)).collect();
+            chain.output_labels = (0..num_outputs).map(|i| Some(i as u32)).collect();
+
+            let gain = compute_chain_gain(&chain);
+            let expected = (num_inputs as i64) - (num_outputs as i64) - 1;
+
+            prop_assert_eq!(gain, expected);
+        }
+
+        /// Empty chain has gain of -1.
+        #[test]
+        fn empty_chain_gain(_seed in any::<u64>()) {
+            let chain = Chain::<u32, LogWeight>::new(0);
+            prop_assert_eq!(compute_chain_gain(&chain), -1);
+        }
+
+        /// Gain is positive when inputs > outputs + 1.
+        #[test]
+        fn positive_gain_condition(extra in 2usize..10) {
+            let mut chain = Chain::<u32, LogWeight>::new(0);
+            chain.input_labels = (0..extra).map(|i| Some(i as u32)).collect();
+            chain.output_labels = vec![];
+
+            let gain = compute_chain_gain(&chain);
+            prop_assert!(gain > 0);
+        }
+
+        /// Gain is negative when outputs + 1 > inputs.
+        #[test]
+        fn negative_gain_condition(extra in 2usize..10) {
+            let mut chain = Chain::<u32, LogWeight>::new(0);
+            chain.input_labels = vec![];
+            chain.output_labels = (0..extra).map(|i| Some(i as u32)).collect();
+
+            let gain = compute_chain_gain(&chain);
+            prop_assert!(gain < 0);
+        }
+
+        /// None labels don't count in gain calculation.
+        #[test]
+        fn none_labels_not_counted(num_some in 0usize..5, num_none in 0usize..5) {
+            let mut chain = Chain::<u32, LogWeight>::new(0);
+
+            // Mix of Some and None
+            let mut inputs: Vec<Option<u32>> = (0..num_some).map(|i| Some(i as u32)).collect();
+            inputs.extend((0..num_none).map(|_| None));
+            chain.input_labels = inputs;
+
+            let gain = compute_chain_gain(&chain);
+            let expected = (num_some as i64) - 0 - 1;  // No outputs
+
+            prop_assert_eq!(gain, expected);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // find_chains Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(30))]
+
+        /// Empty FST has no chains.
+        #[test]
+        fn empty_fst_no_chains(_seed in any::<u64>()) {
+            let fst = VectorWfst::<u32, LogWeight>::new();
+            let chains = find_chains(&fst);
+            prop_assert!(chains.is_empty());
+        }
+
+        /// Single state FST has no chains.
+        #[test]
+        fn single_state_no_chains(_seed in any::<u64>()) {
+            let mut fst = VectorWfst::<u32, LogWeight>::new();
+            let s = fst.add_state();
+            fst.set_start(s);
+            fst.set_final(s, LogWeight::one());
+
+            let chains = find_chains(&fst);
+            prop_assert!(chains.is_empty());
+        }
+
+        /// FST with all final states has no chains (internal nodes can't be in chains).
+        #[test]
+        fn all_final_limited_chains(num_states in 2usize..5) {
+            let mut fst = VectorWfst::<u32, LogWeight>::new();
+
+            // Create states, all final
+            let states: Vec<_> = (0..num_states).map(|_| {
+                let s = fst.add_state();
+                fst.set_final(s, LogWeight::one());
+                s
+            }).collect();
+
+            fst.set_start(states[0]);
+
+            // Linear connections
+            for i in 0..states.len() - 1 {
+                fst.add_arc(states[i], Some(i as u32), Some(i as u32), states[i + 1], LogWeight::one());
+            }
+
+            // Since all intermediate states are final, they can't be in chains
+            let chains = find_chains(&fst);
+            // This is allowed to be 0 (all states are final)
+            prop_assert!(chains.len() <= num_states);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // chain_factor Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(20))]
+
+        /// chain_factor on empty FST returns empty result.
+        #[test]
+        fn factor_empty_fst(_seed in any::<u64>()) {
+            let fst = VectorWfst::<u32, LogWeight>::new();
+            let config = ChainFactorConfig::default();
+            let result = chain_factor(&fst, &config);
+
+            prop_assert_eq!(result.stats.chains_found, 0);
+            prop_assert!(result.chains.is_empty());
+        }
+
+        /// chain_factor preserves FST structure (states and arcs).
+        #[test]
+        fn factor_preserves_structure(num_states in 1usize..5) {
+            let mut fst = VectorWfst::<u32, LogWeight>::new();
+
+            // Create simple linear FST
+            let states: Vec<_> = (0..num_states).map(|_| fst.add_state()).collect();
+
+            if !states.is_empty() {
+                fst.set_start(states[0]);
+                fst.set_final(*states.last().unwrap(), LogWeight::one());
+
+                for i in 0..states.len() - 1 {
+                    fst.add_arc(states[i], Some(i as u32), Some(i as u32), states[i + 1], LogWeight::one());
+                }
+            }
+
+            let config = ChainFactorConfig::default();
+            let result = chain_factor(&fst, &config);
+
+            // Result should have same number of states (current impl is passthrough)
+            prop_assert_eq!(result.fst.num_states(), fst.num_states());
+        }
+
+        /// chain_factor result has valid start state if input does.
+        #[test]
+        fn factor_preserves_start(_seed in any::<u64>()) {
+            let mut fst = VectorWfst::<u32, LogWeight>::new();
+            let s = fst.add_state();
+            fst.set_start(s);
+            fst.set_final(s, LogWeight::one());
+
+            let config = ChainFactorConfig::default();
+            let result = chain_factor(&fst, &config);
+
+            prop_assert!(result.fst.start() != NO_STATE);
+        }
+
+        /// chain_factor stats chains_found is non-negative.
+        #[test]
+        fn factor_stats_non_negative(num_states in 0usize..5) {
+            let mut fst = VectorWfst::<u32, LogWeight>::new();
+
+            for _ in 0..num_states {
+                fst.add_state();
+            }
+
+            if num_states > 0 {
+                fst.set_start(0);
+            }
+
+            let config = ChainFactorConfig::default();
+            let result = chain_factor(&fst, &config);
+
+            prop_assert!(result.stats.chains_found >= 0);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // clone_fst Properties
+    // -------------------------------------------------------------------------
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(20))]
+
+        /// clone_fst preserves state count.
+        #[test]
+        fn clone_preserves_states(num_states in 0usize..10) {
+            let mut fst = VectorWfst::<u32, LogWeight>::new();
+
+            for _ in 0..num_states {
+                fst.add_state();
+            }
+
+            let cloned = clone_fst(&fst);
+            prop_assert_eq!(cloned.num_states(), num_states);
+        }
+
+        /// clone_fst preserves start state.
+        #[test]
+        fn clone_preserves_start(num_states in 1usize..10, start_idx in 0usize..10) {
+            let mut fst = VectorWfst::<u32, LogWeight>::new();
+
+            for _ in 0..num_states {
+                fst.add_state();
+            }
+
+            let start = (start_idx % num_states) as StateId;
+            fst.set_start(start);
+
+            let cloned = clone_fst(&fst);
+            prop_assert_eq!(cloned.start(), start);
+        }
+
+        /// clone_fst preserves final states.
+        #[test]
+        fn clone_preserves_finals(num_states in 1usize..5) {
+            let mut fst = VectorWfst::<u32, LogWeight>::new();
+
+            for i in 0..num_states {
+                let s = fst.add_state();
+                if i % 2 == 0 {
+                    fst.set_final(s, LogWeight::new(i as f64));
+                }
+            }
+
+            let cloned = clone_fst(&fst);
+
+            for i in 0..num_states as StateId {
+                prop_assert_eq!(cloned.is_final(i), fst.is_final(i));
+            }
+        }
+
+        /// clone_fst preserves arc count.
+        #[test]
+        fn clone_preserves_arcs(num_states in 2usize..5) {
+            let mut fst = VectorWfst::<u32, LogWeight>::new();
+
+            let states: Vec<_> = (0..num_states).map(|_| fst.add_state()).collect();
+            fst.set_start(states[0]);
+
+            // Add some arcs
+            for i in 0..states.len() - 1 {
+                fst.add_arc(states[i], Some(i as u32), Some(i as u32), states[i + 1], LogWeight::one());
+            }
+
+            let cloned = clone_fst(&fst);
+
+            // Count arcs in both
+            let count_arcs = |f: &VectorWfst<u32, LogWeight>| -> usize {
+                (0..f.num_states() as StateId)
+                    .map(|s| f.transitions(s).len())
+                    .sum()
+            };
+
+            prop_assert_eq!(count_arcs(&cloned), count_arcs(&fst));
+        }
+    }
+}

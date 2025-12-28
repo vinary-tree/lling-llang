@@ -71,6 +71,13 @@ pub mod optimization;
 pub mod asr;
 pub mod gpu;
 
+/// Test utilities for property-based testing and assertions.
+///
+/// This module provides `proptest` strategies, custom assertions, and
+/// common fixtures for testing WFSTs and semirings.
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
+
 // #[cfg(feature = "error-grammar")]
 // pub mod error_grammar;
 

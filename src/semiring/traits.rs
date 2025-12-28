@@ -142,6 +142,21 @@ pub trait HashableSemiring: Semiring + Eq + Hash {}
 
 impl<S: Semiring + Eq + Hash> HashableSemiring for S {}
 
+/// Trait for semirings that have an underlying numerical value.
+///
+/// This is used for algorithms that need to extract the raw numerical
+/// value from a weight, such as quantization for approximate comparison.
+///
+/// Implemented for numerical semirings like Tropical, Log, and Probability.
+/// Not applicable to non-numerical semirings like Boolean or String.
+pub trait NumericalWeight: Semiring {
+    /// Get the underlying numerical value of this weight.
+    ///
+    /// For Tropical and Log semirings, this returns the raw f64 value.
+    /// For Probability semiring, this returns the probability value.
+    fn numerical_value(&self) -> f64;
+}
+
 /// Test utilities for verifying semiring axioms.
 #[cfg(test)]
 pub mod tests {

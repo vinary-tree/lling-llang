@@ -766,3 +766,490 @@ mod tests {
         assert_eq!(results[0].1, Some("test".to_string()));
     }
 }
+
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    // =========================================================================
+    // Channel Properties
+    // =========================================================================
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        /// New channel starts in Idle state.
+        #[test]
+        fn channel_new_is_idle(id in 0usize..1000) {
+            let channel: Channel<i32> = Channel::new(id);
+            prop_assert!(channel.is_idle());
+            prop_assert_eq!(channel.id(), id);
+            prop_assert_eq!(channel.state(), ChannelState::Idle);
+            prop_assert!(channel.lane().is_none());
+            prop_assert!(channel.user_data().is_none());
+        }
+
+        /// start_utterance transitions to Ready state.
+        #[test]
+        fn channel_start_utterance_ready(
+            id in 0usize..100,
+            user_data in any::<i32>(),
+            total_frames in proptest::option::of(1usize..1000)
+        ) {
+            let mut channel: Channel<i32> = Channel::new(id);
+            channel.start_utterance(user_data, total_frames);
+
+            prop_assert!(channel.is_ready());
+            prop_assert_eq!(channel.state(), ChannelState::Ready);
+            prop_assert_eq!(channel.user_data(), Some(&user_data));
+            prop_assert_eq!(channel.total_frames(), total_frames);
+            prop_assert_eq!(channel.frame_index(), 0);
+        }
+
+        /// assign_lane transitions to Active state.
+        #[test]
+        fn channel_assign_lane_active(id in 0usize..100, lane in 0usize..50) {
+            let mut channel: Channel<i32> = Channel::new(id);
+            channel.start_utterance(42, None);
+            channel.assign_lane(lane);
+
+            prop_assert!(channel.is_active());
+            prop_assert_eq!(channel.lane(), Some(lane));
+        }
+
+        /// advance_frame increments frame index.
+        #[test]
+        fn channel_advance_frame(
+            num_advances in 1usize..20,
+            token_count in 0usize..1000
+        ) {
+            let mut channel: Channel<i32> = Channel::new(0);
+            channel.start_utterance(42, None);
+            channel.assign_lane(0);
+
+            for i in 0..num_advances {
+                prop_assert_eq!(channel.frame_index(), i);
+                channel.advance_frame(token_count);
+            }
+
+            prop_assert_eq!(channel.frame_index(), num_advances);
+            prop_assert_eq!(channel.token_count(), token_count);
+        }
+
+        /// complete returns user data and sets Complete state.
+        #[test]
+        fn channel_complete_returns_data(user_data in any::<i32>()) {
+            let mut channel: Channel<i32> = Channel::new(0);
+            channel.start_utterance(user_data, None);
+            channel.assign_lane(0);
+
+            let returned = channel.complete();
+            prop_assert_eq!(returned, Some(user_data));
+            prop_assert_eq!(channel.state(), ChannelState::Complete);
+            prop_assert!(channel.lane().is_none());
+        }
+
+        /// reset returns to Idle state.
+        #[test]
+        fn channel_reset_to_idle(user_data in any::<i32>()) {
+            let mut channel: Channel<i32> = Channel::new(0);
+            channel.start_utterance(user_data, Some(100));
+            channel.assign_lane(5);
+            channel.advance_frame(50);
+
+            channel.reset();
+
+            prop_assert!(channel.is_idle());
+            prop_assert!(channel.lane().is_none());
+            prop_assert!(channel.user_data().is_none());
+            prop_assert_eq!(channel.frame_index(), 0);
+            prop_assert!(channel.total_frames().is_none());
+        }
+
+        /// release_lane transitions Active to Waiting.
+        #[test]
+        fn channel_release_lane_waiting(lane in 0usize..50) {
+            let mut channel: Channel<i32> = Channel::new(0);
+            channel.start_utterance(42, None);
+            channel.assign_lane(lane);
+
+            prop_assert!(channel.is_active());
+            channel.release_lane();
+
+            prop_assert_eq!(channel.state(), ChannelState::Waiting);
+            prop_assert!(channel.lane().is_none());
+        }
+    }
+
+    // =========================================================================
+    // Lane Properties
+    // =========================================================================
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        /// New lane starts in Available state.
+        #[test]
+        fn lane_new_is_available(id in 0usize..100, max_tokens in 1usize..10000) {
+            let lane = Lane::new(id, max_tokens);
+            prop_assert!(lane.is_available());
+            prop_assert_eq!(lane.id(), id);
+            prop_assert_eq!(lane.max_tokens(), max_tokens);
+            prop_assert!(lane.channel().is_none());
+            prop_assert_eq!(lane.token_count(), 0);
+        }
+
+        /// assign_channel transitions to Active state.
+        #[test]
+        fn lane_assign_channel_active(id in 0usize..100, channel in 0usize..50) {
+            let mut lane = Lane::new(id, 1000);
+            lane.assign_channel(channel);
+
+            prop_assert!(lane.is_active());
+            prop_assert_eq!(lane.channel(), Some(channel));
+        }
+
+        /// update_tokens caps at max_tokens.
+        #[test]
+        fn lane_update_tokens_capped(max_tokens in 100usize..1000, token_count in 0usize..2000) {
+            let mut lane = Lane::new(0, max_tokens);
+            lane.assign_channel(0);
+            lane.update_tokens(token_count);
+
+            prop_assert!(lane.token_count() <= max_tokens);
+            prop_assert_eq!(lane.token_count(), token_count.min(max_tokens));
+        }
+
+        /// release_channel returns to Available and returns channel id.
+        #[test]
+        fn lane_release_channel_available(channel in 0usize..100) {
+            let mut lane = Lane::new(0, 1000);
+            lane.assign_channel(channel);
+            lane.update_tokens(500);
+
+            let returned = lane.release_channel();
+
+            prop_assert_eq!(returned, Some(channel));
+            prop_assert!(lane.is_available());
+            prop_assert!(lane.channel().is_none());
+            prop_assert_eq!(lane.token_count(), 0);
+        }
+
+        /// frame_complete sets FrameComplete state.
+        #[test]
+        fn lane_frame_complete_state(channel in 0usize..50) {
+            let mut lane = Lane::new(0, 1000);
+            lane.assign_channel(channel);
+            lane.frame_complete();
+
+            prop_assert_eq!(lane.state(), LaneState::FrameComplete);
+        }
+
+        /// continue_decoding from FrameComplete returns to Active.
+        #[test]
+        fn lane_continue_decoding(channel in 0usize..50) {
+            let mut lane = Lane::new(0, 1000);
+            lane.assign_channel(channel);
+            lane.frame_complete();
+
+            prop_assert_eq!(lane.state(), LaneState::FrameComplete);
+            lane.continue_decoding();
+            prop_assert!(lane.is_active());
+        }
+
+        /// utterance_complete sets UtteranceComplete state.
+        #[test]
+        fn lane_utterance_complete_state(channel in 0usize..50) {
+            let mut lane = Lane::new(0, 1000);
+            lane.assign_channel(channel);
+            lane.utterance_complete();
+
+            prop_assert_eq!(lane.state(), LaneState::UtteranceComplete);
+        }
+    }
+
+    // =========================================================================
+    // DecoderConfig Properties
+    // =========================================================================
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// DecoderConfig preserves all settings.
+        #[test]
+        fn config_preserves_settings(
+            max_channels in 1usize..1000,
+            max_lanes in 1usize..100,
+            max_tokens in 100usize..10000,
+            beam_width in 1.0f32..50.0
+        ) {
+            let config = DecoderConfig {
+                max_channels,
+                max_lanes,
+                max_tokens,
+                beam_width,
+            };
+
+            prop_assert_eq!(config.max_channels, max_channels);
+            prop_assert_eq!(config.max_lanes, max_lanes);
+            prop_assert_eq!(config.max_tokens, max_tokens);
+            prop_assert!((config.beam_width - beam_width).abs() < 1e-6);
+        }
+
+        /// estimate_memory is positive and scales with size.
+        #[test]
+        fn config_estimate_memory_positive(
+            max_channels in 1usize..100,
+            max_lanes in 1usize..50,
+            max_tokens in 100usize..5000
+        ) {
+            let config = DecoderConfig {
+                max_channels,
+                max_lanes,
+                max_tokens,
+                beam_width: 10.0,
+            };
+
+            let mem = config.estimate_memory();
+            prop_assert!(mem > 0);
+
+            // Double everything should roughly double memory
+            let config2 = DecoderConfig {
+                max_channels: max_channels * 2,
+                max_lanes: max_lanes * 2,
+                max_tokens: max_tokens * 2,
+                beam_width: 10.0,
+            };
+            let mem2 = config2.estimate_memory();
+            prop_assert!(mem2 > mem);
+        }
+    }
+
+    // =========================================================================
+    // BatchedDecoder Properties
+    // =========================================================================
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// BatchedDecoder creates correct number of channels and lanes.
+        #[test]
+        fn decoder_correct_counts(
+            max_channels in 1usize..20,
+            max_lanes in 1usize..10
+        ) {
+            let config = DecoderConfig {
+                max_channels,
+                max_lanes,
+                max_tokens: 100,
+                beam_width: 10.0,
+            };
+            let decoder: BatchedDecoder<i32> = BatchedDecoder::new(config);
+
+            // All channels should be idle
+            for i in 0..max_channels {
+                prop_assert!(decoder.channel(i).is_some());
+                prop_assert!(decoder.channel(i).unwrap().is_idle());
+            }
+
+            // All lanes should be available
+            for i in 0..max_lanes {
+                prop_assert!(decoder.lane(i).is_some());
+                prop_assert!(decoder.lane(i).unwrap().is_available());
+            }
+        }
+
+        /// start_utterance returns channel id and adds to ready queue.
+        #[test]
+        fn decoder_start_utterance_queues(num_utterances in 1usize..10) {
+            let config = DecoderConfig {
+                max_channels: 20,
+                max_lanes: 5,
+                max_tokens: 100,
+                beam_width: 10.0,
+            };
+            let mut decoder: BatchedDecoder<i32> = BatchedDecoder::new(config);
+
+            let mut started = Vec::new();
+            for i in 0..num_utterances {
+                if let Some(channel_id) = decoder.start_utterance(i as i32, None) {
+                    started.push(channel_id);
+                }
+            }
+
+            prop_assert_eq!(started.len(), num_utterances);
+
+            // Check ready channels in stats
+            let stats = decoder.stats();
+            prop_assert_eq!(stats.ready_channels, num_utterances);
+        }
+
+        /// schedule assigns up to max_lanes channels.
+        #[test]
+        fn decoder_schedule_respects_lanes(
+            num_utterances in 5usize..15,
+            max_lanes in 1usize..5
+        ) {
+            let config = DecoderConfig {
+                max_channels: 20,
+                max_lanes,
+                max_tokens: 100,
+                beam_width: 10.0,
+            };
+            let mut decoder: BatchedDecoder<i32> = BatchedDecoder::new(config);
+
+            for i in 0..num_utterances {
+                decoder.start_utterance(i as i32, None);
+            }
+
+            let assignments = decoder.schedule();
+
+            // Should assign at most max_lanes
+            prop_assert!(assignments.len() <= max_lanes);
+            prop_assert_eq!(assignments.len(), num_utterances.min(max_lanes));
+
+            // Check stats
+            let stats = decoder.stats();
+            prop_assert_eq!(stats.active_lanes, assignments.len());
+        }
+
+        /// active_lanes returns only active lane IDs.
+        #[test]
+        fn decoder_active_lanes_correct(num_utterances in 1usize..5) {
+            let config = DecoderConfig {
+                max_channels: 20,
+                max_lanes: 10,
+                max_tokens: 100,
+                beam_width: 10.0,
+            };
+            let mut decoder: BatchedDecoder<i32> = BatchedDecoder::new(config);
+
+            for i in 0..num_utterances {
+                decoder.start_utterance(i as i32, None);
+            }
+            decoder.schedule();
+
+            let active = decoder.active_lanes();
+            prop_assert_eq!(active.len(), num_utterances);
+
+            for lane_id in active {
+                prop_assert!(decoder.lane(lane_id).unwrap().is_active());
+            }
+        }
+
+        /// find_idle_channel finds first idle channel.
+        #[test]
+        fn decoder_find_idle_channel(num_busy in 0usize..10) {
+            let max_channels = 15;
+            let config = DecoderConfig {
+                max_channels,
+                max_lanes: 10,
+                max_tokens: 100,
+                beam_width: 10.0,
+            };
+            let mut decoder: BatchedDecoder<i32> = BatchedDecoder::new(config);
+
+            // Mark some channels as busy
+            for i in 0..num_busy.min(max_channels) {
+                decoder.start_utterance(i as i32, None);
+            }
+            decoder.schedule();
+
+            let idle = decoder.find_idle_channel();
+            if num_busy < max_channels {
+                prop_assert!(idle.is_some());
+            }
+        }
+
+        /// complete_utterances returns correct user data.
+        #[test]
+        fn decoder_complete_returns_data(user_data in proptest::collection::vec(any::<i32>(), 1..5)) {
+            let config = DecoderConfig {
+                max_channels: 20,
+                max_lanes: 10,
+                max_tokens: 100,
+                beam_width: 10.0,
+            };
+            let mut decoder: BatchedDecoder<i32> = BatchedDecoder::new(config);
+
+            for &data in &user_data {
+                decoder.start_utterance(data, None);
+            }
+            decoder.schedule();
+
+            // Complete all utterances
+            let completed = decoder.process_frame(|_, _| (10, true));
+            let results = decoder.complete_utterances(&completed);
+
+            prop_assert_eq!(results.len(), user_data.len());
+
+            // All user data should be returned
+            let returned_data: Vec<_> = results.iter().filter_map(|(_, d)| d.clone()).collect();
+            for data in &user_data {
+                prop_assert!(returned_data.contains(data));
+            }
+        }
+    }
+
+    // =========================================================================
+    // DecoderStats Properties
+    // =========================================================================
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// lane_utilization is between 0 and 1.
+        #[test]
+        fn stats_lane_utilization_bounded(
+            num_utterances in 0usize..10,
+            max_lanes in 1usize..10
+        ) {
+            let config = DecoderConfig {
+                max_channels: 20,
+                max_lanes,
+                max_tokens: 100,
+                beam_width: 10.0,
+            };
+            let mut decoder: BatchedDecoder<i32> = BatchedDecoder::new(config);
+
+            for i in 0..num_utterances {
+                decoder.start_utterance(i as i32, None);
+            }
+            decoder.schedule();
+
+            let stats = decoder.stats();
+            prop_assert!(stats.lane_utilization >= 0.0);
+            prop_assert!(stats.lane_utilization <= 1.0);
+        }
+
+        /// Stats counts are consistent.
+        #[test]
+        fn stats_counts_consistent(num_utterances in 1usize..8, max_lanes in 1usize..5) {
+            let config = DecoderConfig {
+                max_channels: 20,
+                max_lanes,
+                max_tokens: 100,
+                beam_width: 10.0,
+            };
+            let mut decoder: BatchedDecoder<i32> = BatchedDecoder::new(config);
+
+            for i in 0..num_utterances {
+                decoder.start_utterance(i as i32, None);
+            }
+            decoder.schedule();
+
+            let stats = decoder.stats();
+
+            // active_channels + ready_channels should equal num_utterances
+            prop_assert_eq!(stats.active_channels + stats.ready_channels, num_utterances);
+
+            // active_lanes should match active_channels (each channel in one lane)
+            prop_assert_eq!(stats.active_lanes, stats.active_channels);
+        }
+    }
+}

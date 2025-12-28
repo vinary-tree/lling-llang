@@ -318,3 +318,91 @@ mod tests {
         assert_eq!(words, vec!["zero"]);
     }
 }
+
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use crate::path::nbest;
+    use crate::test_utils::{arb_tropical_lattice, arb_linear_lattice, arb_diamond_lattice};
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// Viterbi on a linear lattice finds the only path.
+        #[test]
+        fn viterbi_linear_finds_only_path(
+            mut lattice in arb_linear_lattice(4)
+        ) {
+            let result = viterbi(&mut lattice);
+            prop_assert!(result.success);
+            prop_assert_eq!(result.path.len(), 4);
+        }
+
+        /// Viterbi on a lattice always succeeds (we generate connected lattices).
+        #[test]
+        fn viterbi_always_succeeds_on_connected(
+            mut lattice in arb_tropical_lattice(3, 2)
+        ) {
+            let result = viterbi(&mut lattice);
+            prop_assert!(result.success);
+        }
+
+        /// Viterbi path length matches number of positions.
+        #[test]
+        fn viterbi_path_length_matches_positions(
+            mut lattice in arb_tropical_lattice(4, 3)
+        ) {
+            let result = viterbi(&mut lattice);
+            prop_assert!(result.success);
+            prop_assert_eq!(result.path.len(), 4);
+        }
+
+        /// Viterbi finds optimal path (weight <= all other paths).
+        #[test]
+        fn viterbi_finds_optimal(
+            mut lattice in arb_diamond_lattice(3)
+        ) {
+            let viterbi_result = viterbi(&mut lattice);
+            prop_assert!(viterbi_result.success);
+            let viterbi_weight = viterbi_result.path.weight.value();
+
+            // Get all paths via n-best
+            let all_paths = nbest(&mut lattice, 100);
+
+            // Viterbi should find the minimum weight
+            for path in &all_paths {
+                prop_assert!(
+                    viterbi_weight <= path.weight.value() + 1e-9,
+                    "Viterbi weight {} > path weight {}",
+                    viterbi_weight,
+                    path.weight.value()
+                );
+            }
+        }
+
+        /// Viterbi path has non-negative weight (tropical).
+        #[test]
+        fn viterbi_weight_non_negative(
+            mut lattice in arb_tropical_lattice(3, 2)
+        ) {
+            let result = viterbi(&mut lattice);
+            prop_assert!(result.success);
+            prop_assert!(result.path.weight.value() >= 0.0);
+        }
+
+        /// Viterbi path is marked complete.
+        #[test]
+        fn viterbi_path_is_complete(
+            mut lattice in arb_tropical_lattice(2, 2)
+        ) {
+            let result = viterbi(&mut lattice);
+            prop_assert!(result.success);
+            prop_assert!(result.path.is_complete);
+        }
+    }
+}

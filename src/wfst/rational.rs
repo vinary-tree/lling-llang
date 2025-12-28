@@ -949,4 +949,121 @@ mod tests {
         });
         assert!(has_final);
     }
+
+    // =========================================================================
+    // Property-Based Tests (proptest)
+    // =========================================================================
+    mod property_tests {
+        use super::*;
+        use crate::test_utils::arb_tropical_wfst;
+        use crate::wfst::NO_STATE;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// Union should have correct state count: 1 + |T₁| + |T₂|.
+            #[test]
+            fn union_state_count(
+                fst1 in arb_tropical_wfst(5, 2),
+                fst2 in arb_tropical_wfst(5, 2)
+            ) {
+                let u = union(&fst1, &fst2);
+                let expected = 1 + fst1.num_states() + fst2.num_states();
+                prop_assert_eq!(u.num_states(), expected);
+            }
+
+            /// Union with empty FST should preserve the other FST's structure.
+            #[test]
+            fn union_identity_with_empty(
+                fst in arb_tropical_wfst(5, 2)
+            ) {
+                let empty: VectorWfst<char, TropicalWeight> = VectorWfst::new();
+                let mut u = union(&fst, &empty);
+
+                // Super-start should have only 1 epsilon transition (to fst, not empty)
+                if fst.start() != NO_STATE {
+                    let trans = u.transitions_lazy(0);
+                    prop_assert_eq!(trans.len(), 1, "Union with empty should have 1 epsilon");
+                }
+            }
+
+            /// Concatenation should have state count: |T₁| + |T₂|.
+            #[test]
+            fn concat_state_count(
+                fst1 in arb_tropical_wfst(5, 2),
+                fst2 in arb_tropical_wfst(5, 2)
+            ) {
+                let c = concat(&fst1, &fst2);
+                let expected = fst1.num_states() + fst2.num_states();
+                prop_assert_eq!(c.num_states(), expected);
+            }
+
+            /// Closure should have state count: 1 + |T|.
+            #[test]
+            fn closure_state_count(
+                fst in arb_tropical_wfst(5, 2)
+            ) {
+                let k = closure(&fst);
+                let expected = 1 + fst.num_states();
+                prop_assert_eq!(k.num_states(), expected);
+            }
+
+            /// Closure always accepts empty string (super-start is final).
+            #[test]
+            fn closure_accepts_empty(
+                fst in arb_tropical_wfst(5, 2)
+            ) {
+                let mut k = closure(&fst);
+                k.expand(0);
+                prop_assert!(k.is_final(0), "Closure super-start should be final");
+            }
+
+            /// Closure plus start is NEVER final because it's concat(fst, closure(fst))
+            /// and concat makes fst1 states non-final.
+            #[test]
+            fn closure_plus_start_not_final(
+                fst in arb_tropical_wfst(5, 2)
+            ) {
+                if fst.num_states() == 0 || fst.start() == NO_STATE {
+                    return Ok(());
+                }
+
+                let mut kp = closure_plus(&fst);
+                kp.expand(0);
+
+                // closure_plus = concat(fst, closure(fst))
+                // In concat, fst1 states are NEVER final (they have epsilon to fst2)
+                prop_assert!(
+                    !kp.is_final(0),
+                    "Closure+ start should never be final (concat makes fst1 non-final)"
+                );
+            }
+
+            /// Union preserves final state count (sum of both FSTs' finals).
+            #[test]
+            fn union_preserves_finals(
+                fst1 in arb_tropical_wfst(5, 2),
+                fst2 in arb_tropical_wfst(5, 2)
+            ) {
+                let mut u = union(&fst1, &fst2);
+
+                // Count finals in original FSTs
+                let finals1: usize = (0..fst1.num_states() as StateId)
+                    .filter(|&s| fst1.is_final(s))
+                    .count();
+                let finals2: usize = (0..fst2.num_states() as StateId)
+                    .filter(|&s| fst2.is_final(s))
+                    .count();
+
+                // Count finals in union (excluding super-start which is not final)
+                let union_finals: usize = (0..u.num_states() as StateId)
+                    .filter(|&s| {
+                        u.expand(s);
+                        u.is_final(s)
+                    })
+                    .count();
+
+                prop_assert_eq!(union_finals, finals1 + finals2);
+            }
+        }
+    }
 }

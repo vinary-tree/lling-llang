@@ -145,6 +145,199 @@ fn compute_topological_order<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>)
     order
 }
 
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use crate::wfst::{VectorWfst, MutableWfst, Wfst};
+    use proptest::prelude::*;
+
+    /// Strategy for generating simple chain WFSTs.
+    fn arb_chain_wfst(max_length: usize) -> impl Strategy<Value = VectorWfst<char, LogWeight>> {
+        (1..=max_length).prop_flat_map(|len| {
+            proptest::collection::vec(-5.0f64..5.0, len).prop_map(move |weights| {
+                let mut fst = VectorWfst::new();
+                for _ in 0..=len {
+                    fst.add_state();
+                }
+                fst.set_start(0);
+                fst.set_final(len as u32, LogWeight::one());
+                for (i, w) in weights.iter().enumerate() {
+                    let label = (b'a' + (i % 26) as u8) as char;
+                    fst.add_arc(i as u32, Some(label), Some(label), (i + 1) as u32, LogWeight::new(*w));
+                }
+                fst
+            })
+        })
+    }
+
+    /// Strategy for generating parallel path WFSTs.
+    fn arb_parallel_wfst(max_paths: usize) -> impl Strategy<Value = VectorWfst<char, LogWeight>> {
+        proptest::collection::vec(-5.0f64..5.0, 1..=max_paths)
+            .prop_map(|weights| {
+                let mut fst = VectorWfst::new();
+                let s0 = fst.add_state();
+                let s1 = fst.add_state();
+                fst.set_start(s0);
+                fst.set_final(s1, LogWeight::one());
+                for (i, w) in weights.iter().enumerate() {
+                    let label = (b'a' + (i % 26) as u8) as char;
+                    fst.add_arc(s0, Some(label), Some(label), s1, LogWeight::new(*w));
+                }
+                fst
+            })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        /// Forward score of chain equals sum of arc weights.
+        #[test]
+        fn forward_chain_equals_weight_sum(fst in arb_chain_wfst(5)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            let score = forward_score(&grad_fst);
+
+            // For a chain, forward score = sum of arc weights
+            let mut expected = 0.0;
+            for s in 0..fst.num_states() as u32 {
+                for arc in fst.transitions(s) {
+                    expected += arc.weight.value();
+                }
+            }
+
+            prop_assert!((score.value() - expected).abs() < 1e-6,
+                "Chain score {} != expected {}", score.value(), expected);
+        }
+
+        /// Forward score of parallel paths is log-sum-exp.
+        #[test]
+        fn forward_parallel_is_logsumexp(fst in arb_parallel_wfst(5)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            let score = forward_score(&grad_fst);
+
+            // For parallel paths, total = -log(sum_i exp(-w_i))
+            let weights: Vec<f64> = fst.transitions(0).iter()
+                .map(|arc| arc.weight.value())
+                .collect();
+
+            if !weights.is_empty() {
+                let probs: f64 = weights.iter().map(|w| (-w).exp()).sum();
+                let expected = -probs.ln();
+                prop_assert!((score.value() - expected).abs() < 1e-6,
+                    "Parallel score {} != expected {}", score.value(), expected);
+            }
+        }
+
+        /// Forward pass sets computed flag.
+        #[test]
+        fn forward_sets_computed_flag(fst in arb_chain_wfst(3)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            prop_assert!(!grad_fst.is_forward_computed());
+            let _ = forward_score(&grad_fst);
+            prop_assert!(grad_fst.is_forward_computed());
+        }
+
+        /// Forward score is deterministic.
+        #[test]
+        fn forward_is_deterministic(fst in arb_parallel_wfst(4)) {
+            let grad_fst1 = GradientWfst::from_wfst(&fst);
+            let grad_fst2 = GradientWfst::from_wfst(&fst);
+
+            let score1 = forward_score(&grad_fst1);
+            let score2 = forward_score(&grad_fst2);
+
+            prop_assert!((score1.value() - score2.value()).abs() < 1e-9,
+                "Scores differ: {} vs {}", score1.value(), score2.value());
+        }
+
+        /// log_sum_exp_paths is alias for forward_score.
+        #[test]
+        fn logsumexp_alias(fst in arb_chain_wfst(3)) {
+            let grad_fst1 = GradientWfst::from_wfst(&fst);
+            let grad_fst2 = GradientWfst::from_wfst(&fst);
+
+            let score1 = forward_score(&grad_fst1);
+            let score2 = log_sum_exp_paths(&grad_fst2);
+
+            prop_assert!((score1.value() - score2.value()).abs() < 1e-9,
+                "forward_score {} != log_sum_exp_paths {}", score1.value(), score2.value());
+        }
+
+        /// Forward score caches total in GradientWfst.
+        #[test]
+        fn forward_caches_total(fst in arb_chain_wfst(3)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            prop_assert!(grad_fst.total_score().is_none());
+
+            let score = forward_score(&grad_fst);
+            let cached = grad_fst.total_score();
+
+            prop_assert!(cached.is_some());
+            prop_assert!((cached.unwrap().value() - score.value()).abs() < 1e-9);
+        }
+
+        /// Forward scores at final states match total for chain.
+        #[test]
+        fn forward_final_matches_total(fst in arb_chain_wfst(4)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            let score = forward_score(&grad_fst);
+
+            // For a chain, forward score at final state equals total
+            let final_state = (fst.num_states() - 1) as u32;
+            let final_score = grad_fst.forward_score(final_state);
+
+            // Total includes final weight (which is 1 = log 0)
+            prop_assert!((final_score.value() - score.value()).abs() < 1e-6,
+                "Final state score {} != total {}", final_score.value(), score.value());
+        }
+
+        /// Forward score is non-zero for connected WFST.
+        #[test]
+        fn forward_connected_non_zero(fst in arb_chain_wfst(3)) {
+            let grad_fst = GradientWfst::from_wfst(&fst);
+            let score = forward_score(&grad_fst);
+            prop_assert!(!score.is_zero(), "Forward score should not be zero for connected WFST");
+        }
+
+        /// Forward score increases with added high-probability path.
+        #[test]
+        fn forward_increases_with_better_path(
+            base_weight in -5.0f64..5.0,
+            better_weight in -10.0f64..-5.0
+        ) {
+            // Create base FST with one path
+            let mut fst1 = VectorWfst::<char, LogWeight>::new();
+            let s0 = fst1.add_state();
+            let s1 = fst1.add_state();
+            fst1.set_start(s0);
+            fst1.set_final(s1, LogWeight::one());
+            fst1.add_arc(s0, Some('a'), Some('a'), s1, LogWeight::new(base_weight));
+
+            // Create FST with additional better path (lower weight = higher probability)
+            let mut fst2 = VectorWfst::<char, LogWeight>::new();
+            let s0 = fst2.add_state();
+            let s1 = fst2.add_state();
+            fst2.set_start(s0);
+            fst2.set_final(s1, LogWeight::one());
+            fst2.add_arc(s0, Some('a'), Some('a'), s1, LogWeight::new(base_weight));
+            fst2.add_arc(s0, Some('b'), Some('b'), s1, LogWeight::new(better_weight));
+
+            let grad1 = GradientWfst::from_wfst(&fst1);
+            let grad2 = GradientWfst::from_wfst(&fst2);
+
+            let score1 = forward_score(&grad1);
+            let score2 = forward_score(&grad2);
+
+            // More paths = lower total weight (higher total probability)
+            prop_assert!(score2.value() <= score1.value() + 1e-9,
+                "Adding path should decrease weight: {} should be <= {}", score2.value(), score1.value());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

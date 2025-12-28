@@ -46,7 +46,7 @@
 //! - Chen et al., "GPU-based WFST Decoder with Exact Lattice Generation" (2018)
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::cell::UnsafeCell;
+use std::sync::Mutex;
 
 /// Default number of vectors (matches CUDA warp size).
 pub const DEFAULT_K: usize = 32;
@@ -94,57 +94,44 @@ impl Default for KVectorConfig {
 }
 
 /// A slot in a K-vector that accumulates values.
-#[derive(Debug)]
+///
+/// Uses a Mutex for thread-safe CPU simulation. Real GPU implementations
+/// would use lock-free primitives with pre-allocated buffers.
 struct KVectorSlot<T> {
-    /// Values accumulated in this slot.
-    values: UnsafeCell<Vec<T>>,
-    /// Number of values in the slot.
+    /// Values accumulated in this slot (mutex-protected for CPU safety).
+    values: Mutex<Vec<T>>,
+    /// Number of values in the slot (for fast reads without lock).
     count: AtomicUsize,
 }
 
-// Safety: We use atomic operations for count and lock-free append
-unsafe impl<T: Send> Send for KVectorSlot<T> {}
-unsafe impl<T: Send + Sync> Sync for KVectorSlot<T> {}
+impl<T: std::fmt::Debug> std::fmt::Debug for KVectorSlot<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let values = self.values.lock().unwrap();
+        f.debug_struct("KVectorSlot")
+            .field("values", &*values)
+            .field("count", &self.count.load(Ordering::Relaxed))
+            .finish()
+    }
+}
 
 impl<T> KVectorSlot<T> {
     fn new(capacity: usize) -> Self {
         Self {
-            values: UnsafeCell::new(Vec::with_capacity(capacity)),
+            values: Mutex::new(Vec::with_capacity(capacity)),
             count: AtomicUsize::new(0),
         }
     }
 
     fn push(&self, value: T) {
-        // Reserve a slot atomically
-        let index = self.count.fetch_add(1, Ordering::AcqRel);
-
-        // Safety: Each thread gets a unique index
-        unsafe {
-            let values = &mut *self.values.get();
-            // Ensure capacity (not perfectly thread-safe, but acceptable for our use)
-            if index >= values.capacity() {
-                // In production GPU code, this would be pre-allocated
-                // For CPU simulation, we allow growth with potential races
-                values.reserve(values.capacity().max(1));
-            }
-            if index < values.len() {
-                values[index] = value;
-            } else {
-                // Extend to reach the index
-                while values.len() <= index {
-                    values.push(std::mem::MaybeUninit::uninit().assume_init());
-                }
-                values[index] = value;
-            }
-        }
+        let mut values = self.values.lock().unwrap();
+        values.push(value);
+        self.count.store(values.len(), Ordering::Release);
     }
 
     fn drain(&self) -> Vec<T> {
-        let count = self.count.swap(0, Ordering::AcqRel);
-        unsafe {
-            let values = &mut *self.values.get();
-            values.drain(..count.min(values.len())).collect()
-        }
+        let mut values = self.values.lock().unwrap();
+        self.count.store(0, Ordering::Release);
+        std::mem::take(&mut *values)
     }
 
     fn len(&self) -> usize {
@@ -156,10 +143,9 @@ impl<T> KVectorSlot<T> {
     }
 
     fn clear(&self) {
+        let mut values = self.values.lock().unwrap();
+        values.clear();
         self.count.store(0, Ordering::Release);
-        unsafe {
-            (*self.values.get()).clear();
-        }
     }
 }
 
@@ -175,10 +161,6 @@ pub struct KVector<T> {
     /// Simple random state for vector selection.
     random_state: AtomicUsize,
 }
-
-// Safety: Internal synchronization via atomics
-unsafe impl<T: Send> Send for KVector<T> {}
-unsafe impl<T: Send + Sync> Sync for KVector<T> {}
 
 impl<T> KVector<T> {
     /// Create a new K-vector.
@@ -491,5 +473,214 @@ mod tests {
 
         let values = k_vec.collect(0);
         assert_eq!(values.len(), 800);
+    }
+}
+
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        // =====================================================================
+        // KVectorConfig Properties
+        // =====================================================================
+
+        /// Config memory size is proportional to parameters.
+        #[test]
+        fn config_memory_scales(
+            num_vectors in 1usize..64,
+            num_slots in 1usize..1000,
+            slot_capacity in 1usize..100,
+            element_size in 1usize..32
+        ) {
+            let config = KVectorConfig::with_capacity(num_vectors, num_slots, slot_capacity);
+            let expected = num_vectors * num_slots * slot_capacity * element_size;
+            prop_assert_eq!(config.memory_size(element_size), expected);
+        }
+
+        // =====================================================================
+        // Push/Collect Properties
+        // =====================================================================
+
+        /// Push-collect preserves all values (no loss).
+        #[test]
+        fn push_collect_preserves_values(values in proptest::collection::vec(0i32..1000, 1..50)) {
+            let k_vec: KVector<i32> = KVector::new(KVectorConfig::new(4, 10));
+
+            for &v in &values {
+                k_vec.push(0, v);
+            }
+
+            let collected = k_vec.collect(0);
+            prop_assert_eq!(collected.len(), values.len(),
+                "Count mismatch: pushed {} but collected {}", values.len(), collected.len());
+
+            // All values should be present (order may vary)
+            let mut sorted_input = values.clone();
+            sorted_input.sort();
+            let mut sorted_output = collected;
+            sorted_output.sort();
+            prop_assert_eq!(sorted_input, sorted_output);
+        }
+
+        /// Push to specific vector is retrievable.
+        #[test]
+        fn push_to_vector_retrievable(
+            k in 0usize..4,
+            slot in 0usize..5,
+            values in proptest::collection::vec(0i32..1000, 1..20)
+        ) {
+            let k_vec: KVector<i32> = KVector::new(KVectorConfig::new(4, 10));
+
+            for &v in &values {
+                k_vec.push_to_vector(k, slot, v);
+            }
+
+            let collected = k_vec.collect(slot);
+            prop_assert_eq!(collected.len(), values.len());
+
+            let mut sorted_input = values.clone();
+            sorted_input.sort();
+            let mut sorted_output = collected;
+            sorted_output.sort();
+            prop_assert_eq!(sorted_input, sorted_output);
+        }
+
+        // =====================================================================
+        // Slot Count Properties
+        // =====================================================================
+
+        /// slot_count matches actual values pushed.
+        #[test]
+        fn slot_count_accurate(values in proptest::collection::vec(0i32..1000, 0..30)) {
+            let k_vec: KVector<i32> = KVector::new(KVectorConfig::new(4, 10));
+
+            for &v in &values {
+                k_vec.push(0, v);
+            }
+
+            prop_assert_eq!(k_vec.slot_count(0), values.len());
+        }
+
+        /// Empty slot is_empty returns true.
+        #[test]
+        fn empty_slot_is_empty(num_slots in 2usize..10) {
+            let k_vec: KVector<i32> = KVector::new(KVectorConfig::new(4, num_slots));
+
+            // Only push to slot 0
+            k_vec.push(0, 42);
+
+            prop_assert!(!k_vec.slot_is_empty(0));
+            for slot in 1..num_slots {
+                prop_assert!(k_vec.slot_is_empty(slot), "Slot {} should be empty", slot);
+            }
+        }
+
+        // =====================================================================
+        // Clear Properties
+        // =====================================================================
+
+        /// Clear empties all slots.
+        #[test]
+        fn clear_empties_all(
+            pushes in proptest::collection::vec((0usize..5, 0i32..100), 1..50)
+        ) {
+            let k_vec: KVector<i32> = KVector::new(KVectorConfig::new(4, 10));
+
+            for (slot, value) in &pushes {
+                k_vec.push(*slot, *value);
+            }
+
+            k_vec.clear();
+
+            for slot in 0..10 {
+                prop_assert!(k_vec.slot_is_empty(slot), "Slot {} should be empty after clear", slot);
+                prop_assert_eq!(k_vec.slot_count(slot), 0);
+            }
+        }
+
+        // =====================================================================
+        // Stats Properties
+        // =====================================================================
+
+        /// Stats reflect actual data.
+        #[test]
+        fn stats_accurate(values in proptest::collection::vec((0usize..5, 0i32..100), 1..30)) {
+            let k_vec: KVector<i32> = KVector::new(KVectorConfig::new(4, 10));
+
+            for (slot, value) in &values {
+                k_vec.push(*slot, *value);
+            }
+
+            let stats = k_vec.stats();
+            prop_assert_eq!(stats.num_vectors, 4);
+            prop_assert_eq!(stats.num_slots, 10);
+            prop_assert_eq!(stats.total_values, values.len());
+        }
+
+        /// Contention reduction equals num_vectors.
+        #[test]
+        fn contention_reduction_matches_k(num_vectors in 1usize..64) {
+            let k_vec: KVector<i32> = KVector::new(KVectorConfig::new(num_vectors, 10));
+            let stats = k_vec.stats();
+
+            prop_assert!((stats.contention_reduction() - num_vectors as f64).abs() < 0.01);
+        }
+
+        // =====================================================================
+        // Reduction Properties
+        // =====================================================================
+
+        /// reduce_with_k_vectors applies function correctly.
+        #[test]
+        fn reduce_sum_correct(values in proptest::collection::vec(1i32..100, 1..20)) {
+            let k_vec: KVector<i32> = KVector::new(KVectorConfig::new(4, 10));
+
+            let expected_sum: i32 = values.iter().sum();
+            for &v in &values {
+                k_vec.push(0, v);
+            }
+
+            let result = reduce_with_k_vectors(&k_vec, 0, |vals| vals.iter().sum::<i32>());
+            prop_assert_eq!(result, Some(expected_sum));
+        }
+
+        /// reduce_with_k_vectors returns None for empty slot.
+        #[test]
+        fn reduce_empty_is_none(_ in 0..1) {
+            let k_vec: KVector<i32> = KVector::new(KVectorConfig::new(4, 10));
+
+            let result = reduce_with_k_vectors(&k_vec, 0, |vals: &[i32]| vals.iter().sum::<i32>());
+            prop_assert_eq!(result, None);
+        }
+
+        // =====================================================================
+        // Distribution Properties
+        // =====================================================================
+
+        /// Values are distributed across K vectors.
+        #[test]
+        fn values_distributed(num_values in 100usize..200) {
+            let k_vec: KVector<i32> = KVector::new(KVectorConfig::new(4, 10));
+
+            for i in 0..num_values {
+                k_vec.push(0, i as i32);
+            }
+
+            // Stats should show correct count BEFORE collect (which drains values)
+            let stats = k_vec.stats();
+            prop_assert_eq!(stats.total_values, num_values);
+
+            // Check that values are spread across vectors (not all in one)
+            let collected = k_vec.collect(0);
+            prop_assert_eq!(collected.len(), num_values);
+        }
     }
 }

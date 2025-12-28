@@ -501,6 +501,158 @@ mod tests {
     use crate::semiring::{LogWeight, TropicalWeight};
     use crate::wfst::{MutableWfst, VectorWfst, VectorWfstBuilder};
 
+    // Property-based tests
+    mod property_tests {
+        use super::*;
+        use crate::test_utils::arb_acyclic_wfst_tropical;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// Different queue types should produce the same distances for acyclic WFSTs.
+            #[test]
+            fn queue_independence_acyclic(
+                fst in arb_acyclic_wfst_tropical(10, 3)
+            ) {
+                if fst.num_states() == 0 {
+                    return Ok(());
+                }
+
+                let fifo_result = single_source_shortest_distance(
+                    &fst,
+                    ShortestDistanceConfig { queue_type: QueueType::Fifo, ..Default::default() }
+                );
+
+                let topo_result = single_source_shortest_distance(
+                    &fst,
+                    ShortestDistanceConfig { queue_type: QueueType::Topological, ..Default::default() }
+                );
+
+                let auto_result = single_source_shortest_distance(
+                    &fst,
+                    ShortestDistanceConfig { queue_type: QueueType::Auto, ..Default::default() }
+                );
+
+                // All should produce the same result
+                match (fifo_result, topo_result, auto_result) {
+                    (Some(fifo), Some(topo), Some(auto)) => {
+                        prop_assert_eq!(fifo.len(), topo.len());
+                        prop_assert_eq!(fifo.len(), auto.len());
+                        for i in 0..fifo.len() {
+                            prop_assert!(
+                                fifo[i].approx_eq(&topo[i], 1e-6),
+                                "FIFO[{}]={:?} != Topo[{}]={:?}",
+                                i, fifo[i], i, topo[i]
+                            );
+                            prop_assert!(
+                                fifo[i].approx_eq(&auto[i], 1e-6),
+                                "FIFO[{}]={:?} != Auto[{}]={:?}",
+                                i, fifo[i], i, auto[i]
+                            );
+                        }
+                    }
+                    (None, None, None) => { /* All failed consistently */ }
+                    _ => {
+                        prop_assert!(false, "Inconsistent results across queue types");
+                    }
+                }
+            }
+
+            /// Shortest distance should be non-negative for tropical semiring.
+            #[test]
+            fn shortest_distance_non_negative(
+                fst in arb_acyclic_wfst_tropical(8, 3)
+            ) {
+                if let Some(distances) = single_source_shortest_distance(&fst, ShortestDistanceConfig::default()) {
+                    for d in distances {
+                        // In tropical semiring, zero() is infinity (unreachable)
+                        // All reached states should have finite weight >= 0
+                        if !d.is_zero() {
+                            prop_assert!(d.value() >= 0.0, "Negative distance: {:?}", d);
+                        }
+                    }
+                }
+            }
+
+            /// Shortest distance to start state should be identity (one).
+            #[test]
+            fn shortest_distance_start_is_one(
+                fst in arb_acyclic_wfst_tropical(8, 3)
+            ) {
+                if fst.num_states() == 0 || fst.start() == NO_STATE {
+                    return Ok(());
+                }
+
+                if let Some(distances) = single_source_shortest_distance(&fst, ShortestDistanceConfig::default()) {
+                    let start = fst.start() as usize;
+                    prop_assert!(
+                        distances[start].approx_eq(&TropicalWeight::one(), 1e-10),
+                        "Distance to start should be one, got {:?}",
+                        distances[start]
+                    );
+                }
+            }
+
+            /// All-pairs shortest distance diagonal should be one (self-loops).
+            #[test]
+            fn all_pairs_diagonal_is_one(
+                fst in arb_acyclic_wfst_tropical(5, 2)
+            ) {
+                if fst.num_states() == 0 {
+                    return Ok(());
+                }
+
+                if let Some(distances) = all_pairs_shortest_distance(&fst) {
+                    for i in 0..distances.len() {
+                        prop_assert!(
+                            distances[i][i].approx_eq(&TropicalWeight::one(), 1e-10),
+                            "Diagonal d[{}][{}] should be one, got {:?}",
+                            i, i, distances[i][i]
+                        );
+                    }
+                }
+            }
+
+            /// Reverse shortest distance for final states should be at most their final weight.
+            /// For leaf final states (no outgoing transitions), distance equals final weight.
+            /// For non-leaf finals, distance may be less (better path through other finals).
+            #[test]
+            fn reverse_distance_final_states(
+                fst in arb_acyclic_wfst_tropical(6, 2)
+            ) {
+                if fst.num_states() == 0 {
+                    return Ok(());
+                }
+
+                if let Some(distances) = reverse_shortest_distance(&fst, ShortestDistanceConfig::default()) {
+                    for state in 0..fst.num_states() {
+                        let state_id = state as StateId;
+                        if fst.is_final(state_id) {
+                            let final_w = fst.final_weight(state_id);
+                            let has_transitions = !fst.transitions(state_id).is_empty();
+
+                            if has_transitions {
+                                // Non-leaf final: distance should be <= final_weight
+                                // (may have shorter path through other finals)
+                                prop_assert!(
+                                    distances[state].value() <= final_w.value() + 1e-6,
+                                    "Final state {} distance {:?} > final_weight {:?}",
+                                    state, distances[state], final_w
+                                );
+                            } else {
+                                // Leaf final (no outgoing): distance equals final_weight
+                                prop_assert!(
+                                    distances[state].approx_eq(&final_w, 1e-6),
+                                    "Leaf final state {} distance {:?} != final_weight {:?}",
+                                    state, distances[state], final_w
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn build_linear_fst(n: usize) -> VectorWfst<char, TropicalWeight> {
         let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::with_capacity(n + 1);
         fst.reserve_states(n + 1);
