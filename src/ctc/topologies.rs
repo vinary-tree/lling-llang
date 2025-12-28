@@ -494,6 +494,7 @@ pub fn selfless_compact_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
 mod tests {
     use super::*;
     use crate::semiring::{LogWeight, TropicalWeight};
+    use crate::wfst::Wfst;
 
     #[test]
     fn test_correct_ctc_structure() {

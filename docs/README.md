@@ -32,7 +32,8 @@ Core concepts and design of the framework:
 | Document | Description |
 |----------|-------------|
 | [Overview](architecture/overview.md) | High-level architecture and component relationships |
-| [Semirings](architecture/semirings.md) | Algebraic weight structures for path computation |
+| [Semirings](architecture/semirings.md) | Algebraic weight structures (Tropical, Log, Probability, String, Expectation) |
+| [WFST Operations](architecture/wfst-operations.md) | Rational operations (union, concat, closure) and unary operations (invert, project, reverse) |
 | [Lattices](architecture/lattices.md) | Weighted DAGs representing correction alternatives |
 | [WFST Traits](architecture/wfst-traits.md) | Trait hierarchy for finite state transducers |
 | [Backends](architecture/backends.md) | Storage abstraction and implementations |
@@ -40,14 +41,33 @@ Core concepts and design of the framework:
 
 ### Algorithms
 
-Algorithms for path extraction and parsing:
+Core WFST algorithms:
 
 | Document | Description |
 |----------|-------------|
 | [Path Extraction](algorithms/path-extraction.md) | Viterbi, N-best, and beam search algorithms |
+| [Shortest Distance](algorithms/shortest-distance.md) | Single-source and all-pairs shortest distance with queue disciplines |
+| [Weight Pushing](algorithms/weight-pushing.md) | Weight normalization for beam search optimization |
+| [Epsilon Removal](algorithms/epsilon-removal.md) | Remove epsilon transitions from WFSTs |
+| [Determinization](algorithms/determinization.md) | Transform non-deterministic to deterministic WFSTs |
+| [Minimization](algorithms/minimization.md) | Minimize WFST states and transitions |
+| [Synchronization](algorithms/synchronization.md) | Normalize input/output label shifting in transducers |
 | [Parsing](algorithms/parsing.md) | Earley parser for lattice input |
 | [Composition](algorithms/composition.md) | Lazy FST and CFG composition operators |
 | [Topological Sort](algorithms/topological-sort.md) | Kahn's algorithm for DAG ordering |
+
+### Advanced Features
+
+Advanced modules for speech recognition and deep learning:
+
+| Document | Description |
+|----------|-------------|
+| [CTC Topologies](advanced/ctc-topologies.md) | CTC graph structures (Correct, Compact, Minimal, Selfless) |
+| [Differentiable Operations](advanced/differentiable.md) | Gradient computation through WFST operations |
+| [Deep Learning Integration](advanced/deep-learning.md) | WFST layers, token graphs, lexicon marginalization |
+| [ASR Pipeline](advanced/asr-pipeline.md) | Speech recognition transducer construction (H∘C∘L∘G) |
+| [Beam Optimization](advanced/beam-optimization.md) | Log-semiring pushing, lookahead, token grouping |
+| [GPU Acceleration](advanced/gpu-acceleration.md) | CSR format, atomic recombination, batched streaming |
 
 ### Integration Guides
 
@@ -121,6 +141,26 @@ Detailed API documentation:
 2. [Lattices](architecture/lattices.md) - Learn about weighted DAGs
 3. [Path Extraction](algorithms/path-extraction.md) - Find optimal paths
 4. [Layers](architecture/layers.md) - Build correction pipelines
+
+**Working with WFST algorithms?**
+
+1. [WFST Operations](architecture/wfst-operations.md) - Union, concat, closure, invert, project
+2. [Shortest Distance](algorithms/shortest-distance.md) - Core graph algorithms
+3. [Weight Pushing](algorithms/weight-pushing.md) - Weight normalization
+4. [Determinization](algorithms/determinization.md) - Remove non-determinism
+5. [Minimization](algorithms/minimization.md) - Reduce WFST size
+
+**Building speech recognition systems?**
+
+1. [CTC Topologies](advanced/ctc-topologies.md) - Graph structures for CTC
+2. [ASR Pipeline](advanced/asr-pipeline.md) - H∘C∘L∘G cascade construction
+3. [Beam Optimization](advanced/beam-optimization.md) - Log-semiring pushing for speed
+4. [GPU Acceleration](advanced/gpu-acceleration.md) - High-performance decoding
+
+**Integrating with deep learning?**
+
+1. [Differentiable Operations](advanced/differentiable.md) - Gradients through WFSTs
+2. [Deep Learning Integration](advanced/deep-learning.md) - WFST layers and marginalization
 
 **Integrating with your system?**
 

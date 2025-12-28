@@ -1,0 +1,502 @@
+//! Token recombination with uint64 packing.
+//!
+//! This module provides efficient token recombination using uint64 packing,
+//! enabling atomic operations without precision loss.
+//!
+//! ## Problem
+//!
+//! During Viterbi decoding, multiple tokens may reach the same state. We need to:
+//! 1. Keep only the best token (lowest cost)
+//! 2. Handle concurrent updates from parallel threads
+//! 3. Preserve full precision for costs
+//!
+//! ## Solution: uint64 Packing
+//!
+//! Pack cost and arc ID into a single 64-bit value:
+//!
+//! ```text
+//! |<------ 32 bits ------>|<------ 32 bits ------>|
+//! |     cost (f32)        |      arc_id (u32)     |
+//! ```
+//!
+//! The cost is stored in the high bits so that atomic min operations
+//! naturally select the lowest-cost token.
+//!
+//! ## Algorithm
+//!
+//! ```text
+//! procedure RECOMBINE(cost, arc_id, state):
+//!     old_packed = state_to_token[state]
+//!     new_packed = pack(cost, arc_id)
+//!     result = atomic_min(state_to_token[state], new_packed)
+//!     if result > new_packed:
+//!         // This token won, store in per-arc buffer
+//!         per_arc_buffer[arc_id] = token
+//! ```
+//!
+//! ## Benefits
+//!
+//! - **No precision loss**: Full 32-bit float precision preserved
+//! - **Lock-free**: Uses atomic min operation
+//! - **No write conflicts**: Per-arc buffer eliminates contention
+//!
+//! ## References
+//!
+//! - Chen et al., "GPU-based WFST Decoder with Exact Lattice Generation" (2018)
+
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// A token packed into 64 bits for atomic operations.
+///
+/// Layout: [cost: 32 bits (high)] [arc_id: 32 bits (low)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PackedToken(u64);
+
+impl PackedToken {
+    /// Create a packed token with no value (infinity cost).
+    pub const EMPTY: PackedToken = PackedToken(u64::MAX);
+
+    /// Create a new packed token.
+    pub fn new(cost: f32, arc_id: u32) -> Self {
+        Self(pack_cost_arc(cost, arc_id))
+    }
+
+    /// Get the cost.
+    pub fn cost(self) -> f32 {
+        // Handle EMPTY case specially - u64::MAX unpacks to a finite value
+        if self.0 == u64::MAX {
+            return f32::INFINITY;
+        }
+        let (cost, _) = unpack_cost_arc(self.0);
+        cost
+    }
+
+    /// Get the arc ID.
+    pub fn arc_id(self) -> u32 {
+        let (_, arc_id) = unpack_cost_arc(self.0);
+        arc_id
+    }
+
+    /// Get the raw packed value.
+    pub fn raw(self) -> u64 {
+        self.0
+    }
+
+    /// Create from raw packed value.
+    pub fn from_raw(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    /// Check if this is an empty token.
+    pub fn is_empty(self) -> bool {
+        self.0 == u64::MAX
+    }
+
+    /// Check if this token is better (lower cost) than another.
+    pub fn is_better_than(self, other: PackedToken) -> bool {
+        self.0 < other.0
+    }
+}
+
+impl Default for PackedToken {
+    fn default() -> Self {
+        Self::EMPTY
+    }
+}
+
+/// Pack a cost and arc ID into a u64.
+///
+/// The cost is placed in the high 32 bits so that atomic min
+/// operations naturally select lower costs.
+///
+/// # Arguments
+///
+/// * `cost` - The token cost (log probability, lower is better)
+/// * `arc_id` - The arc identifier
+///
+/// # Returns
+///
+/// A packed u64 value.
+///
+/// # Note
+///
+/// For negative costs, we need to handle the sign bit carefully.
+/// We use a transformation that preserves ordering:
+/// - Positive floats: flip sign bit (0x80000000 XOR)
+/// - Negative floats: flip all bits (NOT)
+pub fn pack_cost_arc(cost: f32, arc_id: u32) -> u64 {
+    let cost_bits = cost.to_bits();
+
+    // Transform to preserve ordering under integer comparison
+    // Positive floats: XOR with 0x80000000 to make them > negative
+    // Negative floats: XOR with 0xFFFFFFFF to flip ordering
+    let ordered_bits = if (cost_bits as i32) >= 0 {
+        cost_bits ^ 0x8000_0000
+    } else {
+        !cost_bits
+    };
+
+    ((ordered_bits as u64) << 32) | (arc_id as u64)
+}
+
+/// Unpack a cost and arc ID from a u64.
+///
+/// # Arguments
+///
+/// * `packed` - The packed value
+///
+/// # Returns
+///
+/// A tuple of (cost, arc_id).
+pub fn unpack_cost_arc(packed: u64) -> (f32, u32) {
+    let ordered_bits = (packed >> 32) as u32;
+    let arc_id = packed as u32;
+
+    // Reverse the transformation
+    let cost_bits = if (ordered_bits as i32) >= 0 {
+        !ordered_bits
+    } else {
+        ordered_bits ^ 0x8000_0000
+    };
+
+    (f32::from_bits(cost_bits), arc_id)
+}
+
+/// Packer for converting between floats and ordered integers.
+///
+/// This utility handles the bit manipulation needed to make float
+/// comparison work correctly with integer atomic operations.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TokenPacker;
+
+impl TokenPacker {
+    /// Create a new token packer.
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Pack a cost and arc ID.
+    pub fn pack(&self, cost: f32, arc_id: u32) -> u64 {
+        pack_cost_arc(cost, arc_id)
+    }
+
+    /// Unpack a cost and arc ID.
+    pub fn unpack(&self, packed: u64) -> (f32, u32) {
+        unpack_cost_arc(packed)
+    }
+
+    /// Create a packed token.
+    pub fn create_token(&self, cost: f32, arc_id: u32) -> PackedToken {
+        PackedToken::new(cost, arc_id)
+    }
+}
+
+/// Buffer for token recombination.
+///
+/// This structure maintains the best token reaching each state,
+/// using atomic operations for thread-safe updates.
+#[derive(Debug)]
+pub struct RecombinationBuffer {
+    /// Packed tokens indexed by state ID.
+    state_tokens: Vec<AtomicU64>,
+    /// Per-arc token storage (for winning tokens).
+    per_arc_tokens: Vec<AtomicU64>,
+    /// Number of states.
+    num_states: usize,
+    /// Number of arcs.
+    num_arcs: usize,
+}
+
+impl RecombinationBuffer {
+    /// Create a new recombination buffer.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_states` - Number of states in the WFST
+    /// * `num_arcs` - Number of arcs in the WFST
+    pub fn new(num_states: usize, num_arcs: usize) -> Self {
+        Self {
+            state_tokens: (0..num_states)
+                .map(|_| AtomicU64::new(u64::MAX))
+                .collect(),
+            per_arc_tokens: (0..num_arcs)
+                .map(|_| AtomicU64::new(u64::MAX))
+                .collect(),
+            num_states,
+            num_arcs,
+        }
+    }
+
+    /// Reset the buffer for a new frame.
+    pub fn reset(&self) {
+        for token in &self.state_tokens {
+            token.store(u64::MAX, Ordering::Relaxed);
+        }
+        // Per-arc tokens don't need reset (overwritten when used)
+    }
+
+    /// Attempt to recombine a token at a state.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - The destination state
+    /// * `cost` - The token cost
+    /// * `arc_id` - The arc used to reach this state
+    ///
+    /// # Returns
+    ///
+    /// `true` if this token won (was better than existing), `false` otherwise.
+    pub fn recombine(&self, state: usize, cost: f32, arc_id: u32) -> bool {
+        let packed = pack_cost_arc(cost, arc_id);
+        let old = self.state_tokens[state].fetch_min(packed, Ordering::AcqRel);
+
+        if old > packed {
+            // This token won, store in per-arc buffer
+            self.per_arc_tokens[arc_id as usize].store(packed, Ordering::Release);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Get the best token for a state.
+    pub fn get_token(&self, state: usize) -> Option<PackedToken> {
+        let packed = self.state_tokens[state].load(Ordering::Acquire);
+        if packed == u64::MAX {
+            None
+        } else {
+            Some(PackedToken::from_raw(packed))
+        }
+    }
+
+    /// Get the token stored for an arc (if it won).
+    pub fn get_arc_token(&self, arc_id: u32) -> Option<PackedToken> {
+        let packed = self.per_arc_tokens[arc_id as usize].load(Ordering::Acquire);
+        if packed == u64::MAX {
+            None
+        } else {
+            Some(PackedToken::from_raw(packed))
+        }
+    }
+
+    /// Collect all surviving tokens (best token per state).
+    pub fn collect_survivors(&self) -> Vec<(usize, PackedToken)> {
+        self.state_tokens
+            .iter()
+            .enumerate()
+            .filter_map(|(state, atomic)| {
+                let packed = atomic.load(Ordering::Acquire);
+                if packed == u64::MAX {
+                    None
+                } else {
+                    Some((state, PackedToken::from_raw(packed)))
+                }
+            })
+            .collect()
+    }
+
+    /// Get the number of active states.
+    pub fn num_active(&self) -> usize {
+        self.state_tokens
+            .iter()
+            .filter(|t| t.load(Ordering::Relaxed) != u64::MAX)
+            .count()
+    }
+
+    /// Get buffer statistics.
+    pub fn stats(&self) -> RecombinationStats {
+        let active_states = self.num_active();
+        RecombinationStats {
+            num_states: self.num_states,
+            num_arcs: self.num_arcs,
+            active_states,
+            recombination_ratio: if active_states > 0 {
+                1.0 - (active_states as f64 / self.num_states as f64)
+            } else {
+                0.0
+            },
+        }
+    }
+}
+
+/// Statistics about recombination.
+#[derive(Clone, Debug)]
+pub struct RecombinationStats {
+    /// Total number of states.
+    pub num_states: usize,
+    /// Total number of arcs.
+    pub num_arcs: usize,
+    /// Number of active states (with tokens).
+    pub active_states: usize,
+    /// Recombination ratio (fraction of states combined).
+    pub recombination_ratio: f64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pack_unpack_positive() {
+        let cost = 1.5f32;
+        let arc_id = 42u32;
+
+        let packed = pack_cost_arc(cost, arc_id);
+        let (unpacked_cost, unpacked_arc) = unpack_cost_arc(packed);
+
+        assert!((unpacked_cost - cost).abs() < 1e-6);
+        assert_eq!(unpacked_arc, arc_id);
+    }
+
+    #[test]
+    fn test_pack_unpack_negative() {
+        let cost = -2.5f32;
+        let arc_id = 100u32;
+
+        let packed = pack_cost_arc(cost, arc_id);
+        let (unpacked_cost, unpacked_arc) = unpack_cost_arc(packed);
+
+        assert!((unpacked_cost - cost).abs() < 1e-6);
+        assert_eq!(unpacked_arc, arc_id);
+    }
+
+    #[test]
+    fn test_pack_unpack_zero() {
+        let cost = 0.0f32;
+        let arc_id = 0u32;
+
+        let packed = pack_cost_arc(cost, arc_id);
+        let (unpacked_cost, unpacked_arc) = unpack_cost_arc(packed);
+
+        assert!((unpacked_cost - cost).abs() < 1e-6);
+        assert_eq!(unpacked_arc, arc_id);
+    }
+
+    #[test]
+    fn test_ordering_positive_costs() {
+        // Lower costs should have lower packed values
+        let packed1 = pack_cost_arc(1.0, 0);
+        let packed2 = pack_cost_arc(2.0, 0);
+        let packed3 = pack_cost_arc(3.0, 0);
+
+        assert!(packed1 < packed2);
+        assert!(packed2 < packed3);
+    }
+
+    #[test]
+    fn test_ordering_negative_costs() {
+        // Lower (more negative) costs should have lower packed values
+        let packed1 = pack_cost_arc(-3.0, 0);
+        let packed2 = pack_cost_arc(-2.0, 0);
+        let packed3 = pack_cost_arc(-1.0, 0);
+
+        assert!(packed1 < packed2);
+        assert!(packed2 < packed3);
+    }
+
+    #[test]
+    fn test_ordering_mixed_costs() {
+        // Negative costs are lower than positive
+        let packed_neg = pack_cost_arc(-1.0, 0);
+        let packed_zero = pack_cost_arc(0.0, 0);
+        let packed_pos = pack_cost_arc(1.0, 0);
+
+        assert!(packed_neg < packed_zero);
+        assert!(packed_zero < packed_pos);
+    }
+
+    #[test]
+    fn test_packed_token() {
+        let token = PackedToken::new(1.5, 42);
+
+        assert!((token.cost() - 1.5).abs() < 1e-6);
+        assert_eq!(token.arc_id(), 42);
+        assert!(!token.is_empty());
+    }
+
+    #[test]
+    fn test_packed_token_empty() {
+        let token = PackedToken::EMPTY;
+
+        assert!(token.is_empty());
+        assert!(token.cost().is_infinite());
+    }
+
+    #[test]
+    fn test_packed_token_comparison() {
+        let better = PackedToken::new(1.0, 1);
+        let worse = PackedToken::new(2.0, 2);
+
+        assert!(better.is_better_than(worse));
+        assert!(!worse.is_better_than(better));
+    }
+
+    #[test]
+    fn test_token_packer() {
+        let packer = TokenPacker::new();
+
+        let packed = packer.pack(1.5, 42);
+        let (cost, arc_id) = packer.unpack(packed);
+
+        assert!((cost - 1.5).abs() < 1e-6);
+        assert_eq!(arc_id, 42);
+    }
+
+    #[test]
+    fn test_recombination_buffer() {
+        let buffer = RecombinationBuffer::new(10, 100);
+
+        // Recombine several tokens to the same state
+        assert!(buffer.recombine(5, 2.0, 10));
+        assert!(!buffer.recombine(5, 3.0, 20)); // worse, should fail
+        assert!(buffer.recombine(5, 1.0, 30)); // better, should succeed
+
+        // Check the best token
+        let token = buffer.get_token(5).expect("should have token");
+        assert!((token.cost() - 1.0).abs() < 1e-6);
+        assert_eq!(token.arc_id(), 30);
+    }
+
+    #[test]
+    fn test_recombination_buffer_reset() {
+        let buffer = RecombinationBuffer::new(10, 100);
+
+        buffer.recombine(0, 1.0, 0);
+        buffer.recombine(1, 1.0, 1);
+        assert_eq!(buffer.num_active(), 2);
+
+        buffer.reset();
+        assert_eq!(buffer.num_active(), 0);
+    }
+
+    #[test]
+    fn test_collect_survivors() {
+        let buffer = RecombinationBuffer::new(5, 10);
+
+        buffer.recombine(0, 1.0, 0);
+        buffer.recombine(2, 2.0, 1);
+        buffer.recombine(4, 3.0, 2);
+
+        let survivors = buffer.collect_survivors();
+        assert_eq!(survivors.len(), 3);
+
+        // Check states
+        let states: Vec<_> = survivors.iter().map(|(s, _)| *s).collect();
+        assert!(states.contains(&0));
+        assert!(states.contains(&2));
+        assert!(states.contains(&4));
+    }
+
+    #[test]
+    fn test_recombination_stats() {
+        let buffer = RecombinationBuffer::new(100, 500);
+
+        buffer.recombine(0, 1.0, 0);
+        buffer.recombine(50, 1.0, 1);
+
+        let stats = buffer.stats();
+        assert_eq!(stats.num_states, 100);
+        assert_eq!(stats.active_states, 2);
+        assert!(stats.recombination_ratio > 0.9);
+    }
+}

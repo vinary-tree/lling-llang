@@ -1,0 +1,533 @@
+//! Dynamic load balancing for parallel WFST processing.
+//!
+//! This module provides load balancing abstractions that mirror GPU cooperative
+//! group patterns, enabling efficient work distribution across parallel workers.
+//!
+//! ## Problem
+//!
+//! WFST states have varying numbers of outgoing arcs. Static work assignment
+//! causes load imbalance - some threads finish quickly while others struggle
+//! with high-degree states.
+//!
+//! ## Solution: Cooperative Groups with Dispatcher
+//!
+//! ```text
+//! procedure DYNAMIC_LOAD_BALANCING(tokens):
+//!     group = cooperative_groups::tiled_partition<32>()
+//!     if group.thread_rank() == 0:
+//!         i = atomic_add(global_d, 1)  // request new token
+//!     i = group.shfl(i, 0)  // broadcast to whole group
+//!     if i >= sizeof(tokens):
+//!         return
+//!     for arc in token_to_arcs(tokens[i]):  // thread parallelism
+//!         call Process(arc)
+//! ```
+//!
+//! ## Key Concepts
+//!
+//! - **Work Group**: N threads (typically 32, CUDA warp size) working together
+//! - **Dispatcher**: Thread 0 requests work items via atomic counter
+//! - **Broadcast**: All threads receive the same work item
+//! - **Thread Parallelism**: Each thread processes one arc from the work item
+//!
+//! ## Benefits
+//!
+//! - **No WFST restructuring**: Works with any graph structure
+//! - **Dynamic adaptation**: Automatically balances varying workloads
+//! - **Minimal synchronization**: Only atomic add and warp shuffle
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
+/// Size of a work group (matches CUDA warp size).
+pub const WORK_GROUP_SIZE: usize = 32;
+
+/// A work item to be processed.
+#[derive(Clone, Debug)]
+pub struct WorkItem<T> {
+    /// The item data.
+    pub data: T,
+    /// Number of sub-tasks (e.g., number of arcs).
+    pub num_subtasks: usize,
+    /// Priority (lower is higher priority).
+    pub priority: f32,
+}
+
+impl<T> WorkItem<T> {
+    /// Create a new work item.
+    pub fn new(data: T, num_subtasks: usize) -> Self {
+        Self {
+            data,
+            num_subtasks,
+            priority: 0.0,
+        }
+    }
+
+    /// Create with priority.
+    pub fn with_priority(data: T, num_subtasks: usize, priority: f32) -> Self {
+        Self {
+            data,
+            num_subtasks,
+            priority,
+        }
+    }
+}
+
+/// A queue of work items with atomic dispatch.
+#[derive(Debug)]
+pub struct WorkQueue<T> {
+    /// Work items to process.
+    items: Vec<WorkItem<T>>,
+    /// Current dispatch index.
+    dispatch_index: AtomicUsize,
+    /// Total number of subtasks.
+    total_subtasks: usize,
+}
+
+impl<T> WorkQueue<T> {
+    /// Create a new work queue.
+    pub fn new(items: Vec<WorkItem<T>>) -> Self {
+        let total_subtasks = items.iter().map(|i| i.num_subtasks).sum();
+        Self {
+            items,
+            dispatch_index: AtomicUsize::new(0),
+            total_subtasks,
+        }
+    }
+
+    /// Get the number of items.
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    /// Check if the queue is empty.
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    /// Get total number of subtasks.
+    pub fn total_subtasks(&self) -> usize {
+        self.total_subtasks
+    }
+
+    /// Atomically request the next work item index.
+    ///
+    /// Returns `None` if all items have been dispatched.
+    pub fn request_next(&self) -> Option<usize> {
+        let index = self.dispatch_index.fetch_add(1, Ordering::AcqRel);
+        if index < self.items.len() {
+            Some(index)
+        } else {
+            None
+        }
+    }
+
+    /// Get a work item by index.
+    pub fn get(&self, index: usize) -> Option<&WorkItem<T>> {
+        self.items.get(index)
+    }
+
+    /// Reset the dispatch index for reuse.
+    pub fn reset(&self) {
+        self.dispatch_index.store(0, Ordering::Release);
+    }
+
+    /// Get the current dispatch progress.
+    pub fn progress(&self) -> (usize, usize) {
+        let dispatched = self.dispatch_index.load(Ordering::Acquire);
+        (dispatched.min(self.items.len()), self.items.len())
+    }
+}
+
+/// A work group of N threads processing items together.
+#[derive(Debug)]
+pub struct WorkGroup {
+    /// Group size (number of threads).
+    size: usize,
+    /// Group ID.
+    id: usize,
+    /// Thread rank within group (0 = dispatcher).
+    thread_rank: usize,
+}
+
+impl WorkGroup {
+    /// Create a new work group.
+    pub fn new(size: usize, id: usize, thread_rank: usize) -> Self {
+        Self {
+            size,
+            id,
+            thread_rank,
+        }
+    }
+
+    /// Get the group size.
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
+    /// Get the group ID.
+    pub fn id(&self) -> usize {
+        self.id
+    }
+
+    /// Get the thread rank within the group.
+    pub fn thread_rank(&self) -> usize {
+        self.thread_rank
+    }
+
+    /// Check if this thread is the dispatcher (rank 0).
+    pub fn is_dispatcher(&self) -> bool {
+        self.thread_rank == 0
+    }
+
+    /// Calculate which subtask this thread should handle.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_subtasks` - Total number of subtasks in the work item
+    ///
+    /// # Returns
+    ///
+    /// Iterator over subtask indices this thread should process.
+    pub fn subtask_range(&self, num_subtasks: usize) -> impl Iterator<Item = usize> {
+        let start = self.thread_rank;
+        let step = self.size;
+        (start..num_subtasks).step_by(step)
+    }
+}
+
+/// Work dispatcher for dynamic load balancing.
+///
+/// Coordinates multiple work groups processing a shared work queue.
+#[derive(Debug)]
+pub struct WorkDispatcher<T> {
+    /// Shared work queue.
+    queue: Arc<WorkQueue<T>>,
+    /// Number of work groups.
+    num_groups: usize,
+    /// Size of each group.
+    group_size: usize,
+}
+
+impl<T> WorkDispatcher<T> {
+    /// Create a new work dispatcher.
+    pub fn new(items: Vec<WorkItem<T>>, num_groups: usize, group_size: usize) -> Self {
+        Self {
+            queue: Arc::new(WorkQueue::new(items)),
+            num_groups,
+            group_size,
+        }
+    }
+
+    /// Create with default group size (32).
+    pub fn with_default_group_size(items: Vec<WorkItem<T>>, num_groups: usize) -> Self {
+        Self::new(items, num_groups, WORK_GROUP_SIZE)
+    }
+
+    /// Get the work queue.
+    pub fn queue(&self) -> &WorkQueue<T> {
+        &self.queue
+    }
+
+    /// Get the number of work groups.
+    pub fn num_groups(&self) -> usize {
+        self.num_groups
+    }
+
+    /// Get the group size.
+    pub fn group_size(&self) -> usize {
+        self.group_size
+    }
+
+    /// Create a work group handle for a specific group and thread.
+    pub fn create_group(&self, group_id: usize, thread_rank: usize) -> WorkGroup {
+        WorkGroup::new(self.group_size, group_id, thread_rank)
+    }
+
+    /// Reset the dispatcher for reuse.
+    pub fn reset(&self) {
+        self.queue.reset();
+    }
+
+    /// Get dispatch statistics.
+    pub fn stats(&self) -> DispatchStats {
+        let (dispatched, total) = self.queue.progress();
+        DispatchStats {
+            total_items: total,
+            dispatched_items: dispatched,
+            total_subtasks: self.queue.total_subtasks(),
+            num_groups: self.num_groups,
+            group_size: self.group_size,
+        }
+    }
+}
+
+impl<T: Clone> WorkDispatcher<T> {
+    /// Get a clone of the queue for sharing with threads.
+    pub fn queue_handle(&self) -> Arc<WorkQueue<T>> {
+        Arc::clone(&self.queue)
+    }
+}
+
+/// Statistics about work dispatch.
+#[derive(Clone, Debug)]
+pub struct DispatchStats {
+    /// Total number of work items.
+    pub total_items: usize,
+    /// Number of items dispatched.
+    pub dispatched_items: usize,
+    /// Total number of subtasks.
+    pub total_subtasks: usize,
+    /// Number of work groups.
+    pub num_groups: usize,
+    /// Size of each group.
+    pub group_size: usize,
+}
+
+impl DispatchStats {
+    /// Get the completion ratio.
+    pub fn completion_ratio(&self) -> f64 {
+        if self.total_items == 0 {
+            1.0
+        } else {
+            self.dispatched_items as f64 / self.total_items as f64
+        }
+    }
+
+    /// Get the total number of worker threads.
+    pub fn total_workers(&self) -> usize {
+        self.num_groups * self.group_size
+    }
+
+    /// Estimate average subtasks per worker.
+    pub fn avg_subtasks_per_worker(&self) -> f64 {
+        if self.total_workers() == 0 {
+            0.0
+        } else {
+            self.total_subtasks as f64 / self.total_workers() as f64
+        }
+    }
+}
+
+/// Load balancer for distributing work across workers.
+///
+/// This is a higher-level abstraction that manages work distribution
+/// and provides utilities for parallel processing.
+pub struct LoadBalancer {
+    /// Number of worker threads.
+    num_workers: usize,
+    /// Group size.
+    group_size: usize,
+}
+
+impl LoadBalancer {
+    /// Create a new load balancer.
+    pub fn new(num_workers: usize) -> Self {
+        let group_size = WORK_GROUP_SIZE.min(num_workers);
+        Self {
+            num_workers,
+            group_size,
+        }
+    }
+
+    /// Create with custom group size.
+    pub fn with_group_size(num_workers: usize, group_size: usize) -> Self {
+        Self {
+            num_workers,
+            group_size,
+        }
+    }
+
+    /// Get the number of workers.
+    pub fn num_workers(&self) -> usize {
+        self.num_workers
+    }
+
+    /// Get the number of work groups.
+    pub fn num_groups(&self) -> usize {
+        (self.num_workers + self.group_size - 1) / self.group_size
+    }
+
+    /// Create a dispatcher for a set of work items.
+    pub fn create_dispatcher<T>(&self, items: Vec<WorkItem<T>>) -> WorkDispatcher<T> {
+        WorkDispatcher::new(items, self.num_groups(), self.group_size)
+    }
+
+    /// Estimate the optimal number of workers for a workload.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_items` - Number of work items
+    /// * `avg_subtasks` - Average number of subtasks per item
+    ///
+    /// # Returns
+    ///
+    /// Recommended number of workers.
+    pub fn estimate_workers(num_items: usize, avg_subtasks: usize) -> usize {
+        let total_work = num_items * avg_subtasks;
+        // Aim for at least 4 items per group for amortization
+        let min_groups = (num_items + 3) / 4;
+        let max_groups = (total_work + WORK_GROUP_SIZE - 1) / WORK_GROUP_SIZE;
+        min_groups.max(1).min(max_groups) * WORK_GROUP_SIZE
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_work_item_creation() {
+        let item = WorkItem::new(42, 10);
+        assert_eq!(item.data, 42);
+        assert_eq!(item.num_subtasks, 10);
+        assert_eq!(item.priority, 0.0);
+    }
+
+    #[test]
+    fn test_work_item_with_priority() {
+        let item = WorkItem::with_priority("data", 5, 1.5);
+        assert_eq!(item.data, "data");
+        assert_eq!(item.num_subtasks, 5);
+        assert_eq!(item.priority, 1.5);
+    }
+
+    #[test]
+    fn test_work_queue_creation() {
+        let items = vec![
+            WorkItem::new(1, 10),
+            WorkItem::new(2, 20),
+            WorkItem::new(3, 30),
+        ];
+        let queue = WorkQueue::new(items);
+
+        assert_eq!(queue.len(), 3);
+        assert_eq!(queue.total_subtasks(), 60);
+        assert!(!queue.is_empty());
+    }
+
+    #[test]
+    fn test_work_queue_dispatch() {
+        let items = vec![
+            WorkItem::new(1, 10),
+            WorkItem::new(2, 20),
+        ];
+        let queue = WorkQueue::new(items);
+
+        assert_eq!(queue.request_next(), Some(0));
+        assert_eq!(queue.request_next(), Some(1));
+        assert_eq!(queue.request_next(), None);
+    }
+
+    #[test]
+    fn test_work_queue_reset() {
+        let items = vec![WorkItem::new(1, 10)];
+        let queue = WorkQueue::new(items);
+
+        assert_eq!(queue.request_next(), Some(0));
+        assert_eq!(queue.request_next(), None);
+
+        queue.reset();
+        assert_eq!(queue.request_next(), Some(0));
+    }
+
+    #[test]
+    fn test_work_group() {
+        let group = WorkGroup::new(32, 0, 0);
+
+        assert_eq!(group.size(), 32);
+        assert_eq!(group.id(), 0);
+        assert!(group.is_dispatcher());
+
+        let non_dispatcher = WorkGroup::new(32, 0, 5);
+        assert!(!non_dispatcher.is_dispatcher());
+    }
+
+    #[test]
+    fn test_work_group_subtask_range() {
+        let group = WorkGroup::new(4, 0, 1); // Thread 1 of 4
+
+        let subtasks: Vec<_> = group.subtask_range(10).collect();
+        assert_eq!(subtasks, vec![1, 5, 9]); // 1, 1+4, 1+8
+    }
+
+    #[test]
+    fn test_work_dispatcher() {
+        let items = vec![
+            WorkItem::new(1, 10),
+            WorkItem::new(2, 20),
+        ];
+        let dispatcher = WorkDispatcher::with_default_group_size(items, 4);
+
+        assert_eq!(dispatcher.num_groups(), 4);
+        assert_eq!(dispatcher.group_size(), 32);
+    }
+
+    #[test]
+    fn test_dispatch_stats() {
+        let items = vec![
+            WorkItem::new(1, 10),
+            WorkItem::new(2, 20),
+        ];
+        let dispatcher = WorkDispatcher::new(items, 4, 8);
+
+        let stats = dispatcher.stats();
+        assert_eq!(stats.total_items, 2);
+        assert_eq!(stats.total_subtasks, 30);
+        assert_eq!(stats.total_workers(), 32);
+        assert!((stats.avg_subtasks_per_worker() - 0.9375).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_load_balancer() {
+        let balancer = LoadBalancer::new(128);
+
+        assert_eq!(balancer.num_workers(), 128);
+        assert_eq!(balancer.num_groups(), 4);
+    }
+
+    #[test]
+    fn test_load_balancer_create_dispatcher() {
+        let balancer = LoadBalancer::new(64);
+        let items = vec![WorkItem::new(1, 10)];
+        let dispatcher = balancer.create_dispatcher(items);
+
+        assert_eq!(dispatcher.num_groups(), 2);
+    }
+
+    #[test]
+    fn test_estimate_workers() {
+        // Small workload
+        let workers = LoadBalancer::estimate_workers(10, 5);
+        assert!(workers >= 32); // At least one group
+
+        // Large workload
+        let workers = LoadBalancer::estimate_workers(1000, 100);
+        assert!(workers >= 32);
+    }
+
+    #[test]
+    fn test_concurrent_dispatch() {
+        use std::thread;
+
+        let items: Vec<_> = (0..100).map(|i| WorkItem::new(i, 1)).collect();
+        let dispatcher = WorkDispatcher::with_default_group_size(items, 4);
+        let queue = dispatcher.queue_handle();
+
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let q = Arc::clone(&queue);
+                thread::spawn(move || {
+                    let mut count = 0;
+                    while q.request_next().is_some() {
+                        count += 1;
+                    }
+                    count
+                })
+            })
+            .collect();
+
+        let total: usize = handles.into_iter().map(|h| h.join().unwrap()).sum();
+        assert_eq!(total, 100);
+    }
+}

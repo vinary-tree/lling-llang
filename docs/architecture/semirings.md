@@ -242,6 +242,145 @@ let prod = a.times(&b);
 
 **When to use**: Multi-objective optimization, e.g., balancing cost and confidence.
 
+### ProbabilityWeight
+
+The **probability semiring** (ℝ₊ ∪ {0}, +, ×, 0, 1) operates directly on probability values, unlike LogWeight which uses negative log space.
+
+| Operation | Definition | Intuition |
+|-----------|------------|-----------|
+| ⊕ | a + b | Sum probabilities |
+| ⊗ | a × b | Multiply probabilities |
+| 0̄ | 0 | Impossible event |
+| 1̄ | 1 | Certain event |
+
+```rust
+use lling_llang::semiring::{Semiring, ProbabilityWeight};
+
+let a = ProbabilityWeight::new(0.3);
+let b = ProbabilityWeight::new(0.5);
+
+// Sum probabilities: 0.3 + 0.5 = 0.8
+assert!((a.plus(&b).value() - 0.8).abs() < 1e-10);
+
+// Multiply probabilities: 0.3 × 0.5 = 0.15
+assert!((a.times(&b).value() - 0.15).abs() < 1e-10);
+
+// Convert to/from log space
+let log_weight = a.to_log_weight();
+let recovered = ProbabilityWeight::from_log_weight(log_weight);
+```
+
+**Comparison with LogWeight**:
+- `ProbabilityWeight`: Stores `p` directly. Use when probabilities are moderate.
+- `LogWeight`: Stores `-log(p)`. Use when probabilities are very small (avoids underflow).
+
+Both represent the same mathematical probability but with different representations:
+```rust
+// These are equivalent
+let prob = ProbabilityWeight::new(0.1);
+let log = LogWeight::new(-0.1_f64.ln());  // ≈ 2.303
+
+// Easy conversion
+let from_prob: LogWeight = prob.into();
+let from_log: ProbabilityWeight = log.into();
+```
+
+**When to use**: Moderate probabilities where underflow is not a concern, or when you need to frequently convert to/from direct probability values.
+
+### String Semirings (LeftStringWeight, RightStringWeight)
+
+The **string semiring** operates on strings with longest common prefix/suffix for addition and concatenation for multiplication.
+
+| Variant | ⊕ Operation | Distributivity |
+|---------|-------------|----------------|
+| LeftStringWeight | Longest common prefix (lcp) | Left-distributive |
+| RightStringWeight | Longest common suffix (lcs) | Right-distributive |
+
+| Operation | Definition | Intuition |
+|-----------|------------|-----------|
+| ⊕ | lcp(a, b) or lcs(a, b) | Common part of strings |
+| ⊗ | a · b (concatenation) | Join strings |
+| 0̄ | ∞ (infinite string) | Identity for lcp/lcs |
+| 1̄ | ε (empty string) | Identity for concatenation |
+
+```rust
+use lling_llang::semiring::LeftStringWeight;
+
+let abc = LeftStringWeight::from_str("abc");
+let abx = LeftStringWeight::from_str("abx");
+let def = LeftStringWeight::from_str("def");
+
+// Longest common prefix: "ab"
+let lcp = abc.plus(&abx);
+assert_eq!(lcp.as_str(), Some("ab"));
+
+// No common prefix
+let lcp2 = abc.plus(&def);
+assert_eq!(lcp2.as_str(), Some(""));
+
+// Concatenation: "abcdef"
+let concat = abc.times(&def);
+assert_eq!(concat.as_str(), Some("abcdef"));
+```
+
+**Important**: String semirings are only **weakly distributive** (left or right, not both):
+```rust
+// LeftStringWeight: Left-distributive
+// a ⊗ (b ⊕ c) = (a ⊗ b) ⊕ (a ⊗ c)  ✓
+
+// RightStringWeight: Right-distributive
+// (a ⊕ b) ⊗ c = (a ⊗ c) ⊕ (b ⊗ c)  ✓
+```
+
+**When to use**: Computing common label prefixes/suffixes among paths, label disambiguation in determinization, output label accumulation in composition.
+
+### ExpectationWeight
+
+The **expectation semiring** (ℝ × ℝ, ⊕, ⊗, (0,0), (1,0)) combines probabilities with expected value computation.
+
+| Operation | Definition | Intuition |
+|-----------|------------|-----------|
+| ⊕ | (x₁ + x₂, y₁ + y₂) | Sum probabilities and expectations |
+| ⊗ | (x₁·x₂, x₁·y₂ + x₂·y₁) | Product rule for expectations |
+| 0̄ | (0, 0) | Zero probability, zero expectation |
+| 1̄ | (1, 0) | Certain event, zero cost |
+
+The weight stores two components:
+- **value**: The probability component
+- **expectation**: The expected value accumulator (probability × cost)
+
+```rust
+use lling_llang::semiring::{Semiring, ExpectationWeight};
+
+// Two paths with different probabilities and costs
+let path1 = ExpectationWeight::from_probability_and_cost(0.3, 2.0);
+let path2 = ExpectationWeight::from_probability_and_cost(0.5, 1.0);
+
+// Sum paths: total prob = 0.8, weighted cost = 0.3*2 + 0.5*1 = 1.1
+let total = path1.plus(&path2);
+assert!((total.value() - 0.8).abs() < 1e-10);
+
+// Expected cost = 1.1 / 0.8 = 1.375
+let expected = total.expected_value().unwrap();
+assert!((expected - 1.375).abs() < 1e-10);
+```
+
+**Sequential composition** works correctly for additive costs:
+```rust
+// Edge 1: prob=0.5, cost=2
+let e1 = ExpectationWeight::from_probability_and_cost(0.5, 2.0);
+// Edge 2: prob=0.4, cost=3
+let e2 = ExpectationWeight::from_probability_and_cost(0.4, 3.0);
+
+let path = e1.times(&e2);
+
+// Total prob = 0.5 * 0.4 = 0.2
+// Expected cost = 2 + 3 = 5
+assert!((path.expected_value().unwrap() - 5.0).abs() < 1e-10);
+```
+
+**When to use**: Computing expected path lengths/costs, relative entropy (KL divergence) between automata, gradient computation in differentiable WFSTs, risk-based optimization.
+
 ## Details
 
 ### Division and Weight Pushing
@@ -309,10 +448,32 @@ fn log_sum_exp(a: f64, b: f64) -> f64 {
 | Use Case | Semiring | Why |
 |----------|----------|-----|
 | Spelling correction | `TropicalWeight` | Edit distances are costs |
-| Language modeling | `LogWeight` | N-gram probabilities |
+| Language modeling | `LogWeight` | N-gram probabilities (numerically stable) |
+| Direct probability ops | `ProbabilityWeight` | When you need actual probability values |
 | Reachability check | `BoolWeight` | Just need yes/no |
-| Multi-objective | `ProductWeight` | Combine criteria |
+| Multi-objective | `ProductWeight` | Combine multiple criteria |
+| Label accumulation | `LeftStringWeight` | Common prefix extraction |
+| Label disambiguation | `RightStringWeight` | Common suffix extraction |
+| Expected costs | `ExpectationWeight` | Compute average path costs |
+| Risk analysis | `ExpectationWeight` | Probability-weighted costs |
 | Custom scoring | Implement `Semiring` | Your own logic |
+
+### Decision Tree
+
+```
+Need weights?
+├── No → BoolWeight
+└── Yes
+    └── What kind?
+        ├── Costs (lower = better)
+        │   └── TropicalWeight
+        ├── Probabilities
+        │   ├── Very small (< 1e-10)? → LogWeight
+        │   └── Moderate? → ProbabilityWeight
+        ├── Multiple objectives? → ProductWeight
+        ├── Expected values? → ExpectationWeight
+        └── String labels? → LeftStringWeight / RightStringWeight
+```
 
 ## Implementing Custom Semirings
 
@@ -371,5 +532,9 @@ fn test_my_semiring() {
 ## Next Steps
 
 - [Lattices](lattices.md): How semirings are used in lattice weights
+- [WFST Operations](wfst-operations.md): Rational and unary operations on WFSTs
 - [Path Extraction](../algorithms/path-extraction.md): Algorithms that use semiring operations
+- [Shortest Distance](../algorithms/shortest-distance.md): Computing distances with different semirings
+- [Weight Pushing](../algorithms/weight-pushing.md): Normalizing weight distributions
+- [Differentiable WFSTs](../advanced/differentiable.md): Gradient computation through WFSTs
 - [API Reference](../api/semiring-reference.md): Complete API documentation

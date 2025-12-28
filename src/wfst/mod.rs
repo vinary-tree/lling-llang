@@ -21,12 +21,35 @@ mod state;
 mod traits;
 mod vector;
 mod lazy;
+pub mod rational;
+pub mod unary;
+pub mod synchronize;
 
 pub use transition::WeightedTransition;
 pub use state::WfstState;
 pub use traits::{Wfst, MutableWfst, LazyWfst, CachePolicy};
 pub use vector::{VectorWfst, VectorWfstBuilder};
 pub use lazy::{LazyState, StateSource, LazyWfstWrapper};
+
+// Rational operations (Union, Concatenation, Closure)
+pub use rational::{
+    UnionSource, ConcatSource, ClosureSource,
+    UnionWfst, ConcatWfst, ClosureWfst,
+    union, concat, closure, closure_plus,
+};
+
+// Unary operations (Invert, Project, Reverse)
+pub use unary::{
+    InvertSource, ProjectSource,
+    InvertWfst, ProjectInputWfst, ProjectOutputWfst,
+    invert, project_input, project_output, reverse,
+};
+
+// Synchronization operation
+pub use synchronize::{
+    StringDelay, SyncState, SyncSource, MutableSyncSource, SyncWfst,
+    synchronize, synchronize_bounded, has_bounded_delay, compute_max_delay,
+};
 
 /// State identifier for WFST states.
 ///

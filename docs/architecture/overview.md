@@ -27,43 +27,67 @@ Think of it like a spell checker that:
 ## Component Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              lling-llang                                     │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │
-│  │  Semiring   │    │   Lattice   │    │    WFST     │    │   Layers    │  │
-│  │             │    │             │    │             │    │             │  │
-│  │ - Tropical  │    │ - Nodes     │    │ - States    │    │ - Pipeline  │  │
-│  │ - Log       │◄───│ - Edges     │◄───│ - Arcs      │◄───│ - CFG       │  │
-│  │ - Boolean   │    │ - Weights   │    │ - Compose   │    │ - Custom    │  │
-│  │ - Product   │    │ - Builder   │    │ - Lazy      │    │             │  │
-│  └─────────────┘    └──────┬──────┘    └─────────────┘    └─────────────┘  │
-│         ▲                  │                                                │
-│         │                  ▼                                                │
-│  ┌──────┴──────┐    ┌─────────────┐    ┌─────────────┐                     │
-│  │  Algorithms │    │   Backend   │    │     CFG     │                     │
-│  │             │    │             │    │             │                     │
-│  │ - Viterbi   │    │ - HashMap   │    │ - Grammar   │                     │
-│  │ - N-best    │    │ - PathMap   │    │ - Earley    │                     │
-│  │ - Beam      │    │ - (Custom)  │    │ - Forest    │                     │
-│  └─────────────┘    └─────────────┘    └─────────────┘                     │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                                 lling-llang                                      │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐    │
+│  │   Semiring    │  │    Lattice    │  │     WFST      │  │    Layers     │    │
+│  │               │  │               │  │               │  │               │    │
+│  │ - Tropical    │  │ - Nodes       │  │ - States      │  │ - Pipeline    │    │
+│  │ - Log         │◄─│ - Edges       │◄─│ - Arcs        │◄─│ - CFG         │    │
+│  │ - Probability │  │ - Weights     │  │ - Compose     │  │ - Custom      │    │
+│  │ - String      │  │ - Builder     │  │ - Lazy        │  │               │    │
+│  │ - Expectation │  │               │  │ - Rational    │  │               │    │
+│  │ - Product     │  │               │  │ - Synchronize │  │               │    │
+│  └───────────────┘  └───────┬───────┘  └───────────────┘  └───────────────┘    │
+│         ▲                   │                                                    │
+│         │                   ▼                                                    │
+│  ┌──────┴──────┐  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐      │
+│  │  Algorithms │  │    Backend    │  │      CFG      │  │      CTC      │      │
+│  │             │  │               │  │               │  │               │      │
+│  │ - Viterbi   │  │ - HashMap     │  │ - Grammar     │  │ - Correct     │      │
+│  │ - N-best    │  │ - PathMap     │  │ - Earley      │  │ - Compact     │      │
+│  │ - Beam      │  │ - (Custom)    │  │ - Forest      │  │ - Minimal     │      │
+│  │ - ShortDist │  │               │  │               │  │ - Selfless    │      │
+│  │ - WtPush    │  │               │  │               │  │               │      │
+│  │ - EpsRemove │  │               │  │               │  │               │      │
+│  │ - Determin  │  │               │  │               │  │               │      │
+│  │ - Minimize  │  │               │  │               │  │               │      │
+│  └─────────────┘  └───────────────┘  └───────────────┘  └───────────────┘      │
+│                                                                                  │
+│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐    │
+│  │Differentiable │  │  Optimization │  │      ASR      │  │      GPU      │    │
+│  │               │  │               │  │               │  │               │    │
+│  │ - ForwardScr  │  │ - LogPush     │  │ - Context     │  │ - CSR         │    │
+│  │ - Viterbi     │  │ - Lookahead   │  │ - N-gram LM   │  │ - TokenPack   │    │
+│  │ - Gradients   │  │ - TokenGroup  │  │ - Cascade     │  │ - LoadBalance │    │
+│  │ - Layers      │  │ - N-gramBO    │  │ - Factoring   │  │ - K-Vector    │    │
+│  │ - SecondOrder │  │               │  │ - Rescoring   │  │ - Channels    │    │
+│  │               │  │               │  │               │  │ - SoftPrune   │    │
+│  └───────────────┘  └───────────────┘  └───────────────┘  └───────────────┘    │
+│                                                                                  │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Module Breakdown
 
 | Module | Purpose | Key Types |
 |--------|---------|-----------|
-| `semiring` | Algebraic weight structures | `Semiring`, `TropicalWeight`, `LogWeight` |
+| `semiring` | Algebraic weight structures | `Semiring`, `TropicalWeight`, `LogWeight`, `ProbabilityWeight`, `StringWeight`, `ExpectationWeight` |
 | `lattice` | Weighted DAG for alternatives | `Lattice`, `LatticeBuilder`, `Node`, `Edge` |
-| `wfst` | Finite state transducers | `Wfst`, `MutableWfst`, `VectorWfst` |
+| `wfst` | Finite state transducers | `Wfst`, `MutableWfst`, `VectorWfst`, `UnionWfst`, `ConcatWfst`, `SyncWfst` |
 | `backend` | Storage abstraction | `LatticeBackend`, `HashMapBackend` |
 | `path` | Path extraction algorithms | `viterbi`, `nbest`, `beam_search` |
 | `composition` | Lazy composition operators | `LazyComposition`, `LazyCfgComposition` |
 | `cfg` | Context-free grammar parsing | `Grammar`, `EarleyParser`, `ParseForest` |
 | `layers` | Correction pipeline | `CorrectionLayer`, `LayerPipeline` |
+| `algorithms` | Core WFST algorithms | `shortest_distance`, `weight_push`, `epsilon_removal`, `determinize`, `minimize` |
+| `ctc` | CTC topologies for ASR | `CorrectCtc`, `CompactCtc`, `MinimalCtc`, `SelflessCtc` |
+| `differentiable` | Differentiable operations | `ForwardScore`, `ViterbiGradient`, `GradientWfst`, `WfstConvLayer` |
+| `optimization` | Beam search optimization | `prepare_for_beam_search`, `LookaheadTable`, `TokenGroupManager`, `NgramLmBuilder` |
+| `asr` | Speech recognition pipeline | `TriphoneBuilder`, `NgramLmBuilder`, `CascadeBuilder`, `ChainFactoring`, `LatticeRescorer` |
+| `gpu` | GPU-optimized structures | `CsrWfst`, `PackedToken`, `LoadBalancer`, `KVector`, `BatchedDecoder`, `SoftPruneManager` |
 
 ## Data Flow
 
@@ -230,9 +254,80 @@ Where:
 - V = nodes, E = edges, L = path length
 - k = number of paths, B = beam width, D = average out-degree
 
+## Advanced Features
+
+lling-llang includes several advanced modules for speech recognition and deep learning:
+
+### CTC Topologies
+
+Connectionist Temporal Classification (CTC) graph topologies for speech recognition:
+
+| Topology | States | Arcs | Memory Savings |
+|----------|--------|------|----------------|
+| Correct-CTC | N | N² | Baseline |
+| Compact-CTC | N | 3N-2 | 1.5× smaller |
+| Minimal-CTC | 1 | N | 2× smaller |
+
+See [CTC Topologies](../advanced/ctc-topologies.md) for details.
+
+### Differentiable Operations
+
+Automatic differentiation through WFST operations enables end-to-end training:
+
+```rust
+// Compute forward score with gradients
+let (score, gradients) = forward_score_with_gradient(&wfst);
+
+// Gradients flow back through composition, intersection, etc.
+```
+
+See [Differentiable Operations](../advanced/differentiable.md) for details.
+
+### GPU Acceleration
+
+GPU-optimized data structures achieve up to **240× speedup**:
+
+- **CSR Representation**: 1/3 memory of standard formats
+- **uint64 Token Packing**: Lock-free atomic recombination
+- **Cooperative Groups**: Dynamic load balancing
+- **Channels/Lanes**: Batched streaming for thousands of concurrent streams
+
+See [GPU Acceleration](../advanced/gpu-acceleration.md) for details.
+
+### ASR Pipeline
+
+Complete speech recognition transducer construction:
+
+```
+N = π(min(det(H̃ ∘ det(C̃ ∘ det(L̃ ∘ G)))))
+
+Where:
+  G = Word-level grammar (n-gram LM)
+  L = Pronunciation lexicon
+  C = Context-dependency (triphones)
+  H = HMM transducer
+```
+
+See [ASR Pipeline](../advanced/asr-pipeline.md) for details.
+
 ## Next Steps
 
+### Core Concepts
 - [Semirings](semirings.md): Understand the algebraic foundation
+- [WFST Operations](wfst-operations.md): Rational and unary operations
 - [Lattices](lattices.md): Learn lattice construction and operations
-- [Path Extraction](../algorithms/path-extraction.md): Find optimal paths
-- [Layers](layers.md): Build correction pipelines
+- [Backends](backends.md): Storage abstraction layer
+
+### Algorithms
+- [Path Extraction](../algorithms/path-extraction.md): Viterbi, N-best, beam search
+- [Shortest Distance](../algorithms/shortest-distance.md): Core graph algorithms
+- [Weight Pushing](../algorithms/weight-pushing.md): Weight normalization
+- [Determinization](../algorithms/determinization.md): Remove non-determinism
+- [Minimization](../algorithms/minimization.md): Reduce WFST size
+
+### Advanced
+- [CTC Topologies](../advanced/ctc-topologies.md): ASR graph structures
+- [Differentiable Operations](../advanced/differentiable.md): Gradient computation
+- [Beam Optimization](../advanced/beam-optimization.md): Log-semiring pushing
+- [GPU Acceleration](../advanced/gpu-acceleration.md): High-performance decoding
+- [ASR Pipeline](../advanced/asr-pipeline.md): Speech recognition transducers

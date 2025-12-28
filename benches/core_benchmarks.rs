@@ -18,11 +18,22 @@ use lling_llang::ctc::{
     correct_ctc, compact_ctc, minimal_ctc,
     selfless_correct_ctc, selfless_compact_ctc,
 };
+use lling_llang::differentiable::{
+    forward_score, viterbi_score, backward, GradientWfst,
+};
+use lling_llang::optimization::{
+    prepare_for_beam_search, LogPushConfig, build_lookahead_table, LookaheadConfig,
+    Token, TokenGroup, TokenGroupPool, BucketQueue, TokenGroupConfig, TokenGroupManager,
+    BigramLm, NgramLmBuilder, NgramLmConfig, compute_size_reduction,
+};
 use lling_llang::backend::{HashMapBackend, LatticeBackend};
 use lling_llang::cfg::{GrammarBuilder, EarleyParser};
 use lling_llang::lattice::{LatticeBuilder, EdgeMetadata};
 use lling_llang::path::{viterbi, nbest, beam_search};
-use lling_llang::semiring::{TropicalWeight, LogWeight, Semiring};
+use lling_llang::semiring::{
+    TropicalWeight, LogWeight, ProbabilityWeight, LeftStringWeight, RightStringWeight,
+    ExpectationWeight, Semiring,
+};
 use lling_llang::wfst::{VectorWfst, MutableWfst, StateId};
 
 // ============================================================================
@@ -327,6 +338,119 @@ fn semiring_benchmarks(c: &mut Criterion) {
     group.bench_function("log_to_probability", |b| {
         let w = LogWeight::new(-0.693); // ln(0.5)
         b.iter(|| black_box(w.to_probability()))
+    });
+
+    // ProbabilityWeight operations
+    group.bench_function("probability_plus", |b| {
+        let a = ProbabilityWeight::new(0.3);
+        let c = ProbabilityWeight::new(0.5);
+        b.iter(|| black_box(a.plus(&c)))
+    });
+
+    group.bench_function("probability_times", |b| {
+        let a = ProbabilityWeight::new(0.3);
+        let c = ProbabilityWeight::new(0.5);
+        b.iter(|| black_box(a.times(&c)))
+    });
+
+    group.bench_function("probability_divide", |b| {
+        use lling_llang::semiring::DivisibleSemiring;
+        let a = ProbabilityWeight::new(0.6);
+        let c = ProbabilityWeight::new(0.3);
+        b.iter(|| black_box(a.divide(&c)))
+    });
+
+    group.bench_function("probability_star", |b| {
+        use lling_llang::semiring::StarSemiring;
+        let a = ProbabilityWeight::new(0.3); // |a| < 1 for convergence
+        b.iter(|| black_box(a.star()))
+    });
+
+    group.bench_function("probability_from_log", |b| {
+        b.iter(|| black_box(ProbabilityWeight::from_log(0.693))) // e^(-0.693) ≈ 0.5
+    });
+
+    group.bench_function("probability_to_log", |b| {
+        let w = ProbabilityWeight::new(0.5);
+        b.iter(|| black_box(w.to_log()))
+    });
+
+    // LeftStringWeight operations
+    group.bench_function("string_left_plus_short", |b| {
+        let a = LeftStringWeight::from_str("hello");
+        let c = LeftStringWeight::from_str("helicopter");
+        b.iter(|| black_box(a.plus(&c))) // lcp = "hel"
+    });
+
+    group.bench_function("string_left_plus_long", |b| {
+        let a = LeftStringWeight::from_str("abcdefghijklmnopqrstuvwxyz");
+        let c = LeftStringWeight::from_str("abcdefghijklmnop"); // prefix of a
+        b.iter(|| black_box(a.plus(&c))) // lcp = c
+    });
+
+    group.bench_function("string_left_times", |b| {
+        let a = LeftStringWeight::from_str("hello");
+        let c = LeftStringWeight::from_str("world");
+        b.iter(|| black_box(a.times(&c))) // concat = "helloworld"
+    });
+
+    group.bench_function("string_left_times_long", |b| {
+        let a = LeftStringWeight::from_str("abcdefghijklmnopqrstuvwxyz");
+        let c = LeftStringWeight::from_str("0123456789");
+        b.iter(|| black_box(a.times(&c)))
+    });
+
+    // RightStringWeight operations
+    group.bench_function("string_right_plus_short", |b| {
+        let a = RightStringWeight::from_str("testing");
+        let c = RightStringWeight::from_str("ing");
+        b.iter(|| black_box(a.plus(&c))) // lcs = "ing"
+    });
+
+    group.bench_function("string_right_plus_long", |b| {
+        let a = RightStringWeight::from_str("abcdefghijklmnopqrstuvwxyz");
+        let c = RightStringWeight::from_str("pqrstuvwxyz"); // suffix of a
+        b.iter(|| black_box(a.plus(&c))) // lcs = c
+    });
+
+    group.bench_function("string_right_times", |b| {
+        let a = RightStringWeight::from_str("hello");
+        let c = RightStringWeight::from_str("world");
+        b.iter(|| black_box(a.times(&c))) // concat = "helloworld"
+    });
+
+    // ExpectationWeight operations
+    group.bench_function("expectation_plus", |b| {
+        let a = ExpectationWeight::new(0.3, 1.0);
+        let c = ExpectationWeight::new(0.5, 2.0);
+        b.iter(|| black_box(a.plus(&c))) // (0.8, 3.0)
+    });
+
+    group.bench_function("expectation_times", |b| {
+        let a = ExpectationWeight::new(0.3, 1.0);
+        let c = ExpectationWeight::new(0.5, 2.0);
+        b.iter(|| black_box(a.times(&c))) // (0.15, 0.3*2.0 + 0.5*1.0) = (0.15, 1.1)
+    });
+
+    group.bench_function("expectation_divide", |b| {
+        use lling_llang::semiring::DivisibleSemiring;
+        let a = ExpectationWeight::new(0.6, 1.2);
+        let c = ExpectationWeight::new(0.3, 0.6);
+        b.iter(|| black_box(a.divide(&c)))
+    });
+
+    group.bench_function("expectation_star", |b| {
+        use lling_llang::semiring::StarSemiring;
+        let a = ExpectationWeight::new(0.3, 0.1); // |value| < 1 for convergence
+        b.iter(|| black_box(a.star()))
+    });
+
+    group.bench_function("expectation_from_probability", |b| {
+        b.iter(|| black_box(ExpectationWeight::from_probability(0.5)))
+    });
+
+    group.bench_function("expectation_from_probability_and_cost", |b| {
+        b.iter(|| black_box(ExpectationWeight::from_probability_and_cost(0.5, 3.0)))
     });
 
     group.finish();
@@ -1053,6 +1177,731 @@ fn ctc_topology_benchmarks(c: &mut Criterion) {
 }
 
 // ============================================================================
+// Phase 6: Differentiable Operations Benchmarks
+// ============================================================================
+
+/// Build a WFST with LogWeight for differentiable operations
+fn build_log_linear_wfst(size: usize) -> VectorWfst<char, LogWeight> {
+    let mut fst = VectorWfst::new();
+    fst.add_states(size + 1);
+    fst.set_start(0);
+    fst.set_final(size as StateId, LogWeight::one());
+
+    for i in 0..size {
+        let label = (b'a' + (i % 26) as u8) as char;
+        fst.add_arc(
+            i as StateId,
+            Some(label),
+            Some(label),
+            (i + 1) as StateId,
+            LogWeight::new(1.0 + (i % 10) as f64 * 0.1),
+        );
+    }
+    fst
+}
+
+/// Build a WFST with multiple parallel paths for differentiable operations
+fn build_log_parallel_wfst(size: usize, num_paths: usize) -> VectorWfst<char, LogWeight> {
+    let mut fst = VectorWfst::new();
+    fst.add_states(2);
+    fst.set_start(0);
+    fst.set_final(1, LogWeight::one());
+
+    // Add multiple parallel arcs from start to final
+    for i in 0..num_paths {
+        let label = (b'a' + (i % 26) as u8) as char;
+        fst.add_arc(
+            0,
+            Some(label),
+            Some(label),
+            1,
+            LogWeight::new(1.0 + (i % 10) as f64 * 0.5),
+        );
+    }
+
+    // Now extend with size - 1 states (already have 2)
+    for i in 2..=size {
+        let s = fst.add_state();
+        let prev = s - 1;
+        let label = (b'x' + ((i - 2) % 3) as u8) as char;
+        fst.add_arc(prev, Some(label), Some(label), s, LogWeight::new(0.5));
+        if i == size {
+            fst.set_final(s, LogWeight::one());
+        }
+    }
+
+    fst
+}
+
+/// Build a diamond WFST with LogWeight for forward score benchmarks
+fn build_log_diamond_wfst(layers: usize, width: usize) -> VectorWfst<char, LogWeight> {
+    let mut fst = VectorWfst::new();
+    // Total states = 1 (start) + layers * width + 1 (final)
+    let total_states = 1 + layers * width + 1;
+    fst.add_states(total_states);
+    fst.set_start(0);
+    let final_state = (total_states - 1) as StateId;
+    fst.set_final(final_state, LogWeight::one());
+
+    // Connect start to first layer
+    for w in 0..width {
+        let target = 1 + w;
+        let label = (b'a' + (w % 26) as u8) as char;
+        fst.add_arc(
+            0,
+            Some(label),
+            Some(label),
+            target as StateId,
+            LogWeight::new(1.0 + w as f64 * 0.1),
+        );
+    }
+
+    // Connect intermediate layers
+    for layer in 0..(layers - 1) {
+        for w_from in 0..width {
+            let from = 1 + layer * width + w_from;
+            for w_to in 0..width {
+                let to = 1 + (layer + 1) * width + w_to;
+                let label = (b'm' + ((w_from + w_to) % 10) as u8) as char;
+                fst.add_arc(
+                    from as StateId,
+                    Some(label),
+                    Some(label),
+                    to as StateId,
+                    LogWeight::new(0.5 + (w_from * w_to % 5) as f64 * 0.1),
+                );
+            }
+        }
+    }
+
+    // Connect last layer to final
+    for w in 0..width {
+        let from = 1 + (layers - 1) * width + w;
+        let label = (b'z' - (w % 10) as u8) as char;
+        fst.add_arc(
+            from as StateId,
+            Some(label),
+            Some(label),
+            final_state,
+            LogWeight::new(0.5 + w as f64 * 0.05),
+        );
+    }
+
+    fst
+}
+
+fn differentiable_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("differentiable");
+
+    // Forward score benchmarks
+    for size in [10, 50, 100, 200].iter() {
+        group.bench_with_input(
+            BenchmarkId::new("forward_score_linear", size),
+            size,
+            |b, &size| {
+                let fst = build_log_linear_wfst(size);
+                let grad_fst = GradientWfst::from_wfst(&fst);
+                b.iter(|| {
+                    grad_fst.reset();
+                    black_box(forward_score(&grad_fst))
+                })
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("viterbi_score_linear", size),
+            size,
+            |b, &size| {
+                let fst = build_log_linear_wfst(size);
+                let grad_fst = GradientWfst::from_wfst(&fst);
+                b.iter(|| black_box(viterbi_score(&grad_fst)))
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("backward_linear", size),
+            size,
+            |b, &size| {
+                let fst = build_log_linear_wfst(size);
+                let grad_fst = GradientWfst::from_wfst(&fst);
+                b.iter(|| {
+                    grad_fst.reset();
+                    forward_score(&grad_fst);
+                    black_box(backward(&grad_fst))
+                })
+            },
+        );
+    }
+
+    // Parallel paths benchmarks (tests log-sum-exp)
+    for num_paths in [10, 50, 100, 200].iter() {
+        group.bench_with_input(
+            BenchmarkId::new("forward_score_parallel", num_paths),
+            num_paths,
+            |b, &num_paths| {
+                let fst = build_log_parallel_wfst(5, num_paths);
+                let grad_fst = GradientWfst::from_wfst(&fst);
+                b.iter(|| {
+                    grad_fst.reset();
+                    black_box(forward_score(&grad_fst))
+                })
+            },
+        );
+    }
+
+    // Diamond (many paths) benchmarks
+    for (layers, width) in [(3, 5), (5, 5), (5, 10), (8, 8)].iter() {
+        group.bench_with_input(
+            BenchmarkId::new("forward_score_diamond", format!("{}x{}", layers, width)),
+            &(*layers, *width),
+            |b, &(layers, width)| {
+                let fst = build_log_diamond_wfst(layers, width);
+                let grad_fst = GradientWfst::from_wfst(&fst);
+                b.iter(|| {
+                    grad_fst.reset();
+                    black_box(forward_score(&grad_fst))
+                })
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("backward_diamond", format!("{}x{}", layers, width)),
+            &(*layers, *width),
+            |b, &(layers, width)| {
+                let fst = build_log_diamond_wfst(layers, width);
+                let grad_fst = GradientWfst::from_wfst(&fst);
+                b.iter(|| {
+                    grad_fst.reset();
+                    forward_score(&grad_fst);
+                    black_box(backward(&grad_fst))
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ============================================================================
+// Phase 7: Optimization Benchmarks
+// ============================================================================
+
+fn optimization_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("optimization");
+
+    // Log-semiring weight pushing for beam search
+    for size in [10, 50, 100, 200].iter() {
+        // Log-push on linear WFST
+        group.bench_with_input(
+            BenchmarkId::new("log_push_linear", size),
+            size,
+            |b, &size| {
+                b.iter_with_setup(
+                    || {
+                        // Build LogWeight WFST for log pushing
+                        let mut fst: VectorWfst<char, LogWeight> = VectorWfst::with_capacity(size + 1);
+                        for _ in 0..=size {
+                            fst.add_state();
+                        }
+                        fst.set_start(0);
+                        fst.set_final(size as StateId, LogWeight::one());
+                        for i in 0..size {
+                            fst.add_arc(
+                                i as StateId,
+                                Some('a'),
+                                Some('a'),
+                                (i + 1) as StateId,
+                                LogWeight::new(1.0),
+                            );
+                        }
+                        fst
+                    },
+                    |mut fst| {
+                        black_box(prepare_for_beam_search(&mut fst, LogPushConfig::default()).ok())
+                    },
+                )
+            },
+        );
+
+        // Log-push on diamond WFST (multiple parallel paths)
+        group.bench_with_input(
+            BenchmarkId::new("log_push_diamond", size),
+            size,
+            |b, &size| {
+                b.iter_with_setup(
+                    || {
+                        let branching = 3;
+                        let mut fst: VectorWfst<char, LogWeight> = VectorWfst::with_capacity(size + 1);
+                        for _ in 0..=size {
+                            fst.add_state();
+                        }
+                        fst.set_start(0);
+                        fst.set_final(size as StateId, LogWeight::one());
+                        for pos in 0..size {
+                            for branch in 0..branching {
+                                let label = (b'a' + (branch as u8 % 26)) as char;
+                                fst.add_arc(
+                                    pos as StateId,
+                                    Some(label),
+                                    Some(label),
+                                    (pos + 1) as StateId,
+                                    LogWeight::new(1.0 + branch as f64 * 0.1),
+                                );
+                            }
+                        }
+                        fst
+                    },
+                    |mut fst| {
+                        black_box(prepare_for_beam_search(&mut fst, LogPushConfig::default()).ok())
+                    },
+                )
+            },
+        );
+    }
+
+    // Lookahead table construction
+    for size in [10, 50, 100, 200].iter() {
+        group.bench_with_input(
+            BenchmarkId::new("lookahead_table_linear", size),
+            size,
+            |b, &size| {
+                // Build LogWeight WFST
+                let mut fst: VectorWfst<char, LogWeight> = VectorWfst::with_capacity(size + 1);
+                for _ in 0..=size {
+                    fst.add_state();
+                }
+                fst.set_start(0);
+                fst.set_final(size as StateId, LogWeight::one());
+                for i in 0..size {
+                    fst.add_arc(
+                        i as StateId,
+                        Some('a'),
+                        Some('a'),
+                        (i + 1) as StateId,
+                        LogWeight::new(1.0),
+                    );
+                }
+                b.iter(|| {
+                    black_box(build_lookahead_table(&fst, LookaheadConfig::default()).ok())
+                })
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("lookahead_table_diamond", size),
+            size,
+            |b, &size| {
+                let branching = 3;
+                let mut fst: VectorWfst<char, LogWeight> = VectorWfst::with_capacity(size + 1);
+                for _ in 0..=size {
+                    fst.add_state();
+                }
+                fst.set_start(0);
+                fst.set_final(size as StateId, LogWeight::one());
+                for pos in 0..size {
+                    for branch in 0..branching {
+                        let label = (b'a' + (branch as u8 % 26)) as char;
+                        fst.add_arc(
+                            pos as StateId,
+                            Some(label),
+                            Some(label),
+                            (pos + 1) as StateId,
+                            LogWeight::new(1.0 + branch as f64 * 0.1),
+                        );
+                    }
+                }
+                b.iter(|| {
+                    black_box(build_lookahead_table(&fst, LookaheadConfig::default()).ok())
+                })
+            },
+        );
+    }
+
+    // Lookahead query performance
+    group.bench_function("lookahead_query_100_states", |b| {
+        let size = 100;
+        let mut fst: VectorWfst<char, LogWeight> = VectorWfst::with_capacity(size + 1);
+        for _ in 0..=size {
+            fst.add_state();
+        }
+        fst.set_start(0);
+        fst.set_final(size as StateId, LogWeight::one());
+        for i in 0..size {
+            fst.add_arc(
+                i as StateId,
+                Some('a'),
+                Some('a'),
+                (i + 1) as StateId,
+                LogWeight::new(1.0),
+            );
+        }
+        let table = build_lookahead_table(&fst, LookaheadConfig::default())
+            .expect("should build lookahead table");
+        b.iter(|| {
+            // Query all states
+            let mut total = LogWeight::zero();
+            for s in 0..size {
+                total = total.plus(&table.get(s as StateId));
+            }
+            black_box(total)
+        })
+    });
+
+    // Normalize score performance
+    group.bench_function("normalize_score_100", |b| {
+        let size = 100;
+        let mut fst: VectorWfst<char, LogWeight> = VectorWfst::with_capacity(size + 1);
+        for _ in 0..=size {
+            fst.add_state();
+        }
+        fst.set_start(0);
+        fst.set_final(size as StateId, LogWeight::one());
+        for i in 0..size {
+            fst.add_arc(
+                i as StateId,
+                Some('a'),
+                Some('a'),
+                (i + 1) as StateId,
+                LogWeight::new(1.0),
+            );
+        }
+        let table = build_lookahead_table(&fst, LookaheadConfig::default())
+            .expect("should build lookahead table");
+        let accumulated = LogWeight::new(5.0);
+        b.iter(|| {
+            // Normalize scores for all states
+            let mut total = LogWeight::zero();
+            for s in 0..size {
+                total = total.plus(&table.normalize_score(s as StateId, &accumulated));
+            }
+            black_box(total)
+        })
+    });
+
+    // ========================================================================
+    // Token Grouping (LET-Decoder) Benchmarks
+    // ========================================================================
+
+    // BucketQueue insert/pop throughput
+    for size in [100, 500, 1000, 5000].iter() {
+        group.bench_with_input(
+            BenchmarkId::new("bucket_queue_insert_pop", size),
+            size,
+            |b, &size| {
+                b.iter_with_setup(
+                    || {
+                        // Create queue with reasonable range
+                        BucketQueue::<usize>::new(100, 1.0, 0.0)
+                    },
+                    |mut queue| {
+                        // Insert items with varying priorities
+                        for i in 0..size {
+                            queue.insert((i % 50) as f64, i);
+                        }
+                        // Pop all items
+                        let mut count = 0usize;
+                        while queue.pop().is_some() {
+                            count += 1;
+                        }
+                        black_box(count)
+                    },
+                )
+            },
+        );
+    }
+
+    // TokenGroup add_token throughput
+    for size in [10, 50, 100].iter() {
+        group.bench_with_input(
+            BenchmarkId::new("token_group_add_tokens", size),
+            size,
+            |b, &size| {
+                b.iter_with_setup(
+                    || {
+                        let base_token = Token {
+                            base_state: 0,
+                            grammar_state: 0,
+                            forward_prob: LogWeight::new(0.0),
+                            prev_token: None,
+                            prev_arc: None,
+                        };
+                        (TokenGroup::with_token(0, base_token, 0), size)
+                    },
+                    |(mut group, size)| {
+                        for i in 1..size {
+                            let token = Token {
+                                base_state: 0,
+                                grammar_state: i as StateId,
+                                forward_prob: LogWeight::new(i as f64 * 0.1),
+                                prev_token: None,
+                                prev_arc: None,
+                            };
+                            group.add_token(token);
+                        }
+                        black_box(group.num_tokens())
+                    },
+                )
+            },
+        );
+    }
+
+    // TokenGroupPool get_or_create throughput
+    for size in [100, 500, 1000].iter() {
+        group.bench_with_input(
+            BenchmarkId::new("token_group_pool_get_or_create", size),
+            size,
+            |b, &size| {
+                b.iter_with_setup(
+                    || TokenGroupPool::with_capacity(size),
+                    |mut pool| {
+                        // Create groups for different base states
+                        for base_state in 0..size {
+                            let _ = pool.get_or_create(base_state as StateId);
+                        }
+                        black_box(pool.len())
+                    },
+                )
+            },
+        );
+    }
+
+    // TokenGroupPool lookup performance (after creation)
+    group.bench_function("token_group_pool_lookup_1000", |b| {
+        let mut pool = TokenGroupPool::with_capacity(1000);
+        // Pre-populate pool
+        for base_state in 0..1000usize {
+            let _ = pool.get_or_create(base_state as StateId);
+        }
+        b.iter(|| {
+            // Lookup all groups by ID (0-999)
+            let mut found = 0usize;
+            for group_id in 0..1000u32 {
+                if pool.get(group_id).is_some() {
+                    found += 1;
+                }
+            }
+            black_box(found)
+        })
+    });
+
+    // TokenGroupManager process_token throughput
+    for size in [100, 500, 1000].iter() {
+        group.bench_with_input(
+            BenchmarkId::new("token_group_manager_process", size),
+            size,
+            |b, &size| {
+                b.iter_with_setup(
+                    || TokenGroupManager::new(TokenGroupConfig::default()),
+                    |mut manager| {
+                        // Process tokens for different base states
+                        for i in 0..size {
+                            let token = Token {
+                                base_state: (i % 100) as StateId, // 100 unique base states
+                                grammar_state: (i / 100) as StateId,
+                                forward_prob: LogWeight::new(i as f64 * 0.01),
+                                prev_token: None,
+                                prev_arc: None,
+                            };
+                            let _ = manager.process_token(token, false);
+                        }
+                        black_box(manager.stats().tokens_processed)
+                    },
+                )
+            },
+        );
+    }
+
+    // TokenGroupManager with word arcs (triggers expansion)
+    group.bench_function("token_group_manager_word_arcs_500", |b| {
+        b.iter_with_setup(
+            || TokenGroupManager::new(TokenGroupConfig::default()),
+            |mut manager| {
+                // Process mix of word and non-word arcs
+                for i in 0..500usize {
+                    let token = Token {
+                        base_state: (i % 50) as StateId,
+                        grammar_state: (i / 50) as StateId,
+                        forward_prob: LogWeight::new(i as f64 * 0.01),
+                        prev_token: None,
+                        prev_arc: None,
+                    };
+                    // Every 5th token is a word arc
+                    let is_word = i % 5 == 0;
+                    let _ = manager.process_token(token, is_word);
+                }
+                black_box(manager.stats().expansions)
+            },
+        )
+    });
+
+    // TokenGroupManager advance_frame
+    group.bench_function("token_group_manager_advance_frame", |b| {
+        b.iter_with_setup(
+            || {
+                let mut manager = TokenGroupManager::new(TokenGroupConfig::default());
+                // Populate with tokens
+                for i in 0..200usize {
+                    let token = Token {
+                        base_state: (i % 20) as StateId,
+                        grammar_state: (i / 20) as StateId,
+                        forward_prob: LogWeight::new(i as f64 * 0.01),
+                        prev_token: None,
+                        prev_arc: None,
+                    };
+                    let _ = manager.process_token(token, false);
+                }
+                manager
+            },
+            |mut manager| {
+                // Advance through multiple frames
+                let mut frame_count = 0u32;
+                for _ in 0..10 {
+                    let _ = manager.advance_frame();
+                    frame_count += 1;
+                }
+                black_box(frame_count)
+            },
+        )
+    });
+
+    // ========================================================================
+    // N-gram Back-off Benchmarks
+    // ========================================================================
+
+    // BigramLm creation and probability lookup
+    for vocab_size in [100, 500, 1000].iter() {
+        group.bench_with_input(
+            BenchmarkId::new("bigram_lm_create", vocab_size),
+            vocab_size,
+            |b, &vocab_size| {
+                b.iter(|| {
+                    let mut lm = BigramLm::new(vocab_size);
+                    // Add unigrams
+                    for w in 0..vocab_size {
+                        lm.set_unigram(w as u32, 1.0 + (w as f64 * 0.001));
+                    }
+                    // Add sparse bigrams (1% density)
+                    for i in 0..(vocab_size / 10) {
+                        let w1 = (i * 7) % vocab_size;
+                        let w2 = (i * 11 + 1) % vocab_size;
+                        lm.set_bigram(w1 as u32, w2 as u32, 0.5);
+                    }
+                    black_box(lm)
+                })
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("bigram_lm_lookup", vocab_size),
+            vocab_size,
+            |b, &vocab_size| {
+                let mut lm = BigramLm::new(vocab_size);
+                for w in 0..vocab_size {
+                    lm.set_unigram(w as u32, 1.0 + (w as f64 * 0.001));
+                }
+                for i in 0..(vocab_size / 10) {
+                    let w1 = (i * 7) % vocab_size;
+                    let w2 = (i * 11 + 1) % vocab_size;
+                    lm.set_bigram(w1 as u32, w2 as u32, 0.5);
+                }
+                b.iter(|| {
+                    // Random lookups
+                    let mut sum = 0.0f64;
+                    for i in 0..100 {
+                        let w1 = ((i * 17) % vocab_size) as u32;
+                        let w2 = ((i * 23 + 5) % vocab_size) as u32;
+                        sum += lm.prob(w1, w2);
+                    }
+                    black_box(sum)
+                })
+            },
+        );
+    }
+
+    // BigramLm to WFST conversion
+    for vocab_size in [50, 100, 200].iter() {
+        group.bench_with_input(
+            BenchmarkId::new("bigram_lm_to_wfst", vocab_size),
+            vocab_size,
+            |b, &vocab_size| {
+                let mut lm = BigramLm::new(vocab_size);
+                for w in 0..vocab_size {
+                    lm.set_unigram(w as u32, 1.0 + (w as f64 * 0.001));
+                    lm.set_backoff(w as u32, 0.1);
+                }
+                for i in 0..(vocab_size / 5) {
+                    let w1 = (i * 7) % vocab_size;
+                    let w2 = (i * 11 + 1) % vocab_size;
+                    lm.set_bigram(w1 as u32, w2 as u32, 0.5);
+                }
+                b.iter(|| {
+                    black_box(lm.to_wfst())
+                })
+            },
+        );
+    }
+
+    // NgramLmBuilder for trigrams
+    for num_ngrams in [100, 500, 1000].iter() {
+        group.bench_with_input(
+            BenchmarkId::new("trigram_lm_build", num_ngrams),
+            num_ngrams,
+            |b, &num_ngrams| {
+                b.iter_with_setup(
+                    || {
+                        let config = NgramLmConfig {
+                            order: 3,
+                            use_backoff_symbol: true,
+                            vocab_size: 100,
+                            prune_threshold: None,
+                        };
+                        let mut builder = NgramLmBuilder::new(config);
+                        // Add unigrams
+                        for w in 0..50u32 {
+                            builder.add_ngram(&[], w, 1.0 + w as f64 * 0.01);
+                        }
+                        // Add bigrams
+                        for i in 0..(num_ngrams / 3) {
+                            let w1 = ((i * 7) % 50) as u32;
+                            let w2 = ((i * 11 + 1) % 50) as u32;
+                            builder.add_ngram(&[w1], w2, 0.5 + i as f64 * 0.001);
+                        }
+                        // Add trigrams
+                        for i in 0..(num_ngrams / 3) {
+                            let w1 = ((i * 7) % 50) as u32;
+                            let w2 = ((i * 11 + 1) % 50) as u32;
+                            let w3 = ((i * 13 + 2) % 50) as u32;
+                            builder.add_ngram(&[w1, w2], w3, 0.3 + i as f64 * 0.001);
+                            builder.add_backoff(&[w1, w2], 0.1);
+                        }
+                        builder
+                    },
+                    |builder| {
+                        black_box(builder.build())
+                    },
+                )
+            },
+        );
+    }
+
+    // Size reduction calculation
+    group.bench_function("size_reduction_calc", |b| {
+        b.iter(|| {
+            let mut total = 0.0f64;
+            for vocab in [100, 500, 1000, 5000] {
+                for observed in [1000, 10000, 50000] {
+                    let reduction = compute_size_reduction(vocab, observed, 2);
+                    total += reduction.arc_reduction;
+                }
+            }
+            black_box(total)
+        })
+    });
+
+    group.finish();
+}
+
+// ============================================================================
 // Main Benchmark Groups
 // ============================================================================
 
@@ -1068,6 +1917,8 @@ criterion_group!(
     connect_benchmarks,
     determinize_benchmarks,
     minimize_benchmarks,
-    ctc_topology_benchmarks
+    ctc_topology_benchmarks,
+    differentiable_benchmarks,
+    optimization_benchmarks
 );
 criterion_main!(benches);

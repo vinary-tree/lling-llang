@@ -42,14 +42,27 @@ Output: "the quick fox"
 
 ## Features
 
+### Core Framework
 - **Weighted lattice representation** for correction alternatives
-- **Multiple semiring types**: Tropical (shortest path), Log (probabilities), Boolean (reachability), Product (multi-objective)
+- **Multiple semiring types**: Tropical, Log, Probability, String, Expectation, Boolean, Product
 - **Correction layer pipeline** for modular, composable processing stages
 - **Path extraction algorithms**: Viterbi (best), N-best (top-k), beam search (approximate)
 - **CFG grammar filtering** with Earley parser
 - **Lazy composition** to avoid exponential blowup
 - **Pluggable storage backends** (in-memory, distributed)
-- **Optional integrations**: liblevenshtein for fuzzy matching, F1R3FLY.io ecosystem
+
+### WFST Algorithms
+- **Rational operations**: Union, concatenation, Kleene closure
+- **Unary operations**: Invert, project, reverse
+- **Core algorithms**: Shortest-distance, weight pushing, epsilon removal
+- **Optimization**: Determinization, minimization, synchronization
+
+### Advanced Features
+- **CTC topologies**: Correct, Compact (1.5× smaller), Minimal (2× smaller), Selfless
+- **Differentiable operations**: Gradient computation through WFST operations
+- **Deep learning integration**: WFST layers, token graphs, lexicon marginalization
+- **ASR pipeline**: H∘C∘L∘G cascade construction for speech recognition
+- **GPU acceleration**: CSR format, atomic recombination, batched streaming (240× speedup)
 
 ## Installation
 
@@ -125,6 +138,9 @@ A **semiring** is an algebraic structure that generalizes addition and multiplic
 |----------|----------|-----------|------|-----|----------|
 | Tropical | min | + | ∞ | 0 | Shortest path (edit distance) |
 | Log | log-add | + | ∞ | 0 | Probabilities (language models) |
+| Probability | + | × | 0 | 1 | Direct probability computation |
+| String | lcp | concat | ∞ | ε | Common prefix extraction |
+| Expectation | (+,+) | (×,×₊) | (0,0) | (1,0) | Expected values, gradients |
 | Boolean | OR | AND | false | true | Reachability queries |
 | Product | (⊕₁, ⊕₂) | (⊗₁, ⊗₂) | (0̄₁, 0̄₂) | (1̄₁, 1̄₂) | Multi-objective optimization |
 
@@ -317,8 +333,9 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
 | Section | Description |
 |---------|-------------|
-| [Architecture](docs/architecture/) | Core concepts: semirings, lattices, backends, layers |
-| [Algorithms](docs/algorithms/) | Path extraction, parsing, composition, topological sort |
+| [Architecture](docs/architecture/) | Core concepts: semirings, lattices, backends, layers, WFST operations |
+| [Algorithms](docs/algorithms/) | Path extraction, shortest-distance, weight pushing, determinization, minimization |
+| [Advanced](docs/advanced/) | CTC topologies, differentiable operations, ASR pipeline, GPU acceleration |
 | [Integration](docs/integration/) | F1R3FLY.io ecosystem, liblevenshtein, external systems |
 | [API Reference](docs/api/) | Complete API documentation for all modules |
 
@@ -328,32 +345,55 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 - [Lattices](docs/architecture/lattices.md) - Core data structure
 - [Path Extraction](docs/algorithms/path-extraction.md) - Finding optimal paths
 
+**Advanced topics:**
+- [CTC Topologies](docs/advanced/ctc-topologies.md) - Graph structures for speech recognition
+- [Differentiable Operations](docs/advanced/differentiable.md) - Gradient computation through WFSTs
+- [GPU Acceleration](docs/advanced/gpu-acceleration.md) - High-performance decoding (240× speedup)
+
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              lling-llang                                    │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │
-│  │  Semiring   │    │   Lattice   │    │    WFST     │    │   Layers    │  │
-│  │             │    │             │    │             │    │             │  │
-│  │ - Tropical  │    │ - Nodes     │    │ - States    │    │ - Pipeline  │  │
-│  │ - Log       │◄───│ - Edges     │◄───│ - Arcs      │◄───│ - CFG       │  │
-│  │ - Boolean   │    │ - Weights   │    │ - Compose   │    │ - Custom    │  │
-│  │ - Product   │    │ - Builder   │    │ - Lazy      │    │             │  │
-│  └─────────────┘    └──────┬──────┘    └─────────────┘    └─────────────┘  │
-│         ▲                  │                                                │
-│         │                  ▼                                                │
-│  ┌──────┴──────┐    ┌─────────────┐    ┌─────────────┐                     │
-│  │  Algorithms │    │   Backend   │    │     CFG     │                     │
-│  │             │    │             │    │             │                     │
-│  │ - Viterbi   │    │ - HashMap   │    │ - Grammar   │                     │
-│  │ - N-best    │    │ - PathMap   │    │ - Earley    │                     │
-│  │ - Beam      │    │ - (Custom)  │    │ - Forest    │                     │
-│  └─────────────┘    └─────────────┘    └─────────────┘                     │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                                 lling-llang                                      │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐    │
+│  │   Semiring    │  │    Lattice    │  │     WFST      │  │    Layers     │    │
+│  │               │  │               │  │               │  │               │    │
+│  │ - Tropical    │  │ - Nodes       │  │ - States      │  │ - Pipeline    │    │
+│  │ - Log         │◄─│ - Edges       │◄─│ - Arcs        │◄─│ - CFG         │    │
+│  │ - Probability │  │ - Weights     │  │ - Compose     │  │ - Custom      │    │
+│  │ - String      │  │ - Builder     │  │ - Lazy        │  │               │    │
+│  │ - Expectation │  │               │  │ - Rational    │  │               │    │
+│  │ - Product     │  │               │  │ - Synchronize │  │               │    │
+│  └───────────────┘  └───────┬───────┘  └───────────────┘  └───────────────┘    │
+│         ▲                   │                                                    │
+│         │                   ▼                                                    │
+│  ┌──────┴──────┐  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐      │
+│  │  Algorithms │  │    Backend    │  │      CFG      │  │      CTC      │      │
+│  │             │  │               │  │               │  │               │      │
+│  │ - Viterbi   │  │ - HashMap     │  │ - Grammar     │  │ - Correct     │      │
+│  │ - N-best    │  │ - PathMap     │  │ - Earley      │  │ - Compact     │      │
+│  │ - Beam      │  │ - (Custom)    │  │ - Forest      │  │ - Minimal     │      │
+│  │ - ShortDist │  │               │  │               │  │ - Selfless    │      │
+│  │ - WtPush    │  │               │  │               │  │               │      │
+│  │ - EpsRemove │  │               │  │               │  │               │      │
+│  │ - Determin  │  │               │  │               │  │               │      │
+│  │ - Minimize  │  │               │  │               │  │               │      │
+│  └─────────────┘  └───────────────┘  └───────────────┘  └───────────────┘      │
+│                                                                                  │
+│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐    │
+│  │Differentiable │  │  Optimization │  │      ASR      │  │      GPU      │    │
+│  │               │  │               │  │               │  │               │    │
+│  │ - ForwardScr  │  │ - LogPush     │  │ - Context     │  │ - CSR         │    │
+│  │ - Viterbi     │  │ - Lookahead   │  │ - N-gram LM   │  │ - TokenPack   │    │
+│  │ - Gradients   │  │ - TokenGroup  │  │ - Cascade     │  │ - LoadBalance │    │
+│  │ - Layers      │  │ - N-gramBO    │  │ - Factoring   │  │ - K-Vector    │    │
+│  │ - SecondOrder │  │               │  │ - Rescoring   │  │ - Channels    │    │
+│  │               │  │               │  │               │  │ - SoftPrune   │    │
+│  └───────────────┘  └───────────────┘  └───────────────┘  └───────────────┘    │
+│                                                                                  │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Project Status

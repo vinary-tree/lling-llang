@@ -6,7 +6,7 @@
 //! ## Overview
 //!
 //! lling-llang provides:
-//! - **Semirings**: Algebraic weight structures (Tropical, Log, Boolean, Product)
+//! - **Semirings**: Algebraic weight structures (Tropical, Log, Probability, Boolean, Product, String, Expectation)
 //! - **WFSTs**: Weighted finite state transducers with composition operators
 //! - **Lattices**: Weighted DAGs for representing correction alternatives
 //! - **CFG Parsing**: Earley parser modified for lattice input
@@ -66,6 +66,10 @@ pub mod cfg;
 pub mod layers;
 pub mod algorithms;
 pub mod ctc;
+pub mod differentiable;
+pub mod optimization;
+pub mod asr;
+pub mod gpu;
 
 // #[cfg(feature = "error-grammar")]
 // pub mod error_grammar;
@@ -84,11 +88,23 @@ pub mod prelude {
     pub use crate::semiring::{
         Semiring, DivisibleSemiring, StarSemiring,
         TropicalWeight, LogWeight, BoolWeight, ProductWeight,
+        ProbabilityWeight, LeftStringWeight, RightStringWeight, ExpectationWeight,
     };
     pub use crate::wfst::{
         StateId, WeightedTransition, WfstState,
         Wfst, MutableWfst, LazyWfst, CachePolicy,
         VectorWfst, VectorWfstBuilder, LazyState, StateSource, LazyWfstWrapper,
+        // Rational operations
+        UnionSource, ConcatSource, ClosureSource,
+        UnionWfst, ConcatWfst, ClosureWfst,
+        union, concat, closure, closure_plus,
+        // Unary operations
+        InvertSource, ProjectSource,
+        InvertWfst, ProjectInputWfst, ProjectOutputWfst,
+        invert, project_input, project_output, reverse,
+        // Synchronization
+        StringDelay, SyncState, SyncSource, MutableSyncSource, SyncWfst,
+        synchronize, synchronize_bounded, has_bounded_delay, compute_max_delay,
     };
     pub use crate::backend::{
         LatticeBackend, VocabId, HashMapBackend,
@@ -128,5 +144,48 @@ pub mod prelude {
         CtcTopology, CtcTopologyInfo, CtcLabel,
         correct_ctc, compact_ctc, minimal_ctc,
         selfless_correct_ctc, selfless_compact_ctc,
+    };
+    pub use crate::differentiable::{
+        GradientWfst, ArcGradient, GradientAccumulator,
+        forward_score, log_sum_exp_paths,
+        viterbi_score, viterbi_path_with_grad, ViterbiGradResult,
+        backward,
+    };
+    pub use crate::optimization::{
+        prepare_for_beam_search, LogPushConfig, BeamSearchPrepResult,
+        compute_log_potentials, apply_log_push,
+        LookaheadTable, build_lookahead_table, LookaheadConfig,
+    };
+    pub use crate::asr::{
+        ContextDependencyBuilder, TriphoneBuilder, TetraploneBuilder,
+        ContextDependencyConfig, ContextState, PhoneId,
+        NgramBuilder, NgramTransducer, NgramConfig,
+        BackoffState, NgramOrder, NgramWeight,
+        CascadeBuilder, AsrCascade, CascadeConfig,
+        LexiconEntry, AuxiliarySymbol,
+        chain_factor, ChainFactorConfig, ChainFactorResult,
+        Chain, ChainId,
+        rescore_lattice, RescoreConfig, RescoreResult,
+        LatticeGrammar, RescorePass,
+    };
+    pub use crate::gpu::{
+        // CSR representation
+        CsrWfst, CsrBuilder, CsrArc, CsrState,
+        csr_from_vector_wfst, csr_memory_size,
+        // Token recombination
+        PackedToken, TokenPacker, RecombinationBuffer,
+        pack_cost_arc, unpack_cost_arc,
+        // Load balancing
+        WorkGroup, WorkDispatcher, LoadBalancer,
+        WorkItem, WorkQueue,
+        // K-vector reduction
+        KVector, KVectorConfig, KVectorStats,
+        reduce_with_k_vectors,
+        // Channels/Lanes
+        Channel, Lane, BatchedDecoder, DecoderConfig,
+        ChannelState, LaneState,
+        // Soft pruning
+        SoftToken, SoftPruneConfig, SoftPruneBuffer,
+        SoftPruneStats, AdaptiveBeam, SoftPruneManager,
     };
 }
