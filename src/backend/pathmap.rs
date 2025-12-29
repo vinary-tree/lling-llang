@@ -132,10 +132,48 @@ impl LatticeBackend for PathMapBackend {
 }
 
 impl PathMapSharingBackend for PathMapBackend {
-    fn share_prefix(&self, _prefix: &[u8]) -> Option<Self> {
-        // TODO: Implement PathMap prefix sharing
-        // This requires deeper PathMap integration
-        None
+    /// Create a shared reference to a subtrie rooted at the given prefix.
+    ///
+    /// This creates a new backend that:
+    /// - Shares the underlying PathMap storage via Arc (structural sharing)
+    /// - Filters the vocabulary to only include words starting with the prefix
+    /// - Creates a new ID mapping for the filtered vocabulary
+    ///
+    /// # Arguments
+    ///
+    /// * `prefix` - The byte prefix to filter vocabulary by
+    ///
+    /// # Returns
+    ///
+    /// A new `PathMapBackend` with filtered vocabulary, or `None` if no words
+    /// match the prefix.
+    fn share_prefix(&self, prefix: &[u8]) -> Option<Self> {
+        // Convert prefix to string for vocabulary filtering
+        let prefix_str = std::str::from_utf8(prefix).ok()?;
+
+        // Filter vocabulary to only include words starting with the prefix
+        let mut new_vocab = indexmap::IndexMap::default();
+        let mut new_vocab_reverse = Vec::new();
+
+        for (word, _old_id) in &self.vocab {
+            if word.starts_with(prefix_str) {
+                let new_id = new_vocab_reverse.len() as VocabId;
+                new_vocab.insert(word.clone(), new_id);
+                new_vocab_reverse.push(word.clone());
+            }
+        }
+
+        // Return None if no words match the prefix
+        if new_vocab_reverse.is_empty() {
+            return None;
+        }
+
+        // Create new backend sharing the same PathMap storage
+        Some(Self {
+            storage: Arc::clone(&self.storage),
+            vocab: new_vocab,
+            vocab_reverse: new_vocab_reverse,
+        })
     }
 
     fn shares_structure_with(&self, other: &Self) -> bool {
@@ -185,5 +223,53 @@ mod tests {
 
         let backend3 = PathMapBackend::new();
         assert!(!backend1.shares_structure_with(&backend3));
+    }
+
+    #[test]
+    fn test_pathmap_backend_share_prefix() {
+        let mut backend = PathMapBackend::new();
+
+        // Add some words
+        backend.intern("hello");
+        backend.intern("help");
+        backend.intern("helicopter");
+        backend.intern("world");
+        backend.intern("wonder");
+
+        // Share prefix "hel"
+        let shared = backend.share_prefix(b"hel");
+        assert!(shared.is_some());
+
+        let shared = shared.unwrap();
+        assert_eq!(shared.vocab_size(), 3); // hello, help, helicopter
+        assert!(shared.contains("hello"));
+        assert!(shared.contains("help"));
+        assert!(shared.contains("helicopter"));
+        assert!(!shared.contains("world"));
+        assert!(!shared.contains("wonder"));
+
+        // Should share underlying storage
+        assert!(backend.shares_structure_with(&shared));
+    }
+
+    #[test]
+    fn test_pathmap_backend_share_prefix_no_match() {
+        let mut backend = PathMapBackend::new();
+
+        backend.intern("hello");
+        backend.intern("world");
+
+        // No words start with "xyz"
+        let shared = backend.share_prefix(b"xyz");
+        assert!(shared.is_none());
+    }
+
+    #[test]
+    fn test_pathmap_backend_share_prefix_empty() {
+        let backend = PathMapBackend::new();
+
+        // Empty backend has no words
+        let shared = backend.share_prefix(b"any");
+        assert!(shared.is_none());
     }
 }

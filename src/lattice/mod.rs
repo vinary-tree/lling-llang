@@ -50,4 +50,4 @@ mod iterator;
 pub use types::{NodeId, EdgeId, Node, Edge, EdgeMetadata};
 pub use lattice::Lattice;
 pub use builder::LatticeBuilder;
-pub use iterator::{PathIterator, LatticePath};
+pub use iterator::{PathIterator, LatticePath, LatticePathExt};

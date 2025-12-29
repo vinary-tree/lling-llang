@@ -290,15 +290,50 @@ impl<W: Semiring> ContextDependencyBuilder<W> {
     }
 
     /// Add boundary handling for deterministic construction.
+    ///
+    /// For deterministic context-dependency transducers, we need to handle word
+    /// boundaries by emitting the remaining context when the boundary symbol is seen.
+    ///
+    /// This allows proper handling of word-final context without look-ahead.
     fn add_boundary_handling(
         &self,
-        _fst: &mut VectorWfst<PhoneId, W>,
-        _state_map: &HashMap<ContextState, StateId>,
-        _boundary: PhoneId,
+        fst: &mut VectorWfst<PhoneId, W>,
+        state_map: &HashMap<ContextState, StateId>,
+        boundary: PhoneId,
     ) {
-        // Add epsilon transitions from states to boundary-handling states
-        // This allows the transducer to emit remaining context at word boundaries
-        // TODO: Implement full boundary handling
+        // For each state with accumulated context, add a boundary transition
+        // that outputs a context-dependent label including the boundary
+        for (context_state, &state_id) in state_map {
+            // Only process states with context (not the initial empty state)
+            if context_state.left_context.is_empty() {
+                // For initial state, just add a boundary self-loop
+                fst.add_arc(
+                    state_id,
+                    Some(boundary),
+                    Some(boundary),
+                    state_id,
+                    W::one(),
+                );
+                continue;
+            }
+
+            // For states with context, add a transition that outputs
+            // the context-dependent boundary label
+            let boundary_label = self.compute_cd_label(context_state, boundary);
+
+            // Create a boundary-exit state for this context
+            let exit_state = fst.add_state();
+            fst.set_final(exit_state, W::one());
+
+            // Add transition: current_state --boundary:cd_boundary_label--> exit_state
+            fst.add_arc(
+                state_id,
+                Some(boundary),
+                Some(boundary_label),
+                exit_state,
+                W::one(),
+            );
+        }
     }
 }
 

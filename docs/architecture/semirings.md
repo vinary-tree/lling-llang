@@ -531,6 +531,7 @@ fn test_my_semiring() {
 
 ## Next Steps
 
+- [Power Semiring](power-semiring.md): η-power semiring for soft path selection and RRWM algorithm
 - [Lattices](lattices.md): How semirings are used in lattice weights
 - [WFST Operations](wfst-operations.md): Rational and unary operations on WFSTs
 - [Path Extraction](../algorithms/path-extraction.md): Algorithms that use semiring operations

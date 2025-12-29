@@ -13,6 +13,9 @@ categories = ["text-processing", "algorithms"]
 # Core dependencies (optional - for liblevenshtein integration)
 liblevenshtein = { path = "../liblevenshtein-rust", optional = true }
 
+# Concurrent hash map for caching
+dashmap = { version = "6.1", optional = true }
+
 # F1R3FLY.io dependencies (optional)
 pathmap = { path = "../PathMap", optional = true }
 
@@ -24,6 +27,9 @@ rustc-hash = "1.1"
 
 # Numerics
 ordered-float = "4.0"
+
+# Random number generation for path sampling
+rand = "0.9"
 
 # Hashing
 blake3 = "1.5"
@@ -56,6 +62,10 @@ pos-tagging = []
 
 # Language model reranking layer
 lm-rerank = []
+
+# Phonetic rescoring layer (requires liblevenshtein with phonetic rules)
+# Also needs serialization for serde support in phonetic types
+phonetic-rescore = ["levenshtein", "dep:dashmap", "liblevenshtein?/phonetic-rules", "liblevenshtein?/serialization"]
 
 # === F1R3FLY.io Integration (optional) ===
 # Full F1R3FLY.io stack: PathMap, MORK, MeTTaTron, MeTTaIL

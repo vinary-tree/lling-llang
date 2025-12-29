@@ -7,8 +7,10 @@
 //!
 //! This module is only available when the `f1r3fly` feature is enabled.
 
+use rustc_hash::FxHashSet;
+
 use crate::backend::LatticeBackend;
-use crate::lattice::Lattice;
+use crate::lattice::{Lattice, LatticeBuilder, EdgeMetadata, LatticePathExt};
 use crate::semiring::Semiring;
 
 use super::traits::{CorrectionLayer, LayerError, LayerResult};
@@ -129,6 +131,8 @@ pub trait TypeChecker: Send + Sync {
 pub struct MeTTaILTypeLayer {
     type_checker: Box<dyn TypeChecker>,
     constraints: Vec<TypeConstraint>,
+    /// Penalty weight multiplier for soft constraint violations (default: 2.0).
+    soft_penalty: f64,
 }
 
 impl MeTTaILTypeLayer {
@@ -137,6 +141,7 @@ impl MeTTaILTypeLayer {
         Self {
             type_checker,
             constraints: Vec::new(),
+            soft_penalty: 2.0,
         }
     }
 
@@ -152,6 +157,12 @@ impl MeTTaILTypeLayer {
         self
     }
 
+    /// Set the penalty multiplier for soft constraint violations.
+    pub fn with_soft_penalty(mut self, penalty: f64) -> Self {
+        self.soft_penalty = penalty;
+        self
+    }
+
     /// Get the type checker.
     pub fn type_checker(&self) -> &dyn TypeChecker {
         self.type_checker.as_ref()
@@ -160,6 +171,40 @@ impl MeTTaILTypeLayer {
     /// Get the constraints.
     pub fn constraints(&self) -> &[TypeConstraint] {
         &self.constraints
+    }
+
+    /// Check if a token sequence passes strict constraints.
+    ///
+    /// Returns false if any strict constraint is violated.
+    fn passes_strict_constraints(&self, tokens: &[&str]) -> bool {
+        self.constraints.iter()
+            .filter(|c| c.strict)
+            .all(|c| self.check_constraint(tokens, c))
+    }
+
+    /// Count soft constraint violations.
+    fn count_soft_violations(&self, tokens: &[&str]) -> usize {
+        self.constraints.iter()
+            .filter(|c| !c.strict)
+            .filter(|c| !self.check_constraint(tokens, c))
+            .count()
+    }
+
+    /// Check a single constraint against a token sequence.
+    fn check_constraint(&self, tokens: &[&str], constraint: &TypeConstraint) -> bool {
+        match constraint.position {
+            Some(pos) => {
+                if pos < tokens.len() {
+                    self.type_checker.check_type(tokens[pos], &constraint.required_type)
+                } else {
+                    !constraint.strict // Strict = fail, soft = pass
+                }
+            }
+            None => {
+                // Check if any token satisfies the constraint
+                tokens.iter().any(|t| self.type_checker.check_type(t, &constraint.required_type))
+            }
+        }
     }
 }
 
@@ -173,16 +218,52 @@ impl<W: Semiring, B: LatticeBackend> CorrectionLayer<W, B> for MeTTaILTypeLayer 
             return Ok(lattice.clone());
         }
 
-        // TODO: Implement MeTTaIL type-based filtering
-        // 1. Extract paths from the lattice
-        // 2. For each path, check type constraints
-        // 3. Filter paths that don't satisfy strict constraints
-        // 4. Downweight paths that don't satisfy soft constraints
-        // 5. Build a new lattice with filtered/reweighted edges
+        // Collect edge IDs from paths that pass strict type constraints
+        let mut used_edges: FxHashSet<crate::lattice::EdgeId> = FxHashSet::default();
 
-        Err(LayerError::Other(
-            "MeTTaIL type layer not yet implemented - this is a stub".to_string()
-        ))
+        // Iterate over all paths in the lattice
+        for path in lattice.paths() {
+            // Get words from the path
+            let words: Vec<&str> = path.words(lattice).collect();
+
+            if words.is_empty() {
+                continue;
+            }
+
+            // Check if the path passes strict type constraints
+            if self.passes_strict_constraints(&words) {
+                // Add all edges from this path to the used set
+                for edge_id in &path.edges {
+                    used_edges.insert(*edge_id);
+                }
+            }
+        }
+
+        // If no paths passed, return error
+        if used_edges.is_empty() {
+            return Err(LayerError::Other(
+                "no paths passed MeTTaIL type constraints".to_string()
+            ));
+        }
+
+        // Build a new lattice with only the used edges
+        let mut new_builder = LatticeBuilder::new(lattice.backend().clone());
+
+        for edge in lattice.edges() {
+            if used_edges.contains(&edge.id) {
+                new_builder.add_correction_by_id(
+                    edge.source.0 as usize,
+                    edge.target.0 as usize,
+                    edge.label,
+                    edge.weight,
+                    edge.metadata.clone(),
+                );
+            }
+        }
+
+        // Build with the same end position
+        let end_pos = lattice.end().0 as usize;
+        Ok(new_builder.build(end_pos))
     }
 
     fn can_apply(&self, _lattice: &Lattice<W, B>) -> bool {

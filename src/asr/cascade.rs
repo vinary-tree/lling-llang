@@ -35,10 +35,16 @@
 //! - Mohri et al., "Speech Recognition with WFSTs" Section 5
 
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-use crate::semiring::Semiring;
+use crate::algorithms::{
+    determinize, minimize,
+    DeterminizeConfig, MinimizeConfig,
+};
+use crate::composition::{compose, materialize};
+use crate::semiring::{DivisibleSemiring, NumericalWeight, Semiring};
 use crate::wfst::{VectorWfst, MutableWfst, Wfst, StateId};
 
 use super::context::PhoneId;
@@ -169,7 +175,10 @@ pub struct CascadeBuilder<W: Semiring> {
     _weight: PhantomData<W>,
 }
 
-impl<W: Semiring + Clone> CascadeBuilder<W> {
+impl<W> CascadeBuilder<W>
+where
+    W: Semiring + Clone,
+{
     /// Create a new cascade builder.
     pub fn new() -> Self {
         Self {
@@ -307,44 +316,111 @@ impl<W: Semiring + Clone> CascadeBuilder<W> {
         fst
     }
 
-    /// Build the full cascade.
+    /// Build the full cascade (basic version).
     ///
-    /// Returns the composed transducer N = π(min(det(H ∘ det(C ∘ det(L ∘ G))))).
+    /// This version uses the lexicon directly without optimization algorithms.
+    /// For full determinization and minimization, use [`build_optimized`].
     pub fn build(self) -> AsrCascade<W> {
         let mut stats = CascadeStats::default();
 
         // Build lexicon first (before consuming self)
         let l = self.build_lexicon();
 
-        // Start with grammar
-        let g = self.grammar.unwrap_or_else(|| {
-            // Create trivial grammar (accept everything)
+        // Start with grammar (note: grammar uses WordId, lexicon uses PhoneId)
+        // Full L ∘ G composition requires label type unification which is not
+        // implemented yet. For now, we use the lexicon directly.
+        let _g = self.grammar.unwrap_or_else(|| {
             let mut fst = VectorWfst::new();
             let s = fst.add_state();
             fst.set_start(s);
             fst.set_final(s, W::one());
             fst
         });
-        stats.g_states = g.num_states();
+        stats.g_states = _g.num_states();
 
-        // Compose L ∘ G (would need actual composition implementation)
-        // For now, we'll use the lexicon as a placeholder
-        let lg = l; // TODO: Actual composition with grammar
+        // L ∘ G composition placeholder (requires WordId/PhoneId unification)
+        let lg = l;
+        stats.lg_states = lg.num_states();
+
+        // Compose with context-dependency (C ∘ det(L ∘ G))
+        // Both C and L use PhoneId, so composition is possible
+        let clg = if let Some(context) = self.context {
+            let lazy = compose(context, lg);
+            materialize(lazy)
+        } else {
+            lg
+        };
+        stats.det_lg_states = clg.num_states();
+        stats.clg_states = clg.num_states();
+
+        // Compose with HMM (H ∘ det(C ∘ L ∘ G))
+        // Both H and C use PhoneId, so composition is possible
+        let hclg = if let Some(hmm) = self.hmm {
+            let lazy = compose(hmm, clg);
+            materialize(lazy)
+        } else {
+            clg
+        };
+        stats.det_clg_states = hclg.num_states();
+
+        // Count final arcs
+        let final_arcs: usize = (0..hclg.num_states() as StateId)
+            .map(|s| hclg.transitions(s).len())
+            .sum();
+
+        stats.final_states = hclg.num_states();
+        stats.final_arcs = final_arcs;
+
+        AsrCascade {
+            fst: hclg,
+            config: self.config,
+            stats,
+        }
+    }
+}
+
+impl<W> CascadeBuilder<W>
+where
+    W: DivisibleSemiring + NumericalWeight + PartialOrd + Clone + Debug + Hash + Eq,
+{
+    /// Build the full cascade with optimization algorithms.
+    ///
+    /// Returns the composed transducer N = π(min(det(H ∘ det(C ∘ det(L ∘ G))))).
+    ///
+    /// This version applies determinization and minimization as configured.
+    /// Requires the weight type to support division operations.
+    pub fn build_optimized(self) -> AsrCascade<W> {
+        let mut stats = CascadeStats::default();
+
+        // Build lexicon first (before consuming self)
+        let l = self.build_lexicon();
+
+        // Start with grammar (note: grammar uses WordId, lexicon uses PhoneId)
+        let _g = self.grammar.unwrap_or_else(|| {
+            let mut fst = VectorWfst::new();
+            let s = fst.add_state();
+            fst.set_start(s);
+            fst.set_final(s, W::one());
+            fst
+        });
+        stats.g_states = _g.num_states();
+
+        // L ∘ G composition placeholder (requires WordId/PhoneId unification)
+        let lg = l;
         stats.lg_states = lg.num_states();
 
         // Apply determinization if configured
         let det_lg = if self.config.incremental_det {
-            // TODO: Apply determinization
-            lg
+            determinize(&lg, DeterminizeConfig::standard()).unwrap_or(lg)
         } else {
             lg
         };
         stats.det_lg_states = det_lg.num_states();
 
-        // Compose with context-dependency
-        let clg = if let Some(_context) = self.context {
-            // TODO: Actual composition C ∘ det(L ∘ G)
-            det_lg
+        // Compose with context-dependency (C ∘ det(L ∘ G))
+        let clg = if let Some(context) = self.context {
+            let lazy = compose(context, det_lg);
+            materialize(lazy)
         } else {
             det_lg
         };
@@ -352,25 +428,23 @@ impl<W: Semiring + Clone> CascadeBuilder<W> {
 
         // Apply determinization
         let det_clg = if self.config.incremental_det {
-            // TODO: Apply determinization
-            clg
+            determinize(&clg, DeterminizeConfig::standard()).unwrap_or(clg)
         } else {
             clg
         };
         stats.det_clg_states = det_clg.num_states();
 
-        // Compose with HMM
-        let hclg = if let Some(_hmm) = self.hmm {
-            // TODO: Actual composition H ∘ det(C ∘ L ∘ G)
-            det_clg
+        // Compose with HMM (H ∘ det(C ∘ L ∘ G))
+        let hclg = if let Some(hmm) = self.hmm {
+            let lazy = compose(hmm, det_clg);
+            materialize(lazy)
         } else {
             det_clg
         };
 
         // Apply minimization
         let result = if self.config.minimize {
-            // TODO: Apply minimization
-            hclg
+            minimize(&hclg, MinimizeConfig::default()).unwrap_or(hclg)
         } else {
             hclg
         };

@@ -7,8 +7,10 @@
 //!
 //! This module is only available when the `pos-tagging` feature is enabled.
 
+use rustc_hash::FxHashSet;
+
 use crate::backend::LatticeBackend;
-use crate::lattice::Lattice;
+use crate::lattice::{Lattice, LatticeBuilder, EdgeMetadata, LatticePathExt};
 use crate::semiring::Semiring;
 
 use super::traits::{CorrectionLayer, LayerError, LayerResult};
@@ -89,6 +91,45 @@ impl PosTaggingLayer {
     pub fn model(&self) -> &dyn PosModel {
         self.model.as_ref()
     }
+
+    /// Check if tags match any required pattern.
+    ///
+    /// Returns true if no required patterns are specified,
+    /// or if the tags match at least one required pattern.
+    fn matches_required(&self, tags: &[PosTag]) -> bool {
+        if self.required_patterns.is_empty() {
+            return true;
+        }
+        self.required_patterns.iter().any(|pattern| {
+            // Check if pattern matches (exact match or subsequence)
+            if pattern.len() == tags.len() {
+                pattern == tags
+            } else if pattern.len() < tags.len() {
+                // Check if pattern appears as a subsequence
+                tags.windows(pattern.len()).any(|w| w == pattern)
+            } else {
+                false
+            }
+        })
+    }
+
+    /// Check if tags contain any forbidden sequence.
+    ///
+    /// Returns true if the tags contain any forbidden sequence.
+    fn contains_forbidden(&self, tags: &[PosTag]) -> bool {
+        self.forbidden_sequences.iter().any(|seq| {
+            if seq.len() <= tags.len() {
+                tags.windows(seq.len()).any(|w| w == seq)
+            } else {
+                false
+            }
+        })
+    }
+
+    /// Check if a tag sequence passes all constraints.
+    fn passes_constraints(&self, tags: &[PosTag]) -> bool {
+        self.matches_required(tags) && !self.contains_forbidden(tags)
+    }
 }
 
 impl<W: Semiring, B: LatticeBackend> CorrectionLayer<W, B> for PosTaggingLayer {
@@ -101,15 +142,55 @@ impl<W: Semiring, B: LatticeBackend> CorrectionLayer<W, B> for PosTaggingLayer {
             return Ok(lattice.clone());
         }
 
-        // TODO: Implement POS-based filtering
-        // 1. Extract all paths from the lattice
-        // 2. Tag each path using the POS model
-        // 3. Filter paths based on required/forbidden patterns
-        // 4. Build a new lattice with only the filtered edges
+        // Collect edge IDs from paths that pass POS constraints
+        let mut used_edges: FxHashSet<crate::lattice::EdgeId> = FxHashSet::default();
 
-        Err(LayerError::Other(
-            "POS tagging layer not yet implemented - this is a stub".to_string()
-        ))
+        // Iterate over all paths in the lattice
+        for path in lattice.paths() {
+            // Get words from the path
+            let words: Vec<&str> = path.words(lattice).collect();
+
+            if words.is_empty() {
+                continue;
+            }
+
+            // Tag the path using the POS model
+            let tags = self.model.tag(&words);
+
+            // Check if the path passes constraints
+            if self.passes_constraints(&tags) {
+                // Add all edges from this path to the used set
+                for edge_id in &path.edges {
+                    used_edges.insert(*edge_id);
+                }
+            }
+        }
+
+        // If no paths passed, return error
+        if used_edges.is_empty() {
+            return Err(LayerError::Other(
+                "no paths passed POS constraints".to_string()
+            ));
+        }
+
+        // Build a new lattice with only the used edges
+        let mut new_builder = LatticeBuilder::new(lattice.backend().clone());
+
+        for edge in lattice.edges() {
+            if used_edges.contains(&edge.id) {
+                new_builder.add_correction_by_id(
+                    edge.source.0 as usize,
+                    edge.target.0 as usize,
+                    edge.label,
+                    edge.weight,
+                    edge.metadata.clone(),
+                );
+            }
+        }
+
+        // Build with the same end position
+        let end_pos = lattice.end().0 as usize;
+        Ok(new_builder.build(end_pos))
     }
 
     fn can_apply(&self, _lattice: &Lattice<W, B>) -> bool {

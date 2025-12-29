@@ -45,6 +45,7 @@
 //! |-------|---------|-------------|
 //! | `PosTaggingLayer` | `pos-tagging` | POS-based filtering |
 //! | `LanguageModelLayer` | `lm-rerank` | LM-based reranking |
+//! | `PhoneticRescoreLayer` | `phonetic-rescore` | Phonetic similarity rescoring |
 //! | `MeTTaILTypeLayer` | `f1r3fly` | MeTTaIL semantic type filtering |
 
 mod traits;
@@ -71,3 +72,11 @@ pub use lm_rerank::{LanguageModel, LanguageModelLayer};
 mod mettail_type;
 #[cfg(feature = "f1r3fly")]
 pub use mettail_type::MeTTaILTypeLayer;
+
+#[cfg(feature = "phonetic-rescore")]
+mod phonetic_rescore;
+#[cfg(feature = "phonetic-rescore")]
+pub use phonetic_rescore::{
+    PhoneticRescoreLayer, PhoneticReference, VocabularyReference, SequenceReference,
+    DEFAULT_PHONETIC_WEIGHT, DEFAULT_PHONETIC_FUEL,
+};

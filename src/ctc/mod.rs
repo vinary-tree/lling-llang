@@ -1,7 +1,8 @@
-//! CTC (Connectionist Temporal Classification) WFST topologies.
+//! CTC (Connectionist Temporal Classification) WFST topologies and decoding.
 //!
 //! This module provides various CTC topology implementations as WFSTs,
-//! enabling different trade-offs between graph size and expressiveness.
+//! enabling different trade-offs between graph size and expressiveness,
+//! along with decoders for CTC-WFST integration.
 //!
 //! ## Topology Comparison
 //!
@@ -41,17 +42,40 @@
 //! assert_eq!(minimal.info().num_arcs, 10); // N
 //! ```
 //!
+//! ## Decoding Example
+//!
+//! ```ignore
+//! use lling_llang::ctc::{CtcDecoder, CtcDecoderConfig, compact_ctc};
+//! use lling_llang::semiring::LogWeight;
+//!
+//! // Create decoder with compact CTC topology
+//! let ctc = compact_ctc::<LogWeight>(vocab_size);
+//! let decoder = CtcDecoder::new(ctc)
+//!     .with_config(CtcDecoderConfig::beam(10.0));
+//!
+//! // Decode posteriors
+//! let result = decoder.decode(&posteriors)?;
+//! println!("Labels: {:?}, Score: {}", result.labels, result.score);
+//! ```
+//!
 //! ## References
 //!
 //! - Graves et al., "Connectionist Temporal Classification" (ICML 2006)
 //! - Laptev et al., "CTC Variations Through New WFST Topologies" (Interspeech 2022)
+//! - Miao et al., "EESEN: End-to-end speech recognition using deep RNN" (ASRU 2015)
 
 mod topologies;
+mod decoder;
 
 pub use topologies::{
-    CtcTopology, CtcTopologyInfo, CtcLabel,
+    CtcTopology, CtcTopologyInfo, CtcLabel, BLANK,
     correct_ctc, compact_ctc, minimal_ctc,
     selfless_correct_ctc, selfless_compact_ctc,
+};
+
+pub use decoder::{
+    CtcDecoder, CtcDecoderConfig, DecodingResult, DecodingStats, DecodingError,
+    ObservationFst, DecoderToken, StreamingCtcDecoder,
 };
 
 #[cfg(test)]

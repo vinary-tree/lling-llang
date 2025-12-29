@@ -254,34 +254,240 @@ where
 /// The factored transducer and extracted chain information.
 pub fn chain_factor<L, W>(
     fst: &VectorWfst<L, W>,
-    _config: &ChainFactorConfig,
+    config: &ChainFactorConfig,
 ) -> ChainFactorResult<L, W>
 where
     L: Clone + Eq + std::hash::Hash + Default + Send + Sync,
     W: Semiring + Clone,
 {
     let mut stats = ChainFactorStats::default();
-    let chains: HashMap<ChainId, Chain<L, W>> = HashMap::new();
-    // let _next_chain_id: ChainId = 0;
+    let mut chains: HashMap<ChainId, Chain<L, W>> = HashMap::new();
+    let mut next_chain_id: ChainId = 0;
 
-    // For now, return the input FST unchanged with empty chains
-    // Full implementation would:
-    // 1. Find all chains in the FST
-    // 2. Compute gain for each chain
-    // 3. Factor chains with positive gain
-    // 4. Build the factored transducer
-
+    // Find all chain endpoints
     let chain_endpoints = find_chains(fst);
     stats.chains_found = chain_endpoints.len();
 
-    // Clone the input FST as the result (TODO: actually perform factoring)
-    let result_fst = clone_fst(fst);
+    // If no chains found or FST is empty, return clone
+    if chain_endpoints.is_empty() || fst.num_states() == 0 {
+        return ChainFactorResult {
+            fst: clone_fst(fst),
+            chains,
+            stats,
+        };
+    }
+
+    // Extract full chain information for each endpoint pair
+    let mut chain_states_to_remove: HashSet<StateId> = HashSet::new();
+    let mut chain_replacements: Vec<(StateId, StateId, Chain<L, W>)> = Vec::new();
+
+    for (chain_entry, chain_exit) in &chain_endpoints {
+        // Extract the chain by following transitions from entry to exit
+        if let Some(chain) = extract_chain(fst, *chain_entry, *chain_exit, next_chain_id) {
+            // Check minimum length
+            if chain.len() < config.min_chain_length {
+                continue;
+            }
+
+            // Check epsilon chains if configured
+            if !config.factor_epsilon_chains {
+                let has_epsilon = chain.input_labels.iter().any(|l| l.is_none())
+                    || chain.output_labels.iter().any(|l| l.is_none());
+                if has_epsilon {
+                    continue;
+                }
+            }
+
+            // Compute gain
+            let gain = compute_chain_gain(&chain);
+            if gain <= 0 {
+                continue;
+            }
+
+            // Check max chains limit
+            if let Some(max) = config.max_chains {
+                if chains.len() >= max {
+                    break;
+                }
+            }
+
+            // Mark internal states for removal (exclude entry and exit states)
+            for &state in chain.states.iter().skip(1).take(chain.states.len().saturating_sub(2)) {
+                chain_states_to_remove.insert(state);
+            }
+
+            stats.chains_factored += 1;
+            stats.total_gain += gain;
+            stats.states_removed += chain.states.len().saturating_sub(2);
+            stats.transitions_removed += chain.len().saturating_sub(1);
+
+            chain_replacements.push((*chain_entry, *chain_exit, chain.clone()));
+            chains.insert(next_chain_id, chain);
+            next_chain_id += 1;
+        }
+    }
+
+    // Build the factored FST
+    let result_fst = build_factored_fst(fst, &chain_states_to_remove, &chain_replacements);
 
     ChainFactorResult {
         fst: result_fst,
         chains,
         stats,
     }
+}
+
+/// Extract a chain from the FST given entry and exit states.
+fn extract_chain<L, W>(
+    fst: &VectorWfst<L, W>,
+    entry: StateId,
+    exit: StateId,
+    chain_id: ChainId,
+) -> Option<Chain<L, W>>
+where
+    L: Clone + Send + Sync,
+    W: Semiring + Clone,
+{
+    let mut chain = Chain::new(chain_id);
+    chain.states.push(entry);
+
+    let mut current = entry;
+    let mut accumulated_weight = W::one();
+
+    // Follow transitions until we reach exit
+    while current != exit {
+        let arcs = fst.transitions(current);
+
+        // Find the arc leading toward the exit
+        let next_arc = arcs.iter().find(|arc| {
+            // Simple heuristic: follow the single outgoing arc for chain states
+            arc.to != current
+        });
+
+        match next_arc {
+            Some(arc) => {
+                chain.states.push(arc.to);
+                chain.input_labels.push(arc.input.clone());
+                chain.output_labels.push(arc.output.clone());
+                accumulated_weight = accumulated_weight.times(&arc.weight);
+                current = arc.to;
+            }
+            None => return None, // No valid arc found
+        }
+
+        // Safety check to prevent infinite loops
+        if chain.states.len() > fst.num_states() {
+            return None;
+        }
+    }
+
+    chain.weight = accumulated_weight;
+    Some(chain)
+}
+
+/// Build a factored FST with chains replaced by direct transitions.
+fn build_factored_fst<L, W>(
+    fst: &VectorWfst<L, W>,
+    states_to_remove: &HashSet<StateId>,
+    chain_replacements: &[(StateId, StateId, Chain<L, W>)],
+) -> VectorWfst<L, W>
+where
+    L: Clone + Default + Send + Sync,
+    W: Semiring + Clone,
+{
+    // If no states to remove, just clone and add chain transitions
+    if states_to_remove.is_empty() && chain_replacements.is_empty() {
+        return clone_fst(fst);
+    }
+
+    let mut result: VectorWfst<L, W> = VectorWfst::new();
+
+    // Create mapping from old state IDs to new state IDs
+    let mut state_map: HashMap<StateId, StateId> = HashMap::new();
+
+    // Add states that aren't being removed
+    for old_id in 0..fst.num_states() as StateId {
+        if !states_to_remove.contains(&old_id) {
+            let new_id = result.add_state();
+            state_map.insert(old_id, new_id);
+        }
+    }
+
+    // Set start state
+    let start = fst.start();
+    if start != NO_STATE {
+        if let Some(&new_start) = state_map.get(&start) {
+            result.set_start(new_start);
+        }
+    }
+
+    // Create a set of (source, target) pairs that are being replaced by chains
+    let chain_arcs: HashSet<(StateId, StateId)> = chain_replacements
+        .iter()
+        .flat_map(|(entry, exit, chain)| {
+            // Mark all arcs along the chain as replaced
+            chain.states.windows(2).map(|w| (w[0], w[1])).collect::<Vec<_>>()
+        })
+        .collect();
+
+    // Copy transitions, skipping those that are part of removed chains
+    for old_source in 0..fst.num_states() as StateId {
+        if states_to_remove.contains(&old_source) {
+            continue;
+        }
+
+        let new_source = match state_map.get(&old_source) {
+            Some(&id) => id,
+            None => continue,
+        };
+
+        for arc in fst.transitions(old_source) {
+            // Skip arcs that lead into removed states (part of chains)
+            if states_to_remove.contains(&arc.to) {
+                continue;
+            }
+
+            // Skip arcs that are being replaced by chain transitions
+            if chain_arcs.contains(&(old_source, arc.to)) {
+                continue;
+            }
+
+            if let Some(&new_target) = state_map.get(&arc.to) {
+                result.add_arc(
+                    new_source,
+                    arc.input.clone(),
+                    arc.output.clone(),
+                    new_target,
+                    arc.weight.clone(),
+                );
+            }
+        }
+
+        // Copy final weight
+        if fst.is_final(old_source) {
+            let weight = fst.final_weight(old_source);
+            result.set_final(new_source, weight.clone());
+        }
+    }
+
+    // Add chain replacement transitions (entry -> exit with chain label)
+    for (entry, exit, chain) in chain_replacements {
+        if let (Some(&new_entry), Some(&new_exit)) = (state_map.get(entry), state_map.get(exit)) {
+            // Use the first input/output label or default
+            let input = chain.input_labels.first().cloned().flatten();
+            let output = chain.output_labels.first().cloned().flatten();
+
+            result.add_arc(
+                new_entry,
+                input,
+                output,
+                new_exit,
+                chain.weight.clone(),
+            );
+        }
+    }
+
+    result
 }
 
 /// Clone a WFST.

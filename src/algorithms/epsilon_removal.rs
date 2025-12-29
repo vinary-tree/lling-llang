@@ -30,6 +30,7 @@ use std::collections::{HashMap, HashSet};
 use crate::semiring::{Semiring, StarSemiring};
 use crate::wfst::{MutableWfst, StateId, Wfst, WeightedTransition, NO_STATE};
 
+use super::connect::{connect, ConnectConfig};
 use super::shortest_distance::ShortestDistanceConfig;
 
 /// Configuration for epsilon removal.
@@ -197,10 +198,9 @@ where
         }
     }
 
-    // Connect if requested
+    // Connect if requested - remove unreachable and non-coaccessible states
     if config.connect {
-        // TODO: Implement connect operation in Phase 2.3
-        // For now, we skip this step
+        connect(fst, ConnectConfig::trim());
     }
 
     Ok(())

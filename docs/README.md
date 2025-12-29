@@ -33,6 +33,7 @@ Core concepts and design of the framework:
 |----------|-------------|
 | [Overview](architecture/overview.md) | High-level architecture and component relationships |
 | [Semirings](architecture/semirings.md) | Algebraic weight structures (Tropical, Log, Probability, String, Expectation) |
+| [Power Semiring](architecture/power-semiring.md) | η-power semiring for soft path selection and online learning |
 | [WFST Operations](architecture/wfst-operations.md) | Rational operations (union, concat, closure) and unary operations (invert, project, reverse) |
 | [Lattices](architecture/lattices.md) | Weighted DAGs representing correction alternatives |
 | [WFST Traits](architecture/wfst-traits.md) | Trait hierarchy for finite state transducers |
@@ -55,6 +56,8 @@ Core WFST algorithms:
 | [Parsing](algorithms/parsing.md) | Earley parser for lattice input |
 | [Composition](algorithms/composition.md) | Lazy FST and CFG composition operators |
 | [Topological Sort](algorithms/topological-sort.md) | Kahn's algorithm for DAG ordering |
+| [Path Sampling](algorithms/path-sampling.md) | Random path sampling from WFSTs for Monte Carlo methods |
+| [RRWM](algorithms/rrwm.md) | Rational Randomized Weighted-Majority for online ensemble learning |
 
 ### Advanced Features
 
@@ -68,6 +71,15 @@ Advanced modules for speech recognition and deep learning:
 | [ASR Pipeline](advanced/asr-pipeline.md) | Speech recognition transducer construction (H∘C∘L∘G) |
 | [Beam Optimization](advanced/beam-optimization.md) | Log-semiring pushing, lookahead, token grouping |
 | [GPU Acceleration](advanced/gpu-acceleration.md) | CSR format, atomic recombination, batched streaming |
+
+### Acoustic Integration
+
+Acoustic model and ASR components:
+
+| Document | Description |
+|----------|-------------|
+| [Acoustic Overview](acoustic/overview.md) | AcousticModel trait, TransitionMatrix, score fusion |
+| [Subword Lexicon](asr/subword-lexicon.md) | BPE/subword lexicon builder for ASR |
 
 ### Integration Guides
 
@@ -91,6 +103,12 @@ Integrating lling-llang with other systems:
 | [Speech/NLP Pipelines](integration/external/speech-nlp.md) | ASR and NLP integration patterns |
 | [Text Correction](integration/external/text-correction.md) | Spelling/grammar correction apps |
 | [Library Usage](integration/external/library-usage.md) | Generic library integration |
+
+#### libgrammstein Integration
+
+| Document | Description |
+|----------|-------------|
+| [Phonetic Rescoring](integration/libgrammstein/phonetic-rescore.md) | Phonetic lattice rescoring with Zompist rules |
 
 ### API Reference
 
@@ -116,6 +134,9 @@ Detailed API documentation:
 | `f1r3fly` | Full F1R3FLY.io integration |
 | `sexpr` | S-expression path format |
 | `serde` | Serialization support |
+| `acoustic` | Acoustic model integration and score fusion |
+| `phonetic-rescore` | Phonetic rescoring layer with Zompist rules |
+| `subword-lexicon` | BPE/subword lexicon builder for ASR |
 
 ## Architecture Overview
 
@@ -154,8 +175,10 @@ Detailed API documentation:
 
 1. [CTC Topologies](advanced/ctc-topologies.md) - Graph structures for CTC
 2. [ASR Pipeline](advanced/asr-pipeline.md) - H∘C∘L∘G cascade construction
-3. [Beam Optimization](advanced/beam-optimization.md) - Log-semiring pushing for speed
-4. [GPU Acceleration](advanced/gpu-acceleration.md) - High-performance decoding
+3. [Acoustic Overview](acoustic/overview.md) - Acoustic model integration
+4. [Subword Lexicon](asr/subword-lexicon.md) - BPE lexicons for open vocabulary
+5. [Beam Optimization](advanced/beam-optimization.md) - Log-semiring pushing for speed
+6. [GPU Acceleration](advanced/gpu-acceleration.md) - High-performance decoding
 
 **Integrating with deep learning?**
 

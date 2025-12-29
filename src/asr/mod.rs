@@ -25,6 +25,7 @@
 //! - [`cascade`]: ASR transducer cascade construction
 //! - [`factoring`]: Chain factoring for compact representation
 //! - [`rescoring`]: Lattice rescoring for multi-pass recognition
+//! - [`subword_lexicon`]: Subword lexicon with BPE/boundary marker support
 //!
 //! ## Example
 //!
@@ -59,6 +60,7 @@ mod ngram;
 mod cascade;
 mod factoring;
 mod rescoring;
+mod subword_lexicon;
 
 pub use context::{
     ContextDependencyBuilder, TriphoneBuilder, TetraploneBuilder,
@@ -83,6 +85,10 @@ pub use factoring::{
 pub use rescoring::{
     rescore_lattice, RescoreConfig, RescoreResult,
     LatticeGrammar, RescorePass,
+};
+
+pub use subword_lexicon::{
+    SubwordLexiconBuilder, SubwordEntry, SubwordPosition, MarkingStyle,
 };
 
 #[cfg(test)]

@@ -21,6 +21,7 @@ mod product;
 mod probability;
 mod string;
 mod expectation;
+mod power;
 
 pub use traits::{Semiring, DivisibleSemiring, StarSemiring, NumericalWeight};
 pub use tropical::TropicalWeight;
@@ -30,3 +31,4 @@ pub use product::ProductWeight;
 pub use probability::ProbabilityWeight;
 pub use string::{LeftStringWeight, RightStringWeight};
 pub use expectation::ExpectationWeight;
+pub use power::PowerWeight;

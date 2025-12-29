@@ -30,14 +30,27 @@
 //!     println!("{:?}", path);
 //! }
 //! ```
+//!
+//! # Materialization
+//!
+//! For eager access to the full composed FST, use [`materialize`]:
+//!
+//! ```rust,ignore
+//! use lling_llang::composition::{compose, materialize};
+//!
+//! let lazy = compose(fst1, fst2);
+//! let eager: VectorWfst<_, _> = materialize(lazy);
+//! ```
 
 mod filter;
 mod fst_fst;
 mod cfg_fst;
+mod materialize;
 
 pub use filter::{EpsilonFilter, EpsilonFilterType, FilterState};
-pub use fst_fst::{compose, LazyComposition, ComposedPath};
+pub use fst_fst::{compose, LazyComposition, ComposedPath, ProductStateId};
 pub use cfg_fst::{
     LazyCfgComposition, FilteredLattice, ValidPathIterator,
     ParseState, CompositionStats,
 };
+pub use materialize::materialize;

@@ -1,4 +1,4 @@
-//! WFST algorithms for shortest-distance, weight pushing, and optimization.
+//! WFST algorithms for shortest-distance, weight pushing, sampling, and optimization.
 //!
 //! This module provides core algorithms from Mohri's weighted automata theory:
 //!
@@ -13,6 +13,14 @@
 //!
 //! - **Weight Pushing**:
 //!   - [`push_weights`]: Redistribute weights toward initial/final states
+//!
+//! - **Path Sampling**:
+//!   - [`sample_path`]: Sample random accepting paths from a WFST
+//!   - [`sample_paths`]: Sample multiple paths
+//!   - [`estimate_expected_weight`]: Monte Carlo weight estimation
+//!
+//! - **Online Learning**:
+//!   - [`Rrwm`]: Rational Randomized Weighted-Majority algorithm
 //!
 //! - **Epsilon Removal**:
 //!   - [`remove_epsilon`]: Remove epsilon transitions preserving language
@@ -45,6 +53,8 @@ mod epsilon_removal;
 mod minimize;
 mod push;
 mod queue;
+mod rrwm;
+mod sample;
 mod shortest_distance;
 
 pub use connect::{
@@ -103,4 +113,23 @@ pub use minimize::{
     estimate_reduction,
     MinimizeConfig,
     MinimizeError,
+};
+
+pub use sample::{
+    sample_path,
+    sample_paths,
+    sample_paths_until,
+    estimate_expected_weight,
+    SampleConfig,
+    SampleStrategy,
+    SampleError,
+    SampledPath,
+};
+
+pub use rrwm::{
+    Rrwm,
+    RrwmBuilder,
+    RrwmConfig,
+    RrwmError,
+    RrwmStatistics,
 };

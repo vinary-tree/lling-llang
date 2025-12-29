@@ -70,6 +70,7 @@ pub mod differentiable;
 pub mod optimization;
 pub mod asr;
 pub mod gpu;
+pub mod acoustic;
 
 /// Test utilities for property-based testing and assertions.
 ///
@@ -148,9 +149,12 @@ pub mod prelude {
         ShortestDistanceConfig,
     };
     pub use crate::ctc::{
-        CtcTopology, CtcTopologyInfo, CtcLabel,
+        CtcTopology, CtcTopologyInfo, CtcLabel, BLANK,
         correct_ctc, compact_ctc, minimal_ctc,
         selfless_correct_ctc, selfless_compact_ctc,
+        // CTC decoding
+        CtcDecoder, CtcDecoderConfig, DecodingResult, DecodingStats, DecodingError,
+        ObservationFst, StreamingCtcDecoder,
     };
     pub use crate::differentiable::{
         GradientWfst, ArcGradient, GradientAccumulator,
@@ -194,5 +198,15 @@ pub mod prelude {
         // Soft pruning
         SoftToken, SoftPruneConfig, SoftPruneBuffer,
         SoftPruneStats, AdaptiveBeam, SoftPruneManager,
+    };
+    pub use crate::acoustic::{
+        // Core trait
+        AcousticModel,
+        // HMM topology
+        TransitionMatrix, HmmStateId, UnitId, TransitionLogProb,
+        // Score fusion
+        AcousticLanguageModel, FusionConfig,
+        // Posteriors
+        FramePosterior, PosteriorSequence,
     };
 }
