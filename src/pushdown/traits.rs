@@ -2,25 +2,20 @@
 
 use std::hash::Hash;
 
-use super::{PdaTransition, StackAction, StackSymbol};
+use super::{PdaTransition, StackSymbol};
 use crate::semiring::Semiring;
 use crate::wfst::StateId;
 
 /// How a PDA accepts input.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum PdaAcceptMode {
     /// Accept by reaching a final state.
+    #[default]
     FinalState,
     /// Accept by emptying the stack.
     EmptyStack,
     /// Accept by either final state or empty stack.
     Both,
-}
-
-impl Default for PdaAcceptMode {
-    fn default() -> Self {
-        PdaAcceptMode::FinalState
-    }
 }
 
 /// A configuration (instantaneous description) of a PDA.
@@ -251,6 +246,7 @@ pub trait WeightedPda<L, W: Semiring>: Clone + Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pushdown::stack::StackAction;
     use crate::semiring::TropicalWeight;
 
     #[test]
@@ -314,7 +310,9 @@ mod tests {
             TropicalWeight::one(),
         );
 
-        let new_config = config.apply_transition(&trans).unwrap();
+        let new_config = config
+            .apply_transition(&trans)
+            .expect("pushdown/traits.rs: required value was None/Err");
 
         assert_eq!(new_config.state, 1);
         assert_eq!(new_config.remaining_input, vec!['b']);
@@ -337,7 +335,9 @@ mod tests {
             TropicalWeight::one(),
         );
 
-        let new_config = config.apply_transition(&trans).unwrap();
+        let new_config = config
+            .apply_transition(&trans)
+            .expect("pushdown/traits.rs: required value was None/Err");
 
         assert_eq!(new_config.state, 1);
         assert_eq!(new_config.remaining_input, vec!['a']); // Not consumed

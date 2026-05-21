@@ -43,7 +43,7 @@ impl From<u32> for StackSymbol {
 }
 
 /// An action to perform on the stack during a transition.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub enum StackAction {
     /// Pop the top symbol (the matched symbol).
     Pop,
@@ -58,6 +58,7 @@ pub enum StackAction {
 
     /// Leave the stack unchanged.
     /// The matched symbol remains on top.
+    #[default]
     Noop,
 }
 
@@ -156,12 +157,6 @@ impl Display for StackAction {
             }
             StackAction::Noop => write!(f, "noop"),
         }
-    }
-}
-
-impl Default for StackAction {
-    fn default() -> Self {
-        StackAction::Noop
     }
 }
 

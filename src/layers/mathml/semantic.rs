@@ -11,7 +11,7 @@ use crate::semiring::Semiring;
 
 use super::checker::{MathTypeChecker, TypeCheckerConfig};
 use super::homoglyph::{DisambiguatorConfig, GlyphMeaning, HomoglyphDisambiguator, MathContext};
-use super::types::{MathType, TypeEnvironment, TypeError, TypeErrorKind, TypeResult};
+use super::types::{MathType, TypeErrorKind};
 use crate::layers::traits::{CorrectionLayer, LayerError, LayerResult};
 
 /// Configuration for the MathML semantic layer.
@@ -292,7 +292,10 @@ impl MathMLSemanticLayer {
 
     /// Get the results from the last apply call.
     pub fn last_results(&self) -> Vec<SemanticResult> {
-        self.last_results.lock().unwrap().clone()
+        self.last_results
+            .lock()
+            .expect("layers/mathml/semantic.rs: required value was None/Err")
+            .clone()
     }
 
     /// Analyze a token sequence for semantic validity.
@@ -384,7 +387,10 @@ impl MathMLSemanticLayer {
 
     /// Type check token sequence.
     fn type_check_tokens(&self, tokens: &[&str], result: &mut SemanticResult) {
-        let mut checker = self.type_checker.lock().unwrap();
+        let mut checker = self
+            .type_checker
+            .lock()
+            .expect("layers/mathml/semantic.rs: required value was None/Err");
         let type_result = checker.check(tokens);
 
         // Set inferred type
@@ -457,7 +463,10 @@ impl<W: Semiring, B: LatticeBackend> CorrectionLayer<W, B> for MathMLSemanticLay
 
     fn apply(&self, lattice: &Lattice<W, B>) -> LayerResult<Lattice<W, B>> {
         // Clear previous results
-        self.last_results.lock().unwrap().clear();
+        self.last_results
+            .lock()
+            .expect("layers/mathml/semantic.rs: required value was None/Err")
+            .clear();
 
         // Handle empty lattice
         if lattice.is_empty() {
@@ -477,7 +486,10 @@ impl<W: Semiring, B: LatticeBackend> CorrectionLayer<W, B> for MathMLSemanticLay
         let analysis = self.analyze(&token_refs);
 
         // Store result
-        self.last_results.lock().unwrap().push(analysis.clone());
+        self.last_results
+            .lock()
+            .expect("layers/mathml/semantic.rs: required value was None/Err")
+            .push(analysis.clone());
 
         // Check if we should prune
         if self.should_prune(&analysis) {

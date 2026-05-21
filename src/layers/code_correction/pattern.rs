@@ -503,7 +503,7 @@ mod tests {
         let best = config.find_best_pattern(&tokens);
 
         assert!(best.is_some());
-        let pattern = best.unwrap();
+        let pattern = best.expect("layers/code_correction/pattern.rs: required value was None/Err");
         assert_eq!(pattern.len(), 4); // Should find the longest match
         assert!((pattern.boost - 1.0).abs() < 0.001);
     }

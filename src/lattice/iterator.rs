@@ -311,8 +311,13 @@ mod tests {
         // Find the path with minimum weight
         let min_path = paths
             .iter()
-            .min_by(|a, b| a.weight.value().partial_cmp(&b.weight.value()).unwrap())
-            .unwrap();
+            .min_by(|a, b| {
+                a.weight
+                    .value()
+                    .partial_cmp(&b.weight.value())
+                    .expect("lattice/iterator.rs: required value was None/Err")
+            })
+            .expect("lattice/iterator.rs: required value was None/Err");
 
         // "the" (0.5) + "quick" (0.5) = 1.0
         assert_eq!(min_path.weight.value(), 1.0);

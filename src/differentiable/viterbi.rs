@@ -394,10 +394,10 @@ mod property_tests {
             let min_idx = fst.transitions(0).iter()
                 .enumerate()
                 .min_by(|(_, a), (_, b)| {
-                    a.weight.value().partial_cmp(&b.weight.value()).unwrap()
+                    a.weight.value().partial_cmp(&b.weight.value()).expect("differentiable/viterbi.rs: required value was None/Err")
                 })
                 .map(|(i, _)| i)
-                .unwrap();
+                .expect("differentiable/viterbi.rs: required value was None/Err");
 
             prop_assert_eq!(result.path[0].arc_idx, min_idx,
                 "Path arc {} != min arc {}", result.path[0].arc_idx, min_idx);
@@ -429,12 +429,13 @@ mod property_tests {
                     "Path should start at state 0, got {}", result.path[0].from);
             }
 
-            // Verify consecutive arcs connect
+            // In this chain construction, arc[i].from = i, which transitively
+            // verifies that consecutive arcs connect (arc[i].from == arc[i-1].from + 1).
             for i in 1..result.path.len() {
-                let prev_arc = &result.path[i - 1];
                 let curr_arc = &result.path[i];
-                // Each arc should start where the previous one ends
-                // In a chain: arc[i].from = i
+                let prev_arc = &result.path[i - 1];
+                prop_assert_eq!(curr_arc.from, prev_arc.from + 1,
+                    "Arc {} should start one state past arc {}", i, i - 1);
                 prop_assert_eq!(curr_arc.from as usize, i,
                     "Arc {} should start at state {}", i, i);
             }

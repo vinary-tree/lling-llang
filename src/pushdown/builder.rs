@@ -2,7 +2,9 @@
 
 use std::hash::Hash;
 
-use super::{PdaAcceptMode, PdaTransition, StackAction, StackSymbol, VectorPda, WeightedPda};
+#[cfg(test)]
+use super::WeightedPda;
+use super::{PdaAcceptMode, PdaTransition, StackAction, StackSymbol, VectorPda};
 use crate::semiring::Semiring;
 use crate::wfst::StateId;
 

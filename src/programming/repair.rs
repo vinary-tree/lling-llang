@@ -73,11 +73,24 @@ pub enum RepairAction {
     /// No repair needed.
     NoOp,
     /// Insert a token.
-    Insert { position: Position, text: String },
+    Insert {
+        /// Position at which to insert.
+        position: Position,
+        /// Text to insert at the position.
+        text: String,
+    },
     /// Delete a range of text.
-    Delete { range: Range },
+    Delete {
+        /// Range of text to delete.
+        range: Range,
+    },
     /// Replace text in a range.
-    Replace { range: Range, replacement: String },
+    Replace {
+        /// Range of text to replace.
+        range: Range,
+        /// Replacement text to substitute into the range.
+        replacement: String,
+    },
     /// Multiple repairs.
     Multiple(Vec<RepairAction>),
 }
@@ -978,5 +991,67 @@ mod tests {
         // Should select repair 1 (lowest cost) and repair 3 (non-overlapping)
         // Repair 2 overlaps with repair 1
         assert_eq!(selected.len(), 2);
+    }
+
+    mod property_tests {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(48))]
+
+            /// NoOp.apply(s) == s for any source.
+            #[test]
+            fn noop_preserves_source(s in ".{0,100}") {
+                let action = RepairAction::NoOp;
+                prop_assert_eq!(action.apply(&s), s);
+            }
+
+            /// Inserting then deleting the inserted span returns the original.
+            #[test]
+            fn insert_then_delete_roundtrips(
+                prefix in "[a-z]{0,20}",
+                insert in "[A-Z]{1,10}",
+                suffix in "[a-z]{0,20}",
+            ) {
+                let source: String = format!("{}{}", prefix, suffix);
+                let insert_pos = Position::new(0, prefix.len(), prefix.len());
+                let with_insert = RepairAction::Insert {
+                    position: insert_pos,
+                    text: insert.clone(),
+                }
+                .apply(&source);
+                prop_assert_eq!(with_insert.len(), source.len() + insert.len());
+
+                let delete = RepairAction::Delete {
+                    range: Range::new(
+                        Position::new(0, prefix.len(), prefix.len()),
+                        Position::new(
+                            0,
+                            prefix.len() + insert.len(),
+                            prefix.len() + insert.len(),
+                        ),
+                    ),
+                };
+                prop_assert_eq!(delete.apply(&with_insert), source);
+            }
+
+            /// Cost of NoOp is always zero regardless of the configured costs.
+            #[test]
+            fn noop_cost_is_zero(
+                insert in 0.0f64..10.0,
+                delete in 0.0f64..10.0,
+                substitute in 0.0f64..10.0,
+            ) {
+                let costs = SyntaxRepairCosts {
+                    insert,
+                    delete,
+                    substitute,
+                    typo_fix: substitute,
+                    missing_punctuation: insert,
+                };
+                prop_assert!(RepairAction::NoOp.cost(&costs).abs() < 1e-12);
+            }
+        }
     }
 }

@@ -1171,4 +1171,64 @@ mod tests {
         // Should not panic and should produce some gradient
         assert!(result.grad1.nnz() > 0 || result.grad2.nnz() > 0);
     }
+
+    mod property_tests {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(64))]
+
+            /// `set(i, x)` followed by `get(i)` must round-trip for any
+            /// non-tiny float (values below the 1e-10 sparsity threshold are
+            /// elided by design).
+            #[test]
+            fn sparse_gradient_set_get_roundtrip(
+                arc_id in 0usize..128,
+                value in (-1.0e3f64..1.0e3).prop_filter("non-tiny", |v| v.abs() > 1e-6)
+            ) {
+                let mut grad = SparseGradient::new(128);
+                grad.set(arc_id, value);
+                prop_assert!((grad.get(arc_id) - value).abs() < 1e-9);
+            }
+
+            /// `to_dense()` always yields a vector of length `num_arcs`,
+            /// regardless of how many non-zero values were stored.
+            #[test]
+            fn sparse_gradient_dense_len_equals_num_arcs(
+                num_arcs in 0usize..256,
+                writes in proptest::collection::vec(
+                    (0usize..256, -10.0f64..10.0),
+                    0..16,
+                ),
+            ) {
+                let mut grad = SparseGradient::new(num_arcs);
+                for (idx, val) in writes {
+                    if idx < num_arcs {
+                        grad.set(idx, val);
+                    }
+                }
+                prop_assert_eq!(grad.to_dense().len(), num_arcs);
+            }
+
+            /// `scale(0.0)` reduces all stored gradients to zero (which the
+            /// sparse representation realises by leaving the stored f64 at 0.0).
+            #[test]
+            fn sparse_gradient_scale_zero_zeros(
+                writes in proptest::collection::vec(
+                    (0usize..64, -100.0f64..100.0),
+                    1..16,
+                ),
+            ) {
+                let mut grad = SparseGradient::new(64);
+                for (idx, val) in &writes {
+                    grad.set(*idx, *val);
+                }
+                grad.scale(0.0);
+                for (idx, _) in &writes {
+                    prop_assert!(grad.get(*idx).abs() < 1e-12);
+                }
+            }
+        }
+    }
 }

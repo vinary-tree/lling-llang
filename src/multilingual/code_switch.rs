@@ -4,7 +4,9 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 use crate::semiring::Semiring;
-use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition, Wfst};
+#[cfg(test)]
+use crate::wfst::Wfst;
+use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition};
 
 use super::language::{LanguageConfig, LanguageId, LanguageModel, SimpleLanguageModel};
 
@@ -728,7 +730,12 @@ mod tests {
         ];
 
         let path = CodeSwitchPath::new(0.0, languages);
-        assert_eq!(path.dominant_language().unwrap().code(), "en");
+        assert_eq!(
+            path.dominant_language()
+                .expect("multilingual/code_switch.rs: required value was None/Err")
+                .code(),
+            "en"
+        );
     }
 
     #[test]

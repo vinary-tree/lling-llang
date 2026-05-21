@@ -47,6 +47,7 @@ mod iterator;
 mod lattice;
 mod types;
 
+pub use algorithms::{path_exists, reachable_nodes};
 pub use builder::LatticeBuilder;
 pub use iterator::{LatticePath, LatticePathExt, PathIterator};
 pub use lattice::Lattice;

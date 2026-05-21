@@ -529,7 +529,7 @@ mod tests {
 
         let set = disambiguator.get_confusion_set('x');
         assert!(set.is_some());
-        let set = set.unwrap();
+        let set = set.expect("layers/mathml/homoglyph.rs: required value was None/Err");
         assert!(set.contains('×'));
     }
 
@@ -623,7 +623,9 @@ mod tests {
 
         // Greek Alpha vs Latin A
         assert!(disambiguator.is_ambiguous('Α'));
-        let set = disambiguator.get_confusion_set('Α').unwrap();
+        let set = disambiguator
+            .get_confusion_set('Α')
+            .expect("layers/mathml/homoglyph.rs: required value was None/Err");
         assert!(set.contains('A'));
     }
 
@@ -631,7 +633,9 @@ mod tests {
     fn test_zero_o_confusion() {
         let disambiguator = HomoglyphDisambiguator::new();
 
-        let set = disambiguator.get_confusion_set('0').unwrap();
+        let set = disambiguator
+            .get_confusion_set('0')
+            .expect("layers/mathml/homoglyph.rs: required value was None/Err");
         assert!(set.contains('O'));
         assert!(set.contains('o'));
     }

@@ -509,7 +509,7 @@ pub fn gradient_and_hessian<L: Clone + Send + Sync>(
 #[cfg(test)]
 mod property_tests {
     use super::*;
-    use crate::wfst::{MutableWfst, Wfst};
+    use crate::wfst::MutableWfst;
     use proptest::prelude::*;
 
     /// Strategy for generating simple parallel path WFSTs.

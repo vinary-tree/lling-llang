@@ -766,21 +766,6 @@ mod tests {
     // Algebraic Property Tests
     // =========================================================================
 
-    /// Helper to collect all transitions from a lazy FST
-    fn collect_all_transitions<L, W, S>(
-        fst: &mut LazyWfstWrapper<S, L, W>,
-    ) -> Vec<Vec<WeightedTransition<L, W>>>
-    where
-        L: Clone + Send + Sync,
-        W: Semiring,
-        S: StateSource<L, W> + Send + Sync,
-    {
-        let n = fst.num_states();
-        (0..n as StateId)
-            .map(|s| fst.transitions_lazy(s).to_vec())
-            .collect()
-    }
-
     #[test]
     fn test_union_commutativity_structure() {
         // T₁ ⊕ T₂ and T₂ ⊕ T₁ should have the same structure

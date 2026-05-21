@@ -280,7 +280,10 @@ impl<W: Semiring> ConfusionTransducer<W> {
             let mut subs: Vec<_> = self.matrix.substitutions_for(c).collect();
 
             // Sort by cost and optionally limit
-            subs.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            subs.sort_by(|a, b| {
+                a.1.partial_cmp(&b.1)
+                    .expect("error_models/confusion.rs: required value was None/Err")
+            });
             if let Some(max) = self.config.max_confusions_per_char {
                 subs.truncate(max);
             }

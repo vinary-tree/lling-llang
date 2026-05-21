@@ -80,7 +80,7 @@ impl ContextState {
 }
 
 /// Configuration for context-dependency transducer construction.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ContextDependencyConfig {
     /// Whether to use deterministic construction (right phone as input).
     pub deterministic: bool,
@@ -94,17 +94,6 @@ pub struct ContextDependencyConfig {
 
     /// Auxiliary symbol range (if any).
     pub auxiliary_symbols: Option<std::ops::Range<PhoneId>>,
-}
-
-impl Default for ContextDependencyConfig {
-    fn default() -> Self {
-        Self {
-            deterministic: false,
-            boundary_symbol: None,
-            auxiliary_self_loops: false,
-            auxiliary_symbols: None,
-        }
-    }
 }
 
 /// Builder for general context-dependency transducers.
@@ -147,6 +136,16 @@ impl<W: Semiring> ContextDependencyBuilder<W> {
     pub fn config(mut self, config: ContextDependencyConfig) -> Self {
         self.config = config;
         self
+    }
+
+    /// Configured left context size (preceding phones).
+    pub fn left_context_size(&self) -> usize {
+        self.left_context_size
+    }
+
+    /// Configured right context size (following phones).
+    pub fn right_context_size(&self) -> usize {
+        self.right_context_size
     }
 
     /// Enable deterministic construction.

@@ -353,7 +353,7 @@ fn count_arcs<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>) -> usize {
 #[cfg(test)]
 mod property_tests {
     use super::*;
-    use crate::wfst::{MutableWfst, Wfst};
+    use crate::wfst::MutableWfst;
     use proptest::prelude::*;
 
     /// Strategy for generating simple parallel path WFSTs.

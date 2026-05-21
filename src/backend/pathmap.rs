@@ -243,7 +243,7 @@ mod tests {
         let shared = backend.share_prefix(b"hel");
         assert!(shared.is_some());
 
-        let shared = shared.unwrap();
+        let shared = shared.expect("backend/pathmap.rs: required value was None/Err");
         assert_eq!(shared.vocab_size(), 3); // hello, help, helicopter
         assert!(shared.contains("hello"));
         assert!(shared.contains("help"));

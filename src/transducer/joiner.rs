@@ -3,7 +3,7 @@
 //! The joiner combines encoder and predictor outputs to produce
 //! log-probabilities over the vocabulary.
 
-use super::{JointNetwork, Label, BLANK};
+use super::JointNetwork;
 use std::fmt::Debug;
 
 /// Simple feedforward joiner network.

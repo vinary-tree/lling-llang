@@ -593,9 +593,25 @@ mod tests {
 
         fp.compute_top_k(2);
         assert!(fp.top_k_units.is_some());
-        assert_eq!(fp.top_k_units.as_ref().unwrap().len(), 2);
-        assert_eq!(fp.top_k_units.as_ref().unwrap()[0], 3); // -0.1
-        assert_eq!(fp.top_k_units.as_ref().unwrap()[1], 1); // -0.5
+        assert_eq!(
+            fp.top_k_units
+                .as_ref()
+                .expect("acoustic/mod.rs: required value was None/Err")
+                .len(),
+            2
+        );
+        assert_eq!(
+            fp.top_k_units
+                .as_ref()
+                .expect("acoustic/mod.rs: required value was None/Err")[0],
+            3
+        ); // -0.1
+        assert_eq!(
+            fp.top_k_units
+                .as_ref()
+                .expect("acoustic/mod.rs: required value was None/Err")[1],
+            1
+        ); // -0.5
     }
 
     #[test]

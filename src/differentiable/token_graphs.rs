@@ -44,9 +44,15 @@ pub enum TokenGraphType {
     /// Spike CTC: single emission per token.
     Spike,
     /// Duration-limited CTC with max duration.
-    DurationLimited { max_duration: usize },
+    DurationLimited {
+        /// Maximum repetition count for any token before forcing a blank.
+        max_duration: usize,
+    },
     /// Equally spaced CTC with fixed blank count between tokens.
-    EquallySpaced { blank_count: usize },
+    EquallySpaced {
+        /// Number of blank tokens required between each pair of label tokens.
+        blank_count: usize,
+    },
 }
 
 /// Configuration for token graph construction.

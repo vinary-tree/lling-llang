@@ -236,10 +236,14 @@ mod tests {
             ],
         );
 
-        let subtree = tree.subtree(&[0]).unwrap();
+        let subtree = tree
+            .subtree(&[0])
+            .expect("tree_transducers/tree.rs: required value was None/Err");
         assert_eq!(subtree.label(), &"NP");
 
-        let leaf = tree.subtree(&[0, 1]).unwrap();
+        let leaf = tree
+            .subtree(&[0, 1])
+            .expect("tree_transducers/tree.rs: required value was None/Err");
         assert_eq!(leaf.label(), &"cat");
 
         assert!(tree.subtree(&[5]).is_none());
@@ -249,7 +253,9 @@ mod tests {
     fn test_replace() {
         let tree = Tree::node("S", vec![Tree::leaf("NP"), Tree::leaf("VP")]);
 
-        let replaced = tree.replace(&[0], Tree::leaf("PP")).unwrap();
+        let replaced = tree
+            .replace(&[0], Tree::leaf("PP"))
+            .expect("tree_transducers/tree.rs: required value was None/Err");
         assert_eq!(replaced.children()[0].label(), &"PP");
     }
 

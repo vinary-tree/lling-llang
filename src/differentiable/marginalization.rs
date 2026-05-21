@@ -42,7 +42,9 @@
 use std::collections::HashMap;
 
 use crate::semiring::{LogWeight, Semiring};
-use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst};
+#[cfg(test)]
+use crate::wfst::Wfst;
+use crate::wfst::{MutableWfst, StateId, VectorWfst};
 
 /// Word piece identifier type.
 pub type WordPieceId = u32;
@@ -468,7 +470,10 @@ mod tests {
         assert_eq!(lexicon.len(), 2);
 
         // Find the "bc" entry
-        let bc_entry = lexicon.iter().find(|e| e.word_piece == 1).unwrap();
+        let bc_entry = lexicon
+            .iter()
+            .find(|e| e.word_piece == 1)
+            .expect("differentiable/marginalization.rs: required value was None/Err");
         assert_eq!(
             bc_entry.graphemes,
             vec!['b' as GraphemeId, 'c' as GraphemeId]

@@ -326,9 +326,18 @@ mod tests {
         assert_eq!(order.len(), 3);
 
         // Start should come before middle, middle before end
-        let start_pos = order.iter().position(|&n| n == NodeId::new(0)).unwrap();
-        let middle_pos = order.iter().position(|&n| n == NodeId::new(1)).unwrap();
-        let end_pos = order.iter().position(|&n| n == NodeId::new(2)).unwrap();
+        let start_pos = order
+            .iter()
+            .position(|&n| n == NodeId::new(0))
+            .expect("lattice/lattice.rs: required value was None/Err");
+        let middle_pos = order
+            .iter()
+            .position(|&n| n == NodeId::new(1))
+            .expect("lattice/lattice.rs: required value was None/Err");
+        let end_pos = order
+            .iter()
+            .position(|&n| n == NodeId::new(2))
+            .expect("lattice/lattice.rs: required value was None/Err");
 
         assert!(start_pos < middle_pos);
         assert!(middle_pos < end_pos);

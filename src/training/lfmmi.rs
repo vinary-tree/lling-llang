@@ -11,10 +11,8 @@
 //! instead, we use a denominator graph (phone loop + LM) that covers all possible
 //! transcriptions.
 
-use crate::differentiable::{forward_score, GradientWfst};
-use crate::semiring::{LogWeight, Semiring};
+use crate::semiring::Semiring;
 use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition, Wfst};
-use std::collections::HashMap;
 
 /// Configuration for LF-MMI training.
 #[derive(Debug, Clone)]

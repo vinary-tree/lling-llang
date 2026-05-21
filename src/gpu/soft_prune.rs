@@ -750,7 +750,10 @@ mod tests {
         buffer.push(SoftToken::new(3, 1, 0, 3.0));
 
         // Manually prune one token
-        buffer.get(1).unwrap().soft_prune();
+        buffer
+            .get(1)
+            .expect("gpu/soft_prune.rs: required value was None/Err")
+            .soft_prune();
 
         assert_eq!(buffer.total_count(), 3);
         let removed = buffer.compact();
@@ -820,7 +823,11 @@ mod tests {
         manager.add_token(2, 2, 2.0);
 
         // Prune one
-        manager.current().get(0).unwrap().soft_prune();
+        manager
+            .current()
+            .get(0)
+            .expect("gpu/soft_prune.rs: required value was None/Err")
+            .soft_prune();
 
         let survivors = manager.survivors();
         assert_eq!(survivors.len(), 1);
@@ -841,7 +848,10 @@ mod tests {
 
         // Prune 6 tokens (60%)
         for i in 0..6 {
-            buffer.get(i).unwrap().soft_prune();
+            buffer
+                .get(i)
+                .expect("gpu/soft_prune.rs: required value was None/Err")
+                .soft_prune();
         }
 
         assert!(buffer.needs_compaction()); // >50% pruned
@@ -1361,7 +1371,7 @@ mod property_tests {
             }
 
             let expected_survivors = if prune_first {
-                manager.current().get(0).unwrap().soft_prune();
+                manager.current().get(0).expect("gpu/soft_prune.rs: required value was None/Err").soft_prune();
                 num_tokens - 1
             } else {
                 num_tokens

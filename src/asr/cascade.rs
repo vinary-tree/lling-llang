@@ -34,7 +34,6 @@
 //!
 //! - Mohri et al., "Speech Recognition with WFSTs" Section 5
 
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -295,84 +294,6 @@ where
                     W::one(),
                 );
             }
-        }
-
-        fst
-    }
-
-    /// Build the lexicon transducer (L).
-    ///
-    /// The lexicon maps word sequences to phone sequences.
-    /// Input labels: phones
-    /// Output labels: words (on first transition of each word)
-    fn build_lexicon(&self) -> VectorWfst<PhoneId, W> {
-        let mut fst: VectorWfst<PhoneId, W> = VectorWfst::new();
-
-        // Create initial state
-        let start = fst.add_state();
-        fst.set_start(start);
-        fst.set_final(start, W::one());
-
-        // Group entries by word to handle homophones
-        let mut word_entries: HashMap<WordId, Vec<&LexiconEntry<W>>> = HashMap::new();
-        for entry in &self.lexicon {
-            word_entries.entry(entry.word).or_default().push(entry);
-        }
-
-        // Add each lexicon entry
-        for entry in &self.lexicon {
-            if entry.phones.is_empty() {
-                continue;
-            }
-
-            // Create states for this pronunciation
-            let mut current = start;
-
-            // First phone: output the word label
-            let next = fst.add_state();
-            // Use word as output on first arc (requires label type casting)
-            // For now, we'll encode word in a way that can be decoded later
-            fst.add_arc(
-                current,
-                Some(entry.phones[0]),
-                Some(entry.phones[0]), // Phone output (will be relabeled)
-                next,
-                entry.weight.clone(),
-            );
-            current = next;
-
-            // Remaining phones: epsilon output (or phone echo)
-            // Only iterate middle phones (not first, not last)
-            if entry.phones.len() > 2 {
-                for &phone in &entry.phones[1..entry.phones.len() - 1] {
-                    let next = fst.add_state();
-                    fst.add_arc(current, Some(phone), Some(phone), next, W::one());
-                    current = next;
-                }
-            }
-
-            // Last phone: return to start
-            if entry.phones.len() > 1 {
-                let last_phone = entry.phones[entry.phones.len() - 1];
-                fst.add_arc(current, Some(last_phone), Some(last_phone), start, W::one());
-            } else {
-                // Single phone word: return to start from current state
-                // This allows recognition to continue after this word
-                fst.add_arc(
-                    current,
-                    None, // epsilon
-                    None, // epsilon
-                    start,
-                    W::one(),
-                );
-            }
-        }
-
-        // If no entries, just return minimal FST
-        if self.lexicon.is_empty() {
-            let s0 = fst.add_state();
-            fst.set_start(s0);
-            fst.set_final(s0, W::one());
         }
 
         fst

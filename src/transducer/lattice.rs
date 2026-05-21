@@ -1,9 +1,9 @@
 //! Transducer lattice construction and manipulation.
 
 use super::{
-    EncoderOutput, JointNetwork, Label, PredictorOutput, TransducerConfig, TransducerLattice, BLANK,
+    EncoderOutput, JointNetwork, Label, PredictorOutput, TransducerConfig, TransducerLattice,
 };
-use crate::semiring::{LogWeight, Semiring};
+use crate::semiring::Semiring;
 use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition, Wfst};
 
 /// Builder for transducer lattices from neural network outputs.
@@ -240,10 +240,7 @@ where
         // Iterate over sparse transitions
         for tr in sparse.transitions(sparse_state) {
             // Extract label from input (Option<Label>)
-            let label = match tr.input {
-                Some(l) => l,
-                None => 0, // epsilon
-            };
+            let label = tr.input.unwrap_or(0); // 0 = epsilon
             let acoustic_score = if (label as usize) < frame_scores.len() {
                 frame_scores[label as usize]
             } else {

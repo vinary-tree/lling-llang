@@ -66,7 +66,7 @@ impl<L: Clone + Send + Sync + Default + Eq + std::hash::Hash> WfstKernel<L> {
         // Add transitions between consecutive states
         // Each position can accept any vocabulary item
         for pos in 0..kernel_size {
-            for label_idx in 0..vocab_size {
+            for _label_idx in 0..vocab_size {
                 // We'll use a placeholder label - in practice this would be
                 // the actual vocabulary labels
                 fst.add_arc(
@@ -256,6 +256,9 @@ impl<L: Clone + Send + Sync + Default + Eq + std::hash::Hash> WfstConvLayer<L> {
 }
 
 /// Result of WFST convolution forward pass.
+///
+/// Returned by [`wfst_conv_forward_with_gradients`] for callers that need the
+/// per-kernel, per-position gradient WFSTs in addition to the output features.
 #[derive(Clone, Debug)]
 pub struct WfstConvOutput {
     /// Output features: [output_channels, output_length].
@@ -332,6 +335,104 @@ pub fn wfst_conv_forward<L: Clone + Send + Sync + Default + Eq + std::hash::Hash
     output
 }
 
+/// Apply WFST convolution, returning both features and per-position gradient WFSTs.
+///
+/// Use this instead of [`wfst_conv_forward`] when the caller needs to perform a
+/// backward pass through the convolution. The returned [`WfstConvOutput`] carries
+/// the receptive-field gradient WFSTs for each (kernel, output_position) pair.
+pub fn wfst_conv_forward_with_gradients<L: Clone + Send + Sync + Default + Eq + std::hash::Hash>(
+    layer: &WfstConvLayer<L>,
+    input: &[Vec<f64>],
+) -> WfstConvOutput {
+    let input_length = input.len();
+    let output_length = layer.output_length(input_length);
+    let num_kernels = layer.kernels.len();
+
+    let mut features = vec![vec![0.0; output_length]; num_kernels];
+    let mut gradient_wfsts: Vec<Vec<GradientWfst<u32>>> = (0..num_kernels)
+        .map(|_| Vec::with_capacity(output_length))
+        .collect();
+
+    if output_length == 0 {
+        return WfstConvOutput {
+            features,
+            gradient_wfsts,
+        };
+    }
+
+    let padding = match layer.config.padding {
+        PaddingMode::Valid => 0,
+        PaddingMode::Same => layer.config.kernel_size / 2,
+        PaddingMode::Custom(p) => p,
+    };
+
+    for kernel_idx in 0..num_kernels {
+        let kernel = &layer.kernels[kernel_idx];
+
+        for out_pos in 0..output_length {
+            let in_start = out_pos * layer.config.stride;
+
+            let mut rf_weights = Vec::with_capacity(layer.config.kernel_size);
+            for k in 0..layer.config.kernel_size {
+                let in_pos = in_start + k;
+                if in_pos < padding || in_pos >= padding + input_length {
+                    rf_weights.push(0.0);
+                } else {
+                    let actual_pos = in_pos - padding;
+                    let weight: f64 = input[actual_pos].iter().sum();
+                    rf_weights.push(weight);
+                }
+            }
+
+            let rf: ReceptiveField<L> = ReceptiveField::from_weights(&rf_weights, in_start);
+            let grad_fst = GradientWfst::from_wfst(&rf.fst);
+            let score = forward_score(&grad_fst);
+
+            features[kernel_idx][out_pos] = score.value();
+            // Retain the gradient WFST keyed by u32 for the backward pass.
+            gradient_wfsts[kernel_idx].push(GradientWfst::from_wfst(&u32_view(&rf.fst, kernel)));
+        }
+    }
+
+    WfstConvOutput {
+        features,
+        gradient_wfsts,
+    }
+}
+
+/// Build a `u32`-labeled view of the receptive-field FST so it composes with
+/// kernel FSTs uniformly. The kernel parameter is currently ignored; it is taken
+/// so future kernel-aware composition can drop in without changing the signature.
+fn u32_view<L: Clone + Send + Sync>(
+    rf: &crate::wfst::VectorWfst<L, crate::semiring::LogWeight>,
+    _kernel: &WfstKernel<L>,
+) -> crate::wfst::VectorWfst<u32, crate::semiring::LogWeight> {
+    use crate::wfst::{MutableWfst, StateId, Wfst};
+    let mut out: crate::wfst::VectorWfst<u32, crate::semiring::LogWeight> =
+        crate::wfst::VectorWfst::new();
+    for _ in 0..rf.num_states() {
+        out.add_state();
+    }
+    if rf.start() != crate::wfst::NO_STATE {
+        out.set_start(rf.start());
+    }
+    for state in 0..rf.num_states() as StateId {
+        if rf.is_final(state) {
+            out.set_final(state, rf.final_weight(state));
+        }
+        for (idx, arc) in rf.transitions(state).iter().enumerate() {
+            out.add_arc(
+                arc.from,
+                Some(idx as u32),
+                Some(idx as u32),
+                arc.to,
+                arc.weight,
+            );
+        }
+    }
+    out
+}
+
 /// Compute forward score for a receptive field through a kernel.
 fn compute_receptive_field_score<L: Clone + Send + Sync>(
     rf: &ReceptiveField<L>,
@@ -388,7 +489,7 @@ pub fn wfst_conv_backward<L: Clone + Send + Sync + Default + Eq + std::hash::Has
 
     // Backward pass through each kernel at each position
     for kernel_idx in 0..num_kernels {
-        let kernel = &layer.kernels[kernel_idx];
+        let _kernel = &layer.kernels[kernel_idx];
 
         for out_pos in 0..output_length {
             let in_start = out_pos * layer.config.stride;

@@ -689,8 +689,8 @@ mod tests {
     #[test]
     fn test_single_source_linear() {
         let fst = build_linear_fst(3);
-        let distances =
-            single_source_shortest_distance(&fst, ShortestDistanceConfig::default()).unwrap();
+        let distances = single_source_shortest_distance(&fst, ShortestDistanceConfig::default())
+            .expect("algorithms/shortest_distance.rs: required value was None/Err");
 
         assert_eq!(distances.len(), 4);
         assert!(distances[0].approx_eq(&TropicalWeight::one(), 1e-10)); // Start
@@ -702,8 +702,8 @@ mod tests {
     #[test]
     fn test_single_source_diamond() {
         let fst = build_diamond_fst();
-        let distances =
-            single_source_shortest_distance(&fst, ShortestDistanceConfig::default()).unwrap();
+        let distances = single_source_shortest_distance(&fst, ShortestDistanceConfig::default())
+            .expect("algorithms/shortest_distance.rs: required value was None/Err");
 
         assert_eq!(distances.len(), 4);
         assert!(distances[0].approx_eq(&TropicalWeight::one(), 1e-10));
@@ -716,8 +716,8 @@ mod tests {
     #[test]
     fn test_single_source_with_topological_queue() {
         let fst = build_linear_fst(5);
-        let distances =
-            single_source_shortest_distance(&fst, ShortestDistanceConfig::acyclic()).unwrap();
+        let distances = single_source_shortest_distance(&fst, ShortestDistanceConfig::acyclic())
+            .expect("algorithms/shortest_distance.rs: required value was None/Err");
 
         assert_eq!(distances.len(), 6);
         for i in 0..6 {
@@ -728,7 +728,8 @@ mod tests {
     #[test]
     fn test_shortest_distance_to_final() {
         let fst = build_diamond_fst();
-        let total = shortest_distance_to_final(&fst, ShortestDistanceConfig::default()).unwrap();
+        let total = shortest_distance_to_final(&fst, ShortestDistanceConfig::default())
+            .expect("algorithms/shortest_distance.rs: required value was None/Err");
 
         // Shortest path weight = 2 (0 -> 1 -> 3)
         // Final weight = 1 (one())
@@ -747,7 +748,8 @@ mod tests {
             .arc(1, Some('b'), Some('b'), 2, TropicalWeight::new(2.0))
             .build();
 
-        let distances = all_pairs_shortest_distance(&fst).unwrap();
+        let distances = all_pairs_shortest_distance(&fst)
+            .expect("algorithms/shortest_distance.rs: required value was None/Err");
 
         assert_eq!(distances.len(), 3);
 
@@ -766,7 +768,8 @@ mod tests {
     #[test]
     fn test_reverse_shortest_distance() {
         let fst = build_linear_fst(3);
-        let distances = reverse_shortest_distance(&fst, ShortestDistanceConfig::default()).unwrap();
+        let distances = reverse_shortest_distance(&fst, ShortestDistanceConfig::default())
+            .expect("algorithms/shortest_distance.rs: required value was None/Err");
 
         // Reverse distances from each state to final state 3
         // d[0] = 3 (3 edges)
@@ -784,11 +787,12 @@ mod tests {
         let builder: VectorWfstBuilder<char, TropicalWeight> = VectorWfstBuilder::new();
         let fst = builder.build();
 
-        let distances =
-            single_source_shortest_distance(&fst, ShortestDistanceConfig::default()).unwrap();
+        let distances = single_source_shortest_distance(&fst, ShortestDistanceConfig::default())
+            .expect("algorithms/shortest_distance.rs: required value was None/Err");
         assert!(distances.is_empty());
 
-        let all_pairs = all_pairs_shortest_distance(&fst).unwrap();
+        let all_pairs = all_pairs_shortest_distance(&fst)
+            .expect("algorithms/shortest_distance.rs: required value was None/Err");
         assert!(all_pairs.is_empty());
     }
 
@@ -806,8 +810,8 @@ mod tests {
             .arc(2, Some('d'), Some('d'), 3, LogWeight::new(1.0))
             .build();
 
-        let distances =
-            single_source_shortest_distance(&fst, ShortestDistanceConfig::default()).unwrap();
+        let distances = single_source_shortest_distance(&fst, ShortestDistanceConfig::default())
+            .expect("algorithms/shortest_distance.rs: required value was None/Err");
 
         // In log semiring, plus combines probabilities (log-sum-exp)
         // State 3 receives contributions from both paths

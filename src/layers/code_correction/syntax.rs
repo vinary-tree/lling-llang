@@ -13,7 +13,7 @@ use crate::semiring::{Semiring, TropicalWeight};
 use super::super::{CorrectionLayer, LayerResult};
 
 /// Strategy for syntax error recovery.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RecoveryStrategy {
     /// Insert missing tokens (e.g., missing closing bracket).
     Insertion,
@@ -22,13 +22,8 @@ pub enum RecoveryStrategy {
     /// Replace tokens (e.g., wrong bracket type).
     Replacement,
     /// All strategies combined.
+    #[default]
     All,
-}
-
-impl Default for RecoveryStrategy {
-    fn default() -> Self {
-        Self::All
-    }
 }
 
 /// Configuration for syntax recovery.

@@ -202,7 +202,7 @@ where
     W: Semiring + From<f64> + Into<f64> + Clone,
 {
     // Build target graph composed with LM
-    let target_graph: VectorWfst<Label, W> = build_target_graph(targets);
+    let _target_graph: VectorWfst<Label, W> = build_target_graph(targets);
 
     // For simplicity, we compute the loss using the basic algorithm
     // and add LM scores as additional weights on the target path

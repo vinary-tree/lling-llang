@@ -43,7 +43,7 @@ use std::marker::PhantomData;
 use std::path::Path;
 
 use crate::semiring::Semiring;
-use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition, Wfst};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition};
 
 /// Phone identifier.
 pub type PhoneId = u32;
@@ -403,7 +403,7 @@ impl<W: Semiring + From<f64> + Clone> PronunciationVariantTransducer<W> {
         if self.config.include_reduced_forms {
             for reduced_form in &self.reduced_forms {
                 // Get IDs for reduced and full forms
-                if let (Some(&reduced_id), Some(full_entries)) = (
+                if let (Some(&_reduced_id), Some(full_entries)) = (
                     self.word_table.get(&reduced_form.reduced),
                     self.entries.get(&reduced_form.full),
                 ) {
@@ -626,7 +626,9 @@ mod tests {
         transducer.add_entry(PronunciationEntry::new("the", vec![1, 2], 0.7));
         transducer.add_entry(PronunciationEntry::new("the", vec![1, 3], 0.3));
 
-        let variants = transducer.get_pronunciations("the").unwrap();
+        let variants = transducer
+            .get_pronunciations("the")
+            .expect("asr/pronunciation_variants.rs: required value was None/Err");
         assert_eq!(variants.len(), 2);
     }
 
@@ -741,7 +743,9 @@ mod tests {
 
         transducer.normalize_probabilities();
 
-        let variants = transducer.get_pronunciations("the").unwrap();
+        let variants = transducer
+            .get_pronunciations("the")
+            .expect("asr/pronunciation_variants.rs: required value was None/Err");
         let total: f64 = variants.iter().map(|e| e.probability).sum();
         assert!((total - 1.0).abs() < 0.001);
     }

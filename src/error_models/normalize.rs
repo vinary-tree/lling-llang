@@ -129,7 +129,7 @@ impl NormalizationConfig {
 }
 
 /// Character mapping for normalization.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct CharacterMapping {
     /// Direct character-to-character mappings
     single: HashMap<char, char>,
@@ -137,16 +137,6 @@ pub struct CharacterMapping {
     multi: HashMap<char, String>,
     /// Characters to delete (map to empty)
     delete: Vec<char>,
-}
-
-impl Default for CharacterMapping {
-    fn default() -> Self {
-        CharacterMapping {
-            single: HashMap::new(),
-            multi: HashMap::new(),
-            delete: Vec::new(),
-        }
-    }
 }
 
 impl CharacterMapping {
@@ -471,7 +461,12 @@ impl<W: Semiring> NormalizationTransducer<W> {
                 NormalizationResult::Single(ch) => {
                     let lower: String = ch.to_lowercase().collect();
                     if lower.len() == 1 {
-                        NormalizationResult::Single(lower.chars().next().unwrap())
+                        NormalizationResult::Single(
+                            lower
+                                .chars()
+                                .next()
+                                .expect("error_models/normalize.rs: required value was None/Err"),
+                        )
                     } else {
                         NormalizationResult::Multi(lower)
                     }
@@ -484,7 +479,12 @@ impl<W: Semiring> NormalizationTransducer<W> {
                 NormalizationResult::Single(ch) => {
                     let upper: String = ch.to_uppercase().collect();
                     if upper.len() == 1 {
-                        NormalizationResult::Single(upper.chars().next().unwrap())
+                        NormalizationResult::Single(
+                            upper
+                                .chars()
+                                .next()
+                                .expect("error_models/normalize.rs: required value was None/Err"),
+                        )
                     } else {
                         NormalizationResult::Multi(upper)
                     }

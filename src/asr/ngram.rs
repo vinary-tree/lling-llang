@@ -48,7 +48,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::semiring::Semiring;
-use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst};
+use crate::wfst::{MutableWfst, StateId, VectorWfst};
 
 /// Word identifier type.
 pub type WordId = u32;
@@ -787,9 +787,9 @@ mod property_tests {
             let builder = NgramBuilder::<LogWeight>::new(2).vocab_size(size);
             let lm = builder.build();
 
-            // If no words added, vocab_size might be overridden
-            // But if we add a word smaller than size, it should be at least size
-            prop_assert!(lm.vocabulary_size() >= 0);
+            // With no n-grams added, an empty LM should still report a
+            // vocabulary size no larger than the explicit hint we passed in.
+            prop_assert!(lm.vocabulary_size() <= size);
         }
     }
 

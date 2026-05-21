@@ -106,7 +106,10 @@ struct KVectorSlot<T> {
 
 impl<T: std::fmt::Debug> std::fmt::Debug for KVectorSlot<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let values = self.values.lock().unwrap();
+        let values = self
+            .values
+            .lock()
+            .expect("gpu/k_vector.rs: required value was None/Err");
         f.debug_struct("KVectorSlot")
             .field("values", &*values)
             .field("count", &self.count.load(Ordering::Relaxed))
@@ -123,13 +126,19 @@ impl<T> KVectorSlot<T> {
     }
 
     fn push(&self, value: T) {
-        let mut values = self.values.lock().unwrap();
+        let mut values = self
+            .values
+            .lock()
+            .expect("gpu/k_vector.rs: required value was None/Err");
         values.push(value);
         self.count.store(values.len(), Ordering::Release);
     }
 
     fn drain(&self) -> Vec<T> {
-        let mut values = self.values.lock().unwrap();
+        let mut values = self
+            .values
+            .lock()
+            .expect("gpu/k_vector.rs: required value was None/Err");
         self.count.store(0, Ordering::Release);
         std::mem::take(&mut *values)
     }
@@ -143,7 +152,10 @@ impl<T> KVectorSlot<T> {
     }
 
     fn clear(&self) {
-        let mut values = self.values.lock().unwrap();
+        let mut values = self
+            .values
+            .lock()
+            .expect("gpu/k_vector.rs: required value was None/Err");
         values.clear();
         self.count.store(0, Ordering::Release);
     }
@@ -463,7 +475,8 @@ mod tests {
             .collect();
 
         for h in handles {
-            h.join().unwrap();
+            h.join()
+                .expect("gpu/k_vector.rs: required value was None/Err");
         }
 
         let values = k_vec.collect(0);

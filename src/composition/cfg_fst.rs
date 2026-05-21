@@ -489,7 +489,7 @@ mod tests {
         let result = composition.parse();
         assert!(result.is_ok());
 
-        let forest = result.unwrap();
+        let forest = result.expect("composition/cfg_fst.rs: required value was None/Err");
         assert!(!forest.is_empty());
     }
 
@@ -514,7 +514,7 @@ mod tests {
         let result = composition.filter();
         assert!(result.is_ok());
 
-        let filtered = result.unwrap();
+        let filtered = result.expect("composition/cfg_fst.rs: required value was None/Err");
         assert!(filtered.num_valid_edges() > 0);
         assert!(filtered.reduction_ratio() <= 1.0);
     }
@@ -806,9 +806,9 @@ mod property_tests {
             prop_assert!(parses.len() <= limit);
         }
 
-        /// stats values are non-negative.
+        /// stats() returns counts that respect subset invariants.
         #[test]
-        fn stats_non_negative(
+        fn stats_subset_invariants(
             det in prop_oneof![Just("the"), Just("a")],
             noun in prop_oneof![Just("dog"), Just("cat"), Just("bird")]
         ) {
@@ -818,12 +818,10 @@ mod property_tests {
             let mut composition = LazyCfgComposition::new(&grammar, &lattice);
 
             let stats = composition.stats();
-            // All stats should be non-negative (they're usize so can't be negative,
-            // but verify the values are meaningful)
-            prop_assert!(stats.lattice_edges >= 0);
-            prop_assert!(stats.valid_edges >= 0);
-            prop_assert!(stats.forest_nodes >= 0);
-            prop_assert!(stats.complete_parses >= 0);
+            // valid_edges is a subset of lattice_edges by construction.
+            prop_assert!(stats.valid_edges <= stats.lattice_edges);
+            // Every complete parse corresponds to a root node in the forest.
+            prop_assert!(stats.complete_parses <= stats.forest_nodes);
         }
 
         /// valid_paths iterator yields complete paths.

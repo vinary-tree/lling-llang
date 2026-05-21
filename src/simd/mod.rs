@@ -835,7 +835,7 @@ mod tests {
         simd_min_plus_update(&mut d, 3, 1);
 
         // D[0,2] should now be D[0,1] + D[1,2] = 1.0 + 1.0 = 2.0
-        assert!((d[0 * 3 + 2] - 2.0).abs() < 1e-10);
+        assert!((d[2] - 2.0).abs() < 1e-10);
     }
 
     #[test]

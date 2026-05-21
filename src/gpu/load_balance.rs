@@ -345,7 +345,7 @@ impl LoadBalancer {
 
     /// Get the number of work groups.
     pub fn num_groups(&self) -> usize {
-        (self.num_workers + self.group_size - 1) / self.group_size
+        self.num_workers.div_ceil(self.group_size)
     }
 
     /// Create a dispatcher for a set of work items.
@@ -366,8 +366,8 @@ impl LoadBalancer {
     pub fn estimate_workers(num_items: usize, avg_subtasks: usize) -> usize {
         let total_work = num_items * avg_subtasks;
         // Aim for at least 4 items per group for amortization
-        let min_groups = (num_items + 3) / 4;
-        let max_groups = (total_work + WORK_GROUP_SIZE - 1) / WORK_GROUP_SIZE;
+        let min_groups = num_items.div_ceil(4);
+        let max_groups = total_work.div_ceil(WORK_GROUP_SIZE);
         min_groups.max(1).min(max_groups) * WORK_GROUP_SIZE
     }
 }
@@ -518,7 +518,13 @@ mod tests {
             })
             .collect();
 
-        let total: usize = handles.into_iter().map(|h| h.join().unwrap()).sum();
+        let total: usize = handles
+            .into_iter()
+            .map(|h| {
+                h.join()
+                    .expect("gpu/load_balance.rs: required value was None/Err")
+            })
+            .sum();
         assert_eq!(total, 100);
     }
 }
@@ -732,7 +738,7 @@ mod property_tests {
         fn load_balancer_num_groups(num_workers in 1usize..1000) {
             let balancer = LoadBalancer::new(num_workers);
             let group_size = WORK_GROUP_SIZE.min(num_workers);
-            let expected_groups = (num_workers + group_size - 1) / group_size;
+            let expected_groups = num_workers.div_ceil(group_size);
 
             prop_assert_eq!(balancer.num_groups(), expected_groups);
         }

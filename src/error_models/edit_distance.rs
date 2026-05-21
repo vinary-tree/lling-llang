@@ -407,8 +407,8 @@ pub struct LazyEditDistanceTransducer<W: Semiring> {
     max_distance: usize,
     /// Per-operation costs.
     costs: EditCosts,
-    /// Alphabet for output characters (reserved for future lazy expansion).
-    #[allow(dead_code)]
+    /// Alphabet for output characters, used to enumerate substitutions during
+    /// lazy expansion.
     alphabet: Vec<char>,
     /// Number of states per position (max_distance + 1).
     states_per_pos: usize,
@@ -468,6 +468,11 @@ impl<W: Semiring> LazyEditDistanceTransducer<W> {
     /// Get the maximum distance.
     pub fn max_distance(&self) -> usize {
         self.max_distance
+    }
+
+    /// Borrow the alphabet used to enumerate substitution candidates.
+    pub fn alphabet(&self) -> &[char] {
+        &self.alphabet
     }
 }
 

@@ -6,13 +6,13 @@
 //! - Streaming (frame-synchronous) decoding
 
 use super::{
-    AutoregressivePredictor, EncoderOutput, JointNetwork, Label, PredictorOutput, PredictorState,
-    TransducerConfig, TransducerStats, BLANK,
+    AutoregressivePredictor, EncoderOutput, JointNetwork, Label, PredictorState, TransducerConfig,
+    TransducerStats, BLANK,
 };
 use crate::semiring::Semiring;
 use crate::wfst::{StateId, VectorWfst, Wfst};
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::HashMap;
 
 /// Decoding hypothesis.
 #[derive(Debug, Clone)]
@@ -219,7 +219,10 @@ impl<P: AutoregressivePredictor, J: JointNetwork> TransducerDecoder<P, J> {
                             let (_, out) = if hyp.labels.is_empty() {
                                 self.predictor.step(&self.predictor.initial_state(), 0)
                             } else {
-                                let last_label = *hyp.labels.last().unwrap();
+                                let last_label = *hyp
+                                    .labels
+                                    .last()
+                                    .expect("transducer/decoding.rs: required value was None/Err");
                                 self.predictor.step(&hyp.predictor_state, last_label)
                             };
                             out
@@ -290,7 +293,10 @@ impl<P: AutoregressivePredictor, J: JointNetwork> TransducerDecoder<P, J> {
                 let (_, predictor_out) = if hyp.labels.is_empty() {
                     self.predictor.step(&self.predictor.initial_state(), 0)
                 } else {
-                    let last_label = *hyp.labels.last().unwrap();
+                    let last_label = *hyp
+                        .labels
+                        .last()
+                        .expect("transducer/decoding.rs: required value was None/Err");
                     self.predictor.step(&hyp.predictor_state, last_label)
                 };
 
@@ -421,7 +427,10 @@ impl<P: AutoregressivePredictor, J: JointNetwork> StreamingTransducerDecoder<P, 
             let (_, predictor_out) = if hyp.labels.is_empty() {
                 self.predictor.step(&self.predictor.initial_state(), 0)
             } else {
-                let last_label = *hyp.labels.last().unwrap();
+                let last_label = *hyp
+                    .labels
+                    .last()
+                    .expect("transducer/decoding.rs: required value was None/Err");
                 self.predictor.step(&hyp.predictor_state, last_label)
             };
 

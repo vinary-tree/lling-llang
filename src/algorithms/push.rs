@@ -40,18 +40,13 @@ use super::shortest_distance::{
 };
 
 /// Direction of weight pushing.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PushDirection {
     /// Push weights toward the initial state.
     Forward,
     /// Push weights toward final states.
+    #[default]
     Backward,
-}
-
-impl Default for PushDirection {
-    fn default() -> Self {
-        Self::Backward
-    }
 }
 
 /// Configuration for weight pushing.

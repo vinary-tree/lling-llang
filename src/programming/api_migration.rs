@@ -46,7 +46,9 @@ use std::collections::HashMap;
 use std::fmt::{self, Display};
 
 use crate::semiring::Semiring;
-use crate::wfst::{MutableWfst, VectorWfst, WeightedTransition, Wfst};
+#[cfg(test)]
+use crate::wfst::Wfst;
+use crate::wfst::{MutableWfst, VectorWfst, WeightedTransition};
 
 /// A semantic version number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -654,6 +656,9 @@ impl<W: Semiring> ApiMigrationBuilder<W> {
 }
 
 /// Common migration patterns for different frameworks/languages.
+///
+/// These pattern factories are part of the public API; the test
+/// `test_python2_to_python3_migration` exercises one of them.
 pub mod patterns {
     use super::*;
 
@@ -760,17 +765,20 @@ mod tests {
 
     #[test]
     fn test_version_parsing() {
-        let v = Version::parse("1.2.3").unwrap();
+        let v = Version::parse("1.2.3")
+            .expect("programming/api_migration.rs: required value was None/Err");
         assert_eq!(v.major, 1);
         assert_eq!(v.minor, 2);
         assert_eq!(v.patch, 3);
 
-        let v = Version::parse("2.0").unwrap();
+        let v = Version::parse("2.0")
+            .expect("programming/api_migration.rs: required value was None/Err");
         assert_eq!(v.major, 2);
         assert_eq!(v.minor, 0);
         assert_eq!(v.patch, 0);
 
-        let v = Version::parse("3").unwrap();
+        let v =
+            Version::parse("3").expect("programming/api_migration.rs: required value was None/Err");
         assert_eq!(v.major, 3);
         assert_eq!(v.minor, 0);
         assert_eq!(v.patch, 0);
@@ -1020,5 +1028,86 @@ mod tests {
                 .with_cost(0.5);
 
         assert_eq!(rule.cost, 0.5);
+    }
+
+    mod property_tests {
+        use super::*;
+        use proptest::prelude::*;
+
+        fn arb_ident() -> impl Strategy<Value = String> {
+            proptest::collection::vec(
+                proptest::char::range('a', 'z').prop_map(|c| c as char),
+                1..=8,
+            )
+            .prop_map(|v| v.into_iter().collect())
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(48))]
+
+            /// Idempotence: migrating an already-migrated token stream is a
+            /// no-op (the renamed identifier is not re-renamed because the
+            /// rule's source pattern no longer matches).
+            #[test]
+            fn migration_is_idempotent(
+                old in arb_ident(),
+                new in arb_ident(),
+            ) {
+                prop_assume!(old != new);
+                let mut transducer: ApiMigrationTransducer<crate::semiring::TropicalWeight> =
+                    ApiMigrationTransducer::new(Version::new(1, 0), Version::new(2, 0));
+                transducer.add_rule(ApiMigrationRule::rename_function(
+                    &old,
+                    &new,
+                    Version::new(1, 0),
+                    Version::new(2, 0),
+                ));
+
+                let tokens = vec![old.clone(), "(".to_string(), ")".to_string()];
+                let first = transducer.migrate(&tokens);
+                let second = transducer.migrate(&first.migrated);
+                prop_assert_eq!(first.migrated, second.migrated);
+            }
+
+            /// Migrating an empty token stream yields an empty token stream.
+            #[test]
+            fn empty_input_yields_empty_output(
+                old in arb_ident(),
+                new in arb_ident(),
+            ) {
+                let mut transducer: ApiMigrationTransducer<crate::semiring::TropicalWeight> =
+                    ApiMigrationTransducer::new(Version::new(1, 0), Version::new(2, 0));
+                transducer.add_rule(ApiMigrationRule::rename_function(
+                    &old,
+                    &new,
+                    Version::new(1, 0),
+                    Version::new(2, 0),
+                ));
+                let result = transducer.migrate(&[]);
+                prop_assert!(result.migrated.is_empty());
+                prop_assert_eq!(result.stats.rules_applied, 0);
+            }
+
+            /// Renaming with no matching tokens leaves the input unchanged.
+            #[test]
+            fn no_match_preserves_input(
+                old in arb_ident(),
+                new in arb_ident(),
+                input in proptest::collection::vec(arb_ident(), 0..6),
+            ) {
+                let mut transducer: ApiMigrationTransducer<crate::semiring::TropicalWeight> =
+                    ApiMigrationTransducer::new(Version::new(1, 0), Version::new(2, 0));
+                transducer.add_rule(ApiMigrationRule::rename_function(
+                    &old,
+                    &new,
+                    Version::new(1, 0),
+                    Version::new(2, 0),
+                ));
+                prop_assume!(!input.contains(&old));
+                let result = transducer.migrate(&input);
+                prop_assert_eq!(result.migrated, input);
+                prop_assert_eq!(result.stats.rules_applied, 0);
+            }
+        }
     }
 }

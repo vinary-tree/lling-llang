@@ -35,8 +35,8 @@ mod token;
 mod traits;
 
 pub use api_migration::{
-    ApiMigrationBuilder, ApiMigrationRule, ApiMigrationTransducer, MigrationResult, MigrationStats,
-    MigrationType, Version, VersionRange,
+    patterns, ApiMigrationBuilder, ApiMigrationRule, ApiMigrationTransducer, MigrationResult,
+    MigrationStats, MigrationType, Version, VersionRange,
 };
 pub use repair::{
     RepairAction, RepairCandidate, SyntaxRepairBuilder, SyntaxRepairCosts, SyntaxRepairRule,
@@ -47,7 +47,8 @@ pub use token::{
     TokenReplacement,
 };
 pub use traits::{
-    NodeKind, ParseResult, ParserBackend, ParserError, Position, Range, SyntaxNode, SyntaxNodeRef,
+    NodeKind, ParseResult, ParserBackend, ParserError, Position, Range, SimpleParserBackend,
+    SimpleSyntaxNodeRef, SyntaxNode, SyntaxNodeRef,
 };
 
 #[cfg(test)]

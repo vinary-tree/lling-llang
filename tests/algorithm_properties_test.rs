@@ -775,9 +775,9 @@ fn test_all_pairs_shortest_distance() {
             }
 
             // Diagonal should be one() (0 in tropical)
-            for i in 0..n {
+            for (i, row) in distances.iter().enumerate().take(n) {
                 assert!(
-                    (distances[i][i].value() - TropicalWeight::one().value()).abs() < 1e-10,
+                    (row[i].value() - TropicalWeight::one().value()).abs() < 1e-10,
                     "Distance from state to itself should be one()"
                 );
             }

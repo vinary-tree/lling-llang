@@ -10,7 +10,7 @@ use proptest::prelude::*;
 use crate::semiring::{
     BoolWeight, LogWeight, ProbabilityWeight, ProductWeight, Semiring, TropicalWeight,
 };
-use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition, Wfst};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition};
 
 // =============================================================================
 // Weight Strategies
@@ -809,6 +809,7 @@ pub fn arb_diamond_lattice(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::wfst::Wfst;
 
     proptest! {
         #[test]

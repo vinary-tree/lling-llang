@@ -1,6 +1,6 @@
 //! Property-based tests for semiring algebraic laws.
 
-use lling_llang::semiring::{LogWeight, ProbabilityWeight, Semiring, TropicalWeight};
+use lling_llang::semiring::{LogWeight, Semiring, TropicalWeight};
 use proptest::prelude::*;
 
 fn arb_tropical() -> impl Strategy<Value = TropicalWeight> {

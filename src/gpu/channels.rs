@@ -48,9 +48,10 @@
 use std::collections::VecDeque;
 
 /// Channel states.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ChannelState {
     /// Channel is idle (no active utterance).
+    #[default]
     Idle,
     /// Waiting for audio/posteriors.
     Waiting,
@@ -64,16 +65,11 @@ pub enum ChannelState {
     Error,
 }
 
-impl Default for ChannelState {
-    fn default() -> Self {
-        ChannelState::Idle
-    }
-}
-
 /// Lane states.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LaneState {
     /// Lane is available for assignment.
+    #[default]
     Available,
     /// Lane is actively decoding.
     Active,
@@ -81,12 +77,6 @@ pub enum LaneState {
     FrameComplete,
     /// Lane finished entire utterance.
     UtteranceComplete,
-}
-
-impl Default for LaneState {
-    fn default() -> Self {
-        LaneState::Available
-    }
 }
 
 /// A channel representing an audio stream's decoding state.
@@ -1058,13 +1048,13 @@ mod property_tests {
             // All channels should be idle
             for i in 0..max_channels {
                 prop_assert!(decoder.channel(i).is_some());
-                prop_assert!(decoder.channel(i).unwrap().is_idle());
+                prop_assert!(decoder.channel(i).expect("gpu/channels.rs: required value was None/Err").is_idle());
             }
 
             // All lanes should be available
             for i in 0..max_lanes {
                 prop_assert!(decoder.lane(i).is_some());
-                prop_assert!(decoder.lane(i).unwrap().is_available());
+                prop_assert!(decoder.lane(i).expect("gpu/channels.rs: required value was None/Err").is_available());
             }
         }
 
@@ -1142,7 +1132,7 @@ mod property_tests {
             prop_assert_eq!(active.len(), num_utterances);
 
             for lane_id in active {
-                prop_assert!(decoder.lane(lane_id).unwrap().is_active());
+                prop_assert!(decoder.lane(lane_id).expect("gpu/channels.rs: required value was None/Err").is_active());
             }
         }
 

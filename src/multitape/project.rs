@@ -110,7 +110,7 @@ where
     W: Semiring + Clone,
     T: MultiTapeWfst<L, W, N>,
 {
-    use crate::multitape::{MultiTapeWfstBuilder, VectorMultiTapeWfst};
+    use crate::multitape::MultiTapeWfstBuilder;
 
     // Verify tape indices
     for &tape in &tapes {

@@ -410,17 +410,23 @@ mod tests {
         let lattice = builder.build(2);
 
         // Start node has 2 outgoing, 0 incoming
-        let start = lattice.node(NodeId::new(0)).unwrap();
+        let start = lattice
+            .node(NodeId::new(0))
+            .expect("lattice/builder.rs: required value was None/Err");
         assert_eq!(start.out_degree(), 2);
         assert_eq!(start.in_degree(), 0);
 
         // Middle node has 2 incoming (from start), 1 outgoing
-        let middle = lattice.node(NodeId::new(1)).unwrap();
+        let middle = lattice
+            .node(NodeId::new(1))
+            .expect("lattice/builder.rs: required value was None/Err");
         assert_eq!(middle.in_degree(), 2);
         assert_eq!(middle.out_degree(), 1);
 
         // End node has 1 incoming, 0 outgoing
-        let end = lattice.node(NodeId::new(2)).unwrap();
+        let end = lattice
+            .node(NodeId::new(2))
+            .expect("lattice/builder.rs: required value was None/Err");
         assert_eq!(end.in_degree(), 1);
         assert_eq!(end.out_degree(), 0);
     }

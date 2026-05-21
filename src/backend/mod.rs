@@ -43,10 +43,10 @@ mod hashmap;
 mod traits;
 
 pub use hashmap::HashMapBackend;
-pub use traits::{LatticeBackend, VocabId};
+pub use traits::{LatticeBackend, SharingBackend, VocabId};
 
 #[cfg(feature = "f1r3fly")]
 mod pathmap;
 
 #[cfg(feature = "f1r3fly")]
-pub use pathmap::{PathMapBackend, PathMapSharingBackend};
+pub use pathmap::{PathId, PathMapBackend, PathMapSharingBackend};

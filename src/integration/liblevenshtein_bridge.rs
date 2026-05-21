@@ -476,7 +476,6 @@ impl<T> From<&FuzzyResult<T>> for TropicalWeight {
 mod tests {
     use super::*;
     use libdictenstein::dynamic_dawg_char::DynamicDawgChar;
-    use liblevenshtein::prelude::DynamicDawg;
 
     #[test]
     fn test_fuzzy_lookup_basic() {

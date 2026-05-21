@@ -231,15 +231,22 @@ mod tests {
     #[test]
     fn test_topological_sort_linear() {
         let lattice = linear_lattice(3);
-        let order = topological_sort(lattice.nodes(), lattice.edges()).unwrap();
+        let order = topological_sort(lattice.nodes(), lattice.edges())
+            .expect("lattice/algorithms.rs: required value was None/Err");
 
         assert_eq!(order.len(), 4); // 4 nodes for 3 positions
 
         // Verify order respects edges
         for i in 0..order.len() - 1 {
             // Earlier positions should come before later positions
-            let pos_i = lattice.node(order[i]).unwrap().position;
-            let pos_j = lattice.node(order[i + 1]).unwrap().position;
+            let pos_i = lattice
+                .node(order[i])
+                .expect("lattice/algorithms.rs: required value was None/Err")
+                .position;
+            let pos_j = lattice
+                .node(order[i + 1])
+                .expect("lattice/algorithms.rs: required value was None/Err")
+                .position;
             assert!(pos_i <= pos_j);
         }
     }
@@ -247,13 +254,20 @@ mod tests {
     #[test]
     fn test_topological_sort_diamond() {
         let lattice = diamond_lattice();
-        let order = topological_sort(lattice.nodes(), lattice.edges()).unwrap();
+        let order = topological_sort(lattice.nodes(), lattice.edges())
+            .expect("lattice/algorithms.rs: required value was None/Err");
 
         assert_eq!(order.len(), 4);
 
         // Start should be first, end should be last
-        let start_pos = order.iter().position(|&n| n == lattice.start()).unwrap();
-        let end_pos = order.iter().position(|&n| n == lattice.end()).unwrap();
+        let start_pos = order
+            .iter()
+            .position(|&n| n == lattice.start())
+            .expect("lattice/algorithms.rs: required value was None/Err");
+        let end_pos = order
+            .iter()
+            .position(|&n| n == lattice.end())
+            .expect("lattice/algorithms.rs: required value was None/Err");
         assert_eq!(start_pos, 0);
         assert_eq!(end_pos, 3);
     }

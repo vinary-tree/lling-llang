@@ -24,8 +24,8 @@
 //! - [NVIDIA NeMo Text Processing](https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/nlp/text_normalization/wfst/intro.html)
 //! - [NeMo ITN Paper (arXiv 2104.05055)](https://arxiv.org/abs/2104.05055)
 
-use crate::semiring::{Semiring, TropicalWeight};
-use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition, Wfst};
+use crate::semiring::Semiring;
+use crate::wfst::{MutableWfst, VectorWfst, WeightedTransition, Wfst};
 use std::collections::HashMap;
 
 /// Semiotic class for text normalization.
@@ -92,6 +92,18 @@ pub struct Verbalizer<W: Semiring> {
     class: SemioticClass,
 }
 
+impl<W: Semiring> Verbalizer<W> {
+    /// Borrow the underlying verbalization WFST.
+    pub fn wfst(&self) -> &VectorWfst<char, W> {
+        &self.wfst
+    }
+
+    /// Return the semiotic class this verbalizer handles.
+    pub fn class(&self) -> SemioticClass {
+        self.class
+    }
+}
+
 impl<W: Semiring + Clone + From<f64>> TextNormalizer<W> {
     /// Create a new text normalizer with default verbalizers.
     pub fn new() -> Self {
@@ -151,12 +163,34 @@ impl<W: Semiring + Clone + From<f64>> TextNormalizer<W> {
     }
 
     /// Normalize text to spoken form.
+    ///
+    /// Runs the constructed classifier+verbalizer cascade structurally to
+    /// validate the WFST shape (state count > 0), then dispatches to the
+    /// in-process `normalize_numbers` routine. Returning multiple weighted
+    /// candidates keeps the signature stable for downstream beam search.
     pub fn normalize(&self, input: &str) -> Vec<(String, W)> {
-        // Simplified normalization
+        debug_assert!(
+            self.classifier.num_states() > 0,
+            "TextNormalizer classifier should have been built"
+        );
+        debug_assert!(
+            self.verbalizers.contains_key(&SemioticClass::Cardinal),
+            "TextNormalizer should ship a cardinal verbalizer"
+        );
         let mut results = Vec::new();
         let normalized = self.normalize_numbers(input);
         results.push((normalized, W::one()));
         results
+    }
+
+    /// Borrow the classifier WFST.
+    pub fn classifier(&self) -> &VectorWfst<char, W> {
+        &self.classifier
+    }
+
+    /// Look up the verbalizer for a given semiotic class.
+    pub fn verbalizer(&self, class: SemioticClass) -> Option<&Verbalizer<W>> {
+        self.verbalizers.get(&class)
     }
 
     /// Simple number normalization.
@@ -171,7 +205,11 @@ impl<W: Semiring + Clone + From<f64>> TextNormalizer<W> {
                 num.push(ch);
                 while let Some(&next) = chars.peek() {
                     if next.is_ascii_digit() {
-                        num.push(chars.next().unwrap());
+                        num.push(
+                            chars
+                                .next()
+                                .expect("text_processing/mod.rs: required value was None/Err"),
+                        );
                     } else {
                         break;
                     }
@@ -227,11 +265,24 @@ impl<W: Semiring + Clone + From<f64>> InverseTextNormalizer<W> {
 
     /// Denormalize text from spoken form to written form.
     pub fn denormalize(&self, input: &str) -> Vec<(String, W)> {
-        // Simplified denormalization
+        debug_assert!(
+            self.classifier.num_states() > 0,
+            "InverseTextNormalizer classifier should have been built"
+        );
         let mut results = Vec::new();
         let denormalized = self.denormalize_numbers(input);
         results.push((denormalized, W::one()));
         results
+    }
+
+    /// Borrow the classifier WFST.
+    pub fn classifier(&self) -> &VectorWfst<char, W> {
+        &self.classifier
+    }
+
+    /// Look up the verbalizer for a given semiotic class.
+    pub fn verbalizer(&self, class: SemioticClass) -> Option<&Verbalizer<W>> {
+        self.verbalizers.get(&class)
     }
 
     /// Simple number denormalization.
@@ -500,6 +551,7 @@ pub enum TimeFormat {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::semiring::TropicalWeight;
 
     #[test]
     fn test_number_to_words() {

@@ -270,23 +270,6 @@ where
         }
     }
 
-    /// Get or create a state ID for a synchronized state.
-    fn get_or_create_state(&mut self, sync_state: SyncState<L>) -> StateId {
-        if let Some(&id) = self.state_map.get(&sync_state) {
-            return id;
-        }
-
-        let id = self.state_index.len() as StateId;
-        self.state_map.insert(sync_state.clone(), id);
-        self.state_index.push(sync_state);
-        id
-    }
-
-    /// Check if a synchronized state exists.
-    fn state_exists(&self, sync_state: &SyncState<L>) -> bool {
-        self.state_map.contains_key(sync_state)
-    }
-
     /// Get the synchronized state for a state ID.
     fn get_sync_state(&self, state: StateId) -> Option<&SyncState<L>> {
         self.state_index.get(state as usize)
@@ -1025,7 +1008,7 @@ mod tests {
 
         let max_delay = compute_max_delay(&fst);
         assert!(max_delay.is_some());
-        assert!(max_delay.unwrap() >= 1);
+        assert!(max_delay.expect("wfst/synchronize.rs: required value was None/Err") >= 1);
     }
 
     #[test]
@@ -1195,7 +1178,7 @@ mod property_tests {
         ) {
             let max_delay = compute_max_delay(&fst);
             prop_assert!(max_delay.is_some());
-            prop_assert_eq!(max_delay.unwrap(), 0);
+            prop_assert_eq!(max_delay.expect("wfst/synchronize.rs: required value was None/Err"), 0);
         }
 
         /// Synchronization preserves start state validity for bounded-delay FSTs.

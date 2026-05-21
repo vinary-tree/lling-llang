@@ -32,7 +32,7 @@
 
 use std::marker::PhantomData;
 
-use crate::semiring::{LogWeight, Semiring};
+use crate::semiring::LogWeight;
 use crate::wfst::{StateId, VectorWfst, Wfst};
 
 /// A single arc in CSR format.
@@ -409,6 +409,7 @@ pub fn csr_memory_size(num_states: usize, num_arcs: usize, num_emitting: usize) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::semiring::Semiring;
     use crate::wfst::MutableWfst;
 
     #[test]

@@ -50,7 +50,7 @@ use std::sync::Arc;
 
 use crate::composition::{compose, materialize};
 use crate::semiring::{LogWeight, Semiring};
-use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition, Wfst};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst};
 
 use super::{CtcLabel, CtcTopology, BLANK};
 
@@ -570,7 +570,7 @@ impl CtcDecoder<LogWeight> {
         }
 
         let start = fst.start();
-        let num_states = fst.num_states();
+        let _num_states = fst.num_states();
         let beam_width = self.config.beam_width;
         let max_active = self.config.max_active;
 
@@ -879,7 +879,7 @@ impl<W: Semiring + Clone + PartialOrd> StreamingCtcDecoder<W> {
                 if let Some(input_label) = trans.input {
                     if (input_label as usize) < vocab_size {
                         // Get posterior weight for this label
-                        let posterior_weight = posteriors[input_label as usize];
+                        let _posterior_weight = posteriors[input_label as usize];
                         let arc_weight = trans.weight.clone();
 
                         // Create new token
@@ -942,7 +942,7 @@ impl<W: Semiring + Clone + PartialOrd> StreamingCtcDecoder<W> {
         let labels = self.best_hypothesis();
 
         // Get best score
-        let score = if let Some(token) = self.active_tokens.first() {
+        let score = if let Some(_token) = self.active_tokens.first() {
             // Would extract actual score value
             0.0
         } else {
@@ -972,7 +972,7 @@ impl<W: Semiring + Clone + PartialOrd> StreamingCtcDecoder<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ctc::{compact_ctc, correct_ctc, minimal_ctc};
+    use crate::ctc::{compact_ctc, minimal_ctc};
 
     #[test]
     fn test_decoder_config_default() {
@@ -1178,7 +1178,7 @@ mod tests {
         let result = decoder.decode(&posteriors);
         assert!(result.is_ok());
 
-        let decoded = result.unwrap();
+        let decoded = result.expect("ctc/decoder.rs: required value was None/Err");
         assert_eq!(decoded.num_frames, 3);
     }
 
@@ -1260,7 +1260,7 @@ mod tests {
 #[cfg(test)]
 mod property_tests {
     use super::*;
-    use crate::ctc::{compact_ctc, correct_ctc, minimal_ctc};
+    use crate::ctc::{compact_ctc, minimal_ctc};
     use proptest::prelude::*;
 
     // -------------------------------------------------------------------------

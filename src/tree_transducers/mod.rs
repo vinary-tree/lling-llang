@@ -61,7 +61,7 @@ mod transducer;
 mod tree;
 
 pub use alphabet::{RankedAlphabet, SimpleAlphabet, Symbol};
-pub use builder::TreeTransducerBuilder;
+pub use builder::{leaf, pattern, TreePatternBuilder, TreeTransducerBuilder};
 pub use rule::{TreeChild, TreePattern, TreeRule};
 pub use transducer::{
     TransducerState, TreeTransducerOps, VectorTreeTransducer, WeightedTreeTransducer,

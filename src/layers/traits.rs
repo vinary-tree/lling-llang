@@ -315,10 +315,9 @@ mod tests {
         }
     }
 
-    /// Layer that marks all edges with metadata.
-    struct MarkingLayer {
-        rule_id: u32,
-    }
+    /// Layer that nominally marks edges with metadata; tests only exercise
+    /// pipeline plumbing, so this is a pass-through.
+    struct MarkingLayer;
 
     impl CorrectionLayer<TropicalWeight, HashMapBackend> for MarkingLayer {
         fn name(&self) -> &str {
@@ -329,7 +328,6 @@ mod tests {
             &self,
             lattice: &Lattice<TropicalWeight, HashMapBackend>,
         ) -> LayerResult<Lattice<TropicalWeight, HashMapBackend>> {
-            // For now, just return a clone (a real implementation would modify edges)
             Ok(lattice.clone())
         }
 
@@ -422,7 +420,7 @@ mod tests {
     fn test_pipeline_multiple_layers() {
         let mut pipeline: LayerPipeline<TropicalWeight, HashMapBackend> = LayerPipeline::new();
         pipeline.add_layer(IdentityLayer);
-        pipeline.add_layer(MarkingLayer { rule_id: 42 });
+        pipeline.add_layer(MarkingLayer);
 
         assert_eq!(pipeline.len(), 2);
         assert_eq!(pipeline.layer_names(), vec!["identity", "marking"]);
@@ -453,7 +451,7 @@ mod tests {
     fn test_pipeline_builder() {
         let pipeline: LayerPipeline<TropicalWeight, HashMapBackend> = LayerPipelineBuilder::new()
             .add_layer(IdentityLayer)
-            .add_layer(MarkingLayer { rule_id: 1 })
+            .add_layer(MarkingLayer)
             .build();
 
         assert_eq!(pipeline.len(), 2);

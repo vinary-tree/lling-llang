@@ -211,7 +211,7 @@ pub trait IdempotentSemiring: Semiring {}
 ///
 /// - [`TropicalWeight`]: k=0 for non-negative weights (min stabilizes immediately)
 /// - [`LogWeight`]: k=0 for weights ≥ 1 (log-sum-exp stabilizes)
-/// - [`BoolWeight`]: k=0 (`true* = true`, `false* = true`)
+/// - `BoolWeight`: k=0 (`true* = true`, `false* = true`)
 pub trait KClosedSemiring: Semiring {
     /// Returns the closure bound k such that star converges in at most k+1 iterations.
     ///

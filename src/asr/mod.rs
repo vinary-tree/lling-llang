@@ -66,18 +66,21 @@ mod subword_lexicon;
 
 pub use context::{
     ContextDependencyBuilder, ContextDependencyConfig, ContextState, PhoneId, TetraploneBuilder,
-    TriphoneBuilder,
+    TriphoneBuilder, EPSILON,
 };
 
 pub use ngram::{
     BackoffState, NgramBuilder, NgramConfig, NgramOrder, NgramTransducer, NgramWeight,
+    NGRAM_EPSILON,
 };
 
 pub use cascade::{AsrCascade, AuxiliarySymbol, CascadeBuilder, CascadeConfig, LexiconEntry};
 
 pub use factoring::{chain_factor, Chain, ChainFactorConfig, ChainFactorResult, ChainId};
 
-pub use rescoring::{rescore_lattice, LatticeGrammar, RescoreConfig, RescorePass, RescoreResult};
+pub use rescoring::{
+    multi_pass_rescore, rescore_lattice, LatticeGrammar, RescoreConfig, RescorePass, RescoreResult,
+};
 
 pub use subword_lexicon::{MarkingStyle, SubwordEntry, SubwordLexiconBuilder, SubwordPosition};
 
@@ -93,8 +96,6 @@ pub use pronunciation_variants::{
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_module_structure() {
         // Basic module import test

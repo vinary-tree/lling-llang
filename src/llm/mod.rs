@@ -15,7 +15,7 @@
 //! - [Grammar-Constrained Decoding for Logical Parsing (ACL 2025)](https://aclanthology.org/2025.acl-industry.34/)
 //! - [vLLM Structured Decoding](https://blog.vllm.ai/2025/01/14/struct-decode-intro.html)
 
-use crate::semiring::{Semiring, TropicalWeight};
+use crate::semiring::Semiring;
 use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition, Wfst};
 use std::collections::{HashMap, HashSet};
 
@@ -34,7 +34,7 @@ pub struct TokenMask {
 impl TokenMask {
     /// Create a new token mask with all tokens invalid.
     pub fn new(vocab_size: usize) -> Self {
-        let num_words = (vocab_size + 63) / 64;
+        let num_words = vocab_size.div_ceil(64);
         Self {
             bits: vec![0; num_words],
             vocab_size,
@@ -43,7 +43,7 @@ impl TokenMask {
 
     /// Create a mask with all tokens valid.
     pub fn all_valid(vocab_size: usize) -> Self {
-        let num_words = (vocab_size + 63) / 64;
+        let num_words = vocab_size.div_ceil(64);
         let mut bits = vec![u64::MAX; num_words];
         // Clear bits beyond vocab_size
         let remaining = vocab_size % 64;
@@ -107,21 +107,12 @@ impl TokenMask {
 }
 
 /// Decoder state for constraint tracking.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct DecoderState {
     /// Current state in the constraint automaton.
     pub automaton_state: StateId,
     /// Stack for PDA (empty for FSM).
     pub stack: Vec<u32>,
-}
-
-impl Default for DecoderState {
-    fn default() -> Self {
-        Self {
-            automaton_state: 0,
-            stack: Vec::new(),
-        }
-    }
 }
 
 /// Trait for constrained decoders.
@@ -508,6 +499,11 @@ impl VocabMapper {
     pub fn to_token(&self, label: u32) -> Option<TokenId> {
         self.label_to_token.get(&label).copied()
     }
+
+    /// Vocabulary size used to construct this mapper.
+    pub fn vocab_size(&self) -> usize {
+        self.vocab_size
+    }
 }
 
 /// Constrained beam search for LLM decoding.
@@ -617,6 +613,7 @@ impl<C: ConstrainedDecoder> ConstrainedBeamSearch<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::semiring::TropicalWeight;
 
     #[test]
     fn test_token_mask() {

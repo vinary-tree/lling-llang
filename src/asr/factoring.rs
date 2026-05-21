@@ -426,7 +426,7 @@ where
     // Create a set of (source, target) pairs that are being replaced by chains
     let chain_arcs: HashSet<(StateId, StateId)> = chain_replacements
         .iter()
-        .flat_map(|(entry, exit, chain)| {
+        .flat_map(|(_entry, _exit, chain)| {
             // Mark all arcs along the chain as replaced
             chain
                 .states
@@ -625,7 +625,7 @@ mod tests {
         let result = chain_factor(&fst, &config);
 
         // Should find the chain between s0 and s3
-        assert!(result.stats.chains_found >= 0);
+        assert!(result.stats.chains_found > 0, "expected at least one chain");
     }
 }
 
@@ -731,7 +731,7 @@ mod property_tests {
         fn chain_end_state(states in prop::collection::vec(0u32..100, 1..5)) {
             let mut chain = Chain::<u32, LogWeight>::new(0);
             chain.states = states.clone();
-            prop_assert_eq!(chain.end_state(), Some(*states.last().unwrap()));
+            prop_assert_eq!(chain.end_state(), Some(*states.last().expect("asr/factoring.rs: required value was None/Err")));
         }
 
         /// Empty states give None for start/end.
@@ -825,7 +825,7 @@ mod property_tests {
             chain.input_labels = inputs;
 
             let gain = compute_chain_gain(&chain);
-            let expected = (num_some as i64) - 0 - 1;  // No outputs
+            let expected = (num_some as i64) - 1;  // No outputs
 
             prop_assert_eq!(gain, expected);
         }
@@ -912,7 +912,7 @@ mod property_tests {
 
             if !states.is_empty() {
                 fst.set_start(states[0]);
-                fst.set_final(*states.last().unwrap(), LogWeight::one());
+                fst.set_final(*states.last().expect("asr/factoring.rs: required value was None/Err"), LogWeight::one());
 
                 for i in 0..states.len() - 1 {
                     fst.add_arc(states[i], Some(i as u32), Some(i as u32), states[i + 1], LogWeight::one());
@@ -940,9 +940,9 @@ mod property_tests {
             prop_assert!(result.fst.start() != NO_STATE);
         }
 
-        /// chain_factor stats chains_found is non-negative.
+        /// chain_factor stats chains_found is bounded by the input state count.
         #[test]
-        fn factor_stats_non_negative(num_states in 0usize..5) {
+        fn factor_stats_bounded(num_states in 0usize..5) {
             let mut fst = VectorWfst::<u32, LogWeight>::new();
 
             for _ in 0..num_states {
@@ -956,7 +956,9 @@ mod property_tests {
             let config = ChainFactorConfig::default();
             let result = chain_factor(&fst, &config);
 
-            prop_assert!(result.stats.chains_found >= 0);
+            // Each chain consumes at least one state, so chains_found
+            // cannot exceed the number of input states.
+            prop_assert!(result.stats.chains_found <= num_states);
         }
     }
 

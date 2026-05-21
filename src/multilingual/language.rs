@@ -95,9 +95,10 @@ pub struct LanguageConfig {
 }
 
 /// Script types for language detection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum Script {
     /// Latin alphabet.
+    #[default]
     Latin,
     /// Cyrillic alphabet.
     Cyrillic,
@@ -119,12 +120,6 @@ pub enum Script {
     Thai,
     /// Unknown/mixed script.
     Unknown,
-}
-
-impl Default for Script {
-    fn default() -> Self {
-        Script::Latin
-    }
 }
 
 impl LanguageConfig {

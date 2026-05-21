@@ -616,14 +616,16 @@ mod tests {
     #[test]
     fn test_minimize_empty() {
         let fst: VectorWfst<char, TropicalWeight> = VectorWfst::new();
-        let result = minimize(&fst, MinimizeConfig::standard()).unwrap();
+        let result = minimize(&fst, MinimizeConfig::standard())
+            .expect("algorithms/minimize.rs: required value was None/Err");
         assert_eq!(result.num_states(), 0);
     }
 
     #[test]
     fn test_minimize_already_minimal() {
         let fst = build_minimal_fst();
-        let result = minimize(&fst, MinimizeConfig::standard()).unwrap();
+        let result = minimize(&fst, MinimizeConfig::standard())
+            .expect("algorithms/minimize.rs: required value was None/Err");
 
         // Should have same or fewer states
         assert!(result.num_states() <= fst.num_states());
@@ -634,7 +636,8 @@ mod tests {
         let fst = build_redundant_fst();
         let initial_states = fst.num_states();
 
-        let result = minimize(&fst, MinimizeConfig::standard()).unwrap();
+        let result = minimize(&fst, MinimizeConfig::standard())
+            .expect("algorithms/minimize.rs: required value was None/Err");
 
         // Should have fewer states (3,4 merged into one)
         assert!(
@@ -665,7 +668,8 @@ mod tests {
         let fst = build_chain_with_equiv_states();
         let initial_states = fst.num_states();
 
-        let result = minimize(&fst, MinimizeConfig::standard()).unwrap();
+        let result = minimize(&fst, MinimizeConfig::standard())
+            .expect("algorithms/minimize.rs: required value was None/Err");
 
         // Check we got a valid result
         assert!(result.num_states() > 0);
@@ -687,7 +691,8 @@ mod tests {
         let fst = build_redundant_fst();
         assert!(super::super::determinize::is_deterministic(&fst));
 
-        let result = minimize(&fst, MinimizeConfig::standard()).unwrap();
+        let result = minimize(&fst, MinimizeConfig::standard())
+            .expect("algorithms/minimize.rs: required value was None/Err");
         assert!(super::super::determinize::is_deterministic(&result));
     }
 
@@ -696,7 +701,8 @@ mod tests {
         let fst = build_minimal_fst();
 
         // With no push should still work for already-pushed FSTs
-        let result = minimize(&fst, MinimizeConfig::no_push()).unwrap();
+        let result = minimize(&fst, MinimizeConfig::no_push())
+            .expect("algorithms/minimize.rs: required value was None/Err");
         assert!(result.num_states() <= fst.num_states());
     }
 }

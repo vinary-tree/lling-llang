@@ -17,7 +17,9 @@ use lling_llang::layers::latex::{LatexGrammar, LatexSyntaxLayer, LatexValidator}
 use lling_llang::layers::mathml::{
     GlyphMeaning, HomoglyphDisambiguator, MathContext, MathMLSemanticLayer, MathTypeChecker,
 };
-use lling_llang::layers::{CorrectionLayer, LayerPipeline, LayerPipelineBuilder};
+#[cfg(any(feature = "latex-syntax", feature = "mathml-semantic"))]
+use lling_llang::layers::CorrectionLayer;
+use lling_llang::layers::{LayerPipeline, LayerPipelineBuilder};
 use lling_llang::path::{beam_search, nbest, viterbi};
 use lling_llang::semiring::{LogWeight, ProbabilityWeight, Semiring, TropicalWeight};
 use lling_llang::wfst::{MutableWfst, VectorWfst, Wfst, NO_STATE};

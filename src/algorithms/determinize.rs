@@ -551,7 +551,8 @@ mod tests {
     #[test]
     fn test_determinize_already_deterministic() {
         let fst = build_deterministic_fst();
-        let result = determinize(&fst, DeterminizeConfig::standard()).unwrap();
+        let result = determinize(&fst, DeterminizeConfig::standard())
+            .expect("algorithms/determinize.rs: required value was None/Err");
 
         assert!(is_deterministic(&result));
         // Should have same structure (3 states for chain)
@@ -563,7 +564,8 @@ mod tests {
         let fst = build_non_deterministic_fst();
         assert!(!is_deterministic(&fst));
 
-        let result = determinize(&fst, DeterminizeConfig::standard()).unwrap();
+        let result = determinize(&fst, DeterminizeConfig::standard())
+            .expect("algorithms/determinize.rs: required value was None/Err");
         assert!(is_deterministic(&result));
 
         // After 'a', we should be in a merged state
@@ -575,7 +577,8 @@ mod tests {
         let fst = build_diamond_non_det();
         assert!(!is_deterministic(&fst));
 
-        let result = determinize(&fst, DeterminizeConfig::standard()).unwrap();
+        let result = determinize(&fst, DeterminizeConfig::standard())
+            .expect("algorithms/determinize.rs: required value was None/Err");
         assert!(is_deterministic(&result));
 
         // Diamond should collapse to: 0 --a--> 1 --b--> 2
@@ -586,7 +589,8 @@ mod tests {
     #[test]
     fn test_determinize_empty() {
         let fst: VectorWfst<char, TropicalWeight> = VectorWfst::new();
-        let result = determinize(&fst, DeterminizeConfig::standard()).unwrap();
+        let result = determinize(&fst, DeterminizeConfig::standard())
+            .expect("algorithms/determinize.rs: required value was None/Err");
         assert_eq!(result.num_states(), 0);
     }
 
@@ -605,7 +609,8 @@ mod tests {
         fst.set_final(1, TropicalWeight::one()); // w=0
         fst.set_final(2, TropicalWeight::one()); // w=0
 
-        let result = determinize(&fst, DeterminizeConfig::standard()).unwrap();
+        let result = determinize(&fst, DeterminizeConfig::standard())
+            .expect("algorithms/determinize.rs: required value was None/Err");
         assert!(is_deterministic(&result));
 
         // Should have 2 states: start and merged final

@@ -376,7 +376,7 @@ mod tests {
             "standard grammar should build: {:?}",
             grammar
         );
-        let g = grammar.unwrap();
+        let g = grammar.expect("layers/latex/grammar.rs: required value was None/Err");
         assert!(g.grammar().num_productions() > 0);
     }
 
@@ -384,7 +384,7 @@ mod tests {
     fn test_math_grammar() {
         let grammar = LatexGrammar::math();
         assert!(grammar.is_ok(), "math grammar should build: {:?}", grammar);
-        let g = grammar.unwrap();
+        let g = grammar.expect("layers/latex/grammar.rs: required value was None/Err");
         assert!(g.grammar().num_productions() > 0);
     }
 
@@ -396,7 +396,7 @@ mod tests {
             "minimal grammar should build: {:?}",
             grammar
         );
-        let g = grammar.unwrap();
+        let g = grammar.expect("layers/latex/grammar.rs: required value was None/Err");
         assert!(g.grammar().num_productions() > 0);
     }
 
@@ -414,7 +414,8 @@ mod tests {
 
     #[test]
     fn test_grammar_arc() {
-        let grammar = LatexGrammar::minimal().unwrap();
+        let grammar =
+            LatexGrammar::minimal().expect("layers/latex/grammar.rs: required value was None/Err");
         let arc1 = grammar.grammar_arc();
         let arc2 = grammar.grammar_arc();
 

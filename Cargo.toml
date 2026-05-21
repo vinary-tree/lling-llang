@@ -39,6 +39,9 @@ blake3 = "1.5"
 serde = { version = "1.0", features = ["derive"], optional = true }
 bincode = { version = "1.3", optional = true }
 
+# Proptest fixtures and strategies (optional; used by the test-utils feature).
+proptest = { version = "1.4", optional = true }
+
 [dev-dependencies]
 proptest = "1.4"
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -90,6 +93,10 @@ pathmap-backend = ["dep:pathmap", "levenshtein", "liblevenshtein?/pathmap-backen
 # === Serialization ===
 serde = ["dep:serde", "liblevenshtein?/serde"]
 bincode-ser = ["dep:bincode", "serde"]
+
+# === Testing ===
+# Expose the test_utils module (proptest strategies, fixtures) to downstream crates.
+test-utils = ["dep:proptest"]
 
 [[bench]]
 name = "core_benchmarks"

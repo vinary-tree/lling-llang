@@ -659,7 +659,7 @@ mod tests {
         assert!(expected.is_some());
         // The only path has weight 1.0 + 1.0 + 0.0 = 2.0 (tropical semiring)
         // But in tropical, times is +, so the weight accumulates as 0+1+1+0 = 2
-        let e = expected.unwrap();
+        let e = expected.expect("algorithms/sample.rs: required value was None/Err");
         assert!(e > 0.0, "Expected weight should be positive");
     }
 

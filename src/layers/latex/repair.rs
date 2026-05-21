@@ -76,9 +76,15 @@ pub enum RepairKind {
     /// Insert tokens at position.
     Insert,
     /// Delete tokens starting at position.
-    Delete { count: usize },
+    Delete {
+        /// Number of tokens to delete.
+        count: usize,
+    },
     /// Replace tokens starting at position.
-    Replace { count: usize },
+    Replace {
+        /// Number of tokens to replace.
+        count: usize,
+    },
 }
 
 /// Strategy for generating repairs.
@@ -398,17 +404,6 @@ impl CompositeRepairStrategy {
                 Box::new(MathRepairStrategy::new()),
             ],
         }
-    }
-
-    /// Create a composite strategy with specific strategies.
-    pub fn with_strategies(strategies: Vec<Box<dyn RepairStrategy>>) -> Self {
-        Self { strategies }
-    }
-
-    /// Add a strategy to the composite.
-    pub fn add_strategy(mut self, strategy: Box<dyn RepairStrategy>) -> Self {
-        self.strategies.push(strategy);
-        self
     }
 }
 

@@ -58,7 +58,7 @@
 use std::hash::Hash;
 
 use crate::composition::{compose, materialize};
-use crate::semiring::{NumericalWeight, PowerWeight, Semiring};
+use crate::semiring::{NumericalWeight, PowerWeight};
 use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst};
 
 use super::push::{push_weights, PushConfig};
@@ -484,26 +484,6 @@ mod tests {
         wfst
     }
 
-    fn make_loss_transducer() -> VectorWfst<char, PowerWeight> {
-        let mut wfst = VectorWfst::new();
-        let s0 = wfst.add_state();
-        let s1 = wfst.add_state();
-
-        wfst.set_start(s0);
-        wfst.set_final(s1, PowerWeight::one_with_eta(1.0));
-
-        // Loss of 0.1 for the 'a' transition
-        wfst.add_arc(
-            s0,
-            Some('a'),
-            Some('a'),
-            s1,
-            PowerWeight::from_probability(0.9, 1.0), // 1 - loss
-        );
-
-        wfst
-    }
-
     #[test]
     fn test_rrwm_creation() {
         let rrwm = Rrwm::<char>::new(RrwmConfig::default());
@@ -565,7 +545,12 @@ mod tests {
 
         assert_eq!(rrwm.round(), 0);
         assert_eq!(rrwm.cumulative_weights().num_states(), 1);
-        assert_eq!(rrwm.statistics().unwrap().rounds, 0);
+        assert_eq!(
+            rrwm.statistics()
+                .expect("algorithms/rrwm.rs: required value was None/Err")
+                .rounds,
+            0
+        );
     }
 
     #[test]

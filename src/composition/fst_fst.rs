@@ -582,7 +582,12 @@ mod tests {
         let mut paths: Vec<_> = composed.accepting_paths().collect();
 
         // Sort by weight for deterministic testing
-        paths.sort_by(|a, b| a.weight.value().partial_cmp(&b.weight.value()).unwrap());
+        paths.sort_by(|a, b| {
+            a.weight
+                .value()
+                .partial_cmp(&b.weight.value())
+                .expect("composition/fst_fst.rs: required value was None/Err")
+        });
 
         assert_eq!(paths.len(), 2);
 
@@ -788,7 +793,7 @@ mod property_tests {
 
         /// Empty composition (no matching labels) produces no paths.
         #[test]
-        fn no_match_produces_no_paths(len1 in 1usize..4, len2 in 1usize..4) {
+        fn no_match_produces_no_paths(_len1 in 1usize..4, _len2 in 1usize..4) {
             // FST1 outputs lowercase, FST2 expects digits - no match possible
             let fst1 = VectorWfstBuilder::new()
                 .add_states(2)

@@ -828,7 +828,7 @@ mod tests {
         let detector = DysfluencyDetector::<TropicalWeight>::with_vocab_size(10);
         let pattern = detector
             .get_pattern(DysfluencyPattern::SoundRepetition)
-            .unwrap();
+            .expect("asr/dysfluency.rs: required value was None/Err");
 
         // Pattern should have states for: start, first-phone, repetition-detected
         assert!(pattern.num_states() >= 3);
@@ -844,7 +844,7 @@ mod tests {
         let detector = DysfluencyDetector::<TropicalWeight>::new(10, config);
         let pattern = detector
             .get_pattern(DysfluencyPattern::Prolongation)
-            .unwrap();
+            .expect("asr/dysfluency.rs: required value was None/Err");
 
         // Should have states for counting frames
         assert!(pattern.num_states() >= 4);

@@ -691,7 +691,7 @@ mod tests {
         let result = subseq.apply(&['a', 'b']);
         assert!(result.is_some());
 
-        let (output, _weight) = result.unwrap();
+        let (output, _weight) = result.expect("subsequential/mod.rs: required value was None/Err");
         assert_eq!(output, vec!['A', 'B']);
     }
 
@@ -764,7 +764,9 @@ mod tests {
         let builder = PiecewiseBuilder::<char, TropicalWeight>::new().add_wfst(fst);
 
         assert!(builder.is_some());
-        let piecewise = builder.unwrap().build();
+        let piecewise = builder
+            .expect("subsequential/mod.rs: required value was None/Err")
+            .build();
         assert_eq!(piecewise.num_pieces(), 1);
     }
 
@@ -810,7 +812,7 @@ mod tests {
         let result = subseq.apply(&['a', 'b']);
         assert!(result.is_some());
 
-        let (output, _) = result.unwrap();
+        let (output, _) = result.expect("subsequential/mod.rs: required value was None/Err");
         assert_eq!(output, vec!['A', 'B', '!']);
     }
 

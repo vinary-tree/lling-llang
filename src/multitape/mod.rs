@@ -58,11 +58,13 @@ mod traits;
 mod transition;
 mod vector;
 
-pub use builder::MultiTapeWfstBuilder;
+pub use builder::{three_tape_transducer, two_tape_transducer, MultiTapeWfstBuilder};
 pub use label::MultiTapeLabel;
-pub use project::{ProjectSource, ProjectedWfst};
-pub use synchronize::{SyncConfig, SynchronizedMultiTape, TapeDelay};
-pub use traits::MultiTapeWfst;
+pub use project::{project, project_tapes, ProjectSource, ProjectedWfst};
+pub use synchronize::{
+    compute_max_delay, has_bounded_delay, synchronize, SyncConfig, SynchronizedMultiTape, TapeDelay,
+};
+pub use traits::{MultiTapeWfst, MultiTapeWfstOps};
 pub use transition::MultiTapeTransition;
 pub use vector::{MultiTapeState, VectorMultiTapeWfst};
 

@@ -32,7 +32,9 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 
 use crate::semiring::{Semiring, TropicalWeight};
-use crate::wfst::{MutableWfst, VectorWfst, Wfst};
+#[cfg(test)]
+use crate::wfst::Wfst;
+use crate::wfst::{MutableWfst, VectorWfst};
 
 /// Configuration for homophone transducer behavior.
 #[derive(Clone, Debug)]
@@ -552,7 +554,12 @@ impl PhoneticEncoder {
                     let is_vowel = |c: char| matches!(c, 'A' | 'E' | 'I' | 'O' | 'U');
                     let prev = chars.get(i.saturating_sub(1)).copied();
                     if let Some(p) = prev {
-                        if !is_vowel(p) || (next.is_some() && !is_vowel(next.unwrap())) {
+                        if !is_vowel(p)
+                            || (next.is_some()
+                                && !is_vowel(next.expect(
+                                    "error_models/homophone.rs: required value was None/Err",
+                                )))
+                        {
                             if let Some(p) = prev {
                                 if is_vowel(p) {
                                     code.push('A');
@@ -1194,7 +1201,7 @@ mod tests {
         let encoder = PhoneticEncoder::new(PhoneticAlgorithm::DoubleMetaphone);
 
         let code = encoder.encode("rough");
-        assert!(code.primary.len() > 0);
+        assert!(!code.primary.is_empty());
         // May have alternate pronunciation
     }
 
@@ -1204,7 +1211,7 @@ mod tests {
 
         // NYSIIS should handle transformations
         let code = encoder.encode("Mackenzie");
-        assert!(code.primary.len() > 0);
+        assert!(!code.primary.is_empty());
 
         // Similar names should match
         let code1 = encoder.encode("John");
@@ -1218,7 +1225,7 @@ mod tests {
 
         // German phonetic encoding
         let code = encoder.encode("Mueller");
-        assert!(code.primary.len() > 0);
+        assert!(!code.primary.is_empty());
 
         // Similar German names should match
         let code1 = encoder.encode("Meier");
@@ -1260,7 +1267,7 @@ mod tests {
 
         let homophones = transducer.homophones("hello");
         assert!(
-            homophones.len() >= 1,
+            !homophones.is_empty(),
             "Should find homophones case-insensitively"
         );
     }
@@ -1337,7 +1344,7 @@ mod tests {
         let code1 = encoder.encode("Lee");
         let code2 = encoder.encode("Leigh");
         // They should be similar (may not be exact match)
-        assert!(code1.primary.len() > 0 && code2.primary.len() > 0);
+        assert!(!code1.primary.is_empty() && !code2.primary.is_empty());
     }
 
     #[test]
@@ -1354,5 +1361,71 @@ mod tests {
         let basic_code = basic.encode("Testing");
         // Refined typically produces longer codes
         assert!(refined_code.primary.len() >= basic_code.primary.len() - 1);
+    }
+
+    mod property_tests {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// Strategy generating non-empty ASCII-alphabetic words (length 1..=12).
+        fn arb_word() -> impl Strategy<Value = String> {
+            proptest::collection::vec(
+                proptest::char::range('a', 'z').prop_map(|c| c as char),
+                1..=12,
+            )
+            .prop_map(|v| v.into_iter().collect())
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(64))]
+
+            /// Phonetic encoding is deterministic: encoding the same word twice
+            /// must produce the same code, for every supported algorithm.
+            #[test]
+            fn encoder_is_deterministic(word in arb_word()) {
+                for algo in [
+                    PhoneticAlgorithm::Soundex,
+                    PhoneticAlgorithm::Metaphone,
+                    PhoneticAlgorithm::DoubleMetaphone,
+                    PhoneticAlgorithm::Nysiis,
+                    PhoneticAlgorithm::Cologne,
+                ] {
+                    let enc = PhoneticEncoder::new(algo);
+                    let a = enc.encode(&word);
+                    let b = enc.encode(&word);
+                    prop_assert_eq!(a.primary.clone(), b.primary.clone());
+                    prop_assert_eq!(a.alternate.clone(), b.alternate.clone());
+                }
+            }
+
+            /// `matches` is reflexive: every code matches itself.
+            #[test]
+            fn phonetic_match_is_reflexive(word in arb_word()) {
+                let code = PhoneticEncoder::new(PhoneticAlgorithm::Soundex).encode(&word);
+                prop_assert!(code.matches(&code));
+            }
+
+            /// With `include_self=true`, every vocabulary word appears in its
+            /// own homophone list (it is phonetically identical to itself).
+            #[test]
+            fn vocabulary_word_is_self_homophone(word in arb_word()) {
+                let config = HomophoneConfig {
+                    include_self: true,
+                    ..HomophoneConfig::default()
+                };
+                let transducer = HomophoneTransducer::<crate::semiring::TropicalWeight>::with_config(
+                    PhoneticAlgorithm::Soundex,
+                    config,
+                )
+                .with_vocabulary(std::slice::from_ref(&word));
+                let homs = transducer.homophones(&word);
+                prop_assert!(
+                    homs.iter().any(|(w, _)| w == &word),
+                    "expected {} in its own homophone list, got {:?}",
+                    word,
+                    homs
+                );
+            }
+        }
     }
 }

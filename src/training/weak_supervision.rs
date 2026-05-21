@@ -25,7 +25,7 @@
 //!
 //! - [WST: Weakly Supervised Transducer for ASR (arXiv 2511.04035)](https://arxiv.org/abs/2511.04035)
 
-use crate::semiring::{LogWeight, Semiring};
+use crate::semiring::Semiring;
 use crate::transducer::{Label, BLANK};
 use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition, Wfst};
 
@@ -572,13 +572,11 @@ where
 
     if let Some(mut state) = best_final_state {
         let mut time = num_frames;
-        let mut target_pos = 0;
 
         while let Some((prev_time, prev_state, label, is_bypass, weight)) = backpointer[time][state]
         {
-            // Update target position estimate based on state index
-            // In the WST graph, states roughly correspond to target positions
-            target_pos = prev_state;
+            // The WST state index roughly corresponds to the target position.
+            let target_pos = prev_state;
 
             alignment.push(WstAlignmentStep {
                 target_pos,

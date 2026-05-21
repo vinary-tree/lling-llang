@@ -309,8 +309,18 @@ impl PatternMatch {
         if self.tokens.is_empty() {
             return None;
         }
-        let start = self.tokens.first().unwrap().range.start;
-        let end = self.tokens.last().unwrap().range.end;
+        let start = self
+            .tokens
+            .first()
+            .expect("programming/token.rs: required value was None/Err")
+            .range
+            .start;
+        let end = self
+            .tokens
+            .last()
+            .expect("programming/token.rs: required value was None/Err")
+            .range
+            .end;
         Some(Range::new(start, end))
     }
 }
@@ -625,7 +635,13 @@ mod tests {
         let matcher = PatternMatcher::new();
         let result = matcher.try_match_at(&pattern, &tokens, 0);
         assert!(result.is_some());
-        assert_eq!(result.unwrap().tokens.len(), 2);
+        assert_eq!(
+            result
+                .expect("programming/token.rs: required value was None/Err")
+                .tokens
+                .len(),
+            2
+        );
     }
 
     #[test]
@@ -639,7 +655,13 @@ mod tests {
         let matcher = PatternMatcher::new();
         let result = matcher.try_match_at(&pattern, &tokens, 0);
         assert!(result.is_some());
-        assert_eq!(result.unwrap().tokens.len(), 1);
+        assert_eq!(
+            result
+                .expect("programming/token.rs: required value was None/Err")
+                .tokens
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -657,7 +679,13 @@ mod tests {
         let matcher = PatternMatcher::new();
         let result = matcher.try_match_at(&pattern, &tokens, 0);
         assert!(result.is_some());
-        assert_eq!(result.unwrap().tokens.len(), 3);
+        assert_eq!(
+            result
+                .expect("programming/token.rs: required value was None/Err")
+                .tokens
+                .len(),
+            3
+        );
     }
 
     #[test]
@@ -676,9 +704,14 @@ mod tests {
         let result = matcher.try_match_at(&pattern, &tokens, 0);
         assert!(result.is_some());
 
-        let m = result.unwrap();
+        let m = result.expect("programming/token.rs: required value was None/Err");
         assert!(m.get("name").is_some());
-        assert_eq!(m.get_one("name").unwrap().text, "x");
+        assert_eq!(
+            m.get_one("name")
+                .expect("programming/token.rs: required value was None/Err")
+                .text,
+            "x"
+        );
     }
 
     #[test]

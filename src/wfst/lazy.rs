@@ -22,9 +22,10 @@ use crate::semiring::Semiring;
 /// A state that may or may not have been computed yet.
 ///
 /// Used in lazy WFSTs to track which states have been expanded.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub enum LazyState<L, W: Semiring> {
     /// State exists but transitions not yet computed.
+    #[default]
     Pending,
 
     /// State fully computed with all information.
@@ -70,12 +71,6 @@ impl<L, W: Semiring> LazyState<L, W> {
             LazyState::Computed { transitions, .. } => Some(transitions.as_slice()),
             LazyState::Pending => None,
         }
-    }
-}
-
-impl<L, W: Semiring> Default for LazyState<L, W> {
-    fn default() -> Self {
-        LazyState::Pending
     }
 }
 

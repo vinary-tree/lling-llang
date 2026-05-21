@@ -879,6 +879,8 @@ mod tests {
             prev_arc: None,
         };
         let id1 = manager.process_token(token1, false);
+        let group1 = manager.group(id1).expect("lazy group exists");
+        assert!(!group1.expanded, "non-word arc should be lazy");
 
         // Word arc - should force expansion
         let token2 = Token {

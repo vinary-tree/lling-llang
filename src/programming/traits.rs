@@ -536,6 +536,11 @@ impl SimpleParserBackend {
         }
     }
 
+    /// Return the language identifier this backend was constructed for.
+    pub fn language(&self) -> &str {
+        &self.language
+    }
+
     /// Set the tree directly (for testing).
     pub fn set_tree(&mut self, tree: SyntaxNode) {
         self.last_tree = Some(tree);

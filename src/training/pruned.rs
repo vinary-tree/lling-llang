@@ -18,11 +18,10 @@
 //! - Enables training with full LM on GPU
 //! - Critical for production-scale systems
 
-use crate::semiring::{LogWeight, Semiring};
+use crate::semiring::Semiring;
 use crate::transducer::{DenseFsa, Label};
 use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition, Wfst};
-use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::HashMap;
 
 /// Configuration for pruned composition.
 #[derive(Debug, Clone)]
@@ -115,41 +114,6 @@ pub struct PruningStats {
     pub avg_beam_utilization: f64,
 }
 
-/// State in the pruned composition search.
-#[derive(Debug, Clone)]
-struct SearchState {
-    /// State ID in sparse FSA.
-    sparse_state: StateId,
-    /// Time frame.
-    time: usize,
-    /// Forward score to this state.
-    score: f64,
-}
-
-impl PartialEq for SearchState {
-    fn eq(&self, other: &Self) -> bool {
-        self.score == other.score
-    }
-}
-
-impl Eq for SearchState {}
-
-impl PartialOrd for SearchState {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for SearchState {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // Higher score = higher priority
-        self.score
-            .partial_cmp(&other.score)
-            .unwrap_or(Ordering::Equal)
-            .reverse()
-    }
-}
-
 /// Perform pruned composition of dense and sparse FSAs.
 ///
 /// # Arguments
@@ -176,12 +140,12 @@ where
     let mut stats = PruningStats::default();
 
     // Helper to get or create composed state
-    let mut get_or_create_state = |map: &mut HashMap<(usize, StateId), StateId>,
-                                   rev_map: &mut HashMap<StateId, (usize, StateId)>,
-                                   scores: &mut Vec<f64>,
-                                   fst: &mut VectorWfst<Label, W>,
-                                   t: usize,
-                                   s: StateId|
+    let get_or_create_state = |map: &mut HashMap<(usize, StateId), StateId>,
+                               rev_map: &mut HashMap<StateId, (usize, StateId)>,
+                               scores: &mut Vec<f64>,
+                               fst: &mut VectorWfst<Label, W>,
+                               t: usize,
+                               s: StateId|
      -> StateId {
         *map.entry((t, s)).or_insert_with(|| {
             let id = fst.add_state();
@@ -474,7 +438,6 @@ fn log_add(a: f64, b: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::semiring::TropicalWeight;
 
     #[test]
     fn test_pruned_composition_config() {

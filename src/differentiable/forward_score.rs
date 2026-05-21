@@ -281,7 +281,7 @@ mod property_tests {
             let cached = grad_fst.total_score();
 
             prop_assert!(cached.is_some());
-            prop_assert!((cached.unwrap().value() - score.value()).abs() < 1e-9);
+            prop_assert!((cached.expect("differentiable/forward_score.rs: required value was None/Err").value() - score.value()).abs() < 1e-9);
         }
 
         /// Forward scores at final states match total for chain.

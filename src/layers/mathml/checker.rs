@@ -430,7 +430,7 @@ impl MathTypeChecker {
         &mut self,
         sig: &TypeSignature,
         context: &[&str],
-        env: &mut TypeEnvironment,
+        _env: &mut TypeEnvironment,
     ) -> TypeResult {
         match &sig.math_type {
             MathType::Function {
@@ -726,7 +726,10 @@ mod tests {
         let mut checker = MathTypeChecker::new();
         let result = checker.unify(&MathType::Number, &MathType::Number);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), MathType::Number);
+        assert_eq!(
+            result.expect("layers/mathml/checker.rs: required value was None/Err"),
+            MathType::Number
+        );
     }
 
     #[test]
@@ -734,7 +737,10 @@ mod tests {
         let mut checker = MathTypeChecker::new();
         let result = checker.unify(&MathType::TypeVar(0), &MathType::Number);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), MathType::Number);
+        assert_eq!(
+            result.expect("layers/mathml/checker.rs: required value was None/Err"),
+            MathType::Number
+        );
     }
 
     #[test]

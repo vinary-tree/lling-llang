@@ -171,7 +171,10 @@ impl LatexSyntaxLayer {
 
     /// Get repair suggestions from the last apply call.
     pub fn last_repairs(&self) -> Vec<RepairSuggestion> {
-        self.last_repairs.lock().unwrap().clone()
+        self.last_repairs
+            .lock()
+            .expect("layers/latex/syntax.rs: required value was None/Err")
+            .clone()
     }
 
     /// Validate a token sequence using the structural validator.
@@ -219,7 +222,10 @@ impl<W: Semiring, B: LatticeBackend> CorrectionLayer<W, B> for LatexSyntaxLayer 
 
     fn apply(&self, lattice: &Lattice<W, B>) -> LayerResult<Lattice<W, B>> {
         // Clear previous repairs
-        self.last_repairs.lock().unwrap().clear();
+        self.last_repairs
+            .lock()
+            .expect("layers/latex/syntax.rs: required value was None/Err")
+            .clear();
 
         // Handle empty lattice
         if lattice.is_empty() {
@@ -230,7 +236,7 @@ impl<W: Semiring, B: LatticeBackend> CorrectionLayer<W, B> for LatexSyntaxLayer 
         let parser = EarleyParser::new(self.grammar.grammar());
         let parse_result = parser.parse_lattice(lattice);
 
-        let (filtered_lattice, used_edges) = match parse_result {
+        let (filtered_lattice, _used_edges) = match parse_result {
             Ok(forest) => {
                 // Collect edges used in valid parses
                 let used_edges = forest.collect_used_edges();
@@ -293,7 +299,10 @@ impl<W: Semiring, B: LatticeBackend> CorrectionLayer<W, B> for LatexSyntaxLayer 
             // Generate repairs if there are issues
             if !validation.is_valid && self.config.generate_repairs {
                 let repairs = self.generate_repairs(&validation, &token_refs);
-                *self.last_repairs.lock().unwrap() = repairs;
+                *self
+                    .last_repairs
+                    .lock()
+                    .expect("layers/latex/syntax.rs: required value was None/Err") = repairs;
             }
 
             // For strict mode with errors, report them
@@ -333,26 +342,7 @@ impl<W: Semiring, B: LatticeBackend> CorrectionLayer<W, B> for LatexSyntaxLayer 
 mod tests {
     use super::*;
     use crate::backend::HashMapBackend;
-    use crate::lattice::EdgeMetadata;
     use crate::semiring::TropicalWeight;
-
-    fn build_test_lattice(tokens: &[&str]) -> Lattice<TropicalWeight, HashMapBackend> {
-        let mut backend = HashMapBackend::new();
-        let ids: Vec<_> = tokens.iter().map(|t| backend.intern(t)).collect();
-
-        let mut builder = LatticeBuilder::new(backend);
-        for (i, &id) in ids.iter().enumerate() {
-            builder.add_correction_by_id(
-                i,
-                i + 1,
-                id,
-                TropicalWeight::one(),
-                EdgeMetadata::default(),
-            );
-        }
-
-        builder.build(tokens.len())
-    }
 
     #[test]
     fn test_layer_name() {

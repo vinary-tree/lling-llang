@@ -520,15 +520,23 @@ mod tests {
         let rev1 = reverse(&fst);
         let rev2 = reverse(&rev1);
 
-        // Double reversal should give back the original structure
-        // (with different state IDs due to super-start nodes)
-
-        // The path structure should be preserved
-        // Original: 0 -> 1 -> 2 (final)
-        // After double reverse: start -> ... -> (final at original start position)
-
-        // At minimum, we should have a path of length 2 (two arcs)
-        // and the final state should be reachable
+        // Double reversal preserves the original transition count
+        // (state IDs may differ due to super-start nodes added by reverse).
+        let original_arcs: usize = (0..fst.num_states())
+            .map(|s| fst.transitions(s as crate::wfst::StateId).len())
+            .sum();
+        let _ = rev1;
+        let final_arcs: usize = (0..rev2.num_states())
+            .map(|s| rev2.transitions(s as crate::wfst::StateId).len())
+            .sum();
+        // The first reverse adds a super-start, the second restores the original,
+        // so total arc count should be at least the original.
+        assert!(
+            final_arcs >= original_arcs,
+            "double-reverse should preserve at least the original arc count ({} vs {})",
+            final_arcs,
+            original_arcs
+        );
     }
 
     #[test]

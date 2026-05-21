@@ -1,43 +1,28 @@
 //! Correction layer infrastructure for text normalization pipelines.
 //!
-//! This module provides an extensible layer architecture for building
-//! correction pipelines. Each layer receives a lattice and returns a
-//! (typically smaller) lattice with paths filtered or reweighted.
+//! Each layer receives a lattice and returns a (typically smaller) lattice
+//! with paths filtered or reweighted.
 //!
-//! # Architecture
+//! Layers are grouped by their pipeline role:
 //!
-//! ```text
-//! ┌─────────────────────────────────────────────────────────────────────────┐
-//! │                        Correction Layer Stack                           │
-//! ├─────────────────────────────────────────────────────────────────────────┤
-//! │  Layer N: [User-Defined]           ← Implement CorrectionLayer trait    │
-//! │     ↑                                                                   │
-//! │  Layer 3: CFG Grammar              ← Syntactic filtering                │
-//! │     ↑                                                                   │
-//! │  Layer 1: Lexical Correction       ← Levenshtein + phonetic candidates  │
-//! │     ↑                                                                   │
-//! │  [Input Lattice]                                                        │
-//! └─────────────────────────────────────────────────────────────────────────┘
-//! ```
+//! - [`filtering`]: in-place path filtering / pruning (CFG, edit-distance,
+//!   confusion, disfluency).
+//! - [`rescoring`]: edge-weight rescoring (language models, phonetic).
+//! - [`syntactic`]: syntactic / semantic typing layers (POS tagging,
+//!   MeTTaIL types).
+//! - [`code_correction`] / [`latex`] / [`mathml`]: domain-specific structured
+//!   layers, each feature-gated.
 //!
-//! # Example
-//!
-//! ```ignore
-//! use lling_llang::layers::{LayerPipeline, CfgFilterLayer};
-//! use lling_llang::cfg::Grammar;
-//!
-//! let grammar = Grammar::from_file("grammar.cfg")?;
-//! let mut pipeline = LayerPipeline::new();
-//! pipeline.add_layer(CfgFilterLayer::new(&grammar));
-//!
-//! let filtered = pipeline.apply(&input_lattice)?;
-//! ```
+//! All concrete layer types are re-exported from this module for back-compat.
 //!
 //! # Built-in Layers
 //!
 //! | Layer | Description |
 //! |-------|-------------|
 //! | [`CfgFilterLayer`] | Filters paths that don't parse with a CFG |
+//! | [`ConfusionLayer`] | Expands lattice with confusion-matrix substitutions |
+//! | [`DisfluencyLayer`] | Rewrites filler/repetition tokens |
+//! | [`EditDistanceLayer`] | Filters paths by Levenshtein distance to dictionary |
 //!
 //! # Feature-Gated Layers
 //!
@@ -49,47 +34,33 @@
 //! | `MeTTaILTypeLayer` | `f1r3fly` | MeTTaIL semantic type filtering |
 //! | [`CodeCorrectionLayer`] | `code-correction` | Pattern-aware code syntax recovery |
 
-mod cfg_filter;
-mod confusion;
-mod disfluency;
-mod edit_distance;
-mod traits;
+pub mod filtering;
+pub mod rescoring;
+pub mod syntactic;
+pub mod traits;
 
-pub use cfg_filter::CfgFilterLayer;
-pub use confusion::{
-    dvorak_keyboard_matrix, mobile_keyboard_matrix, ocr_confusion_matrix, qwerty_keyboard_matrix,
-    ConfusionLayer, ConfusionLayerConfig, ConfusionMatrix,
-};
-pub use disfluency::{
-    DisfluencyLayer, DisfluencyLayerConfig, DisfluencyRuleBuilder, DisfluencySpan, DisfluencyType,
-};
-pub use edit_distance::{
-    Dictionary, EditDistanceLayer, EditDistanceLayerConfig, InMemoryDictionary,
+pub use filtering::{
+    damerau_levenshtein_distance, dvorak_keyboard_matrix, mobile_keyboard_matrix,
+    ocr_confusion_matrix, qwerty_keyboard_matrix, CfgFilterLayer, ConfusionLayer,
+    ConfusionLayerConfig, ConfusionMatrix, Dictionary, DisfluencyLayer, DisfluencyLayerConfig,
+    DisfluencyRuleBuilder, DisfluencySpan, DisfluencyType, EditDistanceLayer,
+    EditDistanceLayerConfig, InMemoryDictionary,
 };
 pub use traits::{
     CorrectionLayer, LayerError, LayerPipeline, LayerPipelineBuilder, LayerResult, LayerStats,
 };
 
-// Feature-gated layers
 #[cfg(feature = "pos-tagging")]
-mod pos_tagging;
-#[cfg(feature = "pos-tagging")]
-pub use pos_tagging::PosTaggingLayer;
+pub use syntactic::PosTaggingLayer;
 
 #[cfg(feature = "lm-rerank")]
-mod lm_rerank;
-#[cfg(feature = "lm-rerank")]
-pub use lm_rerank::{LanguageModel, LanguageModelLayer};
+pub use rescoring::{LanguageModel, LanguageModelLayer};
 
 #[cfg(feature = "f1r3fly")]
-mod mettail_type;
-#[cfg(feature = "f1r3fly")]
-pub use mettail_type::MeTTaILTypeLayer;
+pub use syntactic::MeTTaILTypeLayer;
 
 #[cfg(feature = "phonetic-rescore")]
-mod phonetic_rescore;
-#[cfg(feature = "phonetic-rescore")]
-pub use phonetic_rescore::{
+pub use rescoring::{
     PhoneticReference, PhoneticRescoreLayer, SequenceReference, VocabularyReference,
     DEFAULT_PHONETIC_FUEL, DEFAULT_PHONETIC_WEIGHT,
 };
