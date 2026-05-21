@@ -34,17 +34,17 @@
 //! }
 //! ```
 
-use std::collections::BinaryHeap;
 use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
-use crate::semiring::Semiring;
-use crate::wfst::{StateId, Wfst, CachePolicy};
 use super::{EpsilonFilter, EpsilonFilterType, FilterState};
+use crate::semiring::Semiring;
+use crate::wfst::{CachePolicy, StateId, Wfst};
 
 /// A product state in the composed FST.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -205,7 +205,10 @@ where
     /// Check if a product state is final.
     pub fn is_final(&mut self, state: ProductStateId) -> bool {
         self.ensure_computed(state);
-        self.state_cache.get(&state).map(|s| s.is_final).unwrap_or(false)
+        self.state_cache
+            .get(&state)
+            .map(|s| s.is_final)
+            .unwrap_or(false)
     }
 
     /// Get the final weight of a product state.
@@ -218,7 +221,10 @@ where
     }
 
     /// Get transitions from a product state.
-    pub fn transitions(&mut self, state: ProductStateId) -> SmallVec<[ComposedTransition<L, W>; 4]> {
+    pub fn transitions(
+        &mut self,
+        state: ProductStateId,
+    ) -> SmallVec<[ComposedTransition<L, W>; 4]> {
         self.ensure_computed(state);
         self.state_cache
             .get(&state)
@@ -262,7 +268,9 @@ where
         // Check if final
         let is_final = self.fst1.is_final(s1) && self.fst2.is_final(s2);
         let final_weight = if is_final {
-            self.fst1.final_weight(s1).times(&self.fst2.final_weight(s2))
+            self.fst1
+                .final_weight(s1)
+                .times(&self.fst2.final_weight(s2))
         } else {
             W::zero()
         };
@@ -395,12 +403,10 @@ impl<L: Clone, W: Semiring> Ord for OrderedPartialPath<L, W> {
         // Reversed for min-heap
         match self.0.path.weight.natural_less(&other.0.path.weight) {
             Some(true) => Ordering::Greater,
-            Some(false) => {
-                match other.0.path.weight.natural_less(&self.0.path.weight) {
-                    Some(true) => Ordering::Less,
-                    _ => Ordering::Equal,
-                }
-            }
+            Some(false) => match other.0.path.weight.natural_less(&self.0.path.weight) {
+                Some(true) => Ordering::Less,
+                _ => Ordering::Equal,
+            },
             None => Ordering::Equal,
         }
     }
@@ -454,12 +460,8 @@ where
                 // Expand successors for more paths (but return this one now)
                 let transitions = self.composition.transitions(partial.state);
                 for trans in transitions {
-                    let extended = partial.extend(
-                        trans.target,
-                        trans.input,
-                        trans.output,
-                        trans.weight,
-                    );
+                    let extended =
+                        partial.extend(trans.target, trans.input, trans.output, trans.weight);
                     self.heap.push(OrderedPartialPath(extended));
                 }
 
@@ -522,8 +524,8 @@ mod tests {
 
     #[test]
     fn test_compose_basic() {
-        let fst1 = build_simple_fst();      // a:b
-        let fst2 = build_identity_fst();    // b:b
+        let fst1 = build_simple_fst(); // a:b
+        let fst2 = build_identity_fst(); // b:b
 
         let mut composed = compose(fst1, fst2);
 
@@ -545,8 +547,8 @@ mod tests {
 
     #[test]
     fn test_compose_accepting_paths() {
-        let fst1 = build_simple_fst();      // a:b
-        let fst2 = build_identity_fst();    // b:b
+        let fst1 = build_simple_fst(); // a:b
+        let fst2 = build_identity_fst(); // b:b
 
         let mut composed = compose(fst1, fst2);
         let paths: Vec<_> = composed.accepting_paths().collect();
@@ -580,9 +582,7 @@ mod tests {
         let mut paths: Vec<_> = composed.accepting_paths().collect();
 
         // Sort by weight for deterministic testing
-        paths.sort_by(|a, b| {
-            a.weight.value().partial_cmp(&b.weight.value()).unwrap()
-        });
+        paths.sort_by(|a, b| a.weight.value().partial_cmp(&b.weight.value()).unwrap());
 
         assert_eq!(paths.len(), 2);
 
@@ -665,10 +665,12 @@ mod tests {
         let fst1 = build_simple_fst();
         let fst2 = build_identity_fst();
 
-        let composed = compose(fst1, fst2)
-            .with_cache_policy(CachePolicy::Lru { max_states: 10 });
+        let composed = compose(fst1, fst2).with_cache_policy(CachePolicy::Lru { max_states: 10 });
 
-        assert!(matches!(composed.policy, CachePolicy::Lru { max_states: 10 }));
+        assert!(matches!(
+            composed.policy,
+            CachePolicy::Lru { max_states: 10 }
+        ));
     }
 
     #[test]
@@ -692,9 +694,7 @@ mod tests {
         let fst1 = build_simple_fst();
         let fst2 = build_identity_fst();
 
-        let composed = LazyComposition::with_filter(
-            fst1, fst2, EpsilonFilterType::Matching
-        );
+        let composed = LazyComposition::with_filter(fst1, fst2, EpsilonFilterType::Matching);
 
         assert_eq!(composed.filter.filter_type(), EpsilonFilterType::Matching);
     }
@@ -714,11 +714,7 @@ mod tests {
         assert!(path.outputs.is_empty());
         assert_eq!(path.weight, TropicalWeight::one());
 
-        let extended = path.extend(
-            Some('a'),
-            Some('b'),
-            TropicalWeight::new(1.0),
-        );
+        let extended = path.extend(Some('a'), Some('b'), TropicalWeight::new(1.0));
 
         assert_eq!(extended.inputs, vec!['a']);
         assert_eq!(extended.outputs, vec!['b']);
@@ -738,7 +734,9 @@ mod property_tests {
     use proptest::prelude::*;
 
     /// Strategy for building simple transducer chains.
-    fn arb_simple_transducer(len: usize) -> impl Strategy<Value = VectorWfst<char, TropicalWeight>> {
+    fn arb_simple_transducer(
+        len: usize,
+    ) -> impl Strategy<Value = VectorWfst<char, TropicalWeight>> {
         let weights = proptest::collection::vec(0.0f64..10.0, len);
         weights.prop_map(move |ws| {
             let mut builder = VectorWfstBuilder::new().add_states(len + 1).start(0);
@@ -748,7 +746,13 @@ mod property_tests {
                 // Use different labels for input/output to enable testing
                 let input = (b'a' + (i % 26) as u8) as char;
                 let output = (b'A' + (i % 26) as u8) as char;
-                builder = builder.arc(i as u32, Some(input), Some(output), (i + 1) as u32, TropicalWeight::new(*w));
+                builder = builder.arc(
+                    i as u32,
+                    Some(input),
+                    Some(output),
+                    (i + 1) as u32,
+                    TropicalWeight::new(*w),
+                );
             }
 
             builder.build()
@@ -756,7 +760,9 @@ mod property_tests {
     }
 
     /// Strategy for building identity transducers (same input and output).
-    fn arb_identity_transducer(len: usize) -> impl Strategy<Value = VectorWfst<char, TropicalWeight>> {
+    fn arb_identity_transducer(
+        len: usize,
+    ) -> impl Strategy<Value = VectorWfst<char, TropicalWeight>> {
         let weights = proptest::collection::vec(0.0f64..10.0, len);
         weights.prop_map(move |ws| {
             let mut builder = VectorWfstBuilder::new().add_states(len + 1).start(0);
@@ -764,7 +770,13 @@ mod property_tests {
 
             for (i, w) in ws.iter().enumerate() {
                 let label = (b'A' + (i % 26) as u8) as char;
-                builder = builder.arc(i as u32, Some(label), Some(label), (i + 1) as u32, TropicalWeight::new(*w));
+                builder = builder.arc(
+                    i as u32,
+                    Some(label),
+                    Some(label),
+                    (i + 1) as u32,
+                    TropicalWeight::new(*w),
+                );
             }
 
             builder.build()

@@ -64,18 +64,17 @@
 //! - Laptev et al., "CTC Variations Through New WFST Topologies" (Interspeech 2022)
 //! - Miao et al., "EESEN: End-to-end speech recognition using deep RNN" (ASRU 2015)
 
-mod topologies;
 mod decoder;
+mod topologies;
 
 pub use topologies::{
-    CtcTopology, CtcTopologyInfo, CtcLabel, BLANK,
-    correct_ctc, compact_ctc, minimal_ctc,
-    selfless_correct_ctc, selfless_compact_ctc,
+    compact_ctc, correct_ctc, minimal_ctc, selfless_compact_ctc, selfless_correct_ctc, CtcLabel,
+    CtcTopology, CtcTopologyInfo, BLANK,
 };
 
 pub use decoder::{
-    CtcDecoder, CtcDecoderConfig, DecodingResult, DecodingStats, DecodingError,
-    ObservationFst, DecoderToken, StreamingCtcDecoder,
+    CtcDecoder, CtcDecoderConfig, DecoderToken, DecodingError, DecodingResult, DecodingStats,
+    ObservationFst, StreamingCtcDecoder,
 };
 
 #[cfg(test)]

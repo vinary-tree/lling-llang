@@ -1,10 +1,10 @@
 //! Grammar builder for convenient grammar construction.
 
-use smallvec::SmallVec;
 use rustc_hash::FxHashMap;
+use smallvec::SmallVec;
 
-use super::types::{NonTerminal, Terminal, RuleId, Symbol};
-use super::grammar::{Production, Grammar, GrammarError};
+use super::grammar::{Grammar, GrammarError, Production};
+use super::types::{NonTerminal, RuleId, Symbol, Terminal};
 
 /// Builder for constructing grammars with a fluent API.
 ///
@@ -121,7 +121,12 @@ impl GrammarBuilder {
         }
 
         let rule_id = RuleId::new(self.productions.len() as u32);
-        self.productions.push(Production::with_prob(rule_id, lhs_nt, rhs_symbols, log_prob));
+        self.productions.push(Production::with_prob(
+            rule_id,
+            lhs_nt,
+            rhs_symbols,
+            log_prob,
+        ));
         self
     }
 
@@ -133,15 +138,13 @@ impl GrammarBuilder {
     /// Build the grammar.
     pub fn build(self) -> Result<Grammar, GrammarError> {
         let start_name = self.start.as_deref().ok_or(GrammarError::NoStartSymbol)?;
-        let start_nt = self.nt_names.get(start_name)
+        let start_nt = self
+            .nt_names
+            .get(start_name)
             .copied()
             .ok_or_else(|| GrammarError::UndefinedNonTerminal(NonTerminal::new(0)))?;
 
-        let mut grammar = Grammar::new(
-            start_nt,
-            self.productions,
-            self.next_nt as usize,
-        )?;
+        let mut grammar = Grammar::new(start_nt, self.productions, self.next_nt as usize)?;
 
         // Register names
         for (name, nt) in &self.nt_names {
@@ -159,7 +162,10 @@ impl GrammarBuilder {
     ///
     /// By default, symbols starting with uppercase are non-terminals.
     fn is_non_terminal_name(&self, name: &str) -> bool {
-        name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+        name.chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false)
     }
 
     /// Get the non-terminal for a name, if it exists.
@@ -196,8 +202,7 @@ mod tests {
 
     #[test]
     fn test_builder_non_terminals() {
-        let builder = GrammarBuilder::new()
-            .non_terminals(&["S", "A", "B"]);
+        let builder = GrammarBuilder::new().non_terminals(&["S", "A", "B"]);
 
         assert!(builder.get_non_terminal("S").is_some());
         assert!(builder.get_non_terminal("A").is_some());
@@ -261,15 +266,15 @@ mod tests {
             .expect("valid grammar");
 
         // Check A and B were auto-declared
-        assert!(grammar.nt_name(NonTerminal::new(1)).is_some() ||
-                grammar.nt_name(NonTerminal::new(2)).is_some());
+        assert!(
+            grammar.nt_name(NonTerminal::new(1)).is_some()
+                || grammar.nt_name(NonTerminal::new(2)).is_some()
+        );
     }
 
     #[test]
     fn test_builder_no_start_error() {
-        let result = GrammarBuilder::new()
-            .rule("S", &["a"])
-            .build();
+        let result = GrammarBuilder::new().rule("S", &["a"]).build();
 
         assert!(matches!(result, Err(GrammarError::NoStartSymbol)));
     }

@@ -1,8 +1,8 @@
 //! Lattice data structure implementation.
 
+use super::types::{Edge, EdgeId, Node, NodeId};
 use crate::backend::{LatticeBackend, VocabId};
 use crate::semiring::Semiring;
-use super::types::{NodeId, EdgeId, Node, Edge};
 
 /// A weighted directed acyclic graph (DAG) representing correction alternatives.
 ///
@@ -228,12 +228,36 @@ mod tests {
         let mut builder = LatticeBuilder::new(backend);
 
         // Token 0: "teh" -> "the" (edit 1), "teh" (original)
-        builder.add_correction(0, 1, "the", TropicalWeight::new(0.5), EdgeMetadata::correction(1));
-        builder.add_correction(0, 1, "teh", TropicalWeight::new(0.0), EdgeMetadata::original());
+        builder.add_correction(
+            0,
+            1,
+            "the",
+            TropicalWeight::new(0.5),
+            EdgeMetadata::correction(1),
+        );
+        builder.add_correction(
+            0,
+            1,
+            "teh",
+            TropicalWeight::new(0.0),
+            EdgeMetadata::original(),
+        );
 
         // Token 1: "quik" -> "quick" (edit 1), "quik" (original)
-        builder.add_correction(1, 2, "quick", TropicalWeight::new(0.5), EdgeMetadata::correction(1));
-        builder.add_correction(1, 2, "quik", TropicalWeight::new(0.0), EdgeMetadata::original());
+        builder.add_correction(
+            1,
+            2,
+            "quick",
+            TropicalWeight::new(0.5),
+            EdgeMetadata::correction(1),
+        );
+        builder.add_correction(
+            1,
+            2,
+            "quik",
+            TropicalWeight::new(0.0),
+            EdgeMetadata::original(),
+        );
 
         builder.build(2)
     }
@@ -283,9 +307,7 @@ mod tests {
         let edges: Vec<_> = lattice.outgoing_edges(NodeId::new(0)).collect();
         assert_eq!(edges.len(), 2);
 
-        let words: Vec<_> = edges.iter()
-            .filter_map(|e| lattice.word(e.label))
-            .collect();
+        let words: Vec<_> = edges.iter().filter_map(|e| lattice.word(e.label)).collect();
         assert!(words.contains(&"the"));
         assert!(words.contains(&"teh"));
     }

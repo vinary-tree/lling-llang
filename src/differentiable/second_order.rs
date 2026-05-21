@@ -36,10 +36,10 @@
 
 use std::cell::RefCell;
 
-use crate::semiring::{LogWeight, Semiring};
-use crate::wfst::{StateId, VectorWfst, MutableWfst, Wfst};
-use super::gradient::{GradientWfst, GradientAccumulator, backward};
 use super::forward_score::forward_score;
+use super::gradient::{backward, GradientAccumulator, GradientWfst};
+use crate::semiring::{LogWeight, Semiring};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst};
 
 /// Configuration for second-order differentiation.
 #[derive(Clone, Debug)]
@@ -145,7 +145,9 @@ impl HessianMatrix {
         if self.is_diagonal {
             self.data.clone()
         } else {
-            (0..self.size).map(|i| self.data[i * self.size + i]).collect()
+            (0..self.size)
+                .map(|i| self.data[i * self.size + i])
+                .collect()
         }
     }
 
@@ -156,11 +158,19 @@ impl HessianMatrix {
         }
 
         if self.is_diagonal {
-            self.data.iter().zip(v.iter()).map(|(&h, &x)| h * x).collect()
+            self.data
+                .iter()
+                .zip(v.iter())
+                .map(|(&h, &x)| h * x)
+                .collect()
         } else {
-            (0..self.size).map(|i| {
-                (0..self.size).map(|j| self.data[i * self.size + j] * v[j]).sum()
-            }).collect()
+            (0..self.size)
+                .map(|i| {
+                    (0..self.size)
+                        .map(|j| self.data[i * self.size + j] * v[j])
+                        .sum()
+                })
+                .collect()
         }
     }
 }
@@ -296,7 +306,9 @@ pub fn hessian_vector_product<L: Clone + Send + Sync>(
 
     // Compute finite difference approximation of Hv
     let mut hvp = vec![0.0; num_arcs];
-    for (idx, (base, perturbed)) in base_grads.arc_gradients.iter()
+    for (idx, (base, perturbed)) in base_grads
+        .arc_gradients
+        .iter()
         .zip(perturbed_grads.arc_gradients.iter())
         .enumerate()
     {
@@ -335,7 +347,13 @@ fn create_perturbed_wfst<L: Clone + Send + Sync>(
             };
 
             let new_weight = LogWeight::new(arc.weight.value() + delta);
-            perturbed.add_arc(state, arc.input.clone(), arc.output.clone(), arc.to, new_weight);
+            perturbed.add_arc(
+                state,
+                arc.input.clone(),
+                arc.output.clone(),
+                arc.to,
+                new_weight,
+            );
             arc_idx += 1;
         }
 
@@ -414,14 +432,19 @@ pub fn natural_gradient(
         return gradients.arc_gradients.iter().map(|g| g.gradient).collect();
     }
 
-    gradients.arc_gradients.iter().enumerate().map(|(i, grad)| {
-        let f_ii = fisher.get(i, i) + damping;
-        if f_ii.abs() > 1e-10 {
-            grad.gradient / f_ii
-        } else {
-            grad.gradient
-        }
-    }).collect()
+    gradients
+        .arc_gradients
+        .iter()
+        .enumerate()
+        .map(|(i, grad)| {
+            let f_ii = fisher.get(i, i) + damping;
+            if f_ii.abs() > 1e-10 {
+                grad.gradient / f_ii
+            } else {
+                grad.gradient
+            }
+        })
+        .collect()
 }
 
 /// Count arcs in a gradient WFST.
@@ -491,19 +514,18 @@ mod property_tests {
 
     /// Strategy for generating simple parallel path WFSTs.
     fn arb_parallel_wfst(max_paths: usize) -> impl Strategy<Value = VectorWfst<char, LogWeight>> {
-        proptest::collection::vec(0.1f64..5.0, 1..=max_paths)
-            .prop_map(|weights| {
-                let mut fst = VectorWfst::new();
-                let s0 = fst.add_state();
-                let s1 = fst.add_state();
-                fst.set_start(s0);
-                fst.set_final(s1, LogWeight::one());
-                for (i, w) in weights.iter().enumerate() {
-                    let label = (b'a' + (i % 26) as u8) as char;
-                    fst.add_arc(s0, Some(label), Some(label), s1, LogWeight::new(*w));
-                }
-                fst
-            })
+        proptest::collection::vec(0.1f64..5.0, 1..=max_paths).prop_map(|weights| {
+            let mut fst = VectorWfst::new();
+            let s0 = fst.add_state();
+            let s1 = fst.add_state();
+            fst.set_start(s0);
+            fst.set_final(s1, LogWeight::one());
+            for (i, w) in weights.iter().enumerate() {
+                let label = (b'a' + (i % 26) as u8) as char;
+                fst.add_arc(s0, Some(label), Some(label), s1, LogWeight::new(*w));
+            }
+            fst
+        })
     }
 
     /// Strategy for generating chain WFSTs.
@@ -518,7 +540,13 @@ mod property_tests {
                 fst.set_final(len as u32, LogWeight::one());
                 for (i, w) in weights.iter().enumerate() {
                     let label = (b'a' + (i % 26) as u8) as char;
-                    fst.add_arc(i as u32, Some(label), Some(label), (i + 1) as u32, LogWeight::new(*w));
+                    fst.add_arc(
+                        i as u32,
+                        Some(label),
+                        Some(label),
+                        (i + 1) as u32,
+                        LogWeight::new(*w),
+                    );
                 }
                 fst
             })

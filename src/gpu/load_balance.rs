@@ -408,10 +408,7 @@ mod tests {
 
     #[test]
     fn test_work_queue_dispatch() {
-        let items = vec![
-            WorkItem::new(1, 10),
-            WorkItem::new(2, 20),
-        ];
+        let items = vec![WorkItem::new(1, 10), WorkItem::new(2, 20)];
         let queue = WorkQueue::new(items);
 
         assert_eq!(queue.request_next(), Some(0));
@@ -453,10 +450,7 @@ mod tests {
 
     #[test]
     fn test_work_dispatcher() {
-        let items = vec![
-            WorkItem::new(1, 10),
-            WorkItem::new(2, 20),
-        ];
+        let items = vec![WorkItem::new(1, 10), WorkItem::new(2, 20)];
         let dispatcher = WorkDispatcher::with_default_group_size(items, 4);
 
         assert_eq!(dispatcher.num_groups(), 4);
@@ -465,10 +459,7 @@ mod tests {
 
     #[test]
     fn test_dispatch_stats() {
-        let items = vec![
-            WorkItem::new(1, 10),
-            WorkItem::new(2, 20),
-        ];
+        let items = vec![WorkItem::new(1, 10), WorkItem::new(2, 20)];
         let dispatcher = WorkDispatcher::new(items, 4, 8);
 
         let stats = dispatcher.stats();

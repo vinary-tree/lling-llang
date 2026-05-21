@@ -38,7 +38,11 @@
 use ordered_float::OrderedFloat;
 
 use super::log::LogWeight;
-use super::traits::{DivisibleSemiring, Semiring, StarSemiring};
+use super::traits::{
+    CommutativeTimesSemiring, DivisibleSemiring, KClosedSemiring, NonnegativeSemiring,
+    QuantizableSemiring, Semiring, StarSemiring, StochasticSemiring, TotallyOrderedSemiring,
+    WeaklyLeftDivisibleSemiring, ZeroSumFreeSemiring,
+};
 
 /// Probability semiring weight.
 ///
@@ -226,6 +230,81 @@ impl StarSemiring for ProbabilityWeight {
     }
 }
 
+// ============================================================================
+// Algebraic Property Marker Trait Implementations
+// ============================================================================
+
+// Note: ProbabilityWeight is NOT IdempotentSemiring because a + a = 2a ≠ a
+
+/// ProbabilityWeight is k-closed, but the closure bound depends on the specific value.
+///
+/// For probability p < 1, the star converges:
+/// - p* = 1/(1-p) is finite
+///
+/// Since convergence rate depends on p, we return `None`.
+impl KClosedSemiring for ProbabilityWeight {
+    fn closure_bound() -> Option<usize> {
+        // k depends on the specific probability value
+        None
+    }
+}
+
+/// ProbabilityWeight is zero-sum-free: a + b = 0 only if both a = 0 and b = 0
+impl ZeroSumFreeSemiring for ProbabilityWeight {}
+
+/// ProbabilityWeight is weakly left-divisible.
+///
+/// For probability semiring where ⊕ = + and ⊗ = ×:
+/// - Given `a` and `divisor = a + b`, we need `c` such that `c × divisor = a`
+/// - This is `c = a / divisor`
+impl WeaklyLeftDivisibleSemiring for ProbabilityWeight {
+    fn left_divide(&self, divisor: &Self) -> Option<Self> {
+        if divisor.is_zero() {
+            None
+        } else {
+            // c ⊗ divisor = self means c × divisor = self
+            // So c = self / divisor
+            Some(ProbabilityWeight::new(
+                self.0.into_inner() / divisor.0.into_inner(),
+            ))
+        }
+    }
+}
+
+/// ProbabilityWeight has commutative multiplication: a × b = b × a
+impl CommutativeTimesSemiring for ProbabilityWeight {}
+
+// ============================================================================
+// Algorithm Requirement Trait Implementations
+// ============================================================================
+
+/// ProbabilityWeight has a total order via OrderedFloat.
+impl TotallyOrderedSemiring for ProbabilityWeight {}
+
+/// ProbabilityWeight values are non-negative (clamped to 0 in constructor).
+impl NonnegativeSemiring for ProbabilityWeight {}
+
+/// ProbabilityWeight can be quantized for approximate comparison.
+impl QuantizableSemiring for ProbabilityWeight {
+    fn quantize(&self, epsilon: f64) -> i64 {
+        let v = self.value();
+        if v.is_nan() {
+            i64::MIN
+        } else if v.is_infinite() {
+            i64::MAX
+        } else {
+            (v / epsilon).round() as i64
+        }
+    }
+}
+
+/// ProbabilityWeight directly represents probability for sampling.
+impl StochasticSemiring for ProbabilityWeight {
+    fn to_probability(&self) -> f64 {
+        self.value() // Already a probability value
+    }
+}
+
 impl std::ops::Add for ProbabilityWeight {
     type Output = Self;
 
@@ -282,7 +361,10 @@ impl<'de> serde::Deserialize<'de> for ProbabilityWeight {
 mod tests {
     use super::*;
     use crate::semiring::traits::tests::{
-        verify_divisible_semiring, verify_semiring_axioms, verify_star_semiring,
+        verify_commutative_times_semiring, verify_divisible_semiring, verify_quantizable_semiring,
+        verify_semiring_axioms, verify_star_semiring, verify_stochastic_semiring,
+        verify_totally_ordered_semiring, verify_weakly_left_divisible_semiring,
+        verify_zero_sum_free_semiring,
     };
     use proptest::prelude::*;
 
@@ -437,6 +519,62 @@ mod tests {
             let log = prob.to_log_weight();
             let recovered = ProbabilityWeight::from_log_weight(log);
             prop_assert!(prob.approx_eq(&recovered, 1e-10));
+        }
+
+        #[test]
+        fn proptest_zero_sum_free_semiring(
+            a in 0.0f64..10.0,
+            b in 0.0f64..10.0
+        ) {
+            let wa = ProbabilityWeight::new(a);
+            let wb = ProbabilityWeight::new(b);
+            verify_zero_sum_free_semiring(wa, wb, 1e-8);
+        }
+
+        #[test]
+        fn proptest_weakly_left_divisible_semiring(
+            a in 0.0f64..10.0,
+            b in 0.001f64..10.0 // Avoid near-zero divisor
+        ) {
+            let wa = ProbabilityWeight::new(a);
+            let wb = ProbabilityWeight::new(b);
+            // Test with divisor = a + b which is a valid sum
+            let divisor = wa.plus(&wb);
+            verify_weakly_left_divisible_semiring(wa, divisor, 1e-8);
+        }
+
+        #[test]
+        fn proptest_commutative_times_semiring(
+            a in 0.0f64..10.0,
+            b in 0.0f64..10.0
+        ) {
+            let wa = ProbabilityWeight::new(a);
+            let wb = ProbabilityWeight::new(b);
+            verify_commutative_times_semiring(wa, wb, 1e-8);
+        }
+
+        #[test]
+        fn proptest_totally_ordered_semiring(
+            a in 0.0f64..10.0,
+            b in 0.0f64..10.0,
+            c in 0.0f64..10.0
+        ) {
+            let wa = ProbabilityWeight::new(a);
+            let wb = ProbabilityWeight::new(b);
+            let wc = ProbabilityWeight::new(c);
+            verify_totally_ordered_semiring(wa, wb, wc);
+        }
+
+        #[test]
+        fn proptest_quantizable_semiring(a in 0.0f64..10.0) {
+            let wa = ProbabilityWeight::new(a);
+            verify_quantizable_semiring(wa, 1e-10);
+        }
+
+        #[test]
+        fn proptest_stochastic_semiring(prob in 0.001f64..10.0) {
+            let wa = ProbabilityWeight::new(prob);
+            verify_stochastic_semiring(wa);
         }
     }
 }

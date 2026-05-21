@@ -15,9 +15,9 @@ use std::collections::VecDeque;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
-use crate::semiring::Semiring;
+use super::traits::{CachePolicy, LazyWfst, Wfst};
 use super::{StateId, WeightedTransition};
-use super::traits::{Wfst, LazyWfst, CachePolicy};
+use crate::semiring::Semiring;
 
 /// A state that may or may not have been computed yet.
 ///
@@ -407,10 +407,8 @@ mod tests {
     #[test]
     fn test_lru_eviction() {
         let source = LinearChainSource { num_states: 10 };
-        let mut lazy = LazyWfstWrapper::with_cache_policy(
-            source,
-            CachePolicy::Lru { max_states: 3 },
-        );
+        let mut lazy =
+            LazyWfstWrapper::with_cache_policy(source, CachePolicy::Lru { max_states: 3 });
 
         // Expand 5 states, should evict older ones
         for i in 0..5 {

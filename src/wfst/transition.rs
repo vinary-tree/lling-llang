@@ -2,8 +2,8 @@
 
 use std::hash::Hash;
 
-use crate::semiring::Semiring;
 use super::StateId;
+use crate::semiring::Semiring;
 
 /// A weighted transition in a WFST.
 ///
@@ -48,13 +48,25 @@ impl<L, W: Semiring> WeightedTransition<L, W> {
     /// Create a new weighted transition.
     #[inline]
     pub fn new(from: StateId, input: Option<L>, output: Option<L>, to: StateId, weight: W) -> Self {
-        Self { from, input, output, to, weight }
+        Self {
+            from,
+            input,
+            output,
+            to,
+            weight,
+        }
     }
 
     /// Create an epsilon transition (no input or output label).
     #[inline]
     pub fn epsilon(from: StateId, to: StateId, weight: W) -> Self {
-        Self { from, input: None, output: None, to, weight }
+        Self {
+            from,
+            input: None,
+            output: None,
+            to,
+            weight,
+        }
     }
 
     /// Check if this is an epsilon transition (no input label).
@@ -119,13 +131,8 @@ mod tests {
 
     #[test]
     fn test_transition_creation() {
-        let t: WeightedTransition<char, TropicalWeight> = WeightedTransition::new(
-            0,
-            Some('a'),
-            Some('b'),
-            1,
-            TropicalWeight::new(1.5),
-        );
+        let t: WeightedTransition<char, TropicalWeight> =
+            WeightedTransition::new(0, Some('a'), Some('b'), 1, TropicalWeight::new(1.5));
 
         assert_eq!(t.from, 0);
         assert_eq!(t.input, Some('a'));
@@ -136,11 +143,8 @@ mod tests {
 
     #[test]
     fn test_epsilon_transition() {
-        let t: WeightedTransition<char, TropicalWeight> = WeightedTransition::epsilon(
-            0,
-            1,
-            TropicalWeight::one(),
-        );
+        let t: WeightedTransition<char, TropicalWeight> =
+            WeightedTransition::epsilon(0, 1, TropicalWeight::one());
 
         assert!(t.is_epsilon());
         assert!(t.is_epsilon_input());
@@ -149,13 +153,8 @@ mod tests {
 
     #[test]
     fn test_partial_epsilon() {
-        let t: WeightedTransition<char, TropicalWeight> = WeightedTransition::new(
-            0,
-            Some('a'),
-            None,
-            1,
-            TropicalWeight::one(),
-        );
+        let t: WeightedTransition<char, TropicalWeight> =
+            WeightedTransition::new(0, Some('a'), None, 1, TropicalWeight::one());
 
         assert!(!t.is_epsilon());
         assert!(!t.is_epsilon_input());

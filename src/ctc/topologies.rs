@@ -7,7 +7,7 @@
 //! - Selfless variants: Remove non-blank self-loops for wide context models
 
 use crate::semiring::Semiring;
-use crate::wfst::{StateId, VectorWfst, MutableWfst};
+use crate::wfst::{MutableWfst, StateId, VectorWfst};
 
 /// CTC label type (vocabulary index).
 ///
@@ -526,7 +526,8 @@ mod tests {
 
         // From any state, blank (0) should output epsilon
         for s in 0..3 {
-            let blank_arc = fst.transitions(s)
+            let blank_arc = fst
+                .transitions(s)
                 .iter()
                 .find(|t| t.input == Some(0))
                 .expect("Should have blank arc");
@@ -560,7 +561,8 @@ mod tests {
 
         // Each non-blank state should have epsilon to blank
         for s in 1..4 {
-            let eps_arc = fst.transitions(s)
+            let eps_arc = fst
+                .transitions(s)
                 .iter()
                 .find(|t| t.is_epsilon())
                 .expect("Should have epsilon arc");
@@ -602,7 +604,8 @@ mod tests {
         }
 
         // Blank state (0) CAN have self-loop (blank:blank->0)
-        let blank_self = fst.transitions(0)
+        let blank_self = fst
+            .transitions(0)
             .iter()
             .find(|t| t.input == Some(0) && t.to == 0);
         assert!(blank_self.is_some());
@@ -641,8 +644,14 @@ mod tests {
             assert_eq!(correct.fst().total_transitions(), correct.info().num_arcs);
             assert_eq!(compact.fst().total_transitions(), compact.info().num_arcs);
             assert_eq!(minimal.fst().total_transitions(), minimal.info().num_arcs);
-            assert_eq!(selfless_c.fst().total_transitions(), selfless_c.info().num_arcs);
-            assert_eq!(selfless_k.fst().total_transitions(), selfless_k.info().num_arcs);
+            assert_eq!(
+                selfless_c.fst().total_transitions(),
+                selfless_c.info().num_arcs
+            );
+            assert_eq!(
+                selfless_k.fst().total_transitions(),
+                selfless_k.info().num_arcs
+            );
         }
     }
 
@@ -654,8 +663,8 @@ mod tests {
         let minimal = minimal_ctc::<LogWeight>(1000);
 
         assert_eq!(correct.info().num_arcs, 1_000_000); // 1M arcs
-        assert_eq!(compact.info().num_arcs, 2998);      // ~3K arcs
-        assert_eq!(minimal.info().num_arcs, 1000);      // 1K arcs
+        assert_eq!(compact.info().num_arcs, 2998); // ~3K arcs
+        assert_eq!(minimal.info().num_arcs, 1000); // 1K arcs
 
         // Compact is ~334× smaller than correct
         assert!(correct.info().num_arcs / compact.info().num_arcs > 300);

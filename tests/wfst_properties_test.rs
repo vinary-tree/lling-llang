@@ -1,8 +1,8 @@
 //! Property-based tests for WFST operations.
 
-use lling_llang::semiring::{TropicalWeight, Semiring};
-use lling_llang::wfst::{VectorWfst, MutableWfst, Wfst};
-use lling_llang::wfst::{union, concat, invert, reverse};
+use lling_llang::semiring::{Semiring, TropicalWeight};
+use lling_llang::wfst::{concat, invert, reverse, union};
+use lling_llang::wfst::{MutableWfst, VectorWfst, Wfst};
 
 /// Test union of two FSTs.
 #[test]
@@ -24,7 +24,10 @@ fn test_union_simple() {
     let u = union(&fst1, &fst2);
 
     // Union should have states from both
-    assert!(u.num_states() >= 2, "Union should have states from both FSTs");
+    assert!(
+        u.num_states() >= 2,
+        "Union should have states from both FSTs"
+    );
 }
 
 /// Test concatenation of two FSTs.
@@ -62,7 +65,11 @@ fn test_invert_involutive() {
     let inv1 = invert(&fst);
     let inv2 = invert(&inv1);
 
-    assert_eq!(fst.num_states(), inv2.num_states(), "Double invert should preserve states");
+    assert_eq!(
+        fst.num_states(),
+        inv2.num_states(),
+        "Double invert should preserve states"
+    );
 }
 
 /// Test reverse is involutive.

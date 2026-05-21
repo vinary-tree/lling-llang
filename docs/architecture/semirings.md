@@ -120,6 +120,100 @@ pub trait StarSemiring: Semiring {
 }
 ```
 
+### Algebraic Property Marker Traits
+
+These marker traits document algebraic properties of semirings, enabling compile-time verification of algorithm requirements:
+
+**IdempotentSemiring**: Addition is idempotent (`a ⊕ a = a`):
+```rust
+pub trait IdempotentSemiring: Semiring {}
+```
+Implementations: `TropicalWeight`, `BoolWeight`, `ProductWeight<S1, S2>` (when both are idempotent)
+
+**KClosedSemiring**: Star operation converges in bounded iterations:
+```rust
+pub trait KClosedSemiring: Semiring {
+    /// Returns k such that star converges in k iterations, or None if value-dependent.
+    fn closure_bound() -> Option<usize>;
+}
+```
+Implementations: `TropicalWeight` (k=0), `BoolWeight` (k=0), `LogWeight` (None), `ProbabilityWeight` (None), `ExpectationWeight` (None), `PowerWeight` (None)
+
+**ZeroSumFreeSemiring**: `a ⊕ b = 0̄` implies `a = b = 0̄`:
+```rust
+pub trait ZeroSumFreeSemiring: Semiring {}
+```
+Implementations: `TropicalWeight`, `LogWeight`, `ProbabilityWeight`, `BoolWeight`, `ExpectationWeight`, `PowerWeight`, `ProductWeight<S1, S2>` (when both are zero-sum-free)
+
+**WeaklyLeftDivisibleSemiring**: Left quotient exists for sums:
+```rust
+pub trait WeaklyLeftDivisibleSemiring: Semiring {
+    /// Computes c such that c ⊗ divisor = self, if possible.
+    fn left_divide(&self, divisor: &Self) -> Option<Self>;
+}
+```
+Implementations: `TropicalWeight`, `LogWeight`, `ProbabilityWeight`, `ExpectationWeight`, `ProductWeight<S1, S2>` (when both are weakly left divisible)
+
+**CommutativeTimesSemiring**: Multiplication is commutative (`a ⊗ b = b ⊗ a`):
+```rust
+pub trait CommutativeTimesSemiring: Semiring {}
+```
+Implementations: `TropicalWeight`, `LogWeight`, `ProbabilityWeight`, `BoolWeight`, `ExpectationWeight`, `PowerWeight`, `ProductWeight<S1, S2>` (when both are commutative)
+
+### Algorithm Requirement Traits
+
+These traits encode requirements that specific algorithms need from their weight types. They provide compile-time enforcement of correctness conditions.
+
+**TotallyOrderedSemiring**: Weights have a total order (required for determinization):
+```rust
+pub trait TotallyOrderedSemiring: Semiring + Ord {
+    /// Safe comparison without unwrap_or(Equal) fallbacks.
+    fn total_cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.cmp(other)
+    }
+}
+```
+Used by `determinize` to safely compute minimum weights in weighted subsets.
+
+**NonnegativeSemiring**: All weights are non-negative (required for Dijkstra's algorithm):
+```rust
+pub trait NonnegativeSemiring: Semiring {}
+```
+Required for `ShortestFirstQueue` correctness—Dijkstra's algorithm relies on the property that once a state is popped, its distance is final.
+
+**QuantizableSemiring**: Weights can be quantized for hashing (required for minimization):
+```rust
+pub trait QuantizableSemiring: Semiring {
+    /// Convert weight to an integer bucket for approximate equality.
+    fn quantize(&self, epsilon: f64) -> i64;
+}
+```
+Used by `minimize` for HashMap-based partition refinement with floating-point weights.
+
+**StochasticSemiring**: Weights can be interpreted as probabilities (required for sampling):
+```rust
+pub trait StochasticSemiring: Semiring {
+    /// Convert weight to a probability value for sampling.
+    fn to_probability(&self) -> f64;
+}
+```
+Used by `sample_path` for proportional path sampling.
+
+### Semiring Property Summary
+
+| Semiring | Idempotent | K-Closed | Zero-Sum-Free | Weakly Left Divisible | Commutative ⊗ | TotallyOrdered | Nonnegative | Quantizable | Stochastic |
+|----------|------------|----------|---------------|----------------------|---------------|----------------|-------------|-------------|------------|
+| TropicalWeight | Yes | k=0 | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| LogWeight | No | None | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| ProbabilityWeight | No | None | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| BoolWeight | Yes | k=0 | Yes | No | Yes | No | No | No | No |
+| ExpectationWeight | No | None | Yes | Yes | Yes | Yes | No | Yes | No |
+| PowerWeight | No | None | Yes | No | Yes | Yes | Yes | Yes | Yes |
+| ProductWeight | Cond. | Cond. | Cond. | Cond. | Cond. | Cond. | Cond. | Cond. | No |
+| String Semirings | No | No | No | No | No | No | No | No | No |
+
+*Cond.: Inherits property from component semirings.*
+
 ## Built-in Semirings
 
 ### TropicalWeight
@@ -531,6 +625,7 @@ fn test_my_semiring() {
 
 ## Next Steps
 
+- [Signed Tropical Semiring](signed-tropical-semiring.md): Extended tropical semiring with negative weights (rewards)
 - [Power Semiring](power-semiring.md): η-power semiring for soft path selection and RRWM algorithm
 - [Lattices](lattices.md): How semirings are used in lattice weights
 - [WFST Operations](wfst-operations.md): Rational and unary operations on WFSTs

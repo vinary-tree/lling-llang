@@ -48,11 +48,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::semiring::{LogWeight, Semiring};
-use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst, WeightedTransition};
 use crate::composition::{compose, materialize};
+use crate::semiring::{LogWeight, Semiring};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition, Wfst};
 
-use super::{CtcTopology, CtcLabel, BLANK};
+use super::{CtcLabel, CtcTopology, BLANK};
 
 /// Configuration for CTC decoding.
 #[derive(Clone, Debug)]
@@ -338,6 +338,59 @@ impl<W: Semiring + Clone> CtcDecoder<W> {
     }
 }
 
+/// Scale all weights in a WFST by a constant factor (in log space).
+///
+/// In the log semiring, this multiplies all negative log probabilities by `scale`,
+/// effectively raising the underlying probabilities to the power `scale`:
+/// - `scaled_weight = scale * weight = scale * (-log(p)) = -log(p^scale)`
+///
+/// # Arguments
+/// * `fst` - The input WFST
+/// * `scale` - The scaling factor (1.0 = no change)
+///
+/// # Returns
+/// A new WFST with scaled weights
+fn scale_weights<L: Clone + Send + Sync>(
+    fst: &VectorWfst<L, LogWeight>,
+    scale: f64,
+) -> VectorWfst<L, LogWeight> {
+    use crate::wfst::StateId;
+
+    let mut scaled = VectorWfst::with_capacity(fst.num_states());
+
+    // Add all states
+    for _ in 0..fst.num_states() {
+        scaled.add_state();
+    }
+
+    // Set start state
+    scaled.set_start(fst.start());
+
+    // Copy and scale transitions and final weights
+    for state_id in 0..fst.num_states() as StateId {
+        // Scale final weight
+        if fst.is_final(state_id) {
+            let final_w = fst.final_weight(state_id);
+            let scaled_final = LogWeight::new(final_w.value() * scale);
+            scaled.set_final(state_id, scaled_final);
+        }
+
+        // Scale arc weights
+        for arc in fst.transitions(state_id) {
+            let scaled_weight = LogWeight::new(arc.weight.value() * scale);
+            scaled.add_arc(
+                arc.from,
+                arc.input.clone(),
+                arc.output.clone(),
+                arc.to,
+                scaled_weight,
+            );
+        }
+    }
+
+    scaled
+}
+
 impl CtcDecoder<LogWeight> {
     /// Decode acoustic posteriors to a label sequence.
     ///
@@ -356,7 +409,8 @@ impl CtcDecoder<LogWeight> {
         let start_time = std::time::Instant::now();
 
         // Build observation FST from posteriors
-        let obs_fst = ObservationFst::from_posteriors_scaled(posteriors, self.config.acoustic_scale);
+        let obs_fst =
+            ObservationFst::from_posteriors_scaled(posteriors, self.config.acoustic_scale);
 
         // Check vocabulary size compatibility
         if obs_fst.vocab_size != self.ctc_topology.vocab_size() {
@@ -374,9 +428,13 @@ impl CtcDecoder<LogWeight> {
 
         // Compose with language model if available
         let search_fst = if let Some(ref lm) = self.language_model {
-            // Apply LM scale to language model weights
-            // TODO: Scale LM weights by lm_scale
-            let lazy_composed = compose(obs_ctc, (**lm).clone());
+            // Scale LM weights by lm_scale (skip if scale is 1.0)
+            let scaled_lm = if (self.config.lm_scale - 1.0).abs() > f64::EPSILON {
+                scale_weights(&**lm, self.config.lm_scale)
+            } else {
+                (**lm).clone()
+            };
+            let lazy_composed = compose(obs_ctc, scaled_lm);
             materialize(lazy_composed)
         } else {
             obs_ctc
@@ -407,7 +465,10 @@ impl CtcDecoder<LogWeight> {
     /// Greedy decoding using Viterbi on WFST.
     ///
     /// Finds the single best path through the FST using dynamic programming.
-    fn greedy_decode(&self, fst: &VectorWfst<CtcLabel, LogWeight>) -> Result<DecodingResult, DecodingError> {
+    fn greedy_decode(
+        &self,
+        fst: &VectorWfst<CtcLabel, LogWeight>,
+    ) -> Result<DecodingResult, DecodingError> {
         if fst.num_states() == 0 {
             return Err(DecodingError::NoPath);
         }
@@ -419,7 +480,6 @@ impl CtcDecoder<LogWeight> {
         // (best_score, backpointer_state, backpointer_arc)
         let mut best: Vec<Option<(LogWeight, StateId, usize)>> = vec![None; num_states];
         best[start as usize] = Some((LogWeight::one(), start, 0));
-
 
         // Process in state order (assuming topological order for acyclic FST)
         for state in 0..num_states as StateId {
@@ -501,7 +561,10 @@ impl CtcDecoder<LogWeight> {
     /// Beam search decoding on WFST.
     ///
     /// Uses beam pruning to limit active hypotheses for efficiency.
-    fn beam_decode(&self, fst: &VectorWfst<CtcLabel, LogWeight>) -> Result<DecodingResult, DecodingError> {
+    fn beam_decode(
+        &self,
+        fst: &VectorWfst<CtcLabel, LogWeight>,
+    ) -> Result<DecodingResult, DecodingError> {
         if fst.num_states() == 0 {
             return Err(DecodingError::NoPath);
         }
@@ -606,7 +669,10 @@ impl CtcDecoder<LogWeight> {
                 // Limit max active
                 if next_active.len() > max_active {
                     next_active.sort_by(|a, b| {
-                        a.score.value().partial_cmp(&b.score.value()).unwrap_or(std::cmp::Ordering::Equal)
+                        a.score
+                            .value()
+                            .partial_cmp(&b.score.value())
+                            .unwrap_or(std::cmp::Ordering::Equal)
                     });
                     next_active.truncate(max_active);
                 }
@@ -635,7 +701,10 @@ impl CtcDecoder<LogWeight> {
     ///
     /// CTC allows repeated labels on consecutive frames. This method
     /// collapses them to produce the final output sequence.
-    pub fn decode_and_collapse(&self, posteriors: &[Vec<f32>]) -> Result<DecodingResult, DecodingError> {
+    pub fn decode_and_collapse(
+        &self,
+        posteriors: &[Vec<f32>],
+    ) -> Result<DecodingResult, DecodingError> {
         let mut result = self.decode(posteriors)?;
 
         // Collapse consecutive duplicates
@@ -676,7 +745,10 @@ impl std::fmt::Display for DecodingError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EmptyInput => write!(f, "Empty input posteriors"),
-            Self::VocabMismatch { posterior_vocab, ctc_vocab } => {
+            Self::VocabMismatch {
+                posterior_vocab,
+                ctc_vocab,
+            } => {
                 write!(
                     f,
                     "Vocabulary size mismatch: posteriors have {} labels, CTC has {}",
@@ -721,7 +793,13 @@ impl<W: Semiring + Clone> DecoderToken<W> {
     }
 
     /// Extend token along an arc.
-    pub fn extend(&self, to_state: StateId, weight: W, label: Option<CtcLabel>, token_idx: usize) -> Self {
+    pub fn extend(
+        &self,
+        to_state: StateId,
+        weight: W,
+        label: Option<CtcLabel>,
+        token_idx: usize,
+    ) -> Self {
         Self {
             state: to_state,
             score: self.score.clone().times(&weight),
@@ -805,12 +883,7 @@ impl<W: Semiring + Clone + PartialOrd> StreamingCtcDecoder<W> {
                         let arc_weight = trans.weight.clone();
 
                         // Create new token
-                        let new_token = token.extend(
-                            trans.to,
-                            arc_weight,
-                            trans.output,
-                            token_idx,
-                        );
+                        let new_token = token.extend(trans.to, arc_weight, trans.output, token_idx);
 
                         // Token recombination: keep best token per state
                         if let Some(&existing_idx) = new_state_map.get(&trans.to) {
@@ -884,7 +957,12 @@ impl<W: Semiring + Clone + PartialOrd> StreamingCtcDecoder<W> {
             num_frames: self.current_frame,
             stats: DecodingStats {
                 tokens_created: self.token_history.iter().map(|t| t.len()).sum(),
-                max_active_reached: self.token_history.iter().map(|t| t.len()).max().unwrap_or(0),
+                max_active_reached: self
+                    .token_history
+                    .iter()
+                    .map(|t| t.len())
+                    .max()
+                    .unwrap_or(0),
                 ..Default::default()
             },
         }
@@ -894,7 +972,7 @@ impl<W: Semiring + Clone + PartialOrd> StreamingCtcDecoder<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ctc::{correct_ctc, compact_ctc, minimal_ctc};
+    use crate::ctc::{compact_ctc, correct_ctc, minimal_ctc};
 
     #[test]
     fn test_decoder_config_default() {
@@ -949,7 +1027,9 @@ mod tests {
         let obs_fst = ObservationFst::from_posteriors(&posteriors);
 
         // Find blank arc (label 0)
-        let blank_arc = obs_fst.fst.transitions(0)
+        let blank_arc = obs_fst
+            .fst
+            .transitions(0)
             .iter()
             .find(|t| t.input == Some(0))
             .expect("Should have blank arc");
@@ -970,6 +1050,69 @@ mod tests {
         let unscaled_weight = unscaled.fst.transitions(0)[0].weight.value();
 
         assert!((scaled_weight - unscaled_weight * scale).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_scale_weights() {
+        // Create a simple FST with known weights
+        let mut fst: VectorWfst<u32, LogWeight> = VectorWfst::new();
+        let s0 = fst.add_state();
+        let s1 = fst.add_state();
+        let s2 = fst.add_state();
+
+        fst.set_start(s0);
+        fst.set_final(s2, LogWeight::new(3.0));
+
+        // Add arcs with weights 1.0 and 2.0
+        fst.add_arc(s0, Some(1), Some(1), s1, LogWeight::new(1.0));
+        fst.add_arc(s1, Some(2), Some(2), s2, LogWeight::new(2.0));
+
+        // Scale by 0.5
+        let scaled = scale_weights(&fst, 0.5);
+
+        // Verify structure preserved
+        assert_eq!(scaled.num_states(), fst.num_states());
+        assert_eq!(scaled.start(), fst.start());
+        assert!(scaled.is_final(s2));
+
+        // Verify weights are scaled
+        assert!((scaled.transitions(s0)[0].weight.value() - 0.5).abs() < 1e-10);
+        assert!((scaled.transitions(s1)[0].weight.value() - 1.0).abs() < 1e-10);
+        assert!((scaled.final_weight(s2).value() - 1.5).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_scale_weights_identity() {
+        // Scale by 1.0 should preserve weights
+        let mut fst: VectorWfst<u32, LogWeight> = VectorWfst::new();
+        let s0 = fst.add_state();
+        let s1 = fst.add_state();
+
+        fst.set_start(s0);
+        fst.set_final(s1, LogWeight::new(2.0));
+        fst.add_arc(s0, Some(1), Some(1), s1, LogWeight::new(3.0));
+
+        let scaled = scale_weights(&fst, 1.0);
+
+        assert!((scaled.transitions(s0)[0].weight.value() - 3.0).abs() < 1e-10);
+        assert!((scaled.final_weight(s1).value() - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_scale_weights_zero() {
+        // Scale by 0.0 should make all weights zero (log prob of 1)
+        let mut fst: VectorWfst<u32, LogWeight> = VectorWfst::new();
+        let s0 = fst.add_state();
+        let s1 = fst.add_state();
+
+        fst.set_start(s0);
+        fst.set_final(s1, LogWeight::new(5.0));
+        fst.add_arc(s0, Some(1), Some(1), s1, LogWeight::new(10.0));
+
+        let scaled = scale_weights(&fst, 0.0);
+
+        assert!((scaled.transitions(s0)[0].weight.value()).abs() < 1e-10);
+        assert!((scaled.final_weight(s1).value()).abs() < 1e-10);
     }
 
     #[test]
@@ -1117,7 +1260,7 @@ mod tests {
 #[cfg(test)]
 mod property_tests {
     use super::*;
-    use crate::ctc::{correct_ctc, compact_ctc, minimal_ctc};
+    use crate::ctc::{compact_ctc, correct_ctc, minimal_ctc};
     use proptest::prelude::*;
 
     // -------------------------------------------------------------------------

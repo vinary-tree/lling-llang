@@ -26,10 +26,10 @@
 //!
 //! - Hannun et al., "Differentiable Weighted Finite-State Transducers" (ICLR 2021)
 
-use crate::semiring::{LogWeight, Semiring};
-use crate::wfst::{StateId, VectorWfst, MutableWfst, Wfst};
-use super::gradient::{GradientWfst, GradientAccumulator, backward};
 use super::forward_score::forward_score;
+use super::gradient::{backward, GradientAccumulator, GradientWfst};
+use crate::semiring::{LogWeight, Semiring};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst};
 
 /// A single WFST kernel for convolution.
 ///
@@ -132,7 +132,11 @@ impl<L: Clone + Send + Sync + Default + Eq + std::hash::Hash> ReceptiveField<L> 
             );
         }
 
-        Self { fst, start_pos, size }
+        Self {
+            fst,
+            start_pos,
+            size,
+        }
     }
 
     /// Create a receptive field from weight values only.
@@ -152,16 +156,14 @@ impl<L: Clone + Send + Sync + Default + Eq + std::hash::Hash> ReceptiveField<L> 
         fst.set_final(states[size], LogWeight::one());
 
         for (i, &weight) in weights.iter().enumerate() {
-            fst.add_arc(
-                states[i],
-                None,
-                None,
-                states[i + 1],
-                LogWeight::new(weight),
-            );
+            fst.add_arc(states[i], None, None, states[i + 1], LogWeight::new(weight));
         }
 
-        Self { fst, start_pos, size }
+        Self {
+            fst,
+            start_pos,
+            size,
+        }
     }
 }
 
@@ -249,9 +251,7 @@ impl<L: Clone + Send + Sync + Default + Eq + std::hash::Hash> WfstConvLayer<L> {
 
     /// Get the number of parameters in this layer.
     pub fn num_parameters(&self) -> usize {
-        self.kernels.iter()
-            .map(|k| count_arcs(&k.fst))
-            .sum()
+        self.kernels.iter().map(|k| count_arcs(&k.fst)).sum()
     }
 }
 
@@ -369,7 +369,9 @@ pub fn wfst_conv_backward<L: Clone + Send + Sync + Default + Eq + std::hash::Has
     let mut input_grad = vec![vec![0.0; input_channels]; input_length];
 
     // Initialize kernel gradients
-    let mut kernel_grads: Vec<GradientAccumulator> = layer.kernels.iter()
+    let mut kernel_grads: Vec<GradientAccumulator> = layer
+        .kernels
+        .iter()
         .map(|k| GradientAccumulator::with_capacity(count_arcs(&k.fst)))
         .collect();
 
@@ -419,7 +421,8 @@ pub fn wfst_conv_backward<L: Clone + Send + Sync + Default + Eq + std::hash::Has
                     let actual_pos = in_pos - padding;
                     // Distribute gradient across input channels
                     for c in 0..input_channels {
-                        input_grad[actual_pos][c] += out_grad * arc_grad.gradient / input_channels as f64;
+                        input_grad[actual_pos][c] +=
+                            out_grad * arc_grad.gradient / input_channels as f64;
                     }
                 }
             }
@@ -461,9 +464,8 @@ impl<L: Clone + Send + Sync + Default + Eq + std::hash::Hash> WfstConvLayer<L> {
     /// Get statistics about this layer.
     pub fn stats(&self) -> WfstConvStats {
         let num_parameters = self.num_parameters();
-        let equiv_traditional = self.config.input_channels
-            * self.config.output_channels
-            * self.config.kernel_size;
+        let equiv_traditional =
+            self.config.input_channels * self.config.output_channels * self.config.kernel_size;
 
         WfstConvStats {
             num_kernels: self.kernels.len(),
@@ -561,11 +563,7 @@ mod tests {
         };
 
         let layer = WfstConvLayer::<u32>::new(config);
-        let input = vec![
-            vec![1.0, 0.5],
-            vec![0.5, 1.0],
-            vec![1.0, 0.5],
-        ];
+        let input = vec![vec![1.0, 0.5], vec![0.5, 1.0], vec![1.0, 0.5]];
 
         let output = wfst_conv_forward(&layer, &input);
 

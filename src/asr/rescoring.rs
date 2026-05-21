@@ -27,7 +27,7 @@
 //! - Mohri et al., "Speech Recognition with WFSTs" Section 6
 
 use crate::semiring::Semiring;
-use crate::wfst::{VectorWfst, MutableWfst, Wfst, StateId, NO_STATE};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst, NO_STATE};
 
 /// Configuration for lattice rescoring.
 #[derive(Clone, Debug)]
@@ -354,8 +354,7 @@ mod tests {
     #[test]
     fn test_lattice_grammar_with_density() {
         let fst = VectorWfst::<u32, LogWeight>::new();
-        let grammar = LatticeGrammar::new(fst, RescorePass::FirstPass)
-            .with_density(5.0);
+        let grammar = LatticeGrammar::new(fst, RescorePass::FirstPass).with_density(5.0);
 
         assert_eq!(grammar.stats.density, Some(5.0));
     }

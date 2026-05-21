@@ -23,7 +23,10 @@
 //! assert_eq!(a.times(&b), BoolWeight::from(false));
 //! ```
 
-use super::traits::{Semiring, StarSemiring};
+use super::traits::{
+    CommutativeTimesSemiring, IdempotentSemiring, KClosedSemiring, Semiring, StarSemiring,
+    ZeroSumFreeSemiring,
+};
 
 /// Boolean semiring weight for unweighted automata.
 ///
@@ -125,6 +128,33 @@ impl StarSemiring for BoolWeight {
     }
 }
 
+// ============================================================================
+// Algebraic Property Marker Trait Implementations
+// ============================================================================
+
+/// BoolWeight is idempotent: a OR a = a
+impl IdempotentSemiring for BoolWeight {}
+
+/// BoolWeight is k-closed with k=0.
+///
+/// The star operation always returns `true` immediately:
+/// - `false* = true ⊕ false = true`
+/// - `true* = true ⊕ true = true`
+impl KClosedSemiring for BoolWeight {
+    fn closure_bound() -> Option<usize> {
+        // Star converges immediately at k=0
+        Some(0)
+    }
+}
+
+/// BoolWeight is zero-sum-free: a OR b = false only if both a = false and b = false
+impl ZeroSumFreeSemiring for BoolWeight {}
+
+// Note: BoolWeight is NOT WeaklyLeftDivisibleSemiring because boolean algebra has no division
+
+/// BoolWeight has commutative multiplication: a AND b = b AND a
+impl CommutativeTimesSemiring for BoolWeight {}
+
 impl std::ops::BitOr for BoolWeight {
     type Output = Self;
 
@@ -215,7 +245,10 @@ impl<'de> serde::Deserialize<'de> for BoolWeight {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::semiring::traits::tests::{verify_semiring_axioms, verify_star_semiring};
+    use crate::semiring::traits::tests::{
+        verify_commutative_times_semiring, verify_idempotent_semiring, verify_k_closed_semiring,
+        verify_semiring_axioms, verify_star_semiring, verify_zero_sum_free_semiring,
+    };
 
     #[test]
     fn test_basic_operations() {
@@ -301,5 +334,39 @@ mod tests {
     fn test_star_semiring() {
         verify_star_semiring(BoolWeight::from(true), 0.0);
         verify_star_semiring(BoolWeight::from(false), 0.0);
+    }
+
+    #[test]
+    fn test_idempotent_semiring() {
+        verify_idempotent_semiring(BoolWeight::from(true), 0.0);
+        verify_idempotent_semiring(BoolWeight::from(false), 0.0);
+    }
+
+    #[test]
+    fn test_k_closed_semiring() {
+        verify_k_closed_semiring(BoolWeight::from(true), 0.0);
+        verify_k_closed_semiring(BoolWeight::from(false), 0.0);
+    }
+
+    #[test]
+    fn test_zero_sum_free_semiring() {
+        let t = BoolWeight::from(true);
+        let f = BoolWeight::from(false);
+
+        verify_zero_sum_free_semiring(t, t, 0.0);
+        verify_zero_sum_free_semiring(t, f, 0.0);
+        verify_zero_sum_free_semiring(f, t, 0.0);
+        verify_zero_sum_free_semiring(f, f, 0.0);
+    }
+
+    #[test]
+    fn test_commutative_times_semiring() {
+        let t = BoolWeight::from(true);
+        let f = BoolWeight::from(false);
+
+        verify_commutative_times_semiring(t, t, 0.0);
+        verify_commutative_times_semiring(t, f, 0.0);
+        verify_commutative_times_semiring(f, t, 0.0);
+        verify_commutative_times_semiring(f, f, 0.0);
     }
 }

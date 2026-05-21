@@ -30,7 +30,11 @@
 //! assert_eq!(prod.first().value(), 5.0);  // 2 + 3
 //! ```
 
-use super::traits::{DivisibleSemiring, Semiring, StarSemiring};
+use super::traits::{
+    CommutativeTimesSemiring, DivisibleSemiring, IdempotentSemiring, KClosedSemiring,
+    NonnegativeSemiring, QuantizableSemiring, Semiring, StarSemiring, TotallyOrderedSemiring,
+    WeaklyLeftDivisibleSemiring, ZeroSumFreeSemiring,
+};
 
 /// Product semiring combining two semirings component-wise.
 ///
@@ -166,10 +170,7 @@ where
     /// Returns `Some(true)` if self is strictly better on the first component,
     /// or equal on first and strictly better on second.
     fn natural_less(&self, other: &Self) -> Option<bool> {
-        match (
-            self.0.natural_less(&other.0),
-            self.1.natural_less(&other.1),
-        ) {
+        match (self.0.natural_less(&other.0), self.1.natural_less(&other.1)) {
             (Some(true), _) => Some(true),
             (Some(false), _) => Some(false),
             (None, second) => second,
@@ -210,6 +211,121 @@ where
         }
     }
 }
+
+// ============================================================================
+// Algebraic Property Marker Trait Implementations
+// ============================================================================
+
+/// ProductWeight is idempotent if both components are idempotent.
+///
+/// (a₁, a₂) ⊕ (a₁, a₂) = (a₁ ⊕ a₁, a₂ ⊕ a₂) = (a₁, a₂) when both components are idempotent.
+impl<S1, S2> IdempotentSemiring for ProductWeight<S1, S2>
+where
+    S1: IdempotentSemiring,
+    S2: IdempotentSemiring,
+{
+}
+
+/// ProductWeight is k-closed if both components are k-closed.
+///
+/// The closure bound is the maximum of the component bounds.
+impl<S1, S2> KClosedSemiring for ProductWeight<S1, S2>
+where
+    S1: KClosedSemiring,
+    S2: KClosedSemiring,
+{
+    fn closure_bound() -> Option<usize> {
+        match (S1::closure_bound(), S2::closure_bound()) {
+            (Some(k1), Some(k2)) => Some(k1.max(k2)),
+            _ => None,
+        }
+    }
+}
+
+/// ProductWeight is zero-sum-free if both components are zero-sum-free.
+///
+/// (a₁, a₂) ⊕ (b₁, b₂) = (0̄₁, 0̄₂) implies a₁ ⊕ b₁ = 0̄₁ and a₂ ⊕ b₂ = 0̄₂,
+/// which implies a₁ = b₁ = 0̄₁ and a₂ = b₂ = 0̄₂ when both components are zero-sum-free.
+impl<S1, S2> ZeroSumFreeSemiring for ProductWeight<S1, S2>
+where
+    S1: ZeroSumFreeSemiring,
+    S2: ZeroSumFreeSemiring,
+{
+}
+
+/// ProductWeight is weakly left divisible if both components are weakly left divisible.
+///
+/// The left quotient is computed component-wise.
+impl<S1, S2> WeaklyLeftDivisibleSemiring for ProductWeight<S1, S2>
+where
+    S1: WeaklyLeftDivisibleSemiring,
+    S2: WeaklyLeftDivisibleSemiring,
+{
+    fn left_divide(&self, divisor: &Self) -> Option<Self> {
+        match (
+            self.0.left_divide(&divisor.0),
+            self.1.left_divide(&divisor.1),
+        ) {
+            (Some(first), Some(second)) => Some(ProductWeight(first, second)),
+            _ => None,
+        }
+    }
+}
+
+/// ProductWeight has commutative multiplication if both components do.
+///
+/// (a₁, a₂) ⊗ (b₁, b₂) = (a₁ ⊗ b₁, a₂ ⊗ b₂) = (b₁ ⊗ a₁, b₂ ⊗ a₂) = (b₁, b₂) ⊗ (a₁, a₂)
+impl<S1, S2> CommutativeTimesSemiring for ProductWeight<S1, S2>
+where
+    S1: CommutativeTimesSemiring,
+    S2: CommutativeTimesSemiring,
+{
+}
+
+// ============================================================================
+// Algorithm Requirement Trait Implementations (Conditional)
+// ============================================================================
+
+/// ProductWeight has a total order if both components have total orders.
+///
+/// Uses lexicographic ordering: compare first component, then second.
+impl<S1, S2> TotallyOrderedSemiring for ProductWeight<S1, S2>
+where
+    S1: TotallyOrderedSemiring,
+    S2: TotallyOrderedSemiring,
+{
+}
+
+/// ProductWeight is non-negative if both components are non-negative.
+impl<S1, S2> NonnegativeSemiring for ProductWeight<S1, S2>
+where
+    S1: NonnegativeSemiring,
+    S2: NonnegativeSemiring,
+{
+}
+
+/// ProductWeight can be quantized if both components can be quantized.
+///
+/// Combines the quantized values of both components into a single hash.
+impl<S1, S2> QuantizableSemiring for ProductWeight<S1, S2>
+where
+    S1: QuantizableSemiring,
+    S2: QuantizableSemiring,
+{
+    fn quantize(&self, epsilon: f64) -> i64 {
+        let q1 = self.0.quantize(epsilon);
+        let q2 = self.1.quantize(epsilon);
+
+        // Combine using a hash-like operation that preserves order information
+        // Use XOR with shifted first component to combine both values
+        (q1.wrapping_shl(32)) ^ (q2 & 0xFFFFFFFF)
+    }
+}
+
+// Note: ProductWeight does NOT implement StochasticSemiring because
+// a product of two semirings doesn't have a natural probability interpretation.
+// The first or second component might individually be probabilities, but
+// the product weight as a whole isn't suitable for probability-proportional sampling.
 
 impl<S1, S2> std::ops::Add for ProductWeight<S1, S2>
 where
@@ -322,10 +438,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::semiring::{BoolWeight, LogWeight, TropicalWeight};
     use crate::semiring::traits::tests::{
-        verify_divisible_semiring, verify_semiring_axioms, verify_star_semiring,
+        verify_commutative_times_semiring, verify_divisible_semiring, verify_idempotent_semiring,
+        verify_k_closed_semiring, verify_quantizable_semiring, verify_semiring_axioms,
+        verify_star_semiring, verify_totally_ordered_semiring,
+        verify_weakly_left_divisible_semiring, verify_zero_sum_free_semiring,
     };
+    use crate::semiring::{BoolWeight, LogWeight, TropicalWeight};
     use proptest::prelude::*;
 
     type TropTrop = ProductWeight<TropicalWeight, TropicalWeight>;
@@ -385,7 +504,9 @@ mod tests {
     fn test_star() {
         // Star for tropical semiring requires non-negative weights
         let positive = TropTrop::new(TropicalWeight::new(1.0), TropicalWeight::new(2.0));
-        let star = positive.star().expect("Star should converge for positive weights");
+        let star = positive
+            .star()
+            .expect("Star should converge for positive weights");
 
         // For tropical, star of positive weight = one
         assert!(star.is_one());
@@ -398,14 +519,8 @@ mod tests {
     #[test]
     fn test_mixed_semirings() {
         // Tropical × Log
-        let a = TropLog::new(
-            TropicalWeight::new(2.0),
-            LogWeight::from_probability(0.5),
-        );
-        let b = TropLog::new(
-            TropicalWeight::new(3.0),
-            LogWeight::from_probability(0.3),
-        );
+        let a = TropLog::new(TropicalWeight::new(2.0), LogWeight::from_probability(0.5));
+        let b = TropLog::new(TropicalWeight::new(3.0), LogWeight::from_probability(0.3));
 
         // Times: tropical adds, log adds (prob multiplies)
         let prod = a.times(&b);
@@ -467,5 +582,90 @@ mod tests {
             let wa = TropTrop::new(TropicalWeight::new(a1), TropicalWeight::new(a2));
             verify_star_semiring(wa, 1e-10);
         }
+
+        #[test]
+        fn proptest_idempotent_semiring(
+            a1 in 0.0f64..100.0,
+            a2 in 0.0f64..100.0
+        ) {
+            // TropTrop is idempotent since both TropicalWeight components are idempotent
+            let wa = TropTrop::new(TropicalWeight::new(a1), TropicalWeight::new(a2));
+            verify_idempotent_semiring(wa, 1e-10);
+        }
+
+        #[test]
+        fn proptest_k_closed_semiring(
+            a1 in 0.0f64..100.0,
+            a2 in 0.0f64..100.0
+        ) {
+            let wa = TropTrop::new(TropicalWeight::new(a1), TropicalWeight::new(a2));
+            verify_k_closed_semiring(wa, 1e-10);
+        }
+
+        #[test]
+        fn proptest_zero_sum_free_semiring(
+            a1 in 0.0f64..100.0,
+            a2 in 0.0f64..100.0,
+            b1 in 0.0f64..100.0,
+            b2 in 0.0f64..100.0
+        ) {
+            let wa = TropTrop::new(TropicalWeight::new(a1), TropicalWeight::new(a2));
+            let wb = TropTrop::new(TropicalWeight::new(b1), TropicalWeight::new(b2));
+            verify_zero_sum_free_semiring(wa, wb, 1e-10);
+        }
+
+        #[test]
+        fn proptest_weakly_left_divisible_semiring(
+            a1 in 0.0f64..100.0,
+            a2 in 0.0f64..100.0,
+            b1 in 0.0f64..100.0,
+            b2 in 0.0f64..100.0
+        ) {
+            let wa = TropTrop::new(TropicalWeight::new(a1), TropicalWeight::new(a2));
+            let wb = TropTrop::new(TropicalWeight::new(b1), TropicalWeight::new(b2));
+            verify_weakly_left_divisible_semiring(wa, wb, 1e-10);
+        }
+
+        #[test]
+        fn proptest_commutative_times_semiring(
+            a1 in 0.0f64..100.0,
+            a2 in 0.0f64..100.0,
+            b1 in 0.0f64..100.0,
+            b2 in 0.0f64..100.0
+        ) {
+            let wa = TropTrop::new(TropicalWeight::new(a1), TropicalWeight::new(a2));
+            let wb = TropTrop::new(TropicalWeight::new(b1), TropicalWeight::new(b2));
+            verify_commutative_times_semiring(wa, wb, 1e-10);
+        }
+
+        #[test]
+        fn proptest_totally_ordered_semiring(
+            a1 in 0.0f64..100.0,
+            a2 in 0.0f64..100.0,
+            b1 in 0.0f64..100.0,
+            b2 in 0.0f64..100.0,
+            c1 in 0.0f64..100.0,
+            c2 in 0.0f64..100.0
+        ) {
+            let wa = TropTrop::new(TropicalWeight::new(a1), TropicalWeight::new(a2));
+            let wb = TropTrop::new(TropicalWeight::new(b1), TropicalWeight::new(b2));
+            let wc = TropTrop::new(TropicalWeight::new(c1), TropicalWeight::new(c2));
+            verify_totally_ordered_semiring(wa, wb, wc);
+        }
+
+        #[test]
+        fn proptest_quantizable_semiring(
+            a1 in 0.0f64..100.0,
+            a2 in 0.0f64..100.0
+        ) {
+            let wa = TropTrop::new(TropicalWeight::new(a1), TropicalWeight::new(a2));
+            verify_quantizable_semiring(wa, 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_k_closed_bound() {
+        // TropTrop should have k=0 since both TropicalWeight components have k=0
+        assert_eq!(TropTrop::closure_bound(), Some(0));
     }
 }

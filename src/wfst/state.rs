@@ -2,8 +2,8 @@
 
 use smallvec::SmallVec;
 
-use crate::semiring::Semiring;
 use super::{StateId, WeightedTransition};
+use crate::semiring::Semiring;
 
 /// A state in a WFST with its outgoing transitions.
 ///
@@ -53,14 +53,18 @@ impl<L, W: Semiring> WfstState<L, W> {
     /// Add a transition from this state.
     #[inline]
     pub fn add_transition(&mut self, transition: WeightedTransition<L, W>) {
-        debug_assert_eq!(transition.from, self.id, "Transition source must match state ID");
+        debug_assert_eq!(
+            transition.from, self.id,
+            "Transition source must match state ID"
+        );
         self.transitions.push(transition);
     }
 
     /// Add a transition with the given parameters.
     #[inline]
     pub fn add_arc(&mut self, input: Option<L>, output: Option<L>, to: StateId, weight: W) {
-        self.transitions.push(WeightedTransition::new(self.id, input, output, to, weight));
+        self.transitions
+            .push(WeightedTransition::new(self.id, input, output, to, weight));
     }
 
     /// Set this state as final with the given weight.
@@ -104,7 +108,10 @@ impl<L, W: Semiring> WfstState<L, W> {
 
 impl<L: Clone, W: Semiring> WfstState<L, W> {
     /// Get transitions filtered by input label.
-    pub fn transitions_by_input<'a>(&'a self, input: &'a Option<L>) -> impl Iterator<Item = &'a WeightedTransition<L, W>>
+    pub fn transitions_by_input<'a>(
+        &'a self,
+        input: &'a Option<L>,
+    ) -> impl Iterator<Item = &'a WeightedTransition<L, W>>
     where
         L: PartialEq,
     {
@@ -144,7 +151,8 @@ mod tests {
 
     #[test]
     fn test_final_state() {
-        let state: WfstState<char, TropicalWeight> = WfstState::final_state(1, TropicalWeight::new(0.5));
+        let state: WfstState<char, TropicalWeight> =
+            WfstState::final_state(1, TropicalWeight::new(0.5));
         assert_eq!(state.id, 1);
         assert!(state.is_final);
         assert_eq!(state.final_weight.value(), 0.5);

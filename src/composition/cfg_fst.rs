@@ -32,8 +32,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 
 use crate::backend::LatticeBackend;
-use crate::cfg::{EarleyParser, Grammar, ParseError, ParseForest, ParseTree, ForestNodeId};
-use crate::lattice::{Lattice, LatticePath, NodeId, EdgeId, Edge};
+use crate::cfg::{EarleyParser, ForestNodeId, Grammar, ParseError, ParseForest, ParseTree};
+use crate::lattice::{Edge, EdgeId, Lattice, LatticePath, NodeId};
 use crate::semiring::Semiring;
 
 /// State of parsing at a lattice position.
@@ -125,7 +125,9 @@ where
     /// Get all parse trees (up to a limit).
     pub fn all_parses(&mut self, limit: usize) -> Vec<ParseTree> {
         self.ensure_parsed();
-        self.forest.as_ref().map_or(Vec::new(), |f| f.all_parses(limit))
+        self.forest
+            .as_ref()
+            .map_or(Vec::new(), |f| f.all_parses(limit))
     }
 
     /// Filter the lattice to keep only grammatically valid paths.
@@ -155,7 +157,8 @@ where
     pub fn valid_paths(&mut self) -> ValidPathIterator<'_, 'g, 'l, W, B> {
         self.ensure_parsed();
 
-        let valid_edges = self.forest
+        let valid_edges = self
+            .forest
             .as_ref()
             .map(|f| f.collect_used_edges())
             .unwrap_or_default();
@@ -250,7 +253,9 @@ where
 
     /// Iterate over valid edges.
     pub fn valid_edges(&self) -> impl Iterator<Item = &Edge<W>> {
-        self.valid_edges.iter().filter_map(|&id| self.lattice.edge(id))
+        self.valid_edges
+            .iter()
+            .filter_map(|&id| self.lattice.edge(id))
     }
 
     /// Materialize the filtered lattice into a new lattice.
@@ -408,7 +413,7 @@ mod tests {
     use super::*;
     use crate::backend::HashMapBackend;
     use crate::cfg::GrammarBuilder;
-    use crate::lattice::{LatticeBuilder, EdgeMetadata};
+    use crate::lattice::{EdgeMetadata, LatticeBuilder};
     use crate::semiring::TropicalWeight;
 
     fn simple_grammar() -> Grammar {
@@ -438,11 +443,16 @@ mod tests {
         let mut backend = HashMapBackend::new();
 
         // Get terminal IDs from grammar and intern words
-        let word_ids: Vec<_> = words.iter().map(|w| {
-            let t = grammar.terminal_by_name(w).expect(&format!("unknown word: {}", w));
-            let _id = backend.intern(w);
-            t.vocab_id()
-        }).collect();
+        let word_ids: Vec<_> = words
+            .iter()
+            .map(|w| {
+                let t = grammar
+                    .terminal_by_name(w)
+                    .expect(&format!("unknown word: {}", w));
+                let _id = backend.intern(w);
+                t.vocab_id()
+            })
+            .collect();
 
         let mut builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
 
@@ -640,7 +650,7 @@ mod property_tests {
     use super::*;
     use crate::backend::HashMapBackend;
     use crate::cfg::GrammarBuilder;
-    use crate::lattice::{LatticeBuilder, EdgeMetadata};
+    use crate::lattice::{EdgeMetadata, LatticeBuilder};
     use crate::semiring::TropicalWeight;
     use proptest::prelude::*;
 

@@ -41,10 +41,10 @@
 //! let approx = beam_search(&mut lattice, 10);
 //! ```
 
-mod viterbi;
-mod nbest;
 mod beam;
+mod nbest;
+mod viterbi;
 
-pub use viterbi::{viterbi, ViterbiResult};
-pub use nbest::{nbest, NBestIterator};
 pub use beam::{beam_search, BeamSearchConfig};
+pub use nbest::{nbest, NBestIterator};
+pub use viterbi::{viterbi, ViterbiResult};

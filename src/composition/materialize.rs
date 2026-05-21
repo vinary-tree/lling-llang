@@ -9,9 +9,9 @@ use std::hash::Hash;
 
 use rustc_hash::FxHashMap;
 
-use crate::semiring::Semiring;
-use crate::wfst::{StateId, VectorWfst, MutableWfst, Wfst};
 use super::{LazyComposition, ProductStateId};
+use crate::semiring::Semiring;
+use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst};
 
 /// Materialize a lazy composition into an eager VectorWfst.
 ///
@@ -76,7 +76,9 @@ where
 
     // BFS traversal
     while let Some(product_state) = queue.pop_front() {
-        let current_id = *state_map.get(&product_state).expect("state should be in map");
+        let current_id = *state_map
+            .get(&product_state)
+            .expect("state should be in map");
 
         // Check if this is a final state
         if lazy.is_final(product_state) {
@@ -205,8 +207,7 @@ mod tests {
         assert!(result.num_states() >= 1);
 
         // Check no final states (since labels don't match)
-        let has_final = (0..result.num_states() as StateId)
-            .any(|s| result.is_final(s));
+        let has_final = (0..result.num_states() as StateId).any(|s| result.is_final(s));
         assert!(!has_final);
     }
 

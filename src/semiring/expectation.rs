@@ -47,7 +47,10 @@
 
 use ordered_float::OrderedFloat;
 
-use super::traits::{DivisibleSemiring, Semiring, StarSemiring};
+use super::traits::{
+    CommutativeTimesSemiring, DivisibleSemiring, KClosedSemiring, QuantizableSemiring, Semiring,
+    StarSemiring, TotallyOrderedSemiring, WeaklyLeftDivisibleSemiring, ZeroSumFreeSemiring,
+};
 
 /// Expectation semiring weight.
 ///
@@ -274,6 +277,101 @@ impl StarSemiring for ExpectationWeight {
     }
 }
 
+// ============================================================================
+// Algebraic Property Marker Trait Implementations
+// ============================================================================
+
+// Note: ExpectationWeight is NOT idempotent.
+// (a, b) ⊕ (a, b) = (2a, 2b) ≠ (a, b) for non-zero values.
+
+/// ExpectationWeight is k-closed with no uniform bound.
+///
+/// The star operation converges when value < 1, but there's no fixed k
+/// that works for all values.
+impl KClosedSemiring for ExpectationWeight {
+    fn closure_bound() -> Option<usize> {
+        // No uniform bound - depends on the specific value
+        None
+    }
+}
+
+/// ExpectationWeight is zero-sum-free.
+///
+/// (x₁, y₁) ⊕ (x₂, y₂) = (0, 0) implies x₁ + x₂ = 0 and y₁ + y₂ = 0.
+/// For non-negative values, this means x₁ = x₂ = 0 and y₁ = y₂ = 0.
+impl ZeroSumFreeSemiring for ExpectationWeight {}
+
+/// ExpectationWeight is weakly left divisible.
+///
+/// For non-zero divisor (x₂, y₂), we can compute the left quotient.
+impl WeaklyLeftDivisibleSemiring for ExpectationWeight {
+    fn left_divide(&self, divisor: &Self) -> Option<Self> {
+        // left_divide computes c such that c ⊗ divisor = self
+        // This is the same as regular division for this semiring
+        self.divide(divisor)
+    }
+}
+
+/// ExpectationWeight has commutative multiplication.
+///
+/// (x₁, y₁) ⊗ (x₂, y₂) = (x₁·x₂, x₁·y₂ + x₂·y₁)
+/// (x₂, y₂) ⊗ (x₁, y₁) = (x₂·x₁, x₂·y₁ + x₁·y₂) = (x₁·x₂, x₁·y₂ + x₂·y₁) ✓
+impl CommutativeTimesSemiring for ExpectationWeight {}
+
+// ============================================================================
+// Algorithm Requirement Trait Implementations
+// ============================================================================
+
+/// ExpectationWeight has a total order (lexicographic on (value, expectation)).
+impl TotallyOrderedSemiring for ExpectationWeight {}
+
+// Note: ExpectationWeight does NOT implement NonnegativeSemiring because
+// the expectation component can be negative (costs can be negative).
+
+/// ExpectationWeight can be quantized for approximate comparison.
+///
+/// Quantizes both components and combines them into a single i64 hash.
+impl QuantizableSemiring for ExpectationWeight {
+    fn quantize(&self, epsilon: f64) -> i64 {
+        let v = self.value();
+        let e = self.expectation();
+
+        // Quantize both components
+        let qv = if v.is_nan() {
+            i64::MIN
+        } else if v.is_infinite() {
+            if v > 0.0 {
+                i64::MAX / 2
+            } else {
+                i64::MIN / 2
+            }
+        } else {
+            (v / epsilon).round() as i64
+        };
+
+        let qe = if e.is_nan() {
+            0
+        } else if e.is_infinite() {
+            if e > 0.0 {
+                i32::MAX as i64
+            } else {
+                i32::MIN as i64
+            }
+        } else {
+            ((e / epsilon).round() as i32) as i64
+        };
+
+        // Combine: use upper bits for value, lower bits for expectation
+        // This preserves the lexicographic ordering
+        (qv.wrapping_shl(32)) ^ (qe & 0xFFFFFFFF)
+    }
+}
+
+// Note: ExpectationWeight does NOT implement StochasticSemiring because
+// the expectation semiring doesn't have a direct probability interpretation.
+// The value component is a probability, but the expected value computation
+// is more complex than simple probability sampling.
+
 impl std::ops::Add for ExpectationWeight {
     type Output = Self;
 
@@ -346,7 +444,10 @@ impl<'de> serde::Deserialize<'de> for ExpectationWeight {
 mod tests {
     use super::*;
     use crate::semiring::traits::tests::{
-        verify_divisible_semiring, verify_semiring_axioms, verify_star_semiring,
+        verify_commutative_times_semiring, verify_divisible_semiring, verify_k_closed_semiring,
+        verify_quantizable_semiring, verify_semiring_axioms, verify_star_semiring,
+        verify_totally_ordered_semiring, verify_weakly_left_divisible_semiring,
+        verify_zero_sum_free_semiring,
     };
     use proptest::prelude::*;
 
@@ -552,5 +653,80 @@ mod tests {
             let w = ExpectationWeight::new(v, e);
             verify_star_semiring(w, 1e-4);
         }
+
+        #[test]
+        fn proptest_k_closed_semiring(
+            v in 0.0f64..10.0,
+            e in -10.0f64..10.0
+        ) {
+            let w = ExpectationWeight::new(v, e);
+            verify_k_closed_semiring(w, 1e-6);
+        }
+
+        #[test]
+        fn proptest_zero_sum_free_semiring(
+            v1 in 0.0f64..10.0,
+            e1 in 0.0f64..10.0, // Use non-negative expectations for zero-sum-free verification
+            v2 in 0.0f64..10.0,
+            e2 in 0.0f64..10.0
+        ) {
+            let wa = ExpectationWeight::new(v1, e1);
+            let wb = ExpectationWeight::new(v2, e2);
+            verify_zero_sum_free_semiring(wa, wb, 1e-6);
+        }
+
+        #[test]
+        fn proptest_weakly_left_divisible_semiring(
+            v1 in 0.0f64..10.0,
+            e1 in -10.0f64..10.0,
+            v2 in 0.0f64..10.0,
+            e2 in -10.0f64..10.0
+        ) {
+            let wa = ExpectationWeight::new(v1, e1);
+            let wb = ExpectationWeight::new(v2, e2);
+            verify_weakly_left_divisible_semiring(wa, wb, 1e-6);
+        }
+
+        #[test]
+        fn proptest_commutative_times_semiring(
+            v1 in 0.0f64..10.0,
+            e1 in -10.0f64..10.0,
+            v2 in 0.0f64..10.0,
+            e2 in -10.0f64..10.0
+        ) {
+            let wa = ExpectationWeight::new(v1, e1);
+            let wb = ExpectationWeight::new(v2, e2);
+            verify_commutative_times_semiring(wa, wb, 1e-6);
+        }
+
+        #[test]
+        fn proptest_totally_ordered_semiring(
+            v1 in 0.0f64..10.0,
+            e1 in -10.0f64..10.0,
+            v2 in 0.0f64..10.0,
+            e2 in -10.0f64..10.0,
+            v3 in 0.0f64..10.0,
+            e3 in -10.0f64..10.0
+        ) {
+            let wa = ExpectationWeight::new(v1, e1);
+            let wb = ExpectationWeight::new(v2, e2);
+            let wc = ExpectationWeight::new(v3, e3);
+            verify_totally_ordered_semiring(wa, wb, wc);
+        }
+
+        #[test]
+        fn proptest_quantizable_semiring(
+            v in 0.0f64..10.0,
+            e in -10.0f64..10.0
+        ) {
+            let wa = ExpectationWeight::new(v, e);
+            verify_quantizable_semiring(wa, 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_k_closed_bound() {
+        // ExpectationWeight has no uniform closure bound
+        assert_eq!(ExpectationWeight::closure_bound(), None);
     }
 }

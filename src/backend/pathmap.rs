@@ -127,7 +127,10 @@ impl LatticeBackend for PathMapBackend {
     }
 
     fn iter(&self) -> impl Iterator<Item = (VocabId, &str)> {
-        self.vocab_reverse.iter().enumerate().map(|(i, s)| (i as VocabId, s.as_ref()))
+        self.vocab_reverse
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (i as VocabId, s.as_ref()))
     }
 }
 

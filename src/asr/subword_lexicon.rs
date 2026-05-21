@@ -198,12 +198,7 @@ impl<W: Semiring + Clone> SubwordLexiconBuilder<W> {
     }
 
     /// Add a complete word entry.
-    pub fn add_word(
-        &mut self,
-        word: &str,
-        phones: &[&str],
-        weight: W,
-    ) -> u32 {
+    pub fn add_word(&mut self, word: &str, phones: &[&str], weight: W) -> u32 {
         self.add_subword(word, phones, SubwordPosition::WholeWord, weight)
     }
 
@@ -267,7 +262,9 @@ impl<W: Semiring + Clone> SubwordLexiconBuilder<W> {
 
     /// Get phone name by ID.
     pub fn get_phone_name(&self, id: PhoneId) -> Option<&str> {
-        self.reverse_phone_vocab.get(id as usize).map(|s| s.as_str())
+        self.reverse_phone_vocab
+            .get(id as usize)
+            .map(|s| s.as_str())
     }
 
     /// Build the subword lexicon transducer (L).
@@ -305,7 +302,12 @@ impl<W: Semiring + Clone> SubwordLexiconBuilder<W> {
             current = next;
 
             // Middle phones (if any)
-            for &phone in entry.phones.iter().skip(1).take(entry.phones.len().saturating_sub(2)) {
+            for &phone in entry
+                .phones
+                .iter()
+                .skip(1)
+                .take(entry.phones.len().saturating_sub(2))
+            {
                 let next = fst.add_state();
                 fst.add_arc(current, Some(phone), Some(phone), next, W::one());
                 current = next;
@@ -330,13 +332,11 @@ impl<W: Semiring + Clone> SubwordLexiconBuilder<W> {
     pub fn to_lexicon_entries(&self) -> Vec<LexiconEntry<W>> {
         self.entries
             .iter()
-            .map(|e| {
-                LexiconEntry {
-                    word: e.subword_id as WordId,
-                    phones: e.phones.clone(),
-                    weight: e.weight.clone(),
-                    auxiliaries: Vec::new(),
-                }
+            .map(|e| LexiconEntry {
+                word: e.subword_id as WordId,
+                phones: e.phones.clone(),
+                weight: e.weight.clone(),
+                auxiliaries: Vec::new(),
             })
             .collect()
     }
@@ -441,8 +441,14 @@ mod tests {
         let builder: SubwordLexiconBuilder<TropicalWeight> =
             SubwordLexiconBuilder::new(MarkingStyle::LeftMarked);
 
-        assert_eq!(builder.apply_marking("word", SubwordPosition::WholeWord), "word");
-        assert_eq!(builder.apply_marking("hel", SubwordPosition::Initial), "hel");
+        assert_eq!(
+            builder.apply_marking("word", SubwordPosition::WholeWord),
+            "word"
+        );
+        assert_eq!(
+            builder.apply_marking("hel", SubwordPosition::Initial),
+            "hel"
+        );
         assert_eq!(builder.apply_marking("lo", SubwordPosition::Medial), "+lo");
         assert_eq!(builder.apply_marking("ing", SubwordPosition::Final), "+ing");
     }
@@ -452,8 +458,14 @@ mod tests {
         let builder: SubwordLexiconBuilder<TropicalWeight> =
             SubwordLexiconBuilder::new(MarkingStyle::RightMarked);
 
-        assert_eq!(builder.apply_marking("word", SubwordPosition::WholeWord), "word");
-        assert_eq!(builder.apply_marking("hel", SubwordPosition::Initial), "hel+");
+        assert_eq!(
+            builder.apply_marking("word", SubwordPosition::WholeWord),
+            "word"
+        );
+        assert_eq!(
+            builder.apply_marking("hel", SubwordPosition::Initial),
+            "hel+"
+        );
         assert_eq!(builder.apply_marking("lo", SubwordPosition::Medial), "lo+");
         assert_eq!(builder.apply_marking("ing", SubwordPosition::Final), "ing");
     }
@@ -463,8 +475,14 @@ mod tests {
         let builder: SubwordLexiconBuilder<TropicalWeight> =
             SubwordLexiconBuilder::new(MarkingStyle::BoundaryTag);
 
-        assert_eq!(builder.apply_marking("word", SubwordPosition::WholeWord), "word");
-        assert_eq!(builder.apply_marking("hel", SubwordPosition::Initial), "<w>hel");
+        assert_eq!(
+            builder.apply_marking("word", SubwordPosition::WholeWord),
+            "word"
+        );
+        assert_eq!(
+            builder.apply_marking("hel", SubwordPosition::Initial),
+            "<w>hel"
+        );
         assert_eq!(builder.apply_marking("lo", SubwordPosition::Medial), "lo");
         assert_eq!(builder.apply_marking("ing", SubwordPosition::Final), "ing");
     }
@@ -489,8 +507,18 @@ mod tests {
         let mut builder: SubwordLexiconBuilder<TropicalWeight> =
             SubwordLexiconBuilder::new(MarkingStyle::LeftMarked);
 
-        let id1 = builder.add_subword("hel", &["HH", "AH", "L"], SubwordPosition::Initial, TropicalWeight::one());
-        let id2 = builder.add_subword("lo", &["L", "OW"], SubwordPosition::Final, TropicalWeight::one());
+        let id1 = builder.add_subword(
+            "hel",
+            &["HH", "AH", "L"],
+            SubwordPosition::Initial,
+            TropicalWeight::one(),
+        );
+        let id2 = builder.add_subword(
+            "lo",
+            &["L", "OW"],
+            SubwordPosition::Final,
+            TropicalWeight::one(),
+        );
 
         assert_eq!(id1, 0);
         assert_eq!(id2, 1);
@@ -525,8 +553,18 @@ mod tests {
             SubwordLexiconBuilder::new(MarkingStyle::LeftMarked);
 
         // Add subwords: "hel", "+lo", "world"
-        let id1 = builder.add_subword("hel", &["HH", "AH", "L"], SubwordPosition::Initial, TropicalWeight::one());
-        let id2 = builder.add_subword("lo", &["L", "OW"], SubwordPosition::Final, TropicalWeight::one());
+        let id1 = builder.add_subword(
+            "hel",
+            &["HH", "AH", "L"],
+            SubwordPosition::Initial,
+            TropicalWeight::one(),
+        );
+        let id2 = builder.add_subword(
+            "lo",
+            &["L", "OW"],
+            SubwordPosition::Final,
+            TropicalWeight::one(),
+        );
         let id3 = builder.add_word("world", &["W", "ER", "L", "D"], TropicalWeight::one());
 
         let words = builder.reconstruct_words(&[id1, id2, id3]);
@@ -539,8 +577,18 @@ mod tests {
             SubwordLexiconBuilder::new(MarkingStyle::RightMarked);
 
         // Add subwords: "hel+", "lo", "world"
-        let id1 = builder.add_subword("hel", &["HH", "AH", "L"], SubwordPosition::Initial, TropicalWeight::one());
-        let id2 = builder.add_subword("lo", &["L", "OW"], SubwordPosition::Final, TropicalWeight::one());
+        let id1 = builder.add_subword(
+            "hel",
+            &["HH", "AH", "L"],
+            SubwordPosition::Initial,
+            TropicalWeight::one(),
+        );
+        let id2 = builder.add_subword(
+            "lo",
+            &["L", "OW"],
+            SubwordPosition::Final,
+            TropicalWeight::one(),
+        );
         let id3 = builder.add_word("world", &["W", "ER", "L", "D"], TropicalWeight::one());
 
         let words = builder.reconstruct_words(&[id1, id2, id3]);
@@ -582,9 +630,24 @@ mod tests {
         let mut builder: SubwordLexiconBuilder<TropicalWeight> =
             SubwordLexiconBuilder::new(MarkingStyle::LeftMarked);
 
-        let id1 = builder.add_subword("un", &["AH", "N"], SubwordPosition::Initial, TropicalWeight::one());
-        let id2 = builder.add_subword("break", &["B", "R", "EY", "K"], SubwordPosition::Medial, TropicalWeight::one());
-        let id3 = builder.add_subword("able", &["AH", "B", "AH", "L"], SubwordPosition::Final, TropicalWeight::one());
+        let id1 = builder.add_subword(
+            "un",
+            &["AH", "N"],
+            SubwordPosition::Initial,
+            TropicalWeight::one(),
+        );
+        let id2 = builder.add_subword(
+            "break",
+            &["B", "R", "EY", "K"],
+            SubwordPosition::Medial,
+            TropicalWeight::one(),
+        );
+        let id3 = builder.add_subword(
+            "able",
+            &["AH", "B", "AH", "L"],
+            SubwordPosition::Final,
+            TropicalWeight::one(),
+        );
 
         // Register word decomposition
         let word_id: WordId = 42;

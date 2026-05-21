@@ -178,13 +178,7 @@ impl<W: Semiring> Edge<W> {
 
     /// Create an edge with default metadata.
     #[inline]
-    pub fn simple(
-        id: EdgeId,
-        source: NodeId,
-        target: NodeId,
-        label: VocabId,
-        weight: W,
-    ) -> Self {
+    pub fn simple(id: EdgeId, source: NodeId, target: NodeId, label: VocabId, weight: W) -> Self {
         Self::new(id, source, target, label, weight, EdgeMetadata::default())
     }
 }

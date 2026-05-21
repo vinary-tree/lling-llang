@@ -3,12 +3,13 @@
 
 use lling_llang::backend::HashMapBackend;
 use lling_llang::backend::LatticeBackend;
-use lling_llang::lattice::{LatticeBuilder, EdgeMetadata};
+use lling_llang::lattice::{EdgeMetadata, LatticeBuilder};
 use lling_llang::semiring::TropicalWeight;
 
-fn build_diamond_lattice(positions: usize, branching: usize)
-    -> lling_llang::lattice::Lattice<TropicalWeight, HashMapBackend>
-{
+fn build_diamond_lattice(
+    positions: usize,
+    branching: usize,
+) -> lling_llang::lattice::Lattice<TropicalWeight, HashMapBackend> {
     let mut backend = HashMapBackend::new();
     let mut builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend.clone());
 

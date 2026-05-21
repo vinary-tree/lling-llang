@@ -333,10 +333,7 @@ impl<L: Clone> Default for CsrBuilder<L> {
 /// # Returns
 ///
 /// A CSR representation of the WFST.
-pub fn csr_from_vector_wfst<L, F>(
-    fst: &VectorWfst<L, LogWeight>,
-    label_to_u32: F,
-) -> CsrWfst<L>
+pub fn csr_from_vector_wfst<L, F>(fst: &VectorWfst<L, LogWeight>, label_to_u32: F) -> CsrWfst<L>
 where
     L: Clone + Send + Sync,
     F: Fn(&L) -> u32,
@@ -364,8 +361,16 @@ where
         builder.begin_state(state);
 
         for arc in fst.transitions(state) {
-            let input = arc.input.as_ref().map(|l| label_to_u32(l)).unwrap_or(u32::MAX);
-            let output = arc.output.as_ref().map(|l| label_to_u32(l)).unwrap_or(u32::MAX);
+            let input = arc
+                .input
+                .as_ref()
+                .map(|l| label_to_u32(l))
+                .unwrap_or(u32::MAX);
+            let output = arc
+                .output
+                .as_ref()
+                .map(|l| label_to_u32(l))
+                .unwrap_or(u32::MAX);
             let weight = arc.weight.value() as f32;
 
             builder.add_arc(arc.to, input, output, weight);

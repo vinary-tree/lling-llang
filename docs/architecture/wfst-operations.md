@@ -393,3 +393,4 @@ States 1..=n: Reversed states from T (offset by 1)
 - [Determinization](../algorithms/determinization.md): Making WFSTs deterministic
 - [Epsilon Removal](../algorithms/epsilon-removal.md): Removing epsilon transitions
 - [Shortest Distance](../algorithms/shortest-distance.md): Computing path weights
+- [Subsequential Transducers](../advanced/subsequential-transducers.md): Deterministic transducers with piecewise decomposition

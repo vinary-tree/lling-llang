@@ -42,7 +42,7 @@
 use std::collections::HashMap;
 
 use crate::semiring::{LogWeight, Semiring};
-use crate::wfst::{StateId, VectorWfst, MutableWfst, Wfst};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst};
 
 /// Word piece identifier type.
 pub type WordPieceId = u32;
@@ -305,8 +305,8 @@ pub fn marginalized_loss(
 
 /// Compute simple forward score from emissions.
 fn compute_emission_score(emissions: &VectorWfst<WordPieceId, LogWeight>) -> f64 {
-    use super::gradient::GradientWfst;
     use super::forward_score::forward_score;
+    use super::gradient::GradientWfst;
 
     let grad_fst = GradientWfst::from_wfst(emissions);
     let score = forward_score(&grad_fst);
@@ -353,15 +353,14 @@ pub fn build_identity_lexicon(vocab_size: usize) -> Vec<LexiconEntry> {
 /// # Returns
 ///
 /// Lexicon entries with character-level grapheme sequences.
-pub fn build_character_lexicon(
-    word_pieces: &HashMap<WordPieceId, String>,
-) -> Vec<LexiconEntry> {
-    word_pieces.iter().map(|(&wp_id, wp_str)| {
-        let graphemes: Vec<GraphemeId> = wp_str.chars()
-            .map(|c| c as GraphemeId)
-            .collect();
-        LexiconEntry::new(wp_id, graphemes)
-    }).collect()
+pub fn build_character_lexicon(word_pieces: &HashMap<WordPieceId, String>) -> Vec<LexiconEntry> {
+    word_pieces
+        .iter()
+        .map(|(&wp_id, wp_str)| {
+            let graphemes: Vec<GraphemeId> = wp_str.chars().map(|c| c as GraphemeId).collect();
+            LexiconEntry::new(wp_id, graphemes)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -470,7 +469,10 @@ mod tests {
 
         // Find the "bc" entry
         let bc_entry = lexicon.iter().find(|e| e.word_piece == 1).unwrap();
-        assert_eq!(bc_entry.graphemes, vec!['b' as GraphemeId, 'c' as GraphemeId]);
+        assert_eq!(
+            bc_entry.graphemes,
+            vec!['b' as GraphemeId, 'c' as GraphemeId]
+        );
     }
 
     #[test]

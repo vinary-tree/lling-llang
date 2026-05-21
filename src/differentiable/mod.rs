@@ -75,57 +75,64 @@
 //! - Hannun et al., "Differentiable Weighted Finite-State Transducers" (ICLR 2021)
 
 mod forward_score;
-mod viterbi;
 mod gradient;
 mod layers;
-mod token_graphs;
 mod marginalization;
 mod ngram_pruning;
 mod second_order;
+mod token_graphs;
+mod topdown;
+mod viterbi;
 
 // Core differentiable operations
 pub use forward_score::{forward_score, log_sum_exp_paths};
-pub use viterbi::{viterbi_score, viterbi_path_with_grad, ViterbiGradResult};
-pub use gradient::{GradientWfst, ArcGradient, backward, GradientAccumulator};
+pub use gradient::{backward, ArcGradient, GradientAccumulator, GradientWfst};
+pub use viterbi::{viterbi_path_with_grad, viterbi_score, ViterbiGradResult};
 
 // WFST convolutional layers
 pub use layers::{
-    WfstKernel, ReceptiveField, WfstConvConfig, WfstConvLayer, PaddingMode,
-    wfst_conv_forward, wfst_conv_backward,
+    wfst_conv_backward, wfst_conv_forward, PaddingMode, ReceptiveField, WfstConvConfig,
+    WfstConvLayer, WfstKernel,
 };
 
 // Token graph variants for CTC-like training
 pub use token_graphs::{
-    TokenId, TokenGraphType, TokenGraphConfig, TokenGraphStats,
-    build_token_graph, build_vocabulary_graph, build_blank_graph, BLANK_TOKEN,
+    build_blank_graph, build_token_graph, build_vocabulary_graph, TokenGraphConfig,
+    TokenGraphStats, TokenGraphType, TokenId, BLANK_TOKEN,
 };
 
 // Marginalized word piece decompositions
 pub use marginalization::{
-    WordPieceId, GraphemeId, LexiconEntry, LexiconConfig,
-    MarginalizationContext, MarginalizationResult, MarginalizationStats,
-    build_lexicon_transducer, build_target_graph, marginalized_loss,
-    build_identity_lexicon, build_character_lexicon,
+    build_character_lexicon, build_identity_lexicon, build_lexicon_transducer, build_target_graph,
+    marginalized_loss, GraphemeId, LexiconConfig, LexiconEntry, MarginalizationContext,
+    MarginalizationResult, MarginalizationStats, WordPieceId,
 };
 
 // N-gram transitions with pruning
 pub use ngram_pruning::{
-    PrunedNgramConfig, NgramCounts, PrunedNgramStats,
-    build_pruned_bigram_graph, build_pruned_trigram_graph,
+    build_pruned_bigram_graph, build_pruned_trigram_graph, NgramCounts, PrunedNgramConfig,
+    PrunedNgramStats,
 };
 
 // Second-order differentiation
 pub use second_order::{
-    SecondOrderConfig, HessianMatrix, SecondOrderWfst, SecondOrderResult,
-    compute_diagonal_hessian, hessian_vector_product,
-    compute_fisher_information, natural_gradient, gradient_and_hessian,
+    compute_diagonal_hessian, compute_fisher_information, gradient_and_hessian,
+    hessian_vector_product, natural_gradient, HessianMatrix, SecondOrderConfig, SecondOrderResult,
+    SecondOrderWfst,
+};
+
+// k2-style top-down differentiation
+pub use topdown::{
+    composed_backward, count_arcs, forward_backward, pruned_search_backward, topdown_backward,
+    BackwardStats, ComposedArcMap, ComposedBackwardResult, ComposedState, ForwardBackwardScores,
+    PrunedBackwardConfig, PrunedSearchResult, SparseGradient,
 };
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wfst::{VectorWfst, MutableWfst};
     use crate::semiring::{LogWeight, Semiring};
+    use crate::wfst::{MutableWfst, VectorWfst};
 
     #[test]
     fn test_forward_score_single_path() {

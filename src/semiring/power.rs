@@ -42,7 +42,11 @@
 
 use ordered_float::OrderedFloat;
 
-use super::traits::{DivisibleSemiring, NumericalWeight, Semiring, StarSemiring};
+use super::traits::{
+    CommutativeTimesSemiring, DivisibleSemiring, KClosedSemiring, NonnegativeSemiring,
+    NumericalWeight, QuantizableSemiring, Semiring, StarSemiring, StochasticSemiring,
+    TotallyOrderedSemiring, ZeroSumFreeSemiring,
+};
 
 /// Default η value (equivalent to probability semiring).
 pub const DEFAULT_ETA: f64 = 1.0;
@@ -385,6 +389,68 @@ impl NumericalWeight for PowerWeight {
     }
 }
 
+// ============================================================================
+// Algebraic Property Marker Trait Implementations
+// ============================================================================
+
+// Note: PowerWeight is NOT idempotent.
+// a ⊕_η a = (a^{1/η} + a^{1/η})^η = (2·a^{1/η})^η = 2^η · a ≠ a for η ≠ 0
+
+/// PowerWeight is k-closed with no uniform bound.
+///
+/// The star operation converges when the underlying probability is < 1,
+/// but there's no fixed k that works for all values.
+impl KClosedSemiring for PowerWeight {
+    fn closure_bound() -> Option<usize> {
+        // No uniform bound - depends on the specific value
+        None
+    }
+}
+
+/// PowerWeight is zero-sum-free.
+///
+/// Since all values are non-negative (enforced by constructor),
+/// x ⊕_η y = 0 only when both x = 0 and y = 0.
+impl ZeroSumFreeSemiring for PowerWeight {}
+
+/// PowerWeight has commutative multiplication.
+///
+/// x ⊗ y = x × y = y × x = y ⊗ x
+impl CommutativeTimesSemiring for PowerWeight {}
+
+// ============================================================================
+// Algorithm Requirement Trait Implementations
+// ============================================================================
+
+/// PowerWeight has a total order.
+impl TotallyOrderedSemiring for PowerWeight {}
+
+/// PowerWeight values are non-negative (clamped to 0 in constructor).
+impl NonnegativeSemiring for PowerWeight {}
+
+/// PowerWeight can be quantized for approximate comparison.
+impl QuantizableSemiring for PowerWeight {
+    fn quantize(&self, epsilon: f64) -> i64 {
+        let v = self.value();
+        if v.is_nan() {
+            i64::MIN
+        } else if v.is_infinite() {
+            i64::MAX
+        } else {
+            (v / epsilon).round() as i64
+        }
+    }
+}
+
+/// PowerWeight can be converted to probability for sampling.
+///
+/// Uses the existing `to_probability()` method which computes value^{1/η}.
+impl StochasticSemiring for PowerWeight {
+    fn to_probability(&self) -> f64 {
+        PowerWeight::to_probability(self)
+    }
+}
+
 impl std::ops::Add for PowerWeight {
     type Output = Self;
 
@@ -458,6 +524,10 @@ impl<'de> serde::Deserialize<'de> for PowerWeight {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::semiring::traits::tests::{
+        verify_commutative_times_semiring, verify_k_closed_semiring, verify_quantizable_semiring,
+        verify_stochastic_semiring, verify_totally_ordered_semiring, verify_zero_sum_free_semiring,
+    };
     use proptest::prelude::*;
 
     #[test]
@@ -788,5 +858,73 @@ mod tests {
             prop_assert!((recovered - prob).abs() < 1e-10,
                 "Roundtrip failed: {} -> {} -> {}", prob, pw.value(), recovered);
         }
+
+        #[test]
+        fn proptest_k_closed_semiring(
+            a in 0.001f64..100.0,
+            eta in 0.5f64..5.0
+        ) {
+            let wa = PowerWeight::new(a, eta);
+            verify_k_closed_semiring(wa, 1e-6);
+        }
+
+        #[test]
+        fn proptest_zero_sum_free_semiring(
+            a in 0.0f64..100.0,
+            b in 0.0f64..100.0,
+            eta in 0.5f64..5.0
+        ) {
+            let wa = PowerWeight::new(a, eta);
+            let wb = PowerWeight::new(b, eta);
+            verify_zero_sum_free_semiring(wa, wb, 1e-6);
+        }
+
+        #[test]
+        fn proptest_commutative_times_semiring(
+            a in 0.001f64..100.0,
+            b in 0.001f64..100.0,
+            eta in 0.5f64..5.0
+        ) {
+            let wa = PowerWeight::new(a, eta);
+            let wb = PowerWeight::new(b, eta);
+            verify_commutative_times_semiring(wa, wb, 1e-6);
+        }
+
+        #[test]
+        fn proptest_totally_ordered_semiring(
+            a in 0.001f64..100.0,
+            b in 0.001f64..100.0,
+            c in 0.001f64..100.0,
+            eta in 0.5f64..5.0
+        ) {
+            let wa = PowerWeight::new(a, eta);
+            let wb = PowerWeight::new(b, eta);
+            let wc = PowerWeight::new(c, eta);
+            verify_totally_ordered_semiring(wa, wb, wc);
+        }
+
+        #[test]
+        fn proptest_quantizable_semiring(
+            a in 0.001f64..100.0,
+            eta in 0.5f64..5.0
+        ) {
+            let wa = PowerWeight::new(a, eta);
+            verify_quantizable_semiring(wa, 1e-10);
+        }
+
+        #[test]
+        fn proptest_stochastic_semiring(
+            prob in 0.001f64..1.0,
+            eta in 0.5f64..5.0
+        ) {
+            let wa = PowerWeight::from_probability(prob, eta);
+            verify_stochastic_semiring(wa);
+        }
+    }
+
+    #[test]
+    fn test_k_closed_bound() {
+        // PowerWeight has no uniform closure bound
+        assert_eq!(PowerWeight::closure_bound(), None);
     }
 }

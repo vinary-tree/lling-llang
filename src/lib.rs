@@ -56,21 +56,33 @@
 #![warn(missing_docs)]
 #![warn(rustdoc::missing_crate_level_docs)]
 
-pub mod semiring;
-pub mod wfst;
-pub mod backend;
-pub mod lattice;
-pub mod path;
-pub mod composition;
-pub mod cfg;
-pub mod layers;
+pub mod acoustic;
 pub mod algorithms;
+pub mod asr;
+pub mod backend;
+pub mod cfg;
+pub mod composition;
 pub mod ctc;
 pub mod differentiable;
-pub mod optimization;
-pub mod asr;
+pub mod error_models;
 pub mod gpu;
-pub mod acoustic;
+pub mod lattice;
+pub mod layers;
+pub mod llm;
+pub mod multilingual;
+pub mod multitape;
+pub mod optimization;
+pub mod path;
+pub mod programming;
+pub mod pushdown;
+pub mod semiring;
+pub mod simd;
+pub mod subsequential;
+pub mod text_processing;
+pub mod training;
+pub mod transducer;
+pub mod tree_transducers;
+pub mod wfst;
 
 /// Test utilities for property-based testing and assertions.
 ///
@@ -88,125 +100,324 @@ pub mod test_utils;
 // #[cfg(feature = "f1r3fly")]
 // pub mod storage;
 
-// #[cfg(feature = "levenshtein")]
-// pub mod integration;
+#[cfg(feature = "levenshtein")]
+pub mod integration;
 
 /// Prelude for convenient imports.
 pub mod prelude {
-    pub use crate::semiring::{
-        Semiring, DivisibleSemiring, StarSemiring,
-        TropicalWeight, LogWeight, BoolWeight, ProductWeight,
-        ProbabilityWeight, LeftStringWeight, RightStringWeight, ExpectationWeight,
-    };
-    pub use crate::wfst::{
-        StateId, WeightedTransition, WfstState,
-        Wfst, MutableWfst, LazyWfst, CachePolicy,
-        VectorWfst, VectorWfstBuilder, LazyState, StateSource, LazyWfstWrapper,
-        // Rational operations
-        UnionSource, ConcatSource, ClosureSource,
-        UnionWfst, ConcatWfst, ClosureWfst,
-        union, concat, closure, closure_plus,
-        // Unary operations
-        InvertSource, ProjectSource,
-        InvertWfst, ProjectInputWfst, ProjectOutputWfst,
-        invert, project_input, project_output, reverse,
-        // Synchronization
-        StringDelay, SyncState, SyncSource, MutableSyncSource, SyncWfst,
-        synchronize, synchronize_bounded, has_bounded_delay, compute_max_delay,
-    };
-    pub use crate::backend::{
-        LatticeBackend, VocabId, HashMapBackend,
-    };
-    pub use crate::lattice::{
-        NodeId, EdgeId, Node, Edge, EdgeMetadata,
-        Lattice, LatticeBuilder, LatticePath, PathIterator,
-    };
-    pub use crate::path::{
-        viterbi, nbest, beam_search,
-        ViterbiResult, NBestIterator, BeamSearchConfig,
-    };
-    pub use crate::composition::{
-        compose, LazyComposition, ComposedPath,
-        EpsilonFilter, EpsilonFilterType, FilterState,
-        LazyCfgComposition, FilteredLattice, ValidPathIterator,
-        ParseState, CompositionStats,
-    };
-    pub use crate::cfg::{
-        NonTerminal, Terminal, RuleId, Symbol, SymbolKind,
-        Production, Grammar, GrammarError, GrammarBuilder,
-        EarleyParser, EarleyState, EarleyChart, ParseError,
-        ParseForest, ParseTree, ForestNodeId, ForestNode,
-    };
-    pub use crate::layers::{
-        CorrectionLayer, LayerPipeline, LayerPipelineBuilder,
-        LayerError, LayerResult, LayerStats,
-        CfgFilterLayer,
-    };
-    pub use crate::algorithms::{
-        ShortestDistanceQueue, FifoQueue, TopologicalQueue, ShortestFirstQueue,
-        AutoQueue, QueueType, single_source_shortest_distance,
-        single_source_shortest_distance_with_queue, all_pairs_shortest_distance,
-        ShortestDistanceConfig,
-    };
-    pub use crate::ctc::{
-        CtcTopology, CtcTopologyInfo, CtcLabel, BLANK,
-        correct_ctc, compact_ctc, minimal_ctc,
-        selfless_correct_ctc, selfless_compact_ctc,
-        // CTC decoding
-        CtcDecoder, CtcDecoderConfig, DecodingResult, DecodingStats, DecodingError,
-        ObservationFst, StreamingCtcDecoder,
-    };
-    pub use crate::differentiable::{
-        GradientWfst, ArcGradient, GradientAccumulator,
-        forward_score, log_sum_exp_paths,
-        viterbi_score, viterbi_path_with_grad, ViterbiGradResult,
-        backward,
-    };
-    pub use crate::optimization::{
-        prepare_for_beam_search, LogPushConfig, BeamSearchPrepResult,
-        compute_log_potentials, apply_log_push,
-        LookaheadTable, build_lookahead_table, LookaheadConfig,
-    };
-    pub use crate::asr::{
-        ContextDependencyBuilder, TriphoneBuilder, TetraploneBuilder,
-        ContextDependencyConfig, ContextState, PhoneId,
-        NgramBuilder, NgramTransducer, NgramConfig,
-        BackoffState, NgramOrder, NgramWeight,
-        CascadeBuilder, AsrCascade, CascadeConfig,
-        LexiconEntry, AuxiliarySymbol,
-        chain_factor, ChainFactorConfig, ChainFactorResult,
-        Chain, ChainId,
-        rescore_lattice, RescoreConfig, RescoreResult,
-        LatticeGrammar, RescorePass,
-    };
-    pub use crate::gpu::{
-        // CSR representation
-        CsrWfst, CsrBuilder, CsrArc, CsrState,
-        csr_from_vector_wfst, csr_memory_size,
-        // Token recombination
-        PackedToken, TokenPacker, RecombinationBuffer,
-        pack_cost_arc, unpack_cost_arc,
-        // Load balancing
-        WorkGroup, WorkDispatcher, LoadBalancer,
-        WorkItem, WorkQueue,
-        // K-vector reduction
-        KVector, KVectorConfig, KVectorStats,
-        reduce_with_k_vectors,
-        // Channels/Lanes
-        Channel, Lane, BatchedDecoder, DecoderConfig,
-        ChannelState, LaneState,
-        // Soft pruning
-        SoftToken, SoftPruneConfig, SoftPruneBuffer,
-        SoftPruneStats, AdaptiveBeam, SoftPruneManager,
-    };
     pub use crate::acoustic::{
+        // Score fusion
+        AcousticLanguageModel,
         // Core trait
         AcousticModel,
-        // HMM topology
-        TransitionMatrix, HmmStateId, UnitId, TransitionLogProb,
-        // Score fusion
-        AcousticLanguageModel, FusionConfig,
         // Posteriors
-        FramePosterior, PosteriorSequence,
+        FramePosterior,
+        FusionConfig,
+        HmmStateId,
+        PosteriorSequence,
+        TransitionLogProb,
+        // HMM topology
+        TransitionMatrix,
+        UnitId,
+    };
+    pub use crate::algorithms::{
+        all_pairs_shortest_distance, single_source_shortest_distance,
+        single_source_shortest_distance_with_queue, AutoQueue, FifoQueue, QueueType,
+        ShortestDistanceConfig, ShortestDistanceQueue, ShortestFirstQueue, TopologicalQueue,
+    };
+    pub use crate::asr::{
+        chain_factor,
+        rescore_lattice,
+        AsrCascade,
+        AuxiliarySymbol,
+        BackoffState,
+        CascadeBuilder,
+        CascadeConfig,
+        Chain,
+        ChainFactorConfig,
+        ChainFactorResult,
+        ChainId,
+        ContextDependencyBuilder,
+        ContextDependencyConfig,
+        ContextState,
+        DysfluencyConfig,
+        DysfluencyDetector,
+        // Dysfluency detection
+        DysfluencyPattern,
+        DysfluencySpan,
+        LatticeGrammar,
+        LexiconEntry,
+        NgramBuilder,
+        NgramConfig,
+        NgramOrder,
+        NgramTransducer,
+        NgramWeight,
+        PhoneId,
+        RescoreConfig,
+        RescorePass,
+        RescoreResult,
+        SyllableRepetitionBuilder,
+        TetraploneBuilder,
+        TriphoneBuilder,
+        WordRepetitionBuilder,
+    };
+    pub use crate::backend::{HashMapBackend, LatticeBackend, VocabId};
+    pub use crate::cfg::{
+        EarleyChart, EarleyParser, EarleyState, ForestNode, ForestNodeId, Grammar, GrammarBuilder,
+        GrammarError, NonTerminal, ParseError, ParseForest, ParseTree, Production, RuleId, Symbol,
+        SymbolKind, Terminal,
+    };
+    pub use crate::composition::{
+        compose, ComposedPath, CompositionStats, EpsilonFilter, EpsilonFilterType, FilterState,
+        FilteredLattice, LazyCfgComposition, LazyComposition, ParseState, ValidPathIterator,
+    };
+    pub use crate::ctc::{
+        compact_ctc,
+        correct_ctc,
+        minimal_ctc,
+        selfless_compact_ctc,
+        selfless_correct_ctc,
+        // CTC decoding
+        CtcDecoder,
+        CtcDecoderConfig,
+        CtcLabel,
+        CtcTopology,
+        CtcTopologyInfo,
+        DecodingError,
+        DecodingResult,
+        DecodingStats,
+        ObservationFst,
+        StreamingCtcDecoder,
+        BLANK,
+    };
+    pub use crate::differentiable::{
+        backward, forward_score, log_sum_exp_paths, viterbi_path_with_grad, viterbi_score,
+        ArcGradient, GradientAccumulator, GradientWfst, ViterbiGradResult,
+    };
+    pub use crate::gpu::{
+        csr_from_vector_wfst,
+        csr_memory_size,
+        pack_cost_arc,
+        reduce_with_k_vectors,
+        unpack_cost_arc,
+        AdaptiveBeam,
+        BatchedDecoder,
+        // Channels/Lanes
+        Channel,
+        ChannelState,
+        CsrArc,
+        CsrBuilder,
+        CsrState,
+        // CSR representation
+        CsrWfst,
+        DecoderConfig,
+        // K-vector reduction
+        KVector,
+        KVectorConfig,
+        KVectorStats,
+        Lane,
+        LaneState,
+        LoadBalancer,
+        // Token recombination
+        PackedToken,
+        RecombinationBuffer,
+        SoftPruneBuffer,
+        SoftPruneConfig,
+        SoftPruneManager,
+        SoftPruneStats,
+        // Soft pruning
+        SoftToken,
+        TokenPacker,
+        WorkDispatcher,
+        // Load balancing
+        WorkGroup,
+        WorkItem,
+        WorkQueue,
+    };
+    pub use crate::lattice::{
+        Edge, EdgeId, EdgeMetadata, Lattice, LatticeBuilder, LatticePath, Node, NodeId,
+        PathIterator,
+    };
+    pub use crate::layers::{
+        CfgFilterLayer,
+        // Confusion layer
+        ConfusionLayer,
+        ConfusionLayerConfig,
+        ConfusionMatrix,
+        CorrectionLayer,
+        LayerError,
+        LayerPipeline,
+        LayerPipelineBuilder,
+        LayerResult,
+        LayerStats,
+    };
+    pub use crate::multilingual::{
+        CodeSwitchBuilder,
+        CodeSwitchConfig,
+        CodeSwitchPath,
+        // Code-switching transducer
+        CodeSwitchTransducer,
+        DetectionResult,
+        LanguageConfig,
+        LanguageDetector,
+        // Language types
+        LanguageId,
+        LanguageModel,
+        LanguageSpan,
+        SimpleLanguageModel,
+        SwitchPoint,
+        WordProbability,
+    };
+    pub use crate::multitape::{
+        // Labels and transitions
+        MultiTapeLabel,
+        MultiTapeState,
+        MultiTapeTransition,
+        // Traits
+        MultiTapeWfst,
+        // Builder
+        MultiTapeWfstBuilder,
+        // Projection and synchronization
+        ProjectedWfst,
+        SyncConfig,
+        SynchronizedMultiTape,
+        TapeDelay,
+        // Implementations
+        VectorMultiTapeWfst,
+    };
+    pub use crate::optimization::{
+        apply_log_push, build_lookahead_table, compute_log_potentials, prepare_for_beam_search,
+        BeamSearchPrepResult, LogPushConfig, LookaheadConfig, LookaheadTable,
+    };
+    pub use crate::path::{
+        beam_search, nbest, viterbi, BeamSearchConfig, NBestIterator, ViterbiResult,
+    };
+    pub use crate::programming::{
+        ApiMigrationBuilder,
+        ApiMigrationRule,
+        ApiMigrationTransducer,
+        MigrationResult,
+        MigrationStats,
+        MigrationType,
+        NodeKind,
+        ParseResult,
+        // Parser backend traits
+        ParserBackend,
+        ParserError,
+        PatternMatcher,
+        Position,
+        Range,
+        RepairAction,
+        RepairCandidate,
+        ReplacementAction,
+        SyntaxNode,
+        SyntaxNodeRef,
+        SyntaxRepairBuilder,
+        SyntaxRepairCosts,
+        // Syntax repair
+        SyntaxRepairRule,
+        SyntaxRepairTransducer,
+        // Token patterns
+        Token,
+        TokenKind,
+        TokenPattern,
+        TokenPredicate,
+        TokenReplacement,
+        // API migration
+        Version,
+        VersionRange,
+    };
+    pub use crate::pushdown::{
+        PdaAcceptMode,
+        // Builder
+        PdaBuilder,
+        PdaConfiguration,
+        PdaState,
+        // Transitions
+        PdaTransition,
+        StackAction,
+        // Stack operations
+        StackSymbol,
+        // Implementations
+        VectorPda,
+        // Traits
+        WeightedPda,
+    };
+    pub use crate::semiring::{
+        BoolWeight, DivisibleSemiring, ExpectationWeight, FallibleStarSemiring, GodelWeight,
+        LeftStringWeight, LogWeight, ProbabilityWeight, ProductWeight, RightStringWeight, Semiring,
+        SignedTropicalWeight, StarDivergenceError, StarSemiring, TropicalWeight,
+    };
+    pub use crate::subsequential::{
+        DecompositionStats,
+        PiecewiseBuilder,
+        PiecewiseSubsequential,
+        // Subsequential transducers
+        SubsequentialTransducer,
+    };
+    pub use crate::tree_transducers::{
+        // Ranked alphabet
+        RankedAlphabet,
+        SimpleAlphabet,
+        Symbol as RankedSymbol,
+        TransducerState,
+        // Tree data structure
+        Tree,
+        TreeChild,
+        TreeNode,
+        TreePattern,
+        // Rules and patterns
+        TreeRule,
+        // Builder
+        TreeTransducerBuilder,
+        TreeTransducerOps,
+        VectorTreeTransducer,
+        // Transducer trait and implementations
+        WeightedTreeTransducer,
+    };
+    pub use crate::wfst::{
+        closure,
+        closure_plus,
+        compute_max_delay,
+        concat,
+        has_bounded_delay,
+        invert,
+        project_input,
+        project_output,
+        reverse,
+        synchronize,
+        synchronize_bounded,
+        union,
+        CachePolicy,
+        ClosureSource,
+        ClosureWfst,
+        ConcatSource,
+        ConcatWfst,
+        // Unary operations
+        InvertSource,
+        InvertWfst,
+        LazyState,
+        LazyWfst,
+        LazyWfstWrapper,
+        MutableSyncSource,
+        MutableWfst,
+        ProjectInputWfst,
+        ProjectOutputWfst,
+        ProjectSource,
+        StateId,
+        StateSource,
+        // Synchronization
+        StringDelay,
+        SyncSource,
+        SyncState,
+        SyncWfst,
+        // Rational operations
+        UnionSource,
+        UnionWfst,
+        VectorWfst,
+        VectorWfstBuilder,
+        WeightedTransition,
+        Wfst,
+        WfstState,
     };
 }

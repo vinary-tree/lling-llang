@@ -28,7 +28,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::semiring::{Semiring, StarSemiring};
-use crate::wfst::{MutableWfst, StateId, Wfst, WeightedTransition, NO_STATE};
+use crate::wfst::{MutableWfst, StateId, WeightedTransition, Wfst, NO_STATE};
 
 use super::connect::{connect, ConnectConfig};
 use super::shortest_distance::ShortestDistanceConfig;
@@ -85,7 +85,10 @@ impl EpsilonRemovalConfig {
 /// let mut fst = build_some_wfst();
 /// remove_epsilon(&mut fst, EpsilonRemovalConfig::default())?;
 /// ```
-pub fn remove_epsilon<L, W, F>(fst: &mut F, config: EpsilonRemovalConfig) -> Result<(), EpsilonRemovalError>
+pub fn remove_epsilon<L, W, F>(
+    fst: &mut F,
+    config: EpsilonRemovalConfig,
+) -> Result<(), EpsilonRemovalError>
 where
     L: Clone + PartialEq,
     W: Semiring,
@@ -138,7 +141,8 @@ where
                         if trans.input.is_some() || trans.output.is_some() {
                             let to_closure = &closures[trans.to as usize];
                             for (dest_state, dest_weight) in to_closure {
-                                let new_weight = closure_weight.times(&trans.weight).times(dest_weight);
+                                let new_weight =
+                                    closure_weight.times(&trans.weight).times(dest_weight);
                                 new_transitions[state].push(WeightedTransition {
                                     from: state_id,
                                     to: *dest_state,
@@ -262,21 +266,23 @@ where
     }
 
     // Group by (to, input, output) and combine weights
-    let mut groups: HashMap<(StateId, Option<usize>, Option<usize>), (WeightedTransition<L, W>, W)> = HashMap::new();
+    let mut groups: HashMap<
+        (StateId, Option<usize>, Option<usize>),
+        (WeightedTransition<L, W>, W),
+    > = HashMap::new();
 
     for trans in transitions.drain(..) {
         // Use indices for comparison (we'll store the actual labels separately)
-        let key = (trans.to,
-                   trans.input.as_ref().map(|_| 0usize),
-                   trans.output.as_ref().map(|_| 0usize));
+        let key = (
+            trans.to,
+            trans.input.as_ref().map(|_| 0usize),
+            trans.output.as_ref().map(|_| 0usize),
+        );
 
         // Check if we have a matching transition
         let mut found = false;
         for ((to, _, _), (existing, weight)) in groups.iter_mut() {
-            if *to == trans.to
-               && existing.input == trans.input
-               && existing.output == trans.output
-            {
+            if *to == trans.to && existing.input == trans.input && existing.output == trans.output {
                 *weight = weight.plus(&trans.weight);
                 found = true;
                 break;
@@ -300,7 +306,10 @@ where
 /// This variant handles cycles in the epsilon graph using the star operation.
 /// Required for complete semirings where epsilon cycles may have non-trivial
 /// closure values.
-pub fn remove_epsilon_star<L, W, F>(fst: &mut F, config: EpsilonRemovalConfig) -> Result<(), EpsilonRemovalError>
+pub fn remove_epsilon_star<L, W, F>(
+    fst: &mut F,
+    config: EpsilonRemovalConfig,
+) -> Result<(), EpsilonRemovalError>
 where
     L: Clone + PartialEq,
     W: StarSemiring,
@@ -356,7 +365,7 @@ where
 mod tests {
     use super::*;
     use crate::semiring::TropicalWeight;
-    use crate::wfst::{VectorWfst, VectorWfstBuilder, MutableWfst};
+    use crate::wfst::{MutableWfst, VectorWfst, VectorWfstBuilder};
 
     // Property-based tests
     mod property_tests {

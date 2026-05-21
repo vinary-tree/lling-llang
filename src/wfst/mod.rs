@@ -16,39 +16,37 @@
 //! product state space can explode exponentially. Instead of computing all
 //! states upfront, lazy WFSTs compute states on-demand during traversal.
 
-mod transition;
-mod state;
-mod traits;
-mod vector;
 mod lazy;
 pub mod rational;
-pub mod unary;
+mod state;
 pub mod synchronize;
+mod traits;
+mod transition;
+pub mod unary;
+mod vector;
 
-pub use transition::WeightedTransition;
+pub use lazy::{LazyState, LazyWfstWrapper, StateSource};
 pub use state::WfstState;
-pub use traits::{Wfst, MutableWfst, LazyWfst, CachePolicy};
+pub use traits::{CachePolicy, LazyWfst, MutableWfst, Wfst};
+pub use transition::WeightedTransition;
 pub use vector::{VectorWfst, VectorWfstBuilder};
-pub use lazy::{LazyState, StateSource, LazyWfstWrapper};
 
 // Rational operations (Union, Concatenation, Closure)
 pub use rational::{
-    UnionSource, ConcatSource, ClosureSource,
-    UnionWfst, ConcatWfst, ClosureWfst,
-    union, concat, closure, closure_plus,
+    closure, closure_plus, concat, union, ClosureSource, ClosureWfst, ConcatSource, ConcatWfst,
+    UnionSource, UnionWfst,
 };
 
 // Unary operations (Invert, Project, Reverse)
 pub use unary::{
-    InvertSource, ProjectSource,
-    InvertWfst, ProjectInputWfst, ProjectOutputWfst,
-    invert, project_input, project_output, reverse,
+    invert, project_input, project_output, reverse, InvertSource, InvertWfst, ProjectInputWfst,
+    ProjectOutputWfst, ProjectSource,
 };
 
 // Synchronization operation
 pub use synchronize::{
-    StringDelay, SyncState, SyncSource, MutableSyncSource, SyncWfst,
-    synchronize, synchronize_bounded, has_bounded_delay, compute_max_delay,
+    compute_max_delay, has_bounded_delay, synchronize, synchronize_bounded, MutableSyncSource,
+    StringDelay, SyncSource, SyncState, SyncWfst,
 };
 
 /// State identifier for WFST states.

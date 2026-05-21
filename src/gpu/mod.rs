@@ -59,47 +59,33 @@
 //! - Chen et al., "GPU-based WFST Decoder with Exact Lattice Generation" (2018)
 //! - Lv et al., "LET-Decoder: Lazy-evaluation Token-group Decoder"
 
-mod csr;
-mod token_recombine;
-mod load_balance;
-mod k_vector;
 mod channels;
+mod csr;
+mod k_vector;
+mod load_balance;
 mod soft_prune;
+mod token_recombine;
 
 // CSR representation for memory-efficient WFST storage
-pub use csr::{
-    CsrWfst, CsrBuilder, CsrArc, CsrState,
-    csr_from_vector_wfst, csr_memory_size,
-};
+pub use csr::{csr_from_vector_wfst, csr_memory_size, CsrArc, CsrBuilder, CsrState, CsrWfst};
 
 // Token recombination with uint64 packing
 pub use token_recombine::{
-    PackedToken, TokenPacker, RecombinationBuffer,
-    pack_cost_arc, unpack_cost_arc,
+    pack_cost_arc, unpack_cost_arc, PackedToken, RecombinationBuffer, TokenPacker,
 };
 
 // Dynamic load balancing
-pub use load_balance::{
-    WorkGroup, WorkDispatcher, LoadBalancer,
-    WorkItem, WorkQueue,
-};
+pub use load_balance::{LoadBalancer, WorkDispatcher, WorkGroup, WorkItem, WorkQueue};
 
 // K-vector atomic reduction
-pub use k_vector::{
-    KVector, KVectorConfig, KVectorStats,
-    reduce_with_k_vectors,
-};
+pub use k_vector::{reduce_with_k_vectors, KVector, KVectorConfig, KVectorStats};
 
 // Channels/Lanes for batched streaming
-pub use channels::{
-    Channel, Lane, BatchedDecoder, DecoderConfig,
-    ChannelState, LaneState,
-};
+pub use channels::{BatchedDecoder, Channel, ChannelState, DecoderConfig, Lane, LaneState};
 
 // Soft pruning
 pub use soft_prune::{
-    SoftToken, SoftPruneConfig, SoftPruneBuffer,
-    SoftPruneStats, AdaptiveBeam, SoftPruneManager,
+    AdaptiveBeam, SoftPruneBuffer, SoftPruneConfig, SoftPruneManager, SoftPruneStats, SoftToken,
 };
 
 #[cfg(test)]

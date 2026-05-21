@@ -3,8 +3,8 @@
 //! This module provides a simple, dependency-free backend using Rust's
 //! standard hash map for vocabulary interning.
 
-use std::sync::Arc;
 use rustc_hash::FxHashMap;
+use std::sync::Arc;
 
 use super::traits::{LatticeBackend, VocabId};
 
@@ -153,7 +153,9 @@ mod tests {
     fn test_intern_multiple() {
         let mut backend = HashMapBackend::new();
 
-        let words = ["the", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog"];
+        let words = [
+            "the", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog",
+        ];
         let mut ids = Vec::new();
 
         for word in &words {
@@ -219,8 +221,8 @@ mod tests {
 
         let id1 = backend.intern("hello");
         let id2 = backend.intern("héllo"); // accent
-        let id3 = backend.intern("你好");   // Chinese
-        let id4 = backend.intern("🦀");     // Emoji
+        let id3 = backend.intern("你好"); // Chinese
+        let id4 = backend.intern("🦀"); // Emoji
 
         assert_ne!(id1, id2);
         assert_ne!(id2, id3);

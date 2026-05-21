@@ -45,9 +45,9 @@
 
 use smallvec::SmallVec;
 
-use crate::semiring::Semiring;
+use super::lazy::{LazyState, LazyWfstWrapper, StateSource};
 use super::{StateId, WeightedTransition, Wfst};
-use super::lazy::{LazyState, StateSource, LazyWfstWrapper};
+use crate::semiring::Semiring;
 
 // =============================================================================
 // State ID Encoding
@@ -609,7 +609,7 @@ where
 mod tests {
     use super::*;
     use crate::semiring::TropicalWeight;
-    use crate::wfst::{VectorWfst, VectorWfstBuilder, LazyWfst};
+    use crate::wfst::{LazyWfst, VectorWfst, VectorWfstBuilder};
 
     fn make_single_arc_fst(label: char) -> VectorWfst<char, TropicalWeight> {
         VectorWfstBuilder::new()
@@ -698,7 +698,7 @@ mod tests {
         assert!(!c.is_final(0)); // fst1 start
         assert!(!c.is_final(1)); // fst1 final (NOT final in concat)
         assert!(!c.is_final(2)); // fst2 start
-        assert!(c.is_final(3));  // fst2 final (IS final in concat)
+        assert!(c.is_final(3)); // fst2 final (IS final in concat)
     }
 
     #[test]
@@ -767,7 +767,9 @@ mod tests {
     // =========================================================================
 
     /// Helper to collect all transitions from a lazy FST
-    fn collect_all_transitions<L, W, S>(fst: &mut LazyWfstWrapper<S, L, W>) -> Vec<Vec<WeightedTransition<L, W>>>
+    fn collect_all_transitions<L, W, S>(
+        fst: &mut LazyWfstWrapper<S, L, W>,
+    ) -> Vec<Vec<WeightedTransition<L, W>>>
     where
         L: Clone + Send + Sync,
         W: Semiring,
@@ -799,10 +801,16 @@ mod tests {
 
         // Both should have same number of final states
         let u1_finals: Vec<_> = (0..u1.num_states() as StateId)
-            .filter(|&s| { u1.expand(s); u1.is_final(s) })
+            .filter(|&s| {
+                u1.expand(s);
+                u1.is_final(s)
+            })
             .collect();
         let u2_finals: Vec<_> = (0..u2.num_states() as StateId)
-            .filter(|&s| { u2.expand(s); u2.is_final(s) })
+            .filter(|&s| {
+                u2.expand(s);
+                u2.is_final(s)
+            })
             .collect();
         assert_eq!(u1_finals.len(), u2_finals.len());
     }
@@ -821,7 +829,10 @@ mod tests {
         {
             let n = fst.num_states();
             (0..n as StateId)
-                .filter(|&s| { fst.expand(s); fst.is_final(s) })
+                .filter(|&s| {
+                    fst.expand(s);
+                    fst.is_final(s)
+                })
                 .count()
         }
 

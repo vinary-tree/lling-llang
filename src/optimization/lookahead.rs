@@ -290,7 +290,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wfst::{VectorWfst, MutableWfst as MutableWfstTrait};
+    use crate::wfst::{MutableWfst as MutableWfstTrait, VectorWfst};
 
     fn build_simple_chain() -> VectorWfst<char, LogWeight> {
         let mut fst = VectorWfst::new();
@@ -318,8 +318,8 @@ mod tests {
     #[test]
     fn test_build_lookahead_chain() {
         let fst = build_simple_chain();
-        let table = build_lookahead_table(&fst, LookaheadConfig::default())
-            .expect("Should build table");
+        let table =
+            build_lookahead_table(&fst, LookaheadConfig::default()).expect("Should build table");
 
         assert_eq!(table.num_states(), 3);
         assert_eq!(table.num_reachable(), 3);
@@ -337,8 +337,8 @@ mod tests {
     #[test]
     fn test_lookahead_normalize_score() {
         let fst = build_simple_chain();
-        let table = build_lookahead_table(&fst, LookaheadConfig::default())
-            .expect("Should build table");
+        let table =
+            build_lookahead_table(&fst, LookaheadConfig::default()).expect("Should build table");
 
         // If we've accumulated 1.0 weight to reach state 1,
         // the normalized score should be 1.0 + 2.0 = 3.0
@@ -355,8 +355,8 @@ mod tests {
     #[test]
     fn test_lookahead_parallel() {
         let fst = build_parallel_paths();
-        let table = build_lookahead_table(&fst, LookaheadConfig::default())
-            .expect("Should build table");
+        let table =
+            build_lookahead_table(&fst, LookaheadConfig::default()).expect("Should build table");
 
         // State 1 (final): lookahead = 0.0
         assert!(table.get(1).approx_eq(&LogWeight::one(), 0.001));
@@ -374,8 +374,8 @@ mod tests {
     #[test]
     fn test_lookahead_empty() {
         let fst: VectorWfst<char, LogWeight> = VectorWfst::new();
-        let table = build_lookahead_table(&fst, LookaheadConfig::default())
-            .expect("Should handle empty");
+        let table =
+            build_lookahead_table(&fst, LookaheadConfig::default()).expect("Should handle empty");
 
         assert_eq!(table.num_states(), 0);
         assert_eq!(table.num_reachable(), 0);
@@ -385,8 +385,8 @@ mod tests {
     #[test]
     fn test_lookahead_out_of_bounds() {
         let fst = build_simple_chain();
-        let table = build_lookahead_table(&fst, LookaheadConfig::default())
-            .expect("Should build table");
+        let table =
+            build_lookahead_table(&fst, LookaheadConfig::default()).expect("Should build table");
 
         // Out of bounds state should return zero
         assert!(table.get(100).is_zero());
@@ -410,8 +410,8 @@ mod tests {
     #[test]
     fn test_lookahead_total_weight() {
         let fst = build_simple_chain();
-        let table = build_lookahead_table(&fst, LookaheadConfig::default())
-            .expect("Should build table");
+        let table =
+            build_lookahead_table(&fst, LookaheadConfig::default()).expect("Should build table");
 
         // Total weight should equal the lookahead at start state
         assert!(table.total_weight().approx_eq(&LogWeight::new(3.0), 0.001));
@@ -430,8 +430,8 @@ mod tests {
         fst.add_arc(s1, Some('b'), Some('b'), s2, LogWeight::new(2.0));
         // s3 has no transitions
 
-        let table = build_lookahead_table(&fst, LookaheadConfig::default())
-            .expect("Should build table");
+        let table =
+            build_lookahead_table(&fst, LookaheadConfig::default()).expect("Should build table");
 
         // States 0, 1, 2 should be reachable
         assert!(table.is_reachable(s0));

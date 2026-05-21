@@ -558,10 +558,7 @@ impl AdaptiveBeam {
 
     /// Get the total count in the histogram.
     pub fn total_count(&self) -> usize {
-        self.buckets
-            .iter()
-            .map(|b| b.load(Ordering::Relaxed))
-            .sum()
+        self.buckets.iter().map(|b| b.load(Ordering::Relaxed)).sum()
     }
 }
 

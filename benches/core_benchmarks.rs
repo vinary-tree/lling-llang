@@ -8,40 +8,37 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use lling_llang::algorithms::{
-    all_pairs_shortest_distance, single_source_shortest_distance, ShortestDistanceConfig,
-    push_weights, PushConfig, remove_epsilon, EpsilonRemovalConfig,
-    connect, ConnectConfig, is_connected,
-    determinize, DeterminizeConfig, is_deterministic,
-    minimize, MinimizeConfig,
-};
-use lling_llang::ctc::{
-    correct_ctc, compact_ctc, minimal_ctc,
-    selfless_correct_ctc, selfless_compact_ctc,
-};
-use lling_llang::differentiable::{
-    forward_score, viterbi_score, backward, GradientWfst,
-};
-use lling_llang::optimization::{
-    prepare_for_beam_search, LogPushConfig, build_lookahead_table, LookaheadConfig,
-    Token, TokenGroup, TokenGroupPool, BucketQueue, TokenGroupConfig, TokenGroupManager,
-    BigramLm, NgramLmBuilder, NgramLmConfig, compute_size_reduction,
+    all_pairs_shortest_distance, connect, determinize, is_connected, is_deterministic, minimize,
+    push_weights, remove_epsilon, single_source_shortest_distance, ConnectConfig,
+    DeterminizeConfig, EpsilonRemovalConfig, MinimizeConfig, PushConfig, ShortestDistanceConfig,
 };
 use lling_llang::backend::{HashMapBackend, LatticeBackend};
-use lling_llang::cfg::{GrammarBuilder, EarleyParser};
-use lling_llang::lattice::{LatticeBuilder, EdgeMetadata};
-use lling_llang::path::{viterbi, nbest, beam_search};
-use lling_llang::semiring::{
-    TropicalWeight, LogWeight, ProbabilityWeight, LeftStringWeight, RightStringWeight,
-    ExpectationWeight, Semiring,
+use lling_llang::cfg::{EarleyParser, GrammarBuilder};
+use lling_llang::ctc::{
+    compact_ctc, correct_ctc, minimal_ctc, selfless_compact_ctc, selfless_correct_ctc,
 };
-use lling_llang::wfst::{VectorWfst, MutableWfst, StateId};
+use lling_llang::differentiable::{backward, forward_score, viterbi_score, GradientWfst};
+use lling_llang::lattice::{EdgeMetadata, LatticeBuilder};
+use lling_llang::optimization::{
+    build_lookahead_table, compute_size_reduction, prepare_for_beam_search, BigramLm, BucketQueue,
+    LogPushConfig, LookaheadConfig, NgramLmBuilder, NgramLmConfig, Token, TokenGroup,
+    TokenGroupConfig, TokenGroupManager, TokenGroupPool,
+};
+use lling_llang::path::{beam_search, nbest, viterbi};
+use lling_llang::semiring::{
+    ExpectationWeight, LeftStringWeight, LogWeight, ProbabilityWeight, RightStringWeight, Semiring,
+    TropicalWeight,
+};
+use lling_llang::wfst::{MutableWfst, StateId, VectorWfst};
 
 // ============================================================================
 // Helper Functions for Building Test Data
 // ============================================================================
 
 /// Build a linear lattice: 0 -> 1 -> 2 -> ... -> n
-fn build_linear_lattice(size: usize) -> lling_llang::lattice::Lattice<TropicalWeight, HashMapBackend> {
+fn build_linear_lattice(
+    size: usize,
+) -> lling_llang::lattice::Lattice<TropicalWeight, HashMapBackend> {
     let mut backend = HashMapBackend::new();
     let mut builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend.clone());
 
@@ -285,7 +282,7 @@ fn build_disconnected_wfst(n: usize) -> VectorWfst<char, TropicalWeight> {
             unreachable,
             Some('u'),
             Some('u'),
-            n as StateId,  // Point to final state
+            n as StateId, // Point to final state
             TropicalWeight::new(2.0),
         );
     }
@@ -561,18 +558,14 @@ fn path_extraction_benchmarks(c: &mut Criterion) {
     // N-best extraction - use small lattice (branching^positions paths exist)
     // For 10 positions with 2 alternatives = 2^10 = 1024 paths max
     for n in [1, 5, 10].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("nbest_diamond_10", n),
-            n,
-            |b, &n| {
-                let mut lattice = build_diamond_lattice(10, 2);
-                lattice.topological_order();
-                b.iter(|| {
-                    let mut l = lattice.clone();
-                    black_box(nbest(&mut l, n))
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("nbest_diamond_10", n), n, |b, &n| {
+            let mut lattice = build_diamond_lattice(10, 2);
+            lattice.topological_order();
+            b.iter(|| {
+                let mut l = lattice.clone();
+                black_box(nbest(&mut l, n))
+            })
+        });
     }
 
     // Beam search with different widths - use small lattice
@@ -811,9 +804,7 @@ fn weight_push_benchmarks(c: &mut Criterion) {
             |b, &size| {
                 b.iter_with_setup(
                     || build_linear_wfst(size),
-                    |mut fst| {
-                        black_box(push_weights(&mut fst, PushConfig::backward()).ok())
-                    },
+                    |mut fst| black_box(push_weights(&mut fst, PushConfig::backward()).ok()),
                 )
             },
         );
@@ -824,9 +815,7 @@ fn weight_push_benchmarks(c: &mut Criterion) {
             |b, &size| {
                 b.iter_with_setup(
                     || build_linear_wfst(size),
-                    |mut fst| {
-                        black_box(push_weights(&mut fst, PushConfig::forward()).ok())
-                    },
+                    |mut fst| black_box(push_weights(&mut fst, PushConfig::forward()).ok()),
                 )
             },
         );
@@ -837,9 +826,7 @@ fn weight_push_benchmarks(c: &mut Criterion) {
             |b, &size| {
                 b.iter_with_setup(
                     || build_diamond_wfst(size, 3),
-                    |mut fst| {
-                        black_box(push_weights(&mut fst, PushConfig::backward()).ok())
-                    },
+                    |mut fst| black_box(push_weights(&mut fst, PushConfig::backward()).ok()),
                 )
             },
         );
@@ -850,9 +837,7 @@ fn weight_push_benchmarks(c: &mut Criterion) {
             |b, &size| {
                 b.iter_with_setup(
                     || build_diamond_wfst(size, 3),
-                    |mut fst| {
-                        black_box(push_weights(&mut fst, PushConfig::forward()).ok())
-                    },
+                    |mut fst| black_box(push_weights(&mut fst, PushConfig::forward()).ok()),
                 )
             },
         );
@@ -866,18 +851,12 @@ fn epsilon_removal_benchmarks(c: &mut Criterion) {
 
     // Epsilon removal on different sizes
     for size in [5, 10, 25, 50].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("epsilon_chain", size),
-            size,
-            |b, &size| {
-                b.iter_with_setup(
-                    || build_epsilon_chain_wfst(size),
-                    |mut fst| {
-                        black_box(remove_epsilon(&mut fst, EpsilonRemovalConfig::default()).ok())
-                    },
-                )
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("epsilon_chain", size), size, |b, &size| {
+            b.iter_with_setup(
+                || build_epsilon_chain_wfst(size),
+                |mut fst| black_box(remove_epsilon(&mut fst, EpsilonRemovalConfig::default()).ok()),
+            )
+        });
 
         group.bench_with_input(
             BenchmarkId::new("epsilon_chain_acyclic", size),
@@ -928,9 +907,7 @@ fn connect_benchmarks(c: &mut Criterion) {
             |b, &size| {
                 b.iter_with_setup(
                     || build_disconnected_wfst(size),
-                    |mut fst| {
-                        black_box(connect(&mut fst, ConnectConfig::trim()))
-                    },
+                    |mut fst| black_box(connect(&mut fst, ConnectConfig::trim())),
                 )
             },
         );
@@ -1042,9 +1019,7 @@ fn determinize_benchmarks(c: &mut Criterion) {
                 |b, &(size, branching)| {
                     b.iter_with_setup(
                         || build_non_deterministic_wfst(size, branching),
-                        |fst| {
-                            black_box(determinize(&fst, DeterminizeConfig::standard()))
-                        },
+                        |fst| black_box(determinize(&fst, DeterminizeConfig::standard())),
                     )
                 },
             );
@@ -1071,18 +1046,12 @@ fn minimize_benchmarks(c: &mut Criterion) {
 
     // Benchmark minimization on redundant WFSTs
     for size in [10, 25, 50] {
-        group.bench_with_input(
-            BenchmarkId::new("redundant", size),
-            &size,
-            |b, &size| {
-                b.iter_with_setup(
-                    || build_redundant_deterministic_wfst(size),
-                    |fst| {
-                        black_box(minimize(&fst, MinimizeConfig::standard()))
-                    },
-                )
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("redundant", size), &size, |b, &size| {
+            b.iter_with_setup(
+                || build_redundant_deterministic_wfst(size),
+                |fst| black_box(minimize(&fst, MinimizeConfig::standard())),
+            )
+        });
     }
 
     // Benchmark minimization on already-minimal WFSTs (should be fast)
@@ -1093,9 +1062,7 @@ fn minimize_benchmarks(c: &mut Criterion) {
             |b, &size| {
                 b.iter_with_setup(
                     || build_linear_wfst(size),
-                    |fst| {
-                        black_box(minimize(&fst, MinimizeConfig::standard()))
-                    },
+                    |fst| black_box(minimize(&fst, MinimizeConfig::standard())),
                 )
             },
         );
@@ -1117,45 +1084,35 @@ fn ctc_topology_benchmarks(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("correct_ctc_construct", vocab_size),
             vocab_size,
-            |b, &vocab_size| {
-                b.iter(|| black_box(correct_ctc::<LogWeight>(vocab_size)))
-            },
+            |b, &vocab_size| b.iter(|| black_box(correct_ctc::<LogWeight>(vocab_size))),
         );
 
         // Compact-CTC: N states, 3N-2 arcs
         group.bench_with_input(
             BenchmarkId::new("compact_ctc_construct", vocab_size),
             vocab_size,
-            |b, &vocab_size| {
-                b.iter(|| black_box(compact_ctc::<LogWeight>(vocab_size)))
-            },
+            |b, &vocab_size| b.iter(|| black_box(compact_ctc::<LogWeight>(vocab_size))),
         );
 
         // Minimal-CTC: 1 state, N arcs
         group.bench_with_input(
             BenchmarkId::new("minimal_ctc_construct", vocab_size),
             vocab_size,
-            |b, &vocab_size| {
-                b.iter(|| black_box(minimal_ctc::<LogWeight>(vocab_size)))
-            },
+            |b, &vocab_size| b.iter(|| black_box(minimal_ctc::<LogWeight>(vocab_size))),
         );
 
         // Selfless Correct-CTC
         group.bench_with_input(
             BenchmarkId::new("selfless_correct_ctc_construct", vocab_size),
             vocab_size,
-            |b, &vocab_size| {
-                b.iter(|| black_box(selfless_correct_ctc::<LogWeight>(vocab_size)))
-            },
+            |b, &vocab_size| b.iter(|| black_box(selfless_correct_ctc::<LogWeight>(vocab_size))),
         );
 
         // Selfless Compact-CTC
         group.bench_with_input(
             BenchmarkId::new("selfless_compact_ctc_construct", vocab_size),
             vocab_size,
-            |b, &vocab_size| {
-                b.iter(|| black_box(selfless_compact_ctc::<LogWeight>(vocab_size)))
-            },
+            |b, &vocab_size| b.iter(|| black_box(selfless_compact_ctc::<LogWeight>(vocab_size))),
         );
     }
 
@@ -1399,7 +1356,8 @@ fn optimization_benchmarks(c: &mut Criterion) {
                 b.iter_with_setup(
                     || {
                         // Build LogWeight WFST for log pushing
-                        let mut fst: VectorWfst<char, LogWeight> = VectorWfst::with_capacity(size + 1);
+                        let mut fst: VectorWfst<char, LogWeight> =
+                            VectorWfst::with_capacity(size + 1);
                         for _ in 0..=size {
                             fst.add_state();
                         }
@@ -1431,7 +1389,8 @@ fn optimization_benchmarks(c: &mut Criterion) {
                 b.iter_with_setup(
                     || {
                         let branching = 3;
-                        let mut fst: VectorWfst<char, LogWeight> = VectorWfst::with_capacity(size + 1);
+                        let mut fst: VectorWfst<char, LogWeight> =
+                            VectorWfst::with_capacity(size + 1);
                         for _ in 0..=size {
                             fst.add_state();
                         }
@@ -1481,9 +1440,7 @@ fn optimization_benchmarks(c: &mut Criterion) {
                         LogWeight::new(1.0),
                     );
                 }
-                b.iter(|| {
-                    black_box(build_lookahead_table(&fst, LookaheadConfig::default()).ok())
-                })
+                b.iter(|| black_box(build_lookahead_table(&fst, LookaheadConfig::default()).ok()))
             },
         );
 
@@ -1510,9 +1467,7 @@ fn optimization_benchmarks(c: &mut Criterion) {
                         );
                     }
                 }
-                b.iter(|| {
-                    black_box(build_lookahead_table(&fst, LookaheadConfig::default()).ok())
-                })
+                b.iter(|| black_box(build_lookahead_table(&fst, LookaheadConfig::default()).ok()))
             },
         );
     }
@@ -1834,9 +1789,7 @@ fn optimization_benchmarks(c: &mut Criterion) {
                     let w2 = (i * 11 + 1) % vocab_size;
                     lm.set_bigram(w1 as u32, w2 as u32, 0.5);
                 }
-                b.iter(|| {
-                    black_box(lm.to_wfst())
-                })
+                b.iter(|| black_box(lm.to_wfst()))
             },
         );
     }
@@ -1876,9 +1829,7 @@ fn optimization_benchmarks(c: &mut Criterion) {
                         }
                         builder
                     },
-                    |builder| {
-                        black_box(builder.build())
-                    },
+                    |builder| black_box(builder.build()),
                 )
             },
         );

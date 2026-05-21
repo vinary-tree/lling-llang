@@ -10,7 +10,7 @@
 use rustc_hash::FxHashSet;
 
 use crate::backend::LatticeBackend;
-use crate::lattice::{Lattice, LatticeBuilder, EdgeMetadata, LatticePathExt};
+use crate::lattice::{EdgeMetadata, Lattice, LatticeBuilder, LatticePathExt};
 use crate::semiring::Semiring;
 
 use super::traits::{CorrectionLayer, LayerError, LayerResult};
@@ -152,7 +152,10 @@ impl MeTTaILTypeLayer {
     }
 
     /// Add multiple type constraints.
-    pub fn with_constraints(mut self, constraints: impl IntoIterator<Item = TypeConstraint>) -> Self {
+    pub fn with_constraints(
+        mut self,
+        constraints: impl IntoIterator<Item = TypeConstraint>,
+    ) -> Self {
         self.constraints.extend(constraints);
         self
     }
@@ -177,14 +180,16 @@ impl MeTTaILTypeLayer {
     ///
     /// Returns false if any strict constraint is violated.
     fn passes_strict_constraints(&self, tokens: &[&str]) -> bool {
-        self.constraints.iter()
+        self.constraints
+            .iter()
             .filter(|c| c.strict)
             .all(|c| self.check_constraint(tokens, c))
     }
 
     /// Count soft constraint violations.
     fn count_soft_violations(&self, tokens: &[&str]) -> usize {
-        self.constraints.iter()
+        self.constraints
+            .iter()
             .filter(|c| !c.strict)
             .filter(|c| !self.check_constraint(tokens, c))
             .count()
@@ -195,14 +200,17 @@ impl MeTTaILTypeLayer {
         match constraint.position {
             Some(pos) => {
                 if pos < tokens.len() {
-                    self.type_checker.check_type(tokens[pos], &constraint.required_type)
+                    self.type_checker
+                        .check_type(tokens[pos], &constraint.required_type)
                 } else {
                     !constraint.strict // Strict = fail, soft = pass
                 }
             }
             None => {
                 // Check if any token satisfies the constraint
-                tokens.iter().any(|t| self.type_checker.check_type(t, &constraint.required_type))
+                tokens
+                    .iter()
+                    .any(|t| self.type_checker.check_type(t, &constraint.required_type))
             }
         }
     }
@@ -242,7 +250,7 @@ impl<W: Semiring, B: LatticeBackend> CorrectionLayer<W, B> for MeTTaILTypeLayer 
         // If no paths passed, return error
         if used_edges.is_empty() {
             return Err(LayerError::Other(
-                "no paths passed MeTTaIL type constraints".to_string()
+                "no paths passed MeTTaIL type constraints".to_string(),
             ));
         }
 
@@ -287,7 +295,12 @@ mod tests {
     impl TypeChecker for MockTypeChecker {
         fn infer_type(&self, token: &str) -> Option<TypeExpr> {
             // Simple mock: words starting with capital are Nouns
-            if token.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+            if token
+                .chars()
+                .next()
+                .map(|c| c.is_uppercase())
+                .unwrap_or(false)
+            {
                 Some(TypeExpr::base("Noun"))
             } else {
                 Some(TypeExpr::base("Other"))
@@ -314,8 +327,7 @@ mod tests {
 
     #[test]
     fn test_type_constraint() {
-        let constraint = TypeConstraint::strict(TypeExpr::base("Noun"))
-            .at_position(0);
+        let constraint = TypeConstraint::strict(TypeExpr::base("Noun")).at_position(0);
 
         assert!(constraint.strict);
         assert_eq!(constraint.position, Some(0));
@@ -333,7 +345,8 @@ mod tests {
     fn test_layer_name() {
         let layer = MeTTaILTypeLayer::new(Box::new(MockTypeChecker));
         // Use explicit trait method call with concrete types
-        let name = <MeTTaILTypeLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::name(&layer);
+        let name =
+            <MeTTaILTypeLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::name(&layer);
         assert_eq!(name, "mettail-types");
     }
 

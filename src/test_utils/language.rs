@@ -26,7 +26,11 @@ pub struct Path<L, W> {
 impl<L, W: Semiring> Path<L, W> {
     /// Create a new path.
     pub fn new(input: Vec<L>, output: Vec<L>, weight: W) -> Self {
-        Self { input, output, weight }
+        Self {
+            input,
+            output,
+            weight,
+        }
     }
 
     /// Create an empty path (accepts empty string).
@@ -68,10 +72,7 @@ impl<L: Eq, W: Semiring + PartialEq> Eq for Path<L, W> {}
 /// # Returns
 ///
 /// A vector of all accepting paths up to the given length.
-pub fn enumerate_paths<L, W>(
-    fst: &VectorWfst<L, W>,
-    max_length: usize,
-) -> Vec<Path<L, W>>
+pub fn enumerate_paths<L, W>(fst: &VectorWfst<L, W>, max_length: usize) -> Vec<Path<L, W>>
 where
     L: Clone + Send + Sync,
     W: Semiring,
@@ -84,9 +85,8 @@ where
     let start = fst.start();
 
     // State for DFS: (state, input_path, output_path, weight, depth)
-    let mut stack: Vec<(StateId, Vec<L>, Vec<L>, W, usize)> = vec![
-        (start, Vec::new(), Vec::new(), W::one(), 0)
-    ];
+    let mut stack: Vec<(StateId, Vec<L>, Vec<L>, W, usize)> =
+        vec![(start, Vec::new(), Vec::new(), W::one(), 0)];
 
     while let Some((state, input, output, weight, depth)) = stack.pop() {
         // Check if this is a final state
@@ -226,10 +226,7 @@ where
 /// Check if a WFST accepts a given input string.
 ///
 /// Returns the weight if accepted, None otherwise.
-pub fn accepts_string<L, W>(
-    fst: &VectorWfst<L, W>,
-    input: &[L],
-) -> Option<W>
+pub fn accepts_string<L, W>(fst: &VectorWfst<L, W>, input: &[L]) -> Option<W>
 where
     L: Clone + Send + Sync + PartialEq,
     W: Semiring,
@@ -282,10 +279,7 @@ where
 }
 
 /// Check if a WFST accepts a given input string with any output.
-pub fn accepts_input<L, W>(
-    fst: &VectorWfst<L, W>,
-    input: &[L],
-) -> bool
+pub fn accepts_input<L, W>(fst: &VectorWfst<L, W>, input: &[L]) -> bool
 where
     L: Clone + Send + Sync + PartialEq,
     W: Semiring,
@@ -294,10 +288,7 @@ where
 }
 
 /// Get all outputs for a given input string.
-pub fn transduce<L, W>(
-    fst: &VectorWfst<L, W>,
-    input: &[L],
-) -> Vec<(Vec<L>, W)>
+pub fn transduce<L, W>(fst: &VectorWfst<L, W>, input: &[L]) -> Vec<(Vec<L>, W)>
 where
     L: Clone + Send + Sync + PartialEq,
     W: Semiring,
@@ -439,7 +430,7 @@ where
 mod tests {
     use super::*;
     use crate::semiring::TropicalWeight;
-    use crate::test_utils::fixtures::{linear_wfst, diamond_wfst, epsilon_wfst};
+    use crate::test_utils::fixtures::{diamond_wfst, epsilon_wfst, linear_wfst};
 
     #[test]
     fn test_enumerate_paths_linear() {

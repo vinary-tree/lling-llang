@@ -13,7 +13,7 @@
 //! The module supports different sampling strategies:
 //!
 //! - **Proportional**: Sample transitions proportional to their weights (requires
-//!   a [`NumericalWeight`] that can be converted to probabilities)
+//!   a [`StochasticSemiring`] that can be converted to probabilities)
 //! - **Uniform**: Sample uniformly from available transitions (ignores weights)
 //!
 //! # Stochastic vs Non-Stochastic WFSTs
@@ -38,8 +38,8 @@
 use rand::{Rng, SeedableRng};
 use smallvec::SmallVec;
 
-use crate::semiring::{NumericalWeight, Semiring};
-use crate::wfst::{StateId, Wfst, WeightedTransition};
+use crate::semiring::{Semiring, StochasticSemiring};
+use crate::wfst::{StateId, WeightedTransition, Wfst};
 
 /// Configuration for path sampling.
 #[derive(Clone, Debug)]
@@ -102,7 +102,7 @@ impl SampleConfig {
 /// Sampling strategy for choosing transitions.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SampleStrategy {
-    /// Sample proportional to weights (requires NumericalWeight).
+    /// Sample proportional to weights (requires StochasticSemiring).
     ///
     /// For a stochastic WFST (weight-pushed), this gives proper probability sampling.
     /// For non-stochastic WFSTs, weights are normalized on-the-fly.
@@ -198,12 +198,18 @@ impl<L, W: Semiring> SampledPath<L, W> {
 
     /// Get non-epsilon input labels.
     pub fn input_string(&self) -> Vec<&L> {
-        self.input_labels.iter().filter_map(|l| l.as_ref()).collect()
+        self.input_labels
+            .iter()
+            .filter_map(|l| l.as_ref())
+            .collect()
     }
 
     /// Get non-epsilon output labels.
     pub fn output_string(&self) -> Vec<&L> {
-        self.output_labels.iter().filter_map(|l| l.as_ref()).collect()
+        self.output_labels
+            .iter()
+            .filter_map(|l| l.as_ref())
+            .collect()
     }
 }
 
@@ -230,10 +236,13 @@ impl<L, W: Semiring> SampledPath<L, W> {
 /// let path = sample_path(&wfst, SampleConfig::default())?;
 /// println!("Sampled output: {:?}", path.output_string());
 /// ```
-pub fn sample_path<L, W, F>(wfst: &F, config: SampleConfig) -> Result<SampledPath<L, W>, SampleError>
+pub fn sample_path<L, W, F>(
+    wfst: &F,
+    config: SampleConfig,
+) -> Result<SampledPath<L, W>, SampleError>
 where
     L: Clone,
-    W: Semiring + NumericalWeight,
+    W: Semiring + StochasticSemiring,
     F: Wfst<L, W>,
 {
     if wfst.is_empty() {
@@ -256,7 +265,7 @@ fn sample_path_with_rng<L, W, F, R>(
 ) -> Result<SampledPath<L, W>, SampleError>
 where
     L: Clone,
-    W: Semiring + NumericalWeight,
+    W: Semiring + StochasticSemiring,
     F: Wfst<L, W>,
     R: Rng + ?Sized,
 {
@@ -303,8 +312,9 @@ where
 
 /// Decide whether to stop at a final state.
 ///
-/// The stop probability is proportional to the final weight relative to
-/// the sum of transition weights plus the final weight.
+/// The stop probability is proportional to the final weight (converted via
+/// `StochasticSemiring::to_probability()`) relative to the sum of transition
+/// weights plus the final weight.
 fn sample_stop_decision<L, W, R>(
     transitions: &[WeightedTransition<L, W>],
     final_weight: &W,
@@ -312,7 +322,7 @@ fn sample_stop_decision<L, W, R>(
     rng: &mut R,
 ) -> Result<bool, SampleError>
 where
-    W: Semiring + NumericalWeight,
+    W: Semiring + StochasticSemiring,
     R: Rng + ?Sized,
 {
     match strategy {
@@ -323,11 +333,8 @@ where
             Ok(stop_index == 0) // Stop if we picked index 0
         }
         SampleStrategy::Proportional => {
-            let final_prob = final_weight.numerical_value();
-            let trans_sum: f64 = transitions
-                .iter()
-                .map(|t| t.weight.numerical_value())
-                .sum();
+            let final_prob = final_weight.to_probability();
+            let trans_sum: f64 = transitions.iter().map(|t| t.weight.to_probability()).sum();
 
             let total = final_prob + trans_sum;
             if total <= 0.0 {
@@ -343,13 +350,16 @@ where
 }
 
 /// Sample a transition from available transitions.
+///
+/// Uses `StochasticSemiring::to_probability()` to convert weights for
+/// proportional sampling.
 fn sample_transition<'a, L, W, R>(
     transitions: &'a [WeightedTransition<L, W>],
     strategy: SampleStrategy,
     rng: &mut R,
 ) -> Result<&'a WeightedTransition<L, W>, SampleError>
 where
-    W: Semiring + NumericalWeight,
+    W: Semiring + StochasticSemiring,
     R: Rng + ?Sized,
 {
     debug_assert!(!transitions.is_empty());
@@ -360,10 +370,10 @@ where
             Ok(&transitions[idx])
         }
         SampleStrategy::Proportional => {
-            // Compute cumulative distribution
+            // Compute cumulative distribution using to_probability()
             let weights: SmallVec<[f64; 8]> = transitions
                 .iter()
-                .map(|t| t.weight.numerical_value())
+                .map(|t| t.weight.to_probability())
                 .collect();
 
             let total: f64 = weights.iter().sum();
@@ -409,7 +419,7 @@ pub fn sample_paths<L, W, F>(
 ) -> Vec<Result<SampledPath<L, W>, SampleError>>
 where
     L: Clone,
-    W: Semiring + NumericalWeight,
+    W: Semiring + StochasticSemiring,
     F: Wfst<L, W>,
 {
     if wfst.is_empty() {
@@ -449,7 +459,7 @@ pub fn sample_paths_until<L, W, F>(
 ) -> Vec<SampledPath<L, W>>
 where
     L: Clone,
-    W: Semiring + NumericalWeight,
+    W: Semiring + StochasticSemiring,
     F: Wfst<L, W>,
 {
     if wfst.is_empty() {
@@ -495,7 +505,7 @@ pub fn estimate_expected_weight<L, W, F>(
 ) -> Option<f64>
 where
     L: Clone,
-    W: Semiring + NumericalWeight,
+    W: Semiring + StochasticSemiring,
     F: Wfst<L, W>,
 {
     if wfst.is_empty() || num_samples == 0 {
@@ -508,7 +518,7 @@ where
         return None;
     }
 
-    let total: f64 = paths.iter().map(|p| p.weight.numerical_value()).sum();
+    let total: f64 = paths.iter().map(|p| p.weight.to_probability()).sum();
     Some(total / paths.len() as f64)
 }
 

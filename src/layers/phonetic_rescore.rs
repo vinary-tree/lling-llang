@@ -18,9 +18,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use liblevenshtein::phonetic::{
-    OnlinePhoneticTransducerChar, RewriteRuleChar, zompist_rules_char,
-};
+use liblevenshtein::phonetic::{zompist_rules_char, OnlinePhoneticTransducerChar, RewriteRuleChar};
 
 use crate::backend::LatticeBackend;
 use crate::lattice::{Lattice, LatticeBuilder, NodeId};
@@ -236,7 +234,8 @@ impl PhoneticRescoreLayer {
 
         // Cache if under limit
         if self.normalization_cache.len() < self.max_cache_size {
-            self.normalization_cache.insert(word.to_string(), result.clone());
+            self.normalization_cache
+                .insert(word.to_string(), result.clone());
         }
 
         result
@@ -334,10 +333,8 @@ impl PhoneticRescoreLayer {
 
         // Process nodes in topological order
         for node_id in topo_order {
-            let current_contexts: Vec<(Vec<String>, usize)> = context_map
-                .get(&node_id)
-                .cloned()
-                .unwrap_or_default();
+            let current_contexts: Vec<(Vec<String>, usize)> =
+                context_map.get(&node_id).cloned().unwrap_or_default();
 
             if current_contexts.is_empty() {
                 continue;
@@ -520,9 +517,7 @@ fn levenshtein_distance(s1: &str, s2: &str) -> usize {
         curr[0] = i;
         for j in 1..=n {
             let cost = if v1[i - 1] == v2[j - 1] { 0 } else { 1 };
-            curr[j] = (prev[j] + 1)
-                .min(curr[j - 1] + 1)
-                .min(prev[j - 1] + cost);
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
         }
         std::mem::swap(&mut prev, &mut curr);
     }
@@ -629,9 +624,8 @@ mod tests {
     fn test_layer_name() {
         let reference = create_vocab_reference();
         let layer = PhoneticRescoreLayer::new(reference);
-        let name = <PhoneticRescoreLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::name(
-            &layer,
-        );
+        let name =
+            <PhoneticRescoreLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::name(&layer);
         assert_eq!(name, "phonetic-rescore");
     }
 
@@ -651,7 +645,10 @@ mod tests {
         let builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
         let lattice = builder.build(0);
 
-        let result = <PhoneticRescoreLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(&layer, &lattice);
+        let result =
+            <PhoneticRescoreLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(
+                &layer, &lattice,
+            );
         assert!(result.is_ok());
         let rescored = result.expect("apply failed");
         assert!(rescored.is_empty());
@@ -664,10 +661,19 @@ mod tests {
 
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
-        builder.add_correction(0, 1, "hello", TropicalWeight::new(2.0), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "hello",
+            TropicalWeight::new(2.0),
+            EdgeMetadata::default(),
+        );
         let lattice = builder.build(1);
 
-        let result = <PhoneticRescoreLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(&layer, &lattice);
+        let result =
+            <PhoneticRescoreLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(
+                &layer, &lattice,
+            );
         assert!(result.is_ok());
         let rescored = result.expect("apply failed");
 
@@ -681,12 +687,27 @@ mod tests {
 
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
-        builder.add_correction(0, 1, "the", TropicalWeight::new(1.0), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "the",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
         builder.add_correction(0, 1, "a", TropicalWeight::new(2.0), EdgeMetadata::default());
-        builder.add_correction(1, 2, "fox", TropicalWeight::new(1.5), EdgeMetadata::default());
+        builder.add_correction(
+            1,
+            2,
+            "fox",
+            TropicalWeight::new(1.5),
+            EdgeMetadata::default(),
+        );
         let lattice = builder.build(2);
 
-        let result = <PhoneticRescoreLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(&layer, &lattice);
+        let result =
+            <PhoneticRescoreLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(
+                &layer, &lattice,
+            );
         assert!(result.is_ok());
         let rescored = result.expect("apply failed");
 
@@ -702,11 +723,26 @@ mod tests {
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
         // "hello" is known, "xhello" is not
-        builder.add_correction(0, 1, "hello", TropicalWeight::new(1.0), EdgeMetadata::default());
-        builder.add_correction(0, 1, "xhello", TropicalWeight::new(1.0), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "hello",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            0,
+            1,
+            "xhello",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
         let lattice = builder.build(1);
 
-        let result = <PhoneticRescoreLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(&layer, &lattice);
+        let result =
+            <PhoneticRescoreLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(
+                &layer, &lattice,
+            );
         let rescored = result.expect("apply failed");
 
         let mut hello_weight = None;
@@ -738,10 +774,19 @@ mod tests {
 
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
-        builder.add_correction(0, 1, "word", TropicalWeight::new(5.0), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "word",
+            TropicalWeight::new(5.0),
+            EdgeMetadata::default(),
+        );
         let lattice = builder.build(1);
 
-        let result = <PhoneticRescoreLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(&layer, &lattice);
+        let result =
+            <PhoneticRescoreLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(
+                &layer, &lattice,
+            );
         let rescored = result.expect("apply failed");
 
         for edge in rescored.edges() {
@@ -775,7 +820,8 @@ mod tests {
 
     #[test]
     fn test_sequence_reference() {
-        let seq = SequenceReference::from_sequence(["hello", "world"].iter().map(|s| s.to_string()));
+        let seq =
+            SequenceReference::from_sequence(["hello", "world"].iter().map(|s| s.to_string()));
 
         assert!(seq.is_known("hello"));
         assert!(seq.is_known("world"));
@@ -794,7 +840,10 @@ mod tests {
         let builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
         let lattice = builder.build(0);
 
-        let can_apply = <PhoneticRescoreLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::can_apply(&layer, &lattice);
+        let can_apply =
+            <PhoneticRescoreLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::can_apply(
+                &layer, &lattice,
+            );
         assert!(can_apply);
     }
 }

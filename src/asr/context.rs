@@ -26,11 +26,11 @@
 //! - Mohri et al., "Speech Recognition with WFSTs" Section 4.3
 
 use std::collections::HashMap;
-use std::hash::Hash;
 use std::fmt::Debug;
+use std::hash::Hash;
 
 use crate::semiring::Semiring;
-use crate::wfst::{VectorWfst, MutableWfst, Wfst, StateId};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst};
 
 /// Phone identifier type.
 pub type PhoneId = u32;
@@ -188,7 +188,9 @@ impl<W: Semiring> ContextDependencyBuilder<W> {
         let mut queue = vec![initial];
 
         while let Some(current_state) = queue.pop() {
-            let current_id = *state_map.get(&current_state).expect("state should exist in map");
+            let current_id = *state_map
+                .get(&current_state)
+                .expect("state should exist in map");
 
             // For each possible input phone
             for phone in 0..self.num_phones as PhoneId {
@@ -224,13 +226,7 @@ impl<W: Semiring> ContextDependencyBuilder<W> {
             if self.config.auxiliary_self_loops {
                 if let Some(ref range) = self.config.auxiliary_symbols {
                     for aux in range.clone() {
-                        fst.add_arc(
-                            current_id,
-                            Some(aux),
-                            Some(aux),
-                            current_id,
-                            W::one(),
-                        );
+                        fst.add_arc(current_id, Some(aux), Some(aux), current_id, W::one());
                     }
                 }
             }
@@ -307,13 +303,7 @@ impl<W: Semiring> ContextDependencyBuilder<W> {
             // Only process states with context (not the initial empty state)
             if context_state.left_context.is_empty() {
                 // For initial state, just add a boundary self-loop
-                fst.add_arc(
-                    state_id,
-                    Some(boundary),
-                    Some(boundary),
-                    state_id,
-                    W::one(),
-                );
+                fst.add_arc(state_id, Some(boundary), Some(boundary), state_id, W::one());
                 continue;
             }
 
@@ -606,7 +596,11 @@ mod tests {
             if let Some((prev_ctx, prev_center)) = seen_labels.insert(label, (vec![], center)) {
                 panic!(
                     "Label collision: {} produced by both ({:?}, {}) and ({:?}, {})",
-                    label, prev_ctx, prev_center, vec![] as Vec<PhoneId>, center
+                    label,
+                    prev_ctx,
+                    prev_center,
+                    vec![] as Vec<PhoneId>,
+                    center
                 );
             }
 
@@ -614,10 +608,16 @@ mod tests {
             for &ctx0 in &phones {
                 let ctx = ContextState::with_context(vec![ctx0]);
                 let label = builder.compute_cd_label(&ctx, center);
-                if let Some((prev_ctx, prev_center)) = seen_labels.insert(label, (vec![ctx0], center)) {
+                if let Some((prev_ctx, prev_center)) =
+                    seen_labels.insert(label, (vec![ctx0], center))
+                {
                     panic!(
                         "Label collision: {} produced by both ({:?}, {}) and ({:?}, {})",
-                        label, prev_ctx, prev_center, vec![ctx0], center
+                        label,
+                        prev_ctx,
+                        prev_center,
+                        vec![ctx0],
+                        center
                     );
                 }
             }
@@ -627,10 +627,16 @@ mod tests {
                 for &ctx1 in &phones {
                     let ctx = ContextState::with_context(vec![ctx0, ctx1]);
                     let label = builder.compute_cd_label(&ctx, center);
-                    if let Some((prev_ctx, prev_center)) = seen_labels.insert(label, (vec![ctx0, ctx1], center)) {
+                    if let Some((prev_ctx, prev_center)) =
+                        seen_labels.insert(label, (vec![ctx0, ctx1], center))
+                    {
                         panic!(
                             "Label collision: {} produced by both ({:?}, {}) and ({:?}, {})",
-                            label, prev_ctx, prev_center, vec![ctx0, ctx1], center
+                            label,
+                            prev_ctx,
+                            prev_center,
+                            vec![ctx0, ctx1],
+                            center
                         );
                     }
                 }

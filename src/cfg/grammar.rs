@@ -2,10 +2,10 @@
 
 use std::fmt;
 
-use smallvec::SmallVec;
 use rustc_hash::FxHashMap;
+use smallvec::SmallVec;
 
-use super::types::{NonTerminal, Terminal, RuleId, Symbol};
+use super::types::{NonTerminal, RuleId, Symbol, Terminal};
 
 /// A production rule in the grammar.
 ///
@@ -34,7 +34,12 @@ impl Production {
     }
 
     /// Create a production with a probability.
-    pub fn with_prob(id: RuleId, lhs: NonTerminal, rhs: SmallVec<[Symbol; 4]>, log_prob: f32) -> Self {
+    pub fn with_prob(
+        id: RuleId,
+        lhs: NonTerminal,
+        rhs: SmallVec<[Symbol; 4]>,
+        log_prob: f32,
+    ) -> Self {
         Self {
             id,
             lhs,
@@ -250,7 +255,8 @@ impl Grammar {
     /// Compute FIRST sets for all non-terminals.
     pub fn compute_first_sets(&self) -> Vec<FxHashMap<Terminal, bool>> {
         let nullable = self.compute_nullable();
-        let mut first: Vec<FxHashMap<Terminal, bool>> = vec![FxHashMap::default(); self.num_non_terminals];
+        let mut first: Vec<FxHashMap<Terminal, bool>> =
+            vec![FxHashMap::default(); self.num_non_terminals];
         let mut changed = true;
 
         while changed {
@@ -361,11 +367,7 @@ mod tests {
 
     #[test]
     fn test_epsilon_production() {
-        let prod = Production::new(
-            RuleId::new(0),
-            NonTerminal::new(0),
-            SmallVec::new(),
-        );
+        let prod = Production::new(RuleId::new(0), NonTerminal::new(0), SmallVec::new());
         assert!(prod.is_epsilon());
         assert_eq!(prod.rhs_len(), 0);
 
@@ -443,7 +445,7 @@ mod tests {
         let nullable = grammar.compute_nullable();
 
         assert!(!nullable[0]); // S not nullable
-        assert!(nullable[1]);  // A is nullable
+        assert!(nullable[1]); // A is nullable
         assert!(!nullable[2]); // B not nullable
     }
 }

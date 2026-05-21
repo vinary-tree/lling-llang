@@ -79,6 +79,18 @@ vgcore.*
 docs/_build/
 docs/optimization/*.txt
 
+# Rocq/Coq proof build artifacts
+proofs/coq/CoqMakefile
+proofs/coq/CoqMakefile.conf
+proofs/coq/**/*.aux
+proofs/coq/**/*.glob
+proofs/coq/**/*.vo
+proofs/coq/**/*.vos
+proofs/coq/**/*.vok
+
+# TLC model-checking state directories
+states/
+
 # Claude Code temporary files
 .claude/plans/*.bak
 

@@ -2,10 +2,10 @@
 
 use rustc_hash::FxHashSet;
 
+use super::lattice::Lattice;
+use super::types::{Edge, Node, NodeId};
 use crate::backend::LatticeBackend;
 use crate::semiring::Semiring;
-use super::types::{NodeId, Node, Edge};
-use super::lattice::Lattice;
 
 /// Compute topological order using Kahn's algorithm.
 ///
@@ -140,9 +140,7 @@ pub fn count_paths<W: Semiring, B: LatticeBackend>(lattice: &mut Lattice<W, B>) 
         }
 
         // Add paths to all successors
-        let outgoing: Vec<_> = lattice.outgoing_edges(node_id)
-            .map(|e| e.target)
-            .collect();
+        let outgoing: Vec<_> = lattice.outgoing_edges(node_id).map(|e| e.target).collect();
 
         for target in outgoing {
             let target_idx = target.0 as usize;
@@ -206,7 +204,8 @@ mod tests {
 
         for i in 0..n {
             builder.add_correction(
-                i, i + 1,
+                i,
+                i + 1,
                 &format!("word{}", i),
                 TropicalWeight::new(1.0),
                 EdgeMetadata::default(),

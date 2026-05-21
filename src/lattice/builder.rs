@@ -2,10 +2,10 @@
 
 use rustc_hash::FxHashMap;
 
+use super::lattice::Lattice;
+use super::types::{Edge, EdgeId, EdgeMetadata, Node, NodeId};
 use crate::backend::LatticeBackend;
 use crate::semiring::Semiring;
-use super::types::{NodeId, EdgeId, Node, Edge, EdgeMetadata};
-use super::lattice::Lattice;
 
 /// Builder for constructing lattices incrementally.
 ///
@@ -242,7 +242,9 @@ mod tests {
         let mut builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
 
         let edge_id = builder.add_correction(
-            0, 1, "hello",
+            0,
+            1,
+            "hello",
             TropicalWeight::new(1.0),
             EdgeMetadata::default(),
         );
@@ -257,9 +259,27 @@ mod tests {
         let backend = HashMapBackend::new();
         let mut builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
 
-        builder.add_correction(0, 1, "the", TropicalWeight::new(0.5), EdgeMetadata::default());
-        builder.add_correction(0, 1, "teh", TropicalWeight::new(0.0), EdgeMetadata::default());
-        builder.add_correction(0, 1, "tea", TropicalWeight::new(1.0), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "the",
+            TropicalWeight::new(0.5),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            0,
+            1,
+            "teh",
+            TropicalWeight::new(0.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            0,
+            1,
+            "tea",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
 
         assert_eq!(builder.num_positions(), 2);
         assert_eq!(builder.num_edges(), 3);
@@ -270,8 +290,20 @@ mod tests {
         let backend = HashMapBackend::new();
         let mut builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
 
-        builder.add_correction(0, 1, "hello", TropicalWeight::new(1.0), EdgeMetadata::default());
-        builder.add_correction(1, 2, "world", TropicalWeight::new(1.0), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "hello",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            1,
+            2,
+            "world",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
 
         let lattice = builder.build(2);
 
@@ -286,8 +318,20 @@ mod tests {
         let backend = HashMapBackend::new();
         let mut builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
 
-        builder.add_correction(0, 1, "hello", TropicalWeight::new(1.0), EdgeMetadata::default());
-        builder.add_correction(1, 2, "hello", TropicalWeight::new(1.0), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "hello",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            1,
+            2,
+            "hello",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
 
         let lattice = builder.build(2);
 
@@ -329,7 +373,13 @@ mod tests {
         // Should not panic with reserved capacity
         for i in 0..10 {
             for _ in 0..5 {
-                builder.add_correction(i, i + 1, "word", TropicalWeight::new(1.0), EdgeMetadata::default());
+                builder.add_correction(
+                    i,
+                    i + 1,
+                    "word",
+                    TropicalWeight::new(1.0),
+                    EdgeMetadata::default(),
+                );
             }
         }
 

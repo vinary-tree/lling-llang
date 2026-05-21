@@ -1,8 +1,8 @@
 //! VectorWfst - Eager WFST implementation using vector storage.
 
-use crate::semiring::Semiring;
+use super::traits::{MutableWfst, Wfst};
 use super::{StateId, WeightedTransition, WfstState, NO_STATE};
-use super::traits::{Wfst, MutableWfst};
+use crate::semiring::Semiring;
 
 /// Eager WFST implementation storing all states in memory.
 ///
@@ -90,10 +90,7 @@ impl<L, W: Semiring> VectorWfst<L, W> {
 
     /// Get all final states.
     pub fn final_states(&self) -> impl Iterator<Item = StateId> + '_ {
-        self.states
-            .iter()
-            .filter(|s| s.is_final)
-            .map(|s| s.id)
+        self.states.iter().filter(|s| s.is_final).map(|s| s.id)
     }
 
     /// Shrink internal storage to fit current size.

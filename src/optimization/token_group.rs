@@ -199,10 +199,7 @@ impl TokenGroupPool {
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             groups: Vec::with_capacity(capacity),
-            current_frame_map: FxHashMap::with_capacity_and_hasher(
-                capacity,
-                Default::default(),
-            ),
+            current_frame_map: FxHashMap::with_capacity_and_hasher(capacity, Default::default()),
             current_frame: 0,
         }
     }
@@ -220,7 +217,8 @@ impl TokenGroupPool {
         }
 
         let group_id = self.groups.len() as TokenGroupId;
-        self.groups.push(TokenGroup::new(base_state, self.current_frame));
+        self.groups
+            .push(TokenGroup::new(base_state, self.current_frame));
         self.current_frame_map.insert(base_state, group_id);
         group_id
     }
@@ -606,10 +604,7 @@ impl TokenGroupManager {
     /// Advance to the next frame.
     pub fn advance_frame(&mut self) -> GroupedFrame {
         let frame = GroupedFrame {
-            active_groups: self.pool.current_frame_map
-                .values()
-                .copied()
-                .collect(),
+            active_groups: self.pool.current_frame_map.values().copied().collect(),
             best_forward_prob: self.compute_best_forward_prob(),
             needs_expansion: false,
         };
@@ -634,8 +629,7 @@ impl TokenGroupManager {
     /// Returns the number of groups pruned.
     pub fn prune(&mut self, threshold: f64) -> usize {
         // Convert threshold to bucket index
-        let max_bucket = ((threshold - self.queue.offset) * self.queue.scale)
-            .round() as usize;
+        let max_bucket = ((threshold - self.queue.offset) * self.queue.scale).round() as usize;
         let max_bucket = max_bucket.min(self.config.num_buckets - 1);
 
         self.queue.prune_beyond(max_bucket)
@@ -709,7 +703,9 @@ mod tests {
         let group = TokenGroup::with_token(0, token, 0);
         assert!(group.expanded);
         assert_eq!(group.num_tokens(), 1);
-        assert!(group.best_forward_prob.approx_eq(&LogWeight::new(1.0), 0.001));
+        assert!(group
+            .best_forward_prob
+            .approx_eq(&LogWeight::new(1.0), 0.001));
     }
 
     #[test]
@@ -743,7 +739,9 @@ mod tests {
         // Combined: logadd(1.0, 1.0) = log(exp(-1) + exp(-1)) = log(2*exp(-1)) ≈ 0.307
         let expected = -(2.0 * (-1.0_f64).exp()).ln();
         assert!(
-            group.best_forward_prob.approx_eq(&LogWeight::new(expected), 0.01),
+            group
+                .best_forward_prob
+                .approx_eq(&LogWeight::new(expected), 0.01),
             "Expected {:?}, got {:?}",
             expected,
             group.best_forward_prob
@@ -859,7 +857,9 @@ mod tests {
         let group_id = manager.process_token(token, false);
 
         let group = manager.group(group_id).expect("group exists");
-        assert!(group.best_forward_prob.approx_eq(&LogWeight::new(1.0), 0.001));
+        assert!(group
+            .best_forward_prob
+            .approx_eq(&LogWeight::new(1.0), 0.001));
     }
 
     #[test]

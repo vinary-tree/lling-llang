@@ -58,78 +58,36 @@ mod sample;
 mod shortest_distance;
 
 pub use connect::{
-    connect,
-    compute_accessible,
-    compute_coaccessible,
-    is_connected,
-    count_useful_states,
+    compute_accessible, compute_coaccessible, connect, count_useful_states, is_connected,
     ConnectConfig,
 };
 
 pub use epsilon_removal::{
-    remove_epsilon,
-    remove_epsilon_star,
-    has_epsilon_transitions,
-    EpsilonRemovalConfig,
+    has_epsilon_transitions, remove_epsilon, remove_epsilon_star, EpsilonRemovalConfig,
     EpsilonRemovalError,
 };
 
-pub use push::{
-    push_weights,
-    is_stochastic,
-    PushConfig,
-    PushDirection,
-    PushError,
-};
+pub use push::{is_stochastic, push_weights, PushConfig, PushDirection, PushError};
 
 pub use queue::{
-    ShortestDistanceQueue,
-    FifoQueue,
-    TopologicalQueue,
-    ShortestFirstQueue,
-    AutoQueue,
-    QueueType,
+    AutoQueue, FifoQueue, QueueType, ShortestDistanceQueue, ShortestFirstQueue, TopologicalQueue,
 };
 
 pub use shortest_distance::{
-    single_source_shortest_distance,
-    single_source_shortest_distance_with_queue,
-    all_pairs_shortest_distance,
-    reverse_shortest_distance,
-    shortest_distance_to_final,
+    all_pairs_shortest_distance, reverse_shortest_distance, shortest_distance_to_final,
+    single_source_shortest_distance, single_source_shortest_distance_with_queue,
     ShortestDistanceConfig,
 };
 
 pub use determinize::{
-    determinize,
-    is_deterministic,
-    non_determinism_degree,
-    DeterminizeConfig,
-    DeterminizeError,
+    determinize, is_deterministic, non_determinism_degree, DeterminizeConfig, DeterminizeError,
 };
 
-pub use minimize::{
-    minimize,
-    estimate_reduction,
-    MinimizeConfig,
-    MinimizeError,
-};
+pub use minimize::{estimate_reduction, minimize, MinimizeConfig, MinimizeError};
 
 pub use sample::{
-    sample_path,
-    sample_paths,
-    sample_paths_until,
-    estimate_expected_weight,
-    SampleConfig,
-    SampleStrategy,
-    SampleError,
-    SampledPath,
+    estimate_expected_weight, sample_path, sample_paths, sample_paths_until, SampleConfig,
+    SampleError, SampleStrategy, SampledPath,
 };
 
-pub use rrwm::{
-    Rrwm,
-    RrwmBuilder,
-    RrwmConfig,
-    RrwmError,
-    RrwmStatistics,
-};
+pub use rrwm::{Rrwm, RrwmBuilder, RrwmConfig, RrwmError, RrwmStatistics};

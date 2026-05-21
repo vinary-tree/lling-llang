@@ -33,6 +33,7 @@ Core concepts and design of the framework:
 |----------|-------------|
 | [Overview](architecture/overview.md) | High-level architecture and component relationships |
 | [Semirings](architecture/semirings.md) | Algebraic weight structures (Tropical, Log, Probability, String, Expectation) |
+| [Signed Tropical Semiring](architecture/signed-tropical-semiring.md) | Extended tropical semiring with negative weights (rewards) |
 | [Power Semiring](architecture/power-semiring.md) | η-power semiring for soft path selection and online learning |
 | [WFST Operations](architecture/wfst-operations.md) | Rational operations (union, concat, closure) and unary operations (invert, project, reverse) |
 | [Lattices](architecture/lattices.md) | Weighted DAGs representing correction alternatives |
@@ -66,11 +67,29 @@ Advanced modules for speech recognition and deep learning:
 | Document | Description |
 |----------|-------------|
 | [CTC Topologies](advanced/ctc-topologies.md) | CTC graph structures (Correct, Compact, Minimal, Selfless) |
+| [Subsequential Transducers](advanced/subsequential-transducers.md) | Deterministic transducers with piecewise decomposition |
 | [Differentiable Operations](advanced/differentiable.md) | Gradient computation through WFST operations |
+| [Top-Down Autograd](advanced/topdown-autograd.md) | k2-style efficient gradient computation via arc posteriors |
 | [Deep Learning Integration](advanced/deep-learning.md) | WFST layers, token graphs, lexicon marginalization |
 | [ASR Pipeline](advanced/asr-pipeline.md) | Speech recognition transducer construction (H∘C∘L∘G) |
 | [Beam Optimization](advanced/beam-optimization.md) | Log-semiring pushing, lookahead, token grouping |
 | [GPU Acceleration](advanced/gpu-acceleration.md) | CSR format, atomic recombination, batched streaming |
+
+### Programming Language Tools
+
+WFST-based tools for programming language processing:
+
+| Document | Description |
+|----------|-------------|
+| [API Migration](programming/api-migration.md) | Automated code migration between API versions |
+
+### Training
+
+Training methods and loss functions:
+
+| Document | Description |
+|----------|-------------|
+| [Weak Supervision](training/weak-supervision.md) | Training with noisy/imperfect transcripts using bypass arcs |
 
 ### Acoustic Integration
 
@@ -80,6 +99,22 @@ Acoustic model and ASR components:
 |----------|-------------|
 | [Acoustic Overview](acoustic/overview.md) | AcousticModel trait, TransitionMatrix, score fusion |
 | [Subword Lexicon](asr/subword-lexicon.md) | BPE/subword lexicon builder for ASR |
+| [Cascade Construction](asr/cascade-construction.md) | Full ASR cascade: N = π(min(det(H∘C∘L∘G))) |
+
+### Layers
+
+Correction layer implementations:
+
+#### Code Correction
+
+Pattern-aware code correction layers for programming languages:
+
+| Document | Description |
+|----------|-------------|
+| [Overview](layers/code-correction/overview.md) | Code correction layer introduction and architecture |
+| [Syntax Recovery](layers/code-correction/syntax-recovery.md) | Token insertion, deletion, and replacement strategies |
+| [Pattern-Aware](layers/code-correction/pattern-aware.md) | Idiom-based path boosting with mined patterns |
+| [Configuration](layers/code-correction/configuration.md) | Language-specific settings (Python, Rust, Rholang, MeTTa) |
 
 ### Integration Guides
 
@@ -175,15 +210,18 @@ Detailed API documentation:
 
 1. [CTC Topologies](advanced/ctc-topologies.md) - Graph structures for CTC
 2. [ASR Pipeline](advanced/asr-pipeline.md) - H∘C∘L∘G cascade construction
-3. [Acoustic Overview](acoustic/overview.md) - Acoustic model integration
-4. [Subword Lexicon](asr/subword-lexicon.md) - BPE lexicons for open vocabulary
-5. [Beam Optimization](advanced/beam-optimization.md) - Log-semiring pushing for speed
-6. [GPU Acceleration](advanced/gpu-acceleration.md) - High-performance decoding
+3. [Cascade Construction](asr/cascade-construction.md) - Building the full recognition network
+4. [Acoustic Overview](acoustic/overview.md) - Acoustic model integration
+5. [Subword Lexicon](asr/subword-lexicon.md) - BPE lexicons for open vocabulary
+6. [Beam Optimization](advanced/beam-optimization.md) - Log-semiring pushing for speed
+7. [GPU Acceleration](advanced/gpu-acceleration.md) - High-performance decoding
 
 **Integrating with deep learning?**
 
 1. [Differentiable Operations](advanced/differentiable.md) - Gradients through WFSTs
-2. [Deep Learning Integration](advanced/deep-learning.md) - WFST layers and marginalization
+2. [Top-Down Autograd](advanced/topdown-autograd.md) - k2-style efficient gradients
+3. [Deep Learning Integration](advanced/deep-learning.md) - WFST layers and marginalization
+4. [Weak Supervision](training/weak-supervision.md) - Training with noisy data
 
 **Integrating with your system?**
 
@@ -192,6 +230,13 @@ Detailed API documentation:
    - [Speech/NLP](integration/external/speech-nlp.md) for ASR pipelines
    - [Text Correction](integration/external/text-correction.md) for editors
    - [F1R3FLY.io Vision](integration/f1r3fly/vision.md) for distributed systems
+
+**Building code correction systems?**
+
+1. [Code Correction Overview](layers/code-correction/overview.md) - Layer architecture
+2. [Syntax Recovery](layers/code-correction/syntax-recovery.md) - Error recovery strategies
+3. [Pattern-Aware](layers/code-correction/pattern-aware.md) - Idiom-based boosting
+4. [Configuration](layers/code-correction/configuration.md) - Language setup (Python, Rust, Rholang, MeTTa)
 
 **Building production systems?**
 

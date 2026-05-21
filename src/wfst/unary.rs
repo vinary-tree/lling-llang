@@ -37,9 +37,9 @@
 
 use smallvec::SmallVec;
 
+use super::lazy::{LazyState, LazyWfstWrapper, StateSource};
+use super::{MutableWfst, StateId, VectorWfst, WeightedTransition, Wfst, NO_STATE};
 use crate::semiring::Semiring;
-use super::{StateId, WeightedTransition, Wfst, VectorWfst, MutableWfst, NO_STATE};
-use super::lazy::{LazyState, StateSource, LazyWfstWrapper};
 
 // =============================================================================
 // Inversion: T⁻¹
@@ -93,8 +93,8 @@ where
             .iter()
             .map(|t| WeightedTransition {
                 from: t.from,
-                input: t.output.clone(),  // Swap: output becomes input
-                output: t.input.clone(),   // Swap: input becomes output
+                input: t.output.clone(), // Swap: output becomes input
+                output: t.input.clone(), // Swap: input becomes output
                 to: t.to,
                 weight: t.weight,
             })
@@ -368,7 +368,7 @@ where
 mod tests {
     use super::*;
     use crate::semiring::TropicalWeight;
-    use crate::wfst::{VectorWfstBuilder, LazyWfst};
+    use crate::wfst::{LazyWfst, VectorWfstBuilder};
 
     fn make_transducer() -> VectorWfst<char, TropicalWeight> {
         // a:x -> b:y
@@ -594,7 +594,12 @@ mod tests {
             let orig = fst.transitions(s);
             let double = inv2.transitions_lazy(s);
 
-            assert_eq!(orig.len(), double.len(), "State {} transition count mismatch", s);
+            assert_eq!(
+                orig.len(),
+                double.len(),
+                "State {} transition count mismatch",
+                s
+            );
             for (o, d) in orig.iter().zip(double.iter()) {
                 assert_eq!(o.input, d.input, "State {} input mismatch", s);
                 assert_eq!(o.output, d.output, "State {} output mismatch", s);

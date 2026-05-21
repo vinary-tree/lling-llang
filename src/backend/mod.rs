@@ -39,11 +39,11 @@
 //! assert_eq!(backend.lookup(id1), Some("hello"));
 //! ```
 
-mod traits;
 mod hashmap;
+mod traits;
 
-pub use traits::{LatticeBackend, VocabId};
 pub use hashmap::HashMapBackend;
+pub use traits::{LatticeBackend, VocabId};
 
 #[cfg(feature = "f1r3fly")]
 mod pathmap;

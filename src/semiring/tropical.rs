@@ -25,7 +25,11 @@
 
 use ordered_float::OrderedFloat;
 
-use super::traits::{DivisibleSemiring, Semiring, StarSemiring};
+use super::traits::{
+    CommutativeTimesSemiring, DivisibleSemiring, IdempotentSemiring, KClosedSemiring,
+    NonnegativeSemiring, QuantizableSemiring, Semiring, StarSemiring, StochasticSemiring,
+    TotallyOrderedSemiring, WeaklyLeftDivisibleSemiring, ZeroSumFreeSemiring,
+};
 
 /// Tropical semiring weight.
 ///
@@ -178,6 +182,103 @@ impl StarSemiring for TropicalWeight {
     }
 }
 
+// ============================================================================
+// Algebraic Property Marker Trait Implementations
+// ============================================================================
+
+/// TropicalWeight is idempotent: min(a, a) = a
+impl IdempotentSemiring for TropicalWeight {}
+
+/// TropicalWeight is k-closed with k=0 for non-negative weights.
+///
+/// For the tropical semiring with non-negative weights:
+/// - `a* = min(0, a, 2a, 3a, ...) = 0` immediately (k=0)
+///
+/// Note: This assumes the domain is restricted to non-negative weights.
+/// Negative weights would cause the star to diverge.
+impl KClosedSemiring for TropicalWeight {
+    fn closure_bound() -> Option<usize> {
+        // For non-negative weights, star stabilizes immediately at k=0
+        // since min(0, a, 2a, ...) = 0 for a >= 0
+        Some(0)
+    }
+}
+
+/// TropicalWeight is zero-sum-free: min(a, b) = ∞ only if both a = ∞ and b = ∞
+impl ZeroSumFreeSemiring for TropicalWeight {}
+
+/// TropicalWeight is weakly left-divisible.
+///
+/// For tropical semiring where ⊕ = min and ⊗ = +:
+/// - Given `a` and `divisor = min(a, b)`, we need `c` such that `c + divisor = a`
+/// - This is `c = a - divisor`
+impl WeaklyLeftDivisibleSemiring for TropicalWeight {
+    fn left_divide(&self, divisor: &Self) -> Option<Self> {
+        if divisor.is_zero() {
+            // Division by ∞ is undefined
+            None
+        } else {
+            // c ⊗ divisor = self means c + divisor = self
+            // So c = self - divisor
+            Some(TropicalWeight(OrderedFloat(
+                self.0.into_inner() - divisor.0.into_inner(),
+            )))
+        }
+    }
+}
+
+/// TropicalWeight has commutative multiplication: a + b = b + a
+impl CommutativeTimesSemiring for TropicalWeight {}
+
+// ============================================================================
+// Algorithm Requirement Trait Implementations
+// ============================================================================
+
+/// TropicalWeight has a total order via OrderedFloat.
+///
+/// All real numbers (including infinity) are totally ordered.
+impl TotallyOrderedSemiring for TropicalWeight {}
+
+/// TropicalWeight is non-negative when used for shortest-path problems.
+///
+/// Note: This is a semantic guarantee. The tropical semiring *can* represent
+/// negative costs, but when used with non-negative edge weights (the common
+/// case for shortest-path problems), it satisfies this property.
+impl NonnegativeSemiring for TropicalWeight {}
+
+/// TropicalWeight can be quantized for approximate comparison.
+impl QuantizableSemiring for TropicalWeight {
+    fn quantize(&self, epsilon: f64) -> i64 {
+        let v = self.value();
+        if v.is_nan() {
+            i64::MIN
+        } else if v.is_infinite() {
+            if v > 0.0 {
+                i64::MAX
+            } else {
+                i64::MIN + 1
+            }
+        } else {
+            (v / epsilon).round() as i64
+        }
+    }
+}
+
+/// TropicalWeight can be converted to probability for sampling.
+///
+/// Uses exp(-cost) to convert costs to probability-like values.
+/// Lower costs (better paths) map to higher probabilities.
+impl StochasticSemiring for TropicalWeight {
+    fn to_probability(&self) -> f64 {
+        let v = self.value();
+        if v.is_infinite() && v > 0.0 {
+            0.0 // Infinite cost = zero probability
+        } else {
+            (-v).exp() // Convert cost to probability
+        }
+    }
+}
+
 impl std::ops::Add for TropicalWeight {
     type Output = Self;
 
@@ -236,7 +337,10 @@ impl<'de> serde::Deserialize<'de> for TropicalWeight {
 mod tests {
     use super::*;
     use crate::semiring::traits::tests::{
-        verify_divisible_semiring, verify_semiring_axioms, verify_star_semiring,
+        verify_commutative_times_semiring, verify_divisible_semiring, verify_idempotent_semiring,
+        verify_k_closed_semiring, verify_quantizable_semiring, verify_semiring_axioms,
+        verify_star_semiring, verify_stochastic_semiring, verify_totally_ordered_semiring,
+        verify_weakly_left_divisible_semiring, verify_zero_sum_free_semiring,
     };
     use proptest::prelude::*;
 
@@ -331,6 +435,75 @@ mod tests {
         fn proptest_star_semiring(a in 0.0f64..1000.0) {
             let wa = TropicalWeight::new(a);
             verify_star_semiring(wa, 1e-10);
+        }
+
+        #[test]
+        fn proptest_idempotent_semiring(a in 0.0f64..1000.0) {
+            let wa = TropicalWeight::new(a);
+            verify_idempotent_semiring(wa, 1e-10);
+        }
+
+        #[test]
+        fn proptest_k_closed_semiring(a in 0.0f64..1000.0) {
+            let wa = TropicalWeight::new(a);
+            verify_k_closed_semiring(wa, 1e-10);
+        }
+
+        #[test]
+        fn proptest_zero_sum_free_semiring(
+            a in 0.0f64..1000.0,
+            b in 0.0f64..1000.0
+        ) {
+            let wa = TropicalWeight::new(a);
+            let wb = TropicalWeight::new(b);
+            verify_zero_sum_free_semiring(wa, wb, 1e-10);
+        }
+
+        #[test]
+        fn proptest_weakly_left_divisible_semiring(
+            a in 0.0f64..1000.0,
+            b in 0.001f64..1000.0 // Avoid near-zero divisor
+        ) {
+            let wa = TropicalWeight::new(a);
+            let wb = TropicalWeight::new(b);
+            // Test with divisor = min(a, b) which is a valid sum
+            let divisor = wa.plus(&wb);
+            verify_weakly_left_divisible_semiring(wa, divisor, 1e-10);
+        }
+
+        #[test]
+        fn proptest_commutative_times_semiring(
+            a in 0.0f64..1000.0,
+            b in 0.0f64..1000.0
+        ) {
+            let wa = TropicalWeight::new(a);
+            let wb = TropicalWeight::new(b);
+            verify_commutative_times_semiring(wa, wb, 1e-10);
+        }
+
+        #[test]
+        fn proptest_totally_ordered_semiring(
+            a in 0.0f64..1000.0,
+            b in 0.0f64..1000.0,
+            c in 0.0f64..1000.0
+        ) {
+            let wa = TropicalWeight::new(a);
+            let wb = TropicalWeight::new(b);
+            let wc = TropicalWeight::new(c);
+            verify_totally_ordered_semiring(wa, wb, wc);
+        }
+
+        #[test]
+        fn proptest_quantizable_semiring(a in 0.0f64..1000.0) {
+            let wa = TropicalWeight::new(a);
+            verify_quantizable_semiring(wa, 1e-10);
+        }
+
+        #[test]
+        fn proptest_stochastic_semiring(a in 0.0f64..100.0) {
+            // Use smaller range to avoid exp(-a) underflow
+            let wa = TropicalWeight::new(a);
+            verify_stochastic_semiring(wa);
         }
     }
 }

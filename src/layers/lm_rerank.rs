@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use crate::backend::LatticeBackend;
 use crate::lattice::{Lattice, LatticeBuilder, NodeId};
-use crate::semiring::{Semiring, NumericalWeight};
+use crate::semiring::{NumericalWeight, Semiring};
 
 use super::traits::{CorrectionLayer, LayerError, LayerResult};
 
@@ -127,10 +127,8 @@ impl LanguageModelLayer {
         // Process nodes in topological order
         for node_id in topo_order {
             // Get contexts at current node (clone to avoid borrow issues)
-            let current_contexts: Vec<Vec<String>> = context_map
-                .get(&node_id)
-                .cloned()
-                .unwrap_or_default();
+            let current_contexts: Vec<Vec<String>> =
+                context_map.get(&node_id).cloned().unwrap_or_default();
 
             if current_contexts.is_empty() {
                 continue;
@@ -160,10 +158,7 @@ impl LanguageModelLayer {
                         }
                     }
 
-                    context_map
-                        .entry(target)
-                        .or_default()
-                        .push(new_ctx);
+                    context_map.entry(target).or_default().push(new_ctx);
                 }
             }
         }
@@ -230,10 +225,12 @@ where
                 Some(w) => w,
                 None => {
                     // Edge without a word (epsilon transition) - keep original weight
-                    let source_pos = lattice.node(edge.source)
+                    let source_pos = lattice
+                        .node(edge.source)
                         .and_then(|n| n.position)
                         .unwrap_or(edge.source.0 as usize);
-                    let target_pos = lattice.node(edge.target)
+                    let target_pos = lattice
+                        .node(edge.target)
                         .and_then(|n| n.position)
                         .unwrap_or(edge.target.0 as usize);
 
@@ -281,10 +278,12 @@ where
             let adjusted_weight = self.interpolate_weight(edge.weight, lm_log_prob);
 
             // Get node positions for the builder
-            let source_pos = lattice.node(edge.source)
+            let source_pos = lattice
+                .node(edge.source)
                 .and_then(|n| n.position)
                 .unwrap_or(edge.source.0 as usize);
-            let target_pos = lattice.node(edge.target)
+            let target_pos = lattice
+                .node(edge.target)
                 .and_then(|n| n.position)
                 .unwrap_or(edge.target.0 as usize);
 
@@ -299,7 +298,8 @@ where
         }
 
         // Build and return the rescored lattice
-        let end_pos = lattice.node(lattice.end())
+        let end_pos = lattice
+            .node(lattice.end())
             .and_then(|n| n.position)
             .unwrap_or(lattice.end().0 as usize);
 
@@ -320,7 +320,7 @@ where
 mod tests {
     use super::*;
     use crate::backend::HashMapBackend;
-    use crate::lattice::{LatticeBuilder, EdgeMetadata};
+    use crate::lattice::{EdgeMetadata, LatticeBuilder};
     use crate::semiring::TropicalWeight;
 
     struct MockLanguageModel;
@@ -343,7 +343,9 @@ mod tests {
 
     impl BiasedLanguageModel {
         fn new(favored: &str) -> Self {
-            Self { favored: favored.to_string() }
+            Self {
+                favored: favored.to_string(),
+            }
         }
     }
 
@@ -355,9 +357,9 @@ mod tests {
         fn score_continuation(&self, _prefix: &[&str], next: &str) -> f64 {
             // Favored word gets better (higher/less negative) score
             if next == self.favored {
-                -0.1  // High probability
+                -0.1 // High probability
             } else {
-                -2.0  // Low probability
+                -2.0 // Low probability
             }
         }
     }
@@ -373,7 +375,8 @@ mod tests {
     fn test_layer_name() {
         let layer = LanguageModelLayer::new(Box::new(MockLanguageModel));
         // Use explicit trait method call with concrete types
-        let name = <LanguageModelLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::name(&layer);
+        let name =
+            <LanguageModelLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::name(&layer);
         assert_eq!(name, "lm-rerank");
     }
 
@@ -389,8 +392,7 @@ mod tests {
 
     #[test]
     fn test_weight_clamping() {
-        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel))
-            .with_weight(1.5);  // Should clamp to 1.0
+        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel)).with_weight(1.5); // Should clamp to 1.0
 
         assert!((layer.weight - 1.0).abs() < 0.001);
     }
@@ -410,7 +412,9 @@ mod tests {
         let builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
         let lattice = builder.build(0);
 
-        let result = <LanguageModelLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(&layer, &lattice);
+        let result = <LanguageModelLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(
+            &layer, &lattice,
+        );
         assert!(result.is_ok());
         let rescored = result.unwrap();
         assert!(rescored.is_empty());
@@ -418,16 +422,23 @@ mod tests {
 
     #[test]
     fn test_apply_single_edge() {
-        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel))
-            .with_weight(0.5);
+        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel)).with_weight(0.5);
 
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
         // Add single edge: "hello" with weight 2.0
-        builder.add_correction(0, 1, "hello", TropicalWeight::new(2.0), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "hello",
+            TropicalWeight::new(2.0),
+            EdgeMetadata::default(),
+        );
         let lattice = builder.build(1);
 
-        let result = <LanguageModelLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(&layer, &lattice);
+        let result = <LanguageModelLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(
+            &layer, &lattice,
+        );
         assert!(result.is_ok());
         let rescored = result.unwrap();
 
@@ -454,12 +465,26 @@ mod tests {
 
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
-        builder.add_correction(0, 1, "the", TropicalWeight::new(1.0), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "the",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
         builder.add_correction(0, 1, "a", TropicalWeight::new(2.0), EdgeMetadata::default());
-        builder.add_correction(1, 2, "dog", TropicalWeight::new(1.5), EdgeMetadata::default());
+        builder.add_correction(
+            1,
+            2,
+            "dog",
+            TropicalWeight::new(1.5),
+            EdgeMetadata::default(),
+        );
         let lattice = builder.build(2);
 
-        let result = <LanguageModelLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(&layer, &lattice);
+        let result = <LanguageModelLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(
+            &layer, &lattice,
+        );
         assert!(result.is_ok());
         let rescored = result.unwrap();
 
@@ -471,11 +496,10 @@ mod tests {
     #[test]
     fn test_weight_interpolation_formula() {
         // Test the interpolation formula directly
-        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel))
-            .with_weight(0.3);  // 30% LM, 70% original
+        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel)).with_weight(0.3); // 30% LM, 70% original
 
         let orig_weight = TropicalWeight::new(4.0);
-        let lm_log_prob = -2.0;  // Cost = 2.0
+        let lm_log_prob = -2.0; // Cost = 2.0
 
         let result = layer.interpolate_weight(orig_weight, lm_log_prob);
 
@@ -489,15 +513,22 @@ mod tests {
 
     #[test]
     fn test_lambda_zero_ignores_lm() {
-        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel))
-            .with_weight(0.0);  // Ignore LM completely
+        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel)).with_weight(0.0); // Ignore LM completely
 
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
-        builder.add_correction(0, 1, "word", TropicalWeight::new(5.0), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "word",
+            TropicalWeight::new(5.0),
+            EdgeMetadata::default(),
+        );
         let lattice = builder.build(1);
 
-        let result = <LanguageModelLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(&layer, &lattice);
+        let result = <LanguageModelLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(
+            &layer, &lattice,
+        );
         let rescored = result.unwrap();
 
         // With lambda=0, weights should be unchanged
@@ -512,15 +543,22 @@ mod tests {
 
     #[test]
     fn test_lambda_one_uses_only_lm() {
-        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel))
-            .with_weight(1.0);  // Use only LM scores
+        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel)).with_weight(1.0); // Use only LM scores
 
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
-        builder.add_correction(0, 1, "word", TropicalWeight::new(5.0), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "word",
+            TropicalWeight::new(5.0),
+            EdgeMetadata::default(),
+        );
         let lattice = builder.build(1);
 
-        let result = <LanguageModelLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(&layer, &lattice);
+        let result = <LanguageModelLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(
+            &layer, &lattice,
+        );
         let rescored = result.unwrap();
 
         // With lambda=1, weight should be purely LM cost
@@ -537,17 +575,31 @@ mod tests {
     #[test]
     fn test_biased_lm_adjusts_weights() {
         // LM that favors "good" over "bad"
-        let layer = LanguageModelLayer::new(Box::new(BiasedLanguageModel::new("good")))
-            .with_weight(0.5);
+        let layer =
+            LanguageModelLayer::new(Box::new(BiasedLanguageModel::new("good"))).with_weight(0.5);
 
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
         // Both start with same original weight
-        builder.add_correction(0, 1, "good", TropicalWeight::new(1.0), EdgeMetadata::default());
-        builder.add_correction(0, 1, "bad", TropicalWeight::new(1.0), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "good",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            0,
+            1,
+            "bad",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
         let lattice = builder.build(1);
 
-        let result = <LanguageModelLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(&layer, &lattice);
+        let result = <LanguageModelLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(
+            &layer, &lattice,
+        );
         let rescored = result.unwrap();
 
         let mut good_weight = None;
@@ -582,7 +634,10 @@ mod tests {
         let builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
         let lattice = builder.build(0);
 
-        let can_apply = <LanguageModelLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::can_apply(&layer, &lattice);
+        let can_apply =
+            <LanguageModelLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::can_apply(
+                &layer, &lattice,
+            );
         assert!(can_apply);
     }
 }

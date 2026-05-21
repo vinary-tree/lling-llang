@@ -33,7 +33,7 @@
 //! - Mohri, M., Pereira, F., & Riley, M. (2002). "WFSTs in Speech Recognition"
 
 use crate::semiring::{DivisibleSemiring, Semiring};
-use crate::wfst::{MutableWfst, StateId, Wfst, WeightedTransition, NO_STATE};
+use crate::wfst::{MutableWfst, StateId, WeightedTransition, Wfst, NO_STATE};
 
 use super::shortest_distance::{
     reverse_shortest_distance, single_source_shortest_distance, ShortestDistanceConfig,
@@ -148,10 +148,8 @@ where
             single_source_shortest_distance(fst, config.distance_config.clone())
                 .ok_or(PushError::NoPotentials)?
         }
-        PushDirection::Backward => {
-            reverse_shortest_distance(fst, config.distance_config.clone())
-                .ok_or(PushError::NoPotentials)?
-        }
+        PushDirection::Backward => reverse_shortest_distance(fst, config.distance_config.clone())
+            .ok_or(PushError::NoPotentials)?,
     };
 
     // Check that potentials are valid
@@ -319,7 +317,6 @@ where
         }
     }
 }
-
 
 /// Errors that can occur during weight pushing.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -31,14 +31,14 @@
 //! let forest = parser.parse_lattice(&lattice)?;
 //! ```
 
-mod types;
-mod grammar;
 mod builder;
 mod earley;
 mod forest;
+mod grammar;
+mod types;
 
-pub use types::{NonTerminal, Terminal, RuleId, Symbol, SymbolKind};
-pub use grammar::{Production, Grammar, GrammarError};
 pub use builder::GrammarBuilder;
-pub use earley::{EarleyParser, EarleyState, EarleyChart, ParseError};
-pub use forest::{ParseForest, ParseTree, ForestNodeId, ForestNode};
+pub use earley::{EarleyChart, EarleyParser, EarleyState, ParseError};
+pub use forest::{ForestNode, ForestNodeId, ParseForest, ParseTree};
+pub use grammar::{Grammar, GrammarError, Production};
+pub use types::{NonTerminal, RuleId, Symbol, SymbolKind, Terminal};

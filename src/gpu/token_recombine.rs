@@ -216,12 +216,8 @@ impl RecombinationBuffer {
     /// * `num_arcs` - Number of arcs in the WFST
     pub fn new(num_states: usize, num_arcs: usize) -> Self {
         Self {
-            state_tokens: (0..num_states)
-                .map(|_| AtomicU64::new(u64::MAX))
-                .collect(),
-            per_arc_tokens: (0..num_arcs)
-                .map(|_| AtomicU64::new(u64::MAX))
-                .collect(),
+            state_tokens: (0..num_states).map(|_| AtomicU64::new(u64::MAX)).collect(),
+            per_arc_tokens: (0..num_arcs).map(|_| AtomicU64::new(u64::MAX)).collect(),
             num_states,
             num_arcs,
         }

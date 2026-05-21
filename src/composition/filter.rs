@@ -225,8 +225,8 @@ mod tests {
         let filter = EpsilonFilter::new(EpsilonFilterType::Sequencing);
 
         let (eps1, eps2, match_) = filter.allowed_moves(FilterState::Eps1);
-        assert!(eps1);   // FST1 can continue with epsilons
-        assert!(!eps2);  // FST2 cannot start epsilon sequence
+        assert!(eps1); // FST1 can continue with epsilons
+        assert!(!eps2); // FST2 cannot start epsilon sequence
         assert!(match_); // Matching still allowed
     }
 
@@ -235,8 +235,8 @@ mod tests {
         let filter = EpsilonFilter::new(EpsilonFilterType::Sequencing);
 
         let (eps1, eps2, match_) = filter.allowed_moves(FilterState::Eps2);
-        assert!(!eps1);  // FST1 cannot start epsilon sequence
-        assert!(eps2);   // FST2 can continue with epsilons
+        assert!(!eps1); // FST1 cannot start epsilon sequence
+        assert!(eps2); // FST2 can continue with epsilons
         assert!(match_); // Matching still allowed
     }
 

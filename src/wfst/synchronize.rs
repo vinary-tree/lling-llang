@@ -71,9 +71,9 @@ use std::hash::Hash;
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 
-use crate::semiring::Semiring;
+use super::lazy::{LazyState, LazyWfstWrapper, StateSource};
 use super::{StateId, WeightedTransition, Wfst, NO_STATE};
-use super::lazy::{LazyState, StateSource, LazyWfstWrapper};
+use crate::semiring::Semiring;
 
 // =============================================================================
 // String Delay Type
@@ -459,13 +459,17 @@ where
 
         // Get output labels (first symbols from synchronized delay)
         let out_input = if !sync_state.delay.input.is_empty() || trans.input.is_some() {
-            new_delay.car_input().or_else(|| sync_state.delay.car_input())
+            new_delay
+                .car_input()
+                .or_else(|| sync_state.delay.car_input())
         } else {
             None
         };
 
         let out_output = if !sync_state.delay.output.is_empty() || trans.output.is_some() {
-            new_delay.car_output().or_else(|| sync_state.delay.car_output())
+            new_delay
+                .car_output()
+                .or_else(|| sync_state.delay.car_output())
         } else {
             None
         };
@@ -605,7 +609,8 @@ where
             if self.fst.is_final(original) {
                 if sync_state.delay.is_empty() {
                     // Final with no delay
-                    self.final_states.insert(state, self.fst.final_weight(original));
+                    self.final_states
+                        .insert(state, self.fst.final_weight(original));
                 } else {
                     // Need to drain
                     let input_label = sync_state.delay.car_input();
@@ -702,7 +707,10 @@ where
 
     /// Get final weight.
     pub fn final_weight(&self, state: StateId) -> W {
-        self.final_states.get(&state).copied().unwrap_or_else(W::zero)
+        self.final_states
+            .get(&state)
+            .copied()
+            .unwrap_or_else(W::zero)
     }
 
     /// Get start state.

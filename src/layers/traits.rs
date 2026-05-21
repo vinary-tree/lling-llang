@@ -121,7 +121,10 @@ pub trait CorrectionLayer<W: Semiring, B: LatticeBackend>: Send + Sync {
     }
 
     /// Apply and return statistics about the operation.
-    fn apply_with_stats(&self, lattice: &Lattice<W, B>) -> LayerResult<(Lattice<W, B>, LayerStats)> {
+    fn apply_with_stats(
+        &self,
+        lattice: &Lattice<W, B>,
+    ) -> LayerResult<(Lattice<W, B>, LayerStats)> {
         let start = std::time::Instant::now();
         let input_edges = lattice.num_edges();
 
@@ -163,9 +166,7 @@ pub struct LayerPipeline<W: Semiring, B: LatticeBackend> {
 impl<W: Semiring, B: LatticeBackend> LayerPipeline<W, B> {
     /// Create a new empty pipeline.
     pub fn new() -> Self {
-        Self {
-            layers: Vec::new(),
-        }
+        Self { layers: Vec::new() }
     }
 
     /// Add a layer to the end of the pipeline.
@@ -206,7 +207,10 @@ impl<W: Semiring, B: LatticeBackend> LayerPipeline<W, B> {
     }
 
     /// Apply all layers and collect statistics.
-    pub fn apply_with_stats(&self, lattice: &Lattice<W, B>) -> LayerResult<(Lattice<W, B>, Vec<LayerStats>)> {
+    pub fn apply_with_stats(
+        &self,
+        lattice: &Lattice<W, B>,
+    ) -> LayerResult<(Lattice<W, B>, Vec<LayerStats>)> {
         let mut current = lattice.clone();
         let mut all_stats = Vec::with_capacity(self.layers.len());
 
@@ -227,7 +231,8 @@ impl<W: Semiring, B: LatticeBackend> LayerPipeline<W, B> {
 
     /// Get estimated total reduction factor.
     pub fn estimated_reduction(&self) -> f64 {
-        self.layers.iter()
+        self.layers
+            .iter()
             .map(|l| l.estimated_reduction())
             .product()
     }
@@ -267,9 +272,7 @@ pub struct LayerPipelineBuilder<W: Semiring, B: LatticeBackend> {
 impl<W: Semiring, B: LatticeBackend> LayerPipelineBuilder<W, B> {
     /// Create a new builder.
     pub fn new() -> Self {
-        Self {
-            layers: Vec::new(),
-        }
+        Self { layers: Vec::new() }
     }
 
     /// Add a custom layer.
@@ -296,14 +299,16 @@ impl<W: Semiring, B: LatticeBackend> Default for LayerPipelineBuilder<W, B> {
 mod tests {
     use super::*;
     use crate::backend::HashMapBackend;
-    use crate::lattice::{LatticeBuilder, EdgeMetadata};
+    use crate::lattice::{EdgeMetadata, LatticeBuilder};
     use crate::semiring::TropicalWeight;
 
     /// Simple pass-through layer for testing.
     struct IdentityLayer;
 
     impl<W: Semiring, B: LatticeBackend> CorrectionLayer<W, B> for IdentityLayer {
-        fn name(&self) -> &str { "identity" }
+        fn name(&self) -> &str {
+            "identity"
+        }
 
         fn apply(&self, lattice: &Lattice<W, B>) -> LayerResult<Lattice<W, B>> {
             Ok(lattice.clone())
@@ -316,9 +321,14 @@ mod tests {
     }
 
     impl CorrectionLayer<TropicalWeight, HashMapBackend> for MarkingLayer {
-        fn name(&self) -> &str { "marking" }
+        fn name(&self) -> &str {
+            "marking"
+        }
 
-        fn apply(&self, lattice: &Lattice<TropicalWeight, HashMapBackend>) -> LayerResult<Lattice<TropicalWeight, HashMapBackend>> {
+        fn apply(
+            &self,
+            lattice: &Lattice<TropicalWeight, HashMapBackend>,
+        ) -> LayerResult<Lattice<TropicalWeight, HashMapBackend>> {
             // For now, just return a clone (a real implementation would modify edges)
             Ok(lattice.clone())
         }
@@ -372,10 +382,15 @@ mod tests {
         type B = HashMapBackend;
 
         assert_eq!(<Layer as CorrectionLayer<W, B>>::name(&layer), "identity");
-        assert!(<Layer as CorrectionLayer<W, B>>::can_apply(&layer, &lattice));
-        assert!((<Layer as CorrectionLayer<W, B>>::estimated_reduction(&layer) - 1.0).abs() < 0.001);
+        assert!(<Layer as CorrectionLayer<W, B>>::can_apply(
+            &layer, &lattice
+        ));
+        assert!(
+            (<Layer as CorrectionLayer<W, B>>::estimated_reduction(&layer) - 1.0).abs() < 0.001
+        );
 
-        let result = <Layer as CorrectionLayer<W, B>>::apply(&layer, &lattice).expect("should apply");
+        let result =
+            <Layer as CorrectionLayer<W, B>>::apply(&layer, &lattice).expect("should apply");
         assert_eq!(result.num_edges(), lattice.num_edges());
     }
 

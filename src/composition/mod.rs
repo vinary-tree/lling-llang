@@ -42,15 +42,14 @@
 //! let eager: VectorWfst<_, _> = materialize(lazy);
 //! ```
 
+mod cfg_fst;
 mod filter;
 mod fst_fst;
-mod cfg_fst;
 mod materialize;
 
-pub use filter::{EpsilonFilter, EpsilonFilterType, FilterState};
-pub use fst_fst::{compose, LazyComposition, ComposedPath, ProductStateId};
 pub use cfg_fst::{
-    LazyCfgComposition, FilteredLattice, ValidPathIterator,
-    ParseState, CompositionStats,
+    CompositionStats, FilteredLattice, LazyCfgComposition, ParseState, ValidPathIterator,
 };
+pub use filter::{EpsilonFilter, EpsilonFilterType, FilterState};
+pub use fst_fst::{compose, ComposedPath, LazyComposition, ProductStateId};
 pub use materialize::materialize;

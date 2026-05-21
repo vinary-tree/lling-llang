@@ -2,10 +2,10 @@
 
 use smallvec::SmallVec;
 
+use super::lattice::Lattice;
+use super::types::{EdgeId, NodeId};
 use crate::backend::{LatticeBackend, VocabId};
 use crate::semiring::Semiring;
-use super::types::{NodeId, EdgeId};
-use super::lattice::Lattice;
 
 /// A path through a lattice.
 ///
@@ -71,9 +71,9 @@ impl<W: Semiring> LatticePath<W> {
         &'a self,
         lattice: &'a Lattice<W, B>,
     ) -> impl Iterator<Item = VocabId> + 'a {
-        self.edges.iter().filter_map(move |&edge_id| {
-            lattice.edge(edge_id).map(|e| e.label)
-        })
+        self.edges
+            .iter()
+            .filter_map(move |&edge_id| lattice.edge(edge_id).map(|e| e.label))
     }
 
     /// Get the words for this path.
@@ -81,9 +81,9 @@ impl<W: Semiring> LatticePath<W> {
         &'a self,
         lattice: &'a Lattice<W, B>,
     ) -> impl Iterator<Item = &'a str> + 'a {
-        self.edges.iter().filter_map(move |&edge_id| {
-            lattice.edge(edge_id).and_then(|e| lattice.word(e.label))
-        })
+        self.edges
+            .iter()
+            .filter_map(move |&edge_id| lattice.edge(edge_id).and_then(|e| lattice.word(e.label)))
     }
 
     /// Convert the path to a vector of words.
@@ -143,7 +143,8 @@ impl<'a, W: Semiring, B: LatticeBackend> Iterator for PathIterator<'a, W, B> {
     fn next(&mut self) -> Option<Self::Item> {
         while let Some((node, edge_idx, path)) = self.stack.pop() {
             // Get outgoing edges
-            let outgoing: SmallVec<[_; 8]> = self.lattice
+            let outgoing: SmallVec<[_; 8]> = self
+                .lattice
                 .outgoing_edges(node)
                 .map(|e| (e.id, e.target, e.weight))
                 .collect();
@@ -224,10 +225,28 @@ mod tests {
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
 
-        builder.add_correction(0, 1, "the", TropicalWeight::new(0.5), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "the",
+            TropicalWeight::new(0.5),
+            EdgeMetadata::default(),
+        );
         builder.add_correction(0, 1, "a", TropicalWeight::new(1.0), EdgeMetadata::default());
-        builder.add_correction(1, 2, "quick", TropicalWeight::new(0.5), EdgeMetadata::default());
-        builder.add_correction(1, 2, "slow", TropicalWeight::new(1.5), EdgeMetadata::default());
+        builder.add_correction(
+            1,
+            2,
+            "quick",
+            TropicalWeight::new(0.5),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            1,
+            2,
+            "slow",
+            TropicalWeight::new(1.5),
+            EdgeMetadata::default(),
+        );
 
         builder.build(2)
     }
@@ -273,10 +292,8 @@ mod tests {
     #[test]
     fn test_path_to_words() {
         let lattice = sample_lattice();
-        let mut word_paths: Vec<Vec<String>> = lattice
-            .paths()
-            .map(|p| p.to_words(&lattice))
-            .collect();
+        let mut word_paths: Vec<Vec<String>> =
+            lattice.paths().map(|p| p.to_words(&lattice)).collect();
 
         word_paths.sort();
 
@@ -292,7 +309,8 @@ mod tests {
         let paths: Vec<_> = lattice.paths().collect();
 
         // Find the path with minimum weight
-        let min_path = paths.iter()
+        let min_path = paths
+            .iter()
             .min_by(|a, b| a.weight.value().partial_cmp(&b.weight.value()).unwrap())
             .unwrap();
 
@@ -323,8 +341,20 @@ mod tests {
         let backend = HashMapBackend::new();
         let mut builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
 
-        builder.add_correction(0, 1, "hello", TropicalWeight::new(1.0), EdgeMetadata::default());
-        builder.add_correction(1, 2, "world", TropicalWeight::new(2.0), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "hello",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            1,
+            2,
+            "world",
+            TropicalWeight::new(2.0),
+            EdgeMetadata::default(),
+        );
 
         let lattice = builder.build(2);
         let paths: Vec<_> = lattice.paths().collect();

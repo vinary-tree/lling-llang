@@ -34,7 +34,11 @@
 
 use ordered_float::OrderedFloat;
 
-use super::traits::{DivisibleSemiring, Semiring, StarSemiring};
+use super::traits::{
+    CommutativeTimesSemiring, DivisibleSemiring, KClosedSemiring, NonnegativeSemiring,
+    QuantizableSemiring, Semiring, StarSemiring, StochasticSemiring, TotallyOrderedSemiring,
+    WeaklyLeftDivisibleSemiring, ZeroSumFreeSemiring,
+};
 
 /// Log semiring weight (negative log probability).
 ///
@@ -54,10 +58,7 @@ impl LogWeight {
     /// Create a log weight from a probability in [0, 1].
     #[inline]
     pub fn from_probability(prob: f64) -> Self {
-        debug_assert!(
-            (0.0..=1.0).contains(&prob),
-            "Probability must be in [0, 1]"
-        );
+        debug_assert!((0.0..=1.0).contains(&prob), "Probability must be in [0, 1]");
         if prob == 0.0 {
             Self::zero()
         } else {
@@ -257,6 +258,94 @@ impl StarSemiring for LogWeight {
     }
 }
 
+// ============================================================================
+// Algebraic Property Marker Trait Implementations
+// ============================================================================
+
+// Note: LogWeight is NOT IdempotentSemiring because log-sum-exp(a, a) ≠ a
+// (adding probability p + p = 2p ≠ p)
+
+/// LogWeight is k-closed, but the closure bound depends on the specific weight value.
+///
+/// For weights w > 0 (probability p < 1), the star converges:
+/// - Large w (small p): converges quickly (effectively k=0)
+/// - Small positive w (p close to 1): converges slowly
+///
+/// Since there's no uniform bound for all weights, we return `None`.
+impl KClosedSemiring for LogWeight {
+    fn closure_bound() -> Option<usize> {
+        // k depends on the specific weight value, so no uniform bound
+        None
+    }
+}
+
+/// LogWeight is zero-sum-free: log-add(a, b) = ∞ only if both a = ∞ and b = ∞
+impl ZeroSumFreeSemiring for LogWeight {}
+
+/// LogWeight is weakly left-divisible.
+///
+/// For log semiring where ⊕ = log-sum-exp and ⊗ = +:
+/// - Given `a` and `divisor = log-sum-exp(a, b)`, we need `c` such that `c + divisor = a`
+/// - This is `c = a - divisor`
+impl WeaklyLeftDivisibleSemiring for LogWeight {
+    fn left_divide(&self, divisor: &Self) -> Option<Self> {
+        if divisor.is_zero() {
+            // Division by ∞ is undefined
+            None
+        } else {
+            // c ⊗ divisor = self means c + divisor = self
+            // So c = self - divisor
+            Some(LogWeight::new(self.0.into_inner() - divisor.0.into_inner()))
+        }
+    }
+}
+
+/// LogWeight has commutative multiplication: a + b = b + a
+impl CommutativeTimesSemiring for LogWeight {}
+
+// ============================================================================
+// Algorithm Requirement Trait Implementations
+// ============================================================================
+
+/// LogWeight has a total order via OrderedFloat.
+///
+/// All real numbers (including infinity) are totally ordered.
+impl TotallyOrderedSemiring for LogWeight {}
+
+/// LogWeight values are non-negative (negative log probabilities are ≥ 0 for p ≤ 1).
+///
+/// For probabilities in (0, 1], the negative log is non-negative.
+/// For probability 0, the negative log is +∞.
+impl NonnegativeSemiring for LogWeight {}
+
+/// LogWeight can be quantized for approximate comparison.
+impl QuantizableSemiring for LogWeight {
+    fn quantize(&self, epsilon: f64) -> i64 {
+        let v = self.value();
+        if v.is_nan() {
+            i64::MIN
+        } else if v.is_infinite() {
+            if v > 0.0 {
+                i64::MAX
+            } else {
+                i64::MIN + 1
+            }
+        } else {
+            (v / epsilon).round() as i64
+        }
+    }
+}
+
+/// LogWeight can be converted to probability for sampling.
+///
+/// Uses the existing `to_probability()` method which computes exp(-value).
+impl StochasticSemiring for LogWeight {
+    fn to_probability(&self) -> f64 {
+        // LogWeight::to_probability() already exists and computes exp(-value)
+        LogWeight::to_probability(*self)
+    }
+}
+
 impl std::ops::Add for LogWeight {
     type Output = Self;
 
@@ -313,7 +402,10 @@ impl<'de> serde::Deserialize<'de> for LogWeight {
 mod tests {
     use super::*;
     use crate::semiring::traits::tests::{
-        verify_divisible_semiring, verify_semiring_axioms, verify_star_semiring,
+        verify_commutative_times_semiring, verify_divisible_semiring, verify_quantizable_semiring,
+        verify_semiring_axioms, verify_star_semiring, verify_stochastic_semiring,
+        verify_totally_ordered_semiring, verify_weakly_left_divisible_semiring,
+        verify_zero_sum_free_semiring,
     };
     use proptest::prelude::*;
 
@@ -468,6 +560,62 @@ mod tests {
         fn proptest_star_semiring(prob in 0.001f64..0.999) {
             let w = LogWeight::from_probability(prob);
             verify_star_semiring(w, 1e-6);
+        }
+
+        #[test]
+        fn proptest_zero_sum_free_semiring(
+            a_prob in 0.001f64..0.999,
+            b_prob in 0.001f64..0.999
+        ) {
+            let wa = LogWeight::from_probability(a_prob);
+            let wb = LogWeight::from_probability(b_prob);
+            verify_zero_sum_free_semiring(wa, wb, 1e-8);
+        }
+
+        #[test]
+        fn proptest_weakly_left_divisible_semiring(
+            a_prob in 0.001f64..0.999,
+            b_prob in 0.001f64..0.999
+        ) {
+            let wa = LogWeight::from_probability(a_prob);
+            let wb = LogWeight::from_probability(b_prob);
+            // Test with divisor = log-sum-exp(a, b) which is a valid sum
+            let divisor = wa.plus(&wb);
+            verify_weakly_left_divisible_semiring(wa, divisor, 1e-8);
+        }
+
+        #[test]
+        fn proptest_commutative_times_semiring(
+            a_prob in 0.001f64..0.999,
+            b_prob in 0.001f64..0.999
+        ) {
+            let wa = LogWeight::from_probability(a_prob);
+            let wb = LogWeight::from_probability(b_prob);
+            verify_commutative_times_semiring(wa, wb, 1e-8);
+        }
+
+        #[test]
+        fn proptest_totally_ordered_semiring(
+            a_prob in 0.001f64..0.999,
+            b_prob in 0.001f64..0.999,
+            c_prob in 0.001f64..0.999
+        ) {
+            let wa = LogWeight::from_probability(a_prob);
+            let wb = LogWeight::from_probability(b_prob);
+            let wc = LogWeight::from_probability(c_prob);
+            verify_totally_ordered_semiring(wa, wb, wc);
+        }
+
+        #[test]
+        fn proptest_quantizable_semiring(prob in 0.001f64..0.999) {
+            let wa = LogWeight::from_probability(prob);
+            verify_quantizable_semiring(wa, 1e-10);
+        }
+
+        #[test]
+        fn proptest_stochastic_semiring(prob in 0.001f64..0.999) {
+            let wa = LogWeight::from_probability(prob);
+            verify_stochastic_semiring(wa);
         }
     }
 }

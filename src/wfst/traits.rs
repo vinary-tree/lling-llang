@@ -2,8 +2,8 @@
 
 use std::fmt::Debug;
 
-use crate::semiring::Semiring;
 use super::{StateId, WeightedTransition, WfstState};
+use crate::semiring::Semiring;
 
 /// Core trait for immutable WFST access.
 ///

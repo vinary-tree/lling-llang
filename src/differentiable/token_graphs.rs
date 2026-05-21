@@ -28,7 +28,7 @@
 //! - Collobert et al., "Wav2Letter" (2016)
 
 use crate::semiring::{LogWeight, Semiring};
-use crate::wfst::{StateId, VectorWfst, MutableWfst, Wfst};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst};
 
 /// Token identifier type.
 pub type TokenId = u32;
@@ -83,7 +83,10 @@ impl Default for TokenGraphConfig {
 /// # Returns
 ///
 /// A WFST representing the token graph.
-pub fn build_token_graph(token: TokenId, config: &TokenGraphConfig) -> VectorWfst<TokenId, LogWeight> {
+pub fn build_token_graph(
+    token: TokenId,
+    config: &TokenGraphConfig,
+) -> VectorWfst<TokenId, LogWeight> {
     match config.graph_type {
         TokenGraphType::Standard => build_standard_token_graph(token, config),
         TokenGraphType::Spike => build_spike_token_graph(token, config),
@@ -108,7 +111,10 @@ pub fn build_token_graph(token: TokenId, config: &TokenGraphConfig) -> VectorWfs
 /// ```
 ///
 /// Allows any number of repetitions.
-fn build_standard_token_graph(token: TokenId, config: &TokenGraphConfig) -> VectorWfst<TokenId, LogWeight> {
+fn build_standard_token_graph(
+    token: TokenId,
+    config: &TokenGraphConfig,
+) -> VectorWfst<TokenId, LogWeight> {
     let mut fst = VectorWfst::new();
 
     let s0 = fst.add_state();
@@ -118,17 +124,41 @@ fn build_standard_token_graph(token: TokenId, config: &TokenGraphConfig) -> Vect
     fst.set_final(s1, LogWeight::one());
 
     // Main transition: token:token
-    fst.add_arc(s0, Some(token), Some(token), s1, LogWeight::new(config.init_weight));
+    fst.add_arc(
+        s0,
+        Some(token),
+        Some(token),
+        s1,
+        LogWeight::new(config.init_weight),
+    );
 
     // Self-loop on s1 for repetitions: token:ε
-    fst.add_arc(s1, Some(token), None, s1, LogWeight::new(config.init_weight));
+    fst.add_arc(
+        s1,
+        Some(token),
+        None,
+        s1,
+        LogWeight::new(config.init_weight),
+    );
 
     // Optional blank handling
     if config.include_blank {
         // Self-loop on s0 for leading blanks
-        fst.add_arc(s0, Some(config.blank_id), None, s0, LogWeight::new(config.init_weight));
+        fst.add_arc(
+            s0,
+            Some(config.blank_id),
+            None,
+            s0,
+            LogWeight::new(config.init_weight),
+        );
         // Self-loop on s1 for trailing blanks
-        fst.add_arc(s1, Some(config.blank_id), None, s1, LogWeight::new(config.init_weight));
+        fst.add_arc(
+            s1,
+            Some(config.blank_id),
+            None,
+            s1,
+            LogWeight::new(config.init_weight),
+        );
     }
 
     fst
@@ -142,7 +172,10 @@ fn build_standard_token_graph(token: TokenId, config: &TokenGraphConfig) -> Vect
 /// ```
 ///
 /// Only allows single emission per token.
-fn build_spike_token_graph(token: TokenId, config: &TokenGraphConfig) -> VectorWfst<TokenId, LogWeight> {
+fn build_spike_token_graph(
+    token: TokenId,
+    config: &TokenGraphConfig,
+) -> VectorWfst<TokenId, LogWeight> {
     let mut fst = VectorWfst::new();
 
     let s0 = fst.add_state();
@@ -152,14 +185,32 @@ fn build_spike_token_graph(token: TokenId, config: &TokenGraphConfig) -> VectorW
     fst.set_final(s1, LogWeight::one());
 
     // Single transition: token:token
-    fst.add_arc(s0, Some(token), Some(token), s1, LogWeight::new(config.init_weight));
+    fst.add_arc(
+        s0,
+        Some(token),
+        Some(token),
+        s1,
+        LogWeight::new(config.init_weight),
+    );
 
     // Optional blank handling - only at boundaries
     if config.include_blank {
         // Blanks before token
-        fst.add_arc(s0, Some(config.blank_id), None, s0, LogWeight::new(config.init_weight));
+        fst.add_arc(
+            s0,
+            Some(config.blank_id),
+            None,
+            s0,
+            LogWeight::new(config.init_weight),
+        );
         // Blanks after token
-        fst.add_arc(s1, Some(config.blank_id), None, s1, LogWeight::new(config.init_weight));
+        fst.add_arc(
+            s1,
+            Some(config.blank_id),
+            None,
+            s1,
+            LogWeight::new(config.init_weight),
+        );
     }
 
     fst

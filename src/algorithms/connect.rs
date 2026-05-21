@@ -139,7 +139,8 @@ where
             fst.set_final(state_id, W::zero());
         } else {
             // Filter transitions to only kept states
-            let transitions: Vec<_> = fst.transitions(state_id)
+            let transitions: Vec<_> = fst
+                .transitions(state_id)
                 .iter()
                 .filter(|t| keep.contains(&t.to))
                 .cloned()
@@ -269,7 +270,7 @@ where
 mod tests {
     use super::*;
     use crate::semiring::TropicalWeight;
-    use crate::wfst::{VectorWfst, VectorWfstBuilder, MutableWfst};
+    use crate::wfst::{MutableWfst, VectorWfst, VectorWfstBuilder};
 
     // Property-based tests
     mod property_tests {

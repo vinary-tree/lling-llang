@@ -3,7 +3,7 @@
 use smallvec::SmallVec;
 
 use crate::backend::LatticeBackend;
-use crate::lattice::{Lattice, LatticePath, NodeId, EdgeId};
+use crate::lattice::{EdgeId, Lattice, LatticePath, NodeId};
 use crate::semiring::Semiring;
 
 /// Configuration for beam search.
@@ -198,12 +198,10 @@ pub fn beam_search_with_config<W: Semiring, B: LatticeBackend>(
         // Prune beam to top beam_width hypotheses
         if next_beam.len() > config.beam_width {
             // Sort by weight (ascending for TropicalWeight)
-            next_beam.sort_by(|a, b| {
-                match a.weight.natural_less(&b.weight) {
-                    Some(true) => std::cmp::Ordering::Less,
-                    Some(false) => std::cmp::Ordering::Greater,
-                    None => std::cmp::Ordering::Equal,
-                }
+            next_beam.sort_by(|a, b| match a.weight.natural_less(&b.weight) {
+                Some(true) => std::cmp::Ordering::Less,
+                Some(false) => std::cmp::Ordering::Greater,
+                None => std::cmp::Ordering::Equal,
             });
             next_beam.truncate(config.beam_width);
         }
@@ -212,12 +210,10 @@ pub fn beam_search_with_config<W: Semiring, B: LatticeBackend>(
     }
 
     // Sort by weight
-    completed.sort_by(|a, b| {
-        match a.weight.natural_less(&b.weight) {
-            Some(true) => std::cmp::Ordering::Less,
-            Some(false) => std::cmp::Ordering::Greater,
-            None => std::cmp::Ordering::Equal,
-        }
+    completed.sort_by(|a, b| match a.weight.natural_less(&b.weight) {
+        Some(true) => std::cmp::Ordering::Less,
+        Some(false) => std::cmp::Ordering::Greater,
+        None => std::cmp::Ordering::Equal,
     });
 
     // Limit results
@@ -230,7 +226,7 @@ pub fn beam_search_with_config<W: Semiring, B: LatticeBackend>(
 mod tests {
     use super::*;
     use crate::backend::HashMapBackend;
-    use crate::lattice::{LatticeBuilder, EdgeMetadata};
+    use crate::lattice::{EdgeMetadata, LatticeBuilder};
     use crate::semiring::TropicalWeight;
 
     #[test]
@@ -274,7 +270,8 @@ mod tests {
         // Create many alternatives
         for i in 0..10 {
             builder.add_correction(
-                0, 1,
+                0,
+                1,
                 &format!("word{}", i),
                 TropicalWeight::new(i as f64),
                 EdgeMetadata::default(),
@@ -310,7 +307,8 @@ mod tests {
 
         for i in 0..10 {
             builder.add_correction(
-                0, 1,
+                0,
+                1,
                 &format!("word{}", i),
                 TropicalWeight::new(i as f64),
                 EdgeMetadata::default(),
@@ -339,8 +337,8 @@ mod tests {
         let paths = beam_search(&mut lattice, 10);
 
         assert_eq!(paths.len(), 2);
-        assert_eq!(paths[0].weight.value(), 2.0);  // a + c
-        assert_eq!(paths[1].weight.value(), 2.5);  // b + d
+        assert_eq!(paths[0].weight.value(), 2.0); // a + c
+        assert_eq!(paths[1].weight.value(), 2.5); // b + d
     }
 
     #[test]
@@ -348,8 +346,20 @@ mod tests {
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
 
-        builder.add_correction(0, 1, "hello", TropicalWeight::new(1.0), EdgeMetadata::default());
-        builder.add_correction(1, 2, "world", TropicalWeight::new(2.0), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "hello",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            1,
+            2,
+            "world",
+            TropicalWeight::new(2.0),
+            EdgeMetadata::default(),
+        );
 
         let mut lattice = builder.build(2);
         let paths = beam_search(&mut lattice, 10);
@@ -369,13 +379,15 @@ mod tests {
         // Many paths that diverge early
         for i in 0..10 {
             builder.add_correction(
-                0, 1,
+                0,
+                1,
                 &format!("a{}", i),
                 TropicalWeight::new(i as f64),
                 EdgeMetadata::default(),
             );
             builder.add_correction(
-                1, 2,
+                1,
+                2,
                 &format!("b{}", i),
                 TropicalWeight::new(i as f64),
                 EdgeMetadata::default(),
@@ -399,7 +411,7 @@ mod tests {
 #[cfg(test)]
 mod property_tests {
     use super::*;
-    use crate::test_utils::{arb_tropical_lattice, arb_linear_lattice, arb_diamond_lattice};
+    use crate::test_utils::{arb_diamond_lattice, arb_linear_lattice, arb_tropical_lattice};
     use proptest::prelude::*;
 
     proptest! {

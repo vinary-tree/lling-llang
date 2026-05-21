@@ -3,9 +3,9 @@
 //! This module computes the forward score (total path weight) of a WFST
 //! using the log semiring, enabling gradient computation for training.
 
+use super::gradient::GradientWfst;
 use crate::semiring::{LogWeight, Semiring};
 use crate::wfst::StateId;
-use super::gradient::GradientWfst;
 
 /// Compute the forward score of a WFST in the log semiring.
 ///
@@ -152,7 +152,7 @@ fn compute_topological_order<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>)
 #[cfg(test)]
 mod property_tests {
     use super::*;
-    use crate::wfst::{VectorWfst, MutableWfst, Wfst};
+    use crate::wfst::{MutableWfst, VectorWfst, Wfst};
     use proptest::prelude::*;
 
     /// Strategy for generating simple chain WFSTs.
@@ -167,7 +167,13 @@ mod property_tests {
                 fst.set_final(len as u32, LogWeight::one());
                 for (i, w) in weights.iter().enumerate() {
                     let label = (b'a' + (i % 26) as u8) as char;
-                    fst.add_arc(i as u32, Some(label), Some(label), (i + 1) as u32, LogWeight::new(*w));
+                    fst.add_arc(
+                        i as u32,
+                        Some(label),
+                        Some(label),
+                        (i + 1) as u32,
+                        LogWeight::new(*w),
+                    );
                 }
                 fst
             })
@@ -176,19 +182,18 @@ mod property_tests {
 
     /// Strategy for generating parallel path WFSTs.
     fn arb_parallel_wfst(max_paths: usize) -> impl Strategy<Value = VectorWfst<char, LogWeight>> {
-        proptest::collection::vec(-5.0f64..5.0, 1..=max_paths)
-            .prop_map(|weights| {
-                let mut fst = VectorWfst::new();
-                let s0 = fst.add_state();
-                let s1 = fst.add_state();
-                fst.set_start(s0);
-                fst.set_final(s1, LogWeight::one());
-                for (i, w) in weights.iter().enumerate() {
-                    let label = (b'a' + (i % 26) as u8) as char;
-                    fst.add_arc(s0, Some(label), Some(label), s1, LogWeight::new(*w));
-                }
-                fst
-            })
+        proptest::collection::vec(-5.0f64..5.0, 1..=max_paths).prop_map(|weights| {
+            let mut fst = VectorWfst::new();
+            let s0 = fst.add_state();
+            let s1 = fst.add_state();
+            fst.set_start(s0);
+            fst.set_final(s1, LogWeight::one());
+            for (i, w) in weights.iter().enumerate() {
+                let label = (b'a' + (i % 26) as u8) as char;
+                fst.add_arc(s0, Some(label), Some(label), s1, LogWeight::new(*w));
+            }
+            fst
+        })
     }
 
     proptest! {
@@ -341,7 +346,7 @@ mod property_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wfst::{VectorWfst, MutableWfst};
+    use crate::wfst::{MutableWfst, VectorWfst};
 
     #[test]
     fn test_forward_score_empty() {

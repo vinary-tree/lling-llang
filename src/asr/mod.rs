@@ -55,40 +55,40 @@
 //! - Mohri, M., Pereira, F., & Riley, M. (2002). "WFSTs in Speech Recognition"
 //! - Mohri, M., Pereira, F., & Riley, M. (2008). "Speech Recognition with WFSTs"
 
-mod context;
-mod ngram;
 mod cascade;
+mod context;
+mod dysfluency;
 mod factoring;
+mod ngram;
+mod pronunciation_variants;
 mod rescoring;
 mod subword_lexicon;
 
 pub use context::{
-    ContextDependencyBuilder, TriphoneBuilder, TetraploneBuilder,
-    ContextDependencyConfig, ContextState, PhoneId,
+    ContextDependencyBuilder, ContextDependencyConfig, ContextState, PhoneId, TetraploneBuilder,
+    TriphoneBuilder,
 };
 
 pub use ngram::{
-    NgramBuilder, NgramTransducer, NgramConfig,
-    BackoffState, NgramOrder, NgramWeight,
+    BackoffState, NgramBuilder, NgramConfig, NgramOrder, NgramTransducer, NgramWeight,
 };
 
-pub use cascade::{
-    CascadeBuilder, AsrCascade, CascadeConfig,
-    LexiconEntry, AuxiliarySymbol,
+pub use cascade::{AsrCascade, AuxiliarySymbol, CascadeBuilder, CascadeConfig, LexiconEntry};
+
+pub use factoring::{chain_factor, Chain, ChainFactorConfig, ChainFactorResult, ChainId};
+
+pub use rescoring::{rescore_lattice, LatticeGrammar, RescoreConfig, RescorePass, RescoreResult};
+
+pub use subword_lexicon::{MarkingStyle, SubwordEntry, SubwordLexiconBuilder, SubwordPosition};
+
+pub use dysfluency::{
+    DysfluencyConfig, DysfluencyDetector, DysfluencyPattern, DysfluencySpan,
+    SyllableRepetitionBuilder, WordRepetitionBuilder,
 };
 
-pub use factoring::{
-    chain_factor, ChainFactorConfig, ChainFactorResult,
-    Chain, ChainId,
-};
-
-pub use rescoring::{
-    rescore_lattice, RescoreConfig, RescoreResult,
-    LatticeGrammar, RescorePass,
-};
-
-pub use subword_lexicon::{
-    SubwordLexiconBuilder, SubwordEntry, SubwordPosition, MarkingStyle,
+pub use pronunciation_variants::{
+    common_english_reduced_forms, PronunciationConfig, PronunciationEntry,
+    PronunciationVariantTransducer, ReducedForm,
 };
 
 #[cfg(test)]

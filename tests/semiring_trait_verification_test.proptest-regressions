@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 5d7ede4af371f5cc50a35be67707c49b77b76dc10674a056fce5a8af3852b5c9 # shrinks to a = ProductWeight(TropicalWeight(0.0), LogWeight(0.0)), b = ProductWeight(TropicalWeight(0.0), LogWeight(0.0)), c = ProductWeight(TropicalWeight(0.0), LogWeight(19.318507798347806))
+cc b3cb68a591824aff3dd174450fc9562412ac2e776dae32f6eca62aa521231fc4 # shrinks to a = LogWeight(0.0), b = LogWeight(0.0), c = LogWeight(19.974206966251245)

@@ -12,6 +12,7 @@ categories = ["text-processing", "algorithms"]
 [dependencies]
 # Core dependencies (optional - for liblevenshtein integration)
 liblevenshtein = { path = "../liblevenshtein-rust", optional = true }
+libdictenstein = { path = "../libdictenstein", optional = true }
 
 # Concurrent hash map for caching
 dashmap = { version = "6.1", optional = true }
@@ -48,7 +49,7 @@ default = []
 
 # === Core Optional Features ===
 # Integration with liblevenshtein for lexical correction
-levenshtein = ["dep:liblevenshtein"]
+levenshtein = ["dep:liblevenshtein", "dep:libdictenstein"]
 
 # Probabilistic CFG support
 pcfg = []
@@ -65,7 +66,16 @@ lm-rerank = []
 
 # Phonetic rescoring layer (requires liblevenshtein with phonetic rules)
 # Also needs serialization for serde support in phonetic types
-phonetic-rescore = ["levenshtein", "dep:dashmap", "liblevenshtein?/phonetic-rules", "liblevenshtein?/serialization"]
+phonetic-rescore = ["levenshtein", "dep:dashmap", "liblevenshtein?/embedded-rules", "liblevenshtein?/serialization"]
+
+# Code correction layer (pattern-aware syntax recovery)
+code-correction = []
+
+# LaTeX syntax correction layer (CFG-based filtering, structural validation, repairs)
+latex-syntax = []
+
+# MathML semantic layer (type checking, homoglyph disambiguation)
+mathml-semantic = []
 
 # === F1R3FLY.io Integration (optional) ===
 # Full F1R3FLY.io stack: PathMap, MORK, MeTTaTron, MeTTaIL
@@ -75,7 +85,7 @@ f1r3fly = ["dep:pathmap", "levenshtein", "sexpr"]
 sexpr = []
 
 # PathMap-optimized backend (part of f1r3fly)
-pathmap-backend = ["dep:pathmap"]
+pathmap-backend = ["dep:pathmap", "levenshtein", "liblevenshtein?/pathmap-backend"]
 
 # === Serialization ===
 serde = ["dep:serde", "liblevenshtein?/serde"]

@@ -39,16 +39,15 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-use crate::algorithms::{
-    determinize, minimize,
-    DeterminizeConfig, MinimizeConfig,
-};
+use crate::algorithms::{determinize, minimize, DeterminizeConfig, MinimizeConfig};
 use crate::composition::{compose, materialize};
-use crate::semiring::{DivisibleSemiring, NumericalWeight, Semiring};
-use crate::wfst::{VectorWfst, MutableWfst, Wfst, StateId};
+use crate::semiring::{
+    DivisibleSemiring, NumericalWeight, QuantizableSemiring, Semiring, TotallyOrderedSemiring,
+};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst, NO_STATE};
 
 use super::context::PhoneId;
-use super::ngram::{WordId, NgramTransducer};
+use super::ngram::{NgramTransducer, WordId};
 
 /// Auxiliary symbol for disambiguation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -226,6 +225,81 @@ where
         self
     }
 
+    /// Build the lexicon transducer (L) with WordId output.
+    ///
+    /// The lexicon maps phone sequences to word sequences.
+    /// Input labels: phones (PhoneId)
+    /// Output labels: words (WordId on first phone, epsilon on rest)
+    ///
+    /// This version outputs WordId for L∘G composition.
+    fn build_lexicon_for_composition(&self) -> VectorWfst<u32, W> {
+        let mut fst: VectorWfst<u32, W> = VectorWfst::new();
+
+        // Create initial state
+        let start = fst.add_state();
+        fst.set_start(start);
+        fst.set_final(start, W::one());
+
+        // Add each lexicon entry
+        for entry in &self.lexicon {
+            if entry.phones.is_empty() {
+                continue;
+            }
+
+            // Create states for this pronunciation
+            let mut current = start;
+
+            // First phone: output the word label (WordId)
+            let next = fst.add_state();
+            fst.add_arc(
+                current,
+                Some(entry.phones[0] as u32), // Input: first phone
+                Some(entry.word as u32),      // Output: word ID
+                next,
+                entry.weight.clone(),
+            );
+            current = next;
+
+            // Middle phones: epsilon output
+            if entry.phones.len() > 2 {
+                for &phone in &entry.phones[1..entry.phones.len() - 1] {
+                    let next = fst.add_state();
+                    fst.add_arc(
+                        current,
+                        Some(phone as u32), // Input: phone
+                        None,               // Output: epsilon
+                        next,
+                        W::one(),
+                    );
+                    current = next;
+                }
+            }
+
+            // Last phone: return to start with epsilon output
+            if entry.phones.len() > 1 {
+                let last_phone = entry.phones[entry.phones.len() - 1];
+                fst.add_arc(
+                    current,
+                    Some(last_phone as u32), // Input: last phone
+                    None,                    // Output: epsilon
+                    start,
+                    W::one(),
+                );
+            } else {
+                // Single phone word: return to start
+                fst.add_arc(
+                    current,
+                    None, // epsilon input
+                    None, // epsilon output
+                    start,
+                    W::one(),
+                );
+            }
+        }
+
+        fst
+    }
+
     /// Build the lexicon transducer (L).
     ///
     /// The lexicon maps word sequences to phone sequences.
@@ -272,13 +346,7 @@ where
             if entry.phones.len() > 2 {
                 for &phone in &entry.phones[1..entry.phones.len() - 1] {
                     let next = fst.add_state();
-                    fst.add_arc(
-                        current,
-                        Some(phone),
-                        Some(phone),
-                        next,
-                        W::one(),
-                    );
+                    fst.add_arc(current, Some(phone), Some(phone), next, W::one());
                     current = next;
                 }
             }
@@ -286,20 +354,14 @@ where
             // Last phone: return to start
             if entry.phones.len() > 1 {
                 let last_phone = entry.phones[entry.phones.len() - 1];
-                fst.add_arc(
-                    current,
-                    Some(last_phone),
-                    Some(last_phone),
-                    start,
-                    W::one(),
-                );
+                fst.add_arc(current, Some(last_phone), Some(last_phone), start, W::one());
             } else {
                 // Single phone word: return to start from current state
                 // This allows recognition to continue after this word
                 fst.add_arc(
                     current,
-                    None,  // epsilon
-                    None,  // epsilon
+                    None, // epsilon
+                    None, // epsilon
                     start,
                     W::one(),
                 );
@@ -323,29 +385,45 @@ where
     pub fn build(self) -> AsrCascade<W> {
         let mut stats = CascadeStats::default();
 
-        // Build lexicon first (before consuming self)
-        let l = self.build_lexicon();
+        // Build L with WordId output for composition
+        let l = self.build_lexicon_for_composition();
 
-        // Start with grammar (note: grammar uses WordId, lexicon uses PhoneId)
-        // Full L ∘ G composition requires label type unification which is not
-        // implemented yet. For now, we use the lexicon directly.
-        let _g = self.grammar.unwrap_or_else(|| {
+        // Get grammar or create trivial one
+        let g: VectorWfst<u32, W> = if let Some(grammar) = self.grammar {
+            // Grammar already uses WordId = u32
+            grammar
+        } else {
+            // Create trivial acceptor (accepts any word sequence)
             let mut fst = VectorWfst::new();
             let s = fst.add_state();
             fst.set_start(s);
             fst.set_final(s, W::one());
             fst
-        });
-        stats.g_states = _g.num_states();
+        };
+        stats.g_states = g.num_states();
 
-        // L ∘ G composition placeholder (requires WordId/PhoneId unification)
-        let lg = l;
+        // L ∘ G composition
+        // L: input=PhoneId, output=WordId
+        // G: input=WordId, output=WordId
+        // L∘G: input=PhoneId, output=WordId (L's output matches G's input)
+        let lg: VectorWfst<u32, W> = if g.num_states() > 1 {
+            // Non-trivial grammar: compose
+            let lazy = compose(l, g);
+            materialize(lazy)
+        } else {
+            // Trivial grammar: skip composition, just use lexicon
+            l
+        };
         stats.lg_states = lg.num_states();
 
         // Compose with context-dependency (C ∘ det(L ∘ G))
-        // Both C and L use PhoneId, so composition is possible
-        let clg = if let Some(context) = self.context {
-            let lazy = compose(context, lg);
+        // C: input=PhoneId, output=PhoneId
+        // LG: input=PhoneId, output=WordId
+        // C∘LG requires C.output = LG.input (PhoneId = PhoneId) ✓
+        let clg: VectorWfst<u32, W> = if let Some(context) = self.context {
+            // Convert context to u32 label type for composition
+            let context_u32: VectorWfst<u32, W> = convert_to_u32(&context);
+            let lazy = compose(context_u32, lg);
             materialize(lazy)
         } else {
             lg
@@ -354,9 +432,12 @@ where
         stats.clg_states = clg.num_states();
 
         // Compose with HMM (H ∘ det(C ∘ L ∘ G))
-        // Both H and C use PhoneId, so composition is possible
-        let hclg = if let Some(hmm) = self.hmm {
-            let lazy = compose(hmm, clg);
+        // H: input=PhoneId, output=PhoneId
+        // CLG: input=PhoneId, output=WordId
+        let hclg: VectorWfst<u32, W> = if let Some(hmm) = self.hmm {
+            // Convert HMM to u32 label type for composition
+            let hmm_u32: VectorWfst<u32, W> = convert_to_u32(&hmm);
+            let lazy = compose(hmm_u32, clg);
             materialize(lazy)
         } else {
             clg
@@ -371,17 +452,105 @@ where
         stats.final_states = hclg.num_states();
         stats.final_arcs = final_arcs;
 
+        // Convert back to PhoneId for the final result
+        // (The actual label type is u32 which equals PhoneId)
+        let result_fst: VectorWfst<PhoneId, W> = convert_label_type(&hclg);
+
         AsrCascade {
-            fst: hclg,
+            fst: result_fst,
             config: self.config,
             stats,
         }
     }
 }
 
+/// Convert a VectorWfst<PhoneId, W> to VectorWfst<u32, W>.
+fn convert_to_u32<W: Semiring + Clone>(fst: &VectorWfst<PhoneId, W>) -> VectorWfst<u32, W> {
+    let mut result: VectorWfst<u32, W> = VectorWfst::new();
+
+    // Copy states
+    for _ in 0..fst.num_states() {
+        result.add_state();
+    }
+
+    // Set start state
+    let start = fst.start();
+    if start != NO_STATE {
+        result.set_start(start);
+    }
+
+    // Copy final weights
+    for state in 0..fst.num_states() as StateId {
+        if fst.is_final(state) {
+            result.set_final(state, fst.final_weight(state));
+        }
+    }
+
+    // Copy arcs (PhoneId is u32, so direct conversion)
+    for state in 0..fst.num_states() as StateId {
+        for arc in fst.transitions(state) {
+            result.add_arc(
+                arc.from,
+                arc.input,  // PhoneId = u32
+                arc.output, // PhoneId = u32
+                arc.to,
+                arc.weight.clone(),
+            );
+        }
+    }
+
+    result
+}
+
+/// Convert a VectorWfst<u32, W> to VectorWfst<PhoneId, W>.
+fn convert_label_type<W: Semiring + Clone>(fst: &VectorWfst<u32, W>) -> VectorWfst<PhoneId, W> {
+    let mut result: VectorWfst<PhoneId, W> = VectorWfst::new();
+
+    // Copy states
+    for _ in 0..fst.num_states() {
+        result.add_state();
+    }
+
+    // Set start state
+    let start = fst.start();
+    if start != NO_STATE {
+        result.set_start(start);
+    }
+
+    // Copy final weights
+    for state in 0..fst.num_states() as StateId {
+        if fst.is_final(state) {
+            result.set_final(state, fst.final_weight(state));
+        }
+    }
+
+    // Copy arcs (labels are same underlying type: u32 = PhoneId)
+    for state in 0..fst.num_states() as StateId {
+        for arc in fst.transitions(state) {
+            result.add_arc(
+                arc.from,
+                arc.input,  // u32 = PhoneId
+                arc.output, // u32 = PhoneId
+                arc.to,
+                arc.weight.clone(),
+            );
+        }
+    }
+
+    result
+}
+
 impl<W> CascadeBuilder<W>
 where
-    W: DivisibleSemiring + NumericalWeight + PartialOrd + Clone + Debug + Hash + Eq,
+    W: DivisibleSemiring
+        + NumericalWeight
+        + TotallyOrderedSemiring
+        + QuantizableSemiring
+        + PartialOrd
+        + Clone
+        + Debug
+        + Hash
+        + Eq,
 {
     /// Build the full cascade with optimization algorithms.
     ///
@@ -392,25 +561,37 @@ where
     pub fn build_optimized(self) -> AsrCascade<W> {
         let mut stats = CascadeStats::default();
 
-        // Build lexicon first (before consuming self)
-        let l = self.build_lexicon();
+        // Build L with WordId output for composition
+        let l = self.build_lexicon_for_composition();
 
-        // Start with grammar (note: grammar uses WordId, lexicon uses PhoneId)
-        let _g = self.grammar.unwrap_or_else(|| {
+        // Get grammar or create trivial one
+        let g: VectorWfst<u32, W> = if let Some(grammar) = self.grammar {
+            grammar
+        } else {
             let mut fst = VectorWfst::new();
             let s = fst.add_state();
             fst.set_start(s);
             fst.set_final(s, W::one());
             fst
-        });
-        stats.g_states = _g.num_states();
+        };
+        stats.g_states = g.num_states();
 
-        // L ∘ G composition placeholder (requires WordId/PhoneId unification)
-        let lg = l;
+        // L ∘ G composition
+        // L: input=PhoneId, output=WordId
+        // G: input=WordId, output=WordId
+        // L∘G: input=PhoneId, output=WordId (L's output matches G's input)
+        let lg: VectorWfst<u32, W> = if g.num_states() > 1 {
+            // Non-trivial grammar: compose
+            let lazy = compose(l, g);
+            materialize(lazy)
+        } else {
+            // Trivial grammar: skip composition, just use lexicon
+            l
+        };
         stats.lg_states = lg.num_states();
 
         // Apply determinization if configured
-        let det_lg = if self.config.incremental_det {
+        let det_lg: VectorWfst<u32, W> = if self.config.incremental_det {
             determinize(&lg, DeterminizeConfig::standard()).unwrap_or(lg)
         } else {
             lg
@@ -418,8 +599,11 @@ where
         stats.det_lg_states = det_lg.num_states();
 
         // Compose with context-dependency (C ∘ det(L ∘ G))
-        let clg = if let Some(context) = self.context {
-            let lazy = compose(context, det_lg);
+        // C: input=PhoneId, output=PhoneId
+        // det_lg: input=PhoneId, output=WordId
+        let clg: VectorWfst<u32, W> = if let Some(context) = self.context {
+            let context_u32: VectorWfst<u32, W> = convert_to_u32(&context);
+            let lazy = compose(context_u32, det_lg);
             materialize(lazy)
         } else {
             det_lg
@@ -427,7 +611,7 @@ where
         stats.clg_states = clg.num_states();
 
         // Apply determinization
-        let det_clg = if self.config.incremental_det {
+        let det_clg: VectorWfst<u32, W> = if self.config.incremental_det {
             determinize(&clg, DeterminizeConfig::standard()).unwrap_or(clg)
         } else {
             clg
@@ -435,30 +619,36 @@ where
         stats.det_clg_states = det_clg.num_states();
 
         // Compose with HMM (H ∘ det(C ∘ L ∘ G))
-        let hclg = if let Some(hmm) = self.hmm {
-            let lazy = compose(hmm, det_clg);
+        // H: input=PhoneId, output=PhoneId
+        // det_clg: input=PhoneId, output=WordId
+        let hclg: VectorWfst<u32, W> = if let Some(hmm) = self.hmm {
+            let hmm_u32: VectorWfst<u32, W> = convert_to_u32(&hmm);
+            let lazy = compose(hmm_u32, det_clg);
             materialize(lazy)
         } else {
             det_clg
         };
 
         // Apply minimization
-        let result = if self.config.minimize {
+        let minimized: VectorWfst<u32, W> = if self.config.minimize {
             minimize(&hclg, MinimizeConfig::default()).unwrap_or(hclg)
         } else {
             hclg
         };
 
         // Count final arcs
-        let final_arcs: usize = (0..result.num_states() as StateId)
-            .map(|s| result.transitions(s).len())
+        let final_arcs: usize = (0..minimized.num_states() as StateId)
+            .map(|s| minimized.transitions(s).len())
             .sum();
 
-        stats.final_states = result.num_states();
+        stats.final_states = minimized.num_states();
         stats.final_arcs = final_arcs;
 
+        // Convert back to PhoneId for the final result
+        let result_fst: VectorWfst<PhoneId, W> = convert_label_type(&minimized);
+
         AsrCascade {
-            fst: result,
+            fst: result_fst,
             config: self.config,
             stats,
         }
@@ -492,7 +682,7 @@ mod tests {
     #[test]
     fn test_lexicon_entry() {
         let entry = LexiconEntry::new(
-            1, // word ID
+            1,                // word ID
             vec![10, 11, 12], // phones
             LogWeight::new(0.5),
         );
@@ -525,13 +715,13 @@ mod tests {
 
         // Add some lexicon entries
         builder.add_lexicon_entry(LexiconEntry::new(
-            1, // "hello"
+            1,                // "hello"
             vec![10, 11, 12], // /h/, /e/, /l/
             LogWeight::new(0.0),
         ));
 
         builder.add_lexicon_entry(LexiconEntry::new(
-            2, // "world"
+            2,                    // "world"
             vec![20, 21, 22, 23], // /w/, /o/, /r/, /ld/
             LogWeight::new(0.0),
         ));
@@ -546,11 +736,7 @@ mod tests {
     fn test_cascade_stats() {
         let mut builder = CascadeBuilder::<LogWeight>::new();
 
-        builder.add_lexicon_entry(LexiconEntry::new(
-            1,
-            vec![10, 11],
-            LogWeight::new(0.0),
-        ));
+        builder.add_lexicon_entry(LexiconEntry::new(1, vec![10, 11], LogWeight::new(0.0)));
 
         let cascade = builder.build();
 
@@ -559,11 +745,10 @@ mod tests {
 
     #[test]
     fn test_auxiliary_symbols() {
-        let entry = LexiconEntry::new(1, vec![10], LogWeight::new(0.0))
-            .with_auxiliaries(vec![
-                AuxiliarySymbol::WordBoundary,
-                AuxiliarySymbol::Disambiguation(0),
-            ]);
+        let entry = LexiconEntry::new(1, vec![10], LogWeight::new(0.0)).with_auxiliaries(vec![
+            AuxiliarySymbol::WordBoundary,
+            AuxiliarySymbol::Disambiguation(0),
+        ]);
 
         assert_eq!(entry.auxiliaries.len(), 2);
     }

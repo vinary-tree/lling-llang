@@ -5,7 +5,7 @@
 //! WFST structures.
 
 use crate::semiring::Semiring;
-use crate::wfst::{StateId, VectorWfst, MutableWfst};
+use crate::wfst::{MutableWfst, StateId, VectorWfst};
 
 // =============================================================================
 // Basic WFST Fixtures
@@ -65,9 +65,7 @@ where
 }
 
 /// Create a linear WFST with custom labels and weights.
-pub fn linear_wfst_custom<L, W>(
-    labels: &[(L, W)],
-) -> VectorWfst<L, W>
+pub fn linear_wfst_custom<L, W>(labels: &[(L, W)]) -> VectorWfst<L, W>
 where
     L: Clone + Send + Sync,
     W: Semiring,
@@ -176,12 +174,7 @@ where
 /// (0) [start] ─┤                             ├──► (3) [final]
 ///              └──b:b(w2)──► (2) ──d:d(w4)──┘
 /// ```
-pub fn diamond_wfst_weighted<W>(
-    w1: W,
-    w2: W,
-    w3: W,
-    w4: W,
-) -> VectorWfst<char, W>
+pub fn diamond_wfst_weighted<W>(w1: W, w2: W, w3: W, w4: W) -> VectorWfst<char, W>
 where
     W: Semiring,
 {
@@ -340,9 +333,7 @@ where
 }
 
 /// Create a transducer with custom input/output mappings.
-pub fn transducer_custom<L, W>(
-    mappings: &[(L, L, W)],
-) -> VectorWfst<L, W>
+pub fn transducer_custom<L, W>(mappings: &[(L, L, W)]) -> VectorWfst<L, W>
 where
     L: Clone + Send + Sync,
     W: Semiring,
@@ -411,10 +402,7 @@ where
 ///
 /// Creates a DFA with `num_states` states where every state has a transition
 /// for every label in the alphabet.
-pub fn complete_dfa<W>(
-    num_states: usize,
-    alphabet: &[char],
-) -> VectorWfst<char, W>
+pub fn complete_dfa<W>(num_states: usize, alphabet: &[char]) -> VectorWfst<char, W>
 where
     W: Semiring,
 {
@@ -449,8 +437,8 @@ where
 mod tests {
     use super::*;
     use crate::semiring::TropicalWeight;
+    use crate::test_utils::assertions::{has_no_epsilon, is_acyclic, is_deterministic};
     use crate::wfst::Wfst;
-    use crate::test_utils::assertions::{is_deterministic, is_acyclic, has_no_epsilon};
 
     #[test]
     fn test_single_state_wfst() {

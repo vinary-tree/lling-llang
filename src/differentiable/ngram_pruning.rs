@@ -39,7 +39,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::semiring::{LogWeight, Semiring};
-use crate::wfst::{StateId, VectorWfst, MutableWfst, Wfst};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst};
 
 /// Token identifier type.
 pub type TokenId = u32;
@@ -126,7 +126,10 @@ impl NgramCounts {
 
     /// Get trigram count.
     pub fn trigram_count(&self, prev2: TokenId, prev1: TokenId, curr: TokenId) -> usize {
-        self.trigrams.get(&(prev2, prev1, curr)).copied().unwrap_or(0)
+        self.trigrams
+            .get(&(prev2, prev1, curr))
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Compute unigram probability.
@@ -197,7 +200,13 @@ pub fn build_pruned_bigram_graph(
         };
 
         let to_state = token_states[&token];
-        fst.add_arc(start, Some(token), Some(token), to_state, LogWeight::new(log_prob));
+        fst.add_arc(
+            start,
+            Some(token),
+            Some(token),
+            to_state,
+            LogWeight::new(log_prob),
+        );
     }
 
     // Add bigram transitions
@@ -217,7 +226,13 @@ pub fn build_pruned_bigram_graph(
                 };
 
                 let to_state = token_states[&curr];
-                fst.add_arc(from_state, Some(curr), Some(curr), to_state, LogWeight::new(log_prob));
+                fst.add_arc(
+                    from_state,
+                    Some(curr),
+                    Some(curr),
+                    to_state,
+                    LogWeight::new(log_prob),
+                );
                 seen_tokens.insert(curr);
             }
         }
@@ -248,7 +263,13 @@ pub fn build_pruned_bigram_graph(
             };
 
             let to_state = token_states[&token];
-            fst.add_arc(backoff, Some(token), Some(token), to_state, LogWeight::new(log_prob));
+            fst.add_arc(
+                backoff,
+                Some(token),
+                Some(token),
+                to_state,
+                LogWeight::new(log_prob),
+            );
         }
     }
 
@@ -329,7 +350,13 @@ pub fn build_pruned_trigram_graph(
             0.0
         };
         let to_state = unigram_states[&token];
-        fst.add_arc(start, Some(token), Some(token), to_state, LogWeight::new(log_prob));
+        fst.add_arc(
+            start,
+            Some(token),
+            Some(token),
+            to_state,
+            LogWeight::new(log_prob),
+        );
     }
 
     // Transitions from unigram -> bigram states
@@ -354,7 +381,13 @@ pub fn build_pruned_trigram_graph(
 
         // Back-off to bigram_backoff
         if let Some(backoff) = bigram_backoff {
-            fst.add_arc(from_state, None, None, backoff, LogWeight::new(config.backoff_weight));
+            fst.add_arc(
+                from_state,
+                None,
+                None,
+                backoff,
+                LogWeight::new(config.backoff_weight),
+            );
         }
     }
 
@@ -364,7 +397,13 @@ pub fn build_pruned_trigram_graph(
             let prob = counts.unigram_prob(token).max(1e-10);
             // Go to unigram state after back-off
             let to_state = unigram_states[&token];
-            fst.add_arc(backoff, Some(token), Some(token), to_state, LogWeight::new(-prob.ln()));
+            fst.add_arc(
+                backoff,
+                Some(token),
+                Some(token),
+                to_state,
+                LogWeight::new(-prob.ln()),
+            );
         }
     }
 
@@ -394,7 +433,13 @@ pub fn build_pruned_trigram_graph(
 
         // Back-off from bigram state
         if let Some(backoff) = bigram_backoff {
-            fst.add_arc(from_state, None, None, backoff, LogWeight::new(config.backoff_weight));
+            fst.add_arc(
+                from_state,
+                None,
+                None,
+                backoff,
+                LogWeight::new(config.backoff_weight),
+            );
         }
     }
 

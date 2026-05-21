@@ -4,8 +4,8 @@
 //! context-free grammar.
 
 use crate::backend::LatticeBackend;
-use crate::cfg::{Grammar, EarleyParser, ParseError};
-use crate::lattice::{Lattice, LatticeBuilder, EdgeMetadata};
+use crate::cfg::{EarleyParser, Grammar, ParseError};
+use crate::lattice::{EdgeMetadata, Lattice, LatticeBuilder};
 use crate::semiring::Semiring;
 
 use super::traits::{CorrectionLayer, LayerError, LayerResult};
@@ -150,11 +150,16 @@ mod tests {
     fn build_lattice(words: &[&str], grammar: &Grammar) -> Lattice<TropicalWeight, HashMapBackend> {
         let mut backend = HashMapBackend::new();
 
-        let word_ids: Vec<_> = words.iter().map(|w| {
-            let t = grammar.terminal_by_name(w).expect(&format!("unknown word: {}", w));
-            let _id = backend.intern(w);
-            t.vocab_id()
-        }).collect();
+        let word_ids: Vec<_> = words
+            .iter()
+            .map(|w| {
+                let t = grammar
+                    .terminal_by_name(w)
+                    .expect(&format!("unknown word: {}", w));
+                let _id = backend.intern(w);
+                t.vocab_id()
+            })
+            .collect();
 
         let mut builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
 
@@ -176,7 +181,8 @@ mod tests {
         let grammar = simple_grammar();
         let layer = CfgFilterLayer::new(&grammar);
         // Use concrete types for the trait method call
-        let name = <CfgFilterLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::name(&layer);
+        let name =
+            <CfgFilterLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::name(&layer);
         assert_eq!(name, "cfg-filter");
     }
 

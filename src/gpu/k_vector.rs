@@ -227,8 +227,7 @@ impl<T> KVector<T> {
 
     /// Check if a slot is empty across all K vectors.
     pub fn slot_is_empty(&self, slot: usize) -> bool {
-        (0..self.config.num_vectors)
-            .all(|k| self.vectors[k][slot].is_empty())
+        (0..self.config.num_vectors).all(|k| self.vectors[k][slot].is_empty())
     }
 
     /// Clear all slots.
@@ -309,11 +308,7 @@ impl KVectorStats {
 /// # Returns
 ///
 /// The aggregated result, or `None` if the slot is empty.
-pub fn reduce_with_k_vectors<T, R, F>(
-    k_vector: &KVector<T>,
-    slot: usize,
-    reduce_fn: F,
-) -> Option<R>
+pub fn reduce_with_k_vectors<T, R, F>(k_vector: &KVector<T>, slot: usize, reduce_fn: F) -> Option<R>
 where
     F: Fn(&[T]) -> R,
 {

@@ -2,8 +2,8 @@
 //!
 //! Tests WFST composition.
 
-use lling_llang::semiring::{TropicalWeight, Semiring};
-use lling_llang::wfst::{VectorWfst, MutableWfst, Wfst};
+use lling_llang::semiring::{Semiring, TropicalWeight};
+use lling_llang::wfst::{MutableWfst, VectorWfst, Wfst};
 
 /// Test basic WFST construction.
 #[test]

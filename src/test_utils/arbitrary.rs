@@ -4,14 +4,13 @@
 //! The strategies generate well-formed WFSTs with various configurations suitable
 //! for testing algebraic properties and algorithm correctness.
 
-use proptest::prelude::*;
 use proptest::collection::vec as prop_vec;
+use proptest::prelude::*;
 
 use crate::semiring::{
-    Semiring, TropicalWeight, LogWeight, ProbabilityWeight,
-    BoolWeight, ProductWeight,
+    BoolWeight, LogWeight, ProbabilityWeight, ProductWeight, Semiring, TropicalWeight,
 };
-use crate::wfst::{StateId, VectorWfst, MutableWfst, WeightedTransition, Wfst};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition, Wfst};
 
 // =============================================================================
 // Weight Strategies
@@ -126,7 +125,7 @@ pub fn arb_label_or_epsilon() -> impl Strategy<Value = Option<char>> {
 
 /// Strategy for generating small label sets for deterministic WFSTs.
 pub fn arb_small_label_set() -> impl Strategy<Value = char> {
-    (b'a'..=b'e').prop_map(|b| b as char)  // Only 5 labels for easier determinism
+    (b'a'..=b'e').prop_map(|b| b as char) // Only 5 labels for easier determinism
 }
 
 // =============================================================================
@@ -185,9 +184,7 @@ pub struct WfstGenConfig {
 }
 
 /// Strategy for generating WFSTs with custom configuration.
-pub fn arb_wfst_with_config<L, W>(
-    config: WfstGenConfig,
-) -> impl Strategy<Value = VectorWfst<L, W>>
+pub fn arb_wfst_with_config<L, W>(config: WfstGenConfig) -> impl Strategy<Value = VectorWfst<L, W>>
 where
     L: Clone + Send + Sync + std::fmt::Debug + 'static,
     W: Semiring + std::fmt::Debug + 'static,
@@ -215,18 +212,22 @@ where
 
         (arc_counts, final_flags, final_weights).prop_flat_map(move |(counts, finals, final_ws)| {
             // Generate labels and weights for each arc
-            let arc_data: Vec<_> = counts.iter().enumerate().map(|(from, &count)| {
-                let max_to = if allow_cycles {
-                    num_states
-                } else {
-                    // For acyclic, only allow forward edges
-                    num_states.saturating_sub(from).max(1)
-                };
-                prop_vec(
-                    (any::<(Option<L>, Option<L>)>(), any::<W>(), 0..max_to),
-                    count,
-                )
-            }).collect();
+            let arc_data: Vec<_> = counts
+                .iter()
+                .enumerate()
+                .map(|(from, &count)| {
+                    let max_to = if allow_cycles {
+                        num_states
+                    } else {
+                        // For acyclic, only allow forward edges
+                        num_states.saturating_sub(from).max(1)
+                    };
+                    prop_vec(
+                        (any::<(Option<L>, Option<L>)>(), any::<W>(), 0..max_to),
+                        count,
+                    )
+                })
+                .collect();
 
             // Combine all arc data into a single strategy
             arc_data.prop_map(move |arcs_per_state| {
@@ -242,7 +243,9 @@ where
 
                 // Set final states
                 let mut has_final = false;
-                for (state, (&is_final, final_weight)) in finals.iter().zip(final_ws.iter()).enumerate() {
+                for (state, (&is_final, final_weight)) in
+                    finals.iter().zip(final_ws.iter()).enumerate()
+                {
                     if is_final && !final_weight.is_zero() {
                         fst.set_final(state as StateId, *final_weight);
                         has_final = true;
@@ -317,7 +320,7 @@ pub fn arb_deterministic_wfst_tropical(
             .map(|_| {
                 prop_vec(
                     (any::<bool>(), 0..num_states, arb_tropical_weight_nonzero()),
-                    alphabet.len()
+                    alphabet.len(),
                 )
             })
             .collect();
@@ -392,12 +395,7 @@ where
 
         // For each (state, label), decide if there's a transition and where it goes
         let transitions_per_state: Vec<_> = (0..num_states)
-            .map(|_| {
-                prop_vec(
-                    (any::<bool>(), 0..num_states, ws.clone()),
-                    alphabet.len()
-                )
-            })
+            .map(|_| prop_vec((any::<bool>(), 0..num_states, ws.clone()), alphabet.len()))
             .collect();
 
         // Generate final state info
@@ -471,15 +469,25 @@ pub fn arb_tropical_wfst(
 
         (arc_counts, final_flags, final_weights).prop_flat_map(move |(counts, finals, final_ws)| {
             // Generate arc data
-            let arc_data: Vec<_> = counts.iter().enumerate().map(|(_, &count)| {
-                prop_vec(
-                    (arb_label_or_epsilon(), arb_label_or_epsilon(), arb_tropical_weight_nonzero(), 0..num_states),
-                    count,
-                )
-            }).collect();
+            let arc_data: Vec<_> = counts
+                .iter()
+                .enumerate()
+                .map(|(_, &count)| {
+                    prop_vec(
+                        (
+                            arb_label_or_epsilon(),
+                            arb_label_or_epsilon(),
+                            arb_tropical_weight_nonzero(),
+                            0..num_states,
+                        ),
+                        count,
+                    )
+                })
+                .collect();
 
             arc_data.prop_map(move |arcs_per_state| {
-                let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::with_capacity(num_states);
+                let mut fst: VectorWfst<char, TropicalWeight> =
+                    VectorWfst::with_capacity(num_states);
 
                 for _ in 0..num_states {
                     fst.add_state();
@@ -488,7 +496,9 @@ pub fn arb_tropical_wfst(
                 fst.set_start(0);
 
                 let mut has_final = false;
-                for (state, (&is_final, final_weight)) in finals.iter().zip(final_ws.iter()).enumerate() {
+                for (state, (&is_final, final_weight)) in
+                    finals.iter().zip(final_ws.iter()).enumerate()
+                {
                     if is_final {
                         fst.set_final(state as StateId, *final_weight);
                         has_final = true;
@@ -527,20 +537,31 @@ pub fn arb_acyclic_wfst_tropical(
 
         (arc_counts, final_flags, final_weights).prop_flat_map(move |(counts, finals, final_ws)| {
             // Generate arc data - for acyclic, only allow forward edges
-            let arc_data: Vec<_> = counts.iter().enumerate().map(|(from, &count)| {
-                let remaining = num_states.saturating_sub(from + 1);
-                if remaining > 0 {
-                    prop_vec(
-                        (arb_label_or_epsilon(), arb_label_or_epsilon(), arb_tropical_weight_nonzero(), 0..remaining),
-                        count,
-                    ).boxed()
-                } else {
-                    Just(Vec::new()).boxed()
-                }
-            }).collect();
+            let arc_data: Vec<_> = counts
+                .iter()
+                .enumerate()
+                .map(|(from, &count)| {
+                    let remaining = num_states.saturating_sub(from + 1);
+                    if remaining > 0 {
+                        prop_vec(
+                            (
+                                arb_label_or_epsilon(),
+                                arb_label_or_epsilon(),
+                                arb_tropical_weight_nonzero(),
+                                0..remaining,
+                            ),
+                            count,
+                        )
+                        .boxed()
+                    } else {
+                        Just(Vec::new()).boxed()
+                    }
+                })
+                .collect();
 
             arc_data.prop_map(move |arcs_per_state| {
-                let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::with_capacity(num_states);
+                let mut fst: VectorWfst<char, TropicalWeight> =
+                    VectorWfst::with_capacity(num_states);
 
                 for _ in 0..num_states {
                     fst.add_state();
@@ -549,7 +570,9 @@ pub fn arb_acyclic_wfst_tropical(
                 fst.set_start(0);
 
                 let mut has_final = false;
-                for (state, (&is_final, final_weight)) in finals.iter().zip(final_ws.iter()).enumerate() {
+                for (state, (&is_final, final_weight)) in
+                    finals.iter().zip(final_ws.iter()).enumerate()
+                {
                     if is_final {
                         fst.set_final(state as StateId, *final_weight);
                         has_final = true;
@@ -587,12 +610,21 @@ pub fn arb_log_wfst(
         let final_weights = prop_vec(arb_log_weight_nonzero(), num_states);
 
         (arc_counts, final_flags, final_weights).prop_flat_map(move |(counts, finals, final_ws)| {
-            let arc_data: Vec<_> = counts.iter().enumerate().map(|(_, &count)| {
-                prop_vec(
-                    (arb_label_or_epsilon(), arb_label_or_epsilon(), arb_log_weight_nonzero(), 0..num_states),
-                    count,
-                )
-            }).collect();
+            let arc_data: Vec<_> = counts
+                .iter()
+                .enumerate()
+                .map(|(_, &count)| {
+                    prop_vec(
+                        (
+                            arb_label_or_epsilon(),
+                            arb_label_or_epsilon(),
+                            arb_log_weight_nonzero(),
+                            0..num_states,
+                        ),
+                        count,
+                    )
+                })
+                .collect();
 
             arc_data.prop_map(move |arcs_per_state| {
                 let mut fst: VectorWfst<char, LogWeight> = VectorWfst::with_capacity(num_states);
@@ -604,7 +636,9 @@ pub fn arb_log_wfst(
                 fst.set_start(0);
 
                 let mut has_final = false;
-                for (state, (&is_final, final_weight)) in finals.iter().zip(final_ws.iter()).enumerate() {
+                for (state, (&is_final, final_weight)) in
+                    finals.iter().zip(final_ws.iter()).enumerate()
+                {
                     if is_final {
                         fst.set_final(state as StateId, *final_weight);
                         has_final = true;
@@ -628,8 +662,7 @@ pub fn arb_log_wfst(
 }
 
 /// Strategy for generating small WFSTs suitable for exhaustive testing.
-pub fn arb_small_wfst<W>(
-) -> impl Strategy<Value = VectorWfst<char, W>>
+pub fn arb_small_wfst<W>() -> impl Strategy<Value = VectorWfst<char, W>>
 where
     W: Semiring + std::fmt::Debug + 'static + Arbitrary,
 {
@@ -648,9 +681,7 @@ where
 // =============================================================================
 
 /// Strategy for generating arbitrary weighted transitions.
-pub fn arb_transition<L, W>(
-    max_state: StateId,
-) -> impl Strategy<Value = WeightedTransition<L, W>>
+pub fn arb_transition<L, W>(max_state: StateId) -> impl Strategy<Value = WeightedTransition<L, W>>
 where
     L: Clone + Send + Sync + std::fmt::Debug + 'static + Arbitrary,
     W: Semiring + std::fmt::Debug + 'static + Arbitrary,
@@ -661,9 +692,10 @@ where
         any::<Option<L>>(),
         0..max_state,
         any::<W>(),
-    ).prop_map(|(from, input, output, to, weight)| {
-        WeightedTransition::new(from, input, output, to, weight)
-    })
+    )
+        .prop_map(|(from, input, output, to, weight)| {
+            WeightedTransition::new(from, input, output, to, weight)
+        })
 }
 
 /// Strategy for generating epsilon transitions.
@@ -674,13 +706,8 @@ where
     L: Clone + Send + Sync + std::fmt::Debug + 'static,
     W: Semiring + std::fmt::Debug + 'static + Arbitrary,
 {
-    (
-        0..max_state,
-        0..max_state,
-        any::<W>(),
-    ).prop_map(|(from, to, weight)| {
-        WeightedTransition::epsilon(from, to, weight)
-    })
+    (0..max_state, 0..max_state, any::<W>())
+        .prop_map(|(from, to, weight)| WeightedTransition::epsilon(from, to, weight))
 }
 
 // =============================================================================
@@ -688,7 +715,7 @@ where
 // =============================================================================
 
 use crate::backend::HashMapBackend;
-use crate::lattice::{Lattice, LatticeBuilder, EdgeMetadata};
+use crate::lattice::{EdgeMetadata, Lattice, LatticeBuilder};
 
 /// Strategy for generating random lattices with tropical weights.
 ///
@@ -759,8 +786,20 @@ pub fn arb_diamond_lattice(
         for pos in 0..num_positions {
             let word_a = format!("a{}", pos);
             let word_b = format!("b{}", pos);
-            builder.add_correction(pos, pos + 1, &word_a, weights[pos * 2], EdgeMetadata::default());
-            builder.add_correction(pos, pos + 1, &word_b, weights[pos * 2 + 1], EdgeMetadata::default());
+            builder.add_correction(
+                pos,
+                pos + 1,
+                &word_a,
+                weights[pos * 2],
+                EdgeMetadata::default(),
+            );
+            builder.add_correction(
+                pos,
+                pos + 1,
+                &word_b,
+                weights[pos * 2 + 1],
+                EdgeMetadata::default(),
+            );
         }
 
         builder.build(num_positions)

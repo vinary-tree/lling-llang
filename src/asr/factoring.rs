@@ -31,7 +31,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::semiring::Semiring;
-use crate::wfst::{VectorWfst, MutableWfst, Wfst, StateId, NO_STATE};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst, NO_STATE};
 
 /// Unique identifier for a chain.
 pub type ChainId = u32;
@@ -178,10 +178,7 @@ where
         .filter(|&s| {
             let is_start = fst.start() == s;
             let is_final = fst.is_final(s);
-            in_degree[s as usize] == 1
-                && out_degree[s as usize] == 1
-                && !is_start
-                && !is_final
+            in_degree[s as usize] == 1 && out_degree[s as usize] == 1 && !is_start && !is_final
         })
         .collect();
 
@@ -312,7 +309,12 @@ where
             }
 
             // Mark internal states for removal (exclude entry and exit states)
-            for &state in chain.states.iter().skip(1).take(chain.states.len().saturating_sub(2)) {
+            for &state in chain
+                .states
+                .iter()
+                .skip(1)
+                .take(chain.states.len().saturating_sub(2))
+            {
                 chain_states_to_remove.insert(state);
             }
 
@@ -426,7 +428,11 @@ where
         .iter()
         .flat_map(|(entry, exit, chain)| {
             // Mark all arcs along the chain as replaced
-            chain.states.windows(2).map(|w| (w[0], w[1])).collect::<Vec<_>>()
+            chain
+                .states
+                .windows(2)
+                .map(|w| (w[0], w[1]))
+                .collect::<Vec<_>>()
         })
         .collect();
 
@@ -477,13 +483,7 @@ where
             let input = chain.input_labels.first().cloned().flatten();
             let output = chain.output_labels.first().cloned().flatten();
 
-            result.add_arc(
-                new_entry,
-                input,
-                output,
-                new_exit,
-                chain.weight.clone(),
-            );
+            result.add_arc(new_entry, input, output, new_exit, chain.weight.clone());
         }
     }
 

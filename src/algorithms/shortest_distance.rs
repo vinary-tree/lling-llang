@@ -168,10 +168,7 @@ where
 /// Compute single-source shortest distances with an explicit queue type.
 ///
 /// This is a lower-level interface allowing direct queue selection.
-pub fn single_source_shortest_distance_with_queue<L, W, F, Q>(
-    fst: &F,
-    queue: Q,
-) -> Option<Vec<W>>
+pub fn single_source_shortest_distance_with_queue<L, W, F, Q>(fst: &F, queue: Q) -> Option<Vec<W>>
 where
     L: Clone,
     W: Semiring,
@@ -712,7 +709,7 @@ mod tests {
         assert!(distances[0].approx_eq(&TropicalWeight::one(), 1e-10));
         assert!(distances[1].approx_eq(&TropicalWeight::new(1.0), 1e-10)); // Via 'a'
         assert!(distances[2].approx_eq(&TropicalWeight::new(2.0), 1e-10)); // Via 'b'
-        // State 3: min(1+1, 2+1) = min(2, 3) = 2
+                                                                           // State 3: min(1+1, 2+1) = min(2, 3) = 2
         assert!(distances[3].approx_eq(&TropicalWeight::new(2.0), 1e-10));
     }
 
@@ -769,8 +766,7 @@ mod tests {
     #[test]
     fn test_reverse_shortest_distance() {
         let fst = build_linear_fst(3);
-        let distances =
-            reverse_shortest_distance(&fst, ShortestDistanceConfig::default()).unwrap();
+        let distances = reverse_shortest_distance(&fst, ShortestDistanceConfig::default()).unwrap();
 
         // Reverse distances from each state to final state 3
         // d[0] = 3 (3 edges)

@@ -44,11 +44,11 @@
 //! - Katz, S. M., "Estimation of Probabilities from Sparse Data"
 
 use std::collections::HashMap;
-use std::hash::Hash;
 use std::fmt::Debug;
+use std::hash::Hash;
 
 use crate::semiring::Semiring;
-use crate::wfst::{VectorWfst, MutableWfst, Wfst, StateId};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst};
 
 /// Word identifier type.
 pub type WordId = u32;
@@ -321,13 +321,7 @@ impl<W: Semiring + Clone> NgramBuilder<W> {
             let next_state = NgramState::with_history(vec![word]);
             let next_id = self.get_or_create_state(&mut fst, &mut state_map, &next_state);
 
-            fst.add_arc(
-                backoff_id,
-                Some(word),
-                Some(word),
-                next_id,
-                weight.clone(),
-            );
+            fst.add_arc(backoff_id, Some(word), Some(word), next_id, weight.clone());
         }
 
         // Add transitions for each history context
@@ -340,13 +334,7 @@ impl<W: Semiring + Clone> NgramBuilder<W> {
                 let next_state = from_state.extend(word, self.config.order - 1);
                 let next_id = self.get_or_create_state(&mut fst, &mut state_map, &next_state);
 
-                fst.add_arc(
-                    from_id,
-                    Some(word),
-                    Some(word),
-                    next_id,
-                    weight.clone(),
-                );
+                fst.add_arc(from_id, Some(word), Some(word), next_id, weight.clone());
             }
 
             // Add backoff epsilon transition
@@ -365,7 +353,8 @@ impl<W: Semiring + Clone> NgramBuilder<W> {
         }
 
         // Add backoff from initial state to unigram backoff
-        let unigram_backoff_id = *state_map.get(&NgramState::backoff(Vec::new()))
+        let unigram_backoff_id = *state_map
+            .get(&NgramState::backoff(Vec::new()))
             .expect("unigram backoff should exist");
 
         // Only add if initial has a backoff weight
@@ -379,13 +368,7 @@ impl<W: Semiring + Clone> NgramBuilder<W> {
             );
         } else {
             // Default backoff weight of 1 (log 0)
-            fst.add_arc(
-                start_id,
-                None,
-                None,
-                unigram_backoff_id,
-                W::one(),
-            );
+            fst.add_arc(start_id, None, None, unigram_backoff_id, W::one());
         }
 
         NgramTransducer {

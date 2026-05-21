@@ -32,7 +32,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use crate::semiring::{DivisibleSemiring, NumericalWeight, Semiring};
+use crate::semiring::{DivisibleSemiring, QuantizableSemiring, Semiring};
 use crate::wfst::{MutableWfst, StateId, WeightedTransition, Wfst, NO_STATE};
 
 /// Default epsilon for floating-point weight comparison during minimization.
@@ -40,37 +40,28 @@ use crate::wfst::{MutableWfst, StateId, WeightedTransition, Wfst, NO_STATE};
 /// This addresses floating-point artifacts introduced by weight pushing's division operations.
 const MINIMIZE_EPSILON: f64 = 1e-10;
 
-/// A weight quantized to fixed precision for hashable approximate comparison.
+/// A wrapper for quantized weight values for hashable approximate comparison.
 ///
 /// This enables HashMap-based partition refinement with floating-point weights
-/// by rounding to a fixed number of decimal places (determined by epsilon)
-/// before comparison. This addresses the issue where weight pushing introduces
-/// tiny floating-point differences that incorrectly separate equivalent states.
+/// by using the `QuantizableSemiring::quantize()` method. This addresses the issue
+/// where weight pushing introduces tiny floating-point differences that incorrectly
+/// separate equivalent states.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct QuantizedWeight {
-    /// Weight value quantized as integer (value / epsilon, rounded).
+    /// Weight value quantized as integer via QuantizableSemiring::quantize.
     quantized: i64,
 }
 
 impl QuantizedWeight {
-    /// Create a quantized weight from a floating-point value.
+    /// Create a quantized weight from a QuantizableSemiring value.
     ///
     /// # Arguments
-    /// * `value` - The weight value to quantize
+    /// * `weight` - The weight to quantize
     /// * `epsilon` - The quantization precision (values within epsilon are equal)
-    fn new(value: f64, epsilon: f64) -> Self {
-        // Handle special cases consistently
-        if value.is_nan() {
-            return Self { quantized: i64::MIN };
+    fn from_weight<W: QuantizableSemiring>(weight: &W, epsilon: f64) -> Self {
+        Self {
+            quantized: weight.quantize(epsilon),
         }
-        if value.is_infinite() {
-            return Self {
-                quantized: if value > 0.0 { i64::MAX } else { i64::MIN + 1 },
-            };
-        }
-        // Quantize by rounding to nearest epsilon
-        let quantized = (value / epsilon).round() as i64;
-        Self { quantized }
     }
 }
 
@@ -180,6 +171,7 @@ impl<L: Ord + Hash + Clone> StateSignature<L> {
 ///
 /// - Input must be deterministic (use `determinize` first if needed)
 /// - Semiring must be divisible for weight pushing
+/// - Semiring must implement `QuantizableSemiring` for approximate weight comparison
 ///
 /// # Returns
 ///
@@ -197,7 +189,7 @@ impl<L: Ord + Hash + Clone> StateSignature<L> {
 pub fn minimize<L, W, F>(fst: &F, config: MinimizeConfig) -> Result<F, MinimizeError>
 where
     L: Clone + Eq + Hash + Ord + Debug,
-    W: DivisibleSemiring + NumericalWeight + PartialOrd + Clone + Debug,
+    W: DivisibleSemiring + QuantizableSemiring + PartialOrd + Clone + Debug,
     F: MutableWfst<L, W> + Wfst<L, W> + Default + Clone,
 {
     let n = fst.num_states();
@@ -232,7 +224,8 @@ where
             remove_non_coaccessible: false, // We already connected if needed
             distance_config: ShortestDistanceConfig::default(),
         };
-        push_weights(&mut working, push_config).map_err(|e| MinimizeError::PushError(e.to_string()))?;
+        push_weights(&mut working, push_config)
+            .map_err(|e| MinimizeError::PushError(e.to_string()))?;
     }
 
     // Partition refinement to find equivalent states
@@ -244,12 +237,12 @@ where
 
 /// Compute state partitions using iterative refinement.
 ///
-/// Uses quantized weights for approximate comparison to handle floating-point
-/// artifacts from weight pushing.
+/// Uses `QuantizableSemiring::quantize()` for approximate comparison to handle
+/// floating-point artifacts from weight pushing.
 fn compute_partitions<L, W, F>(fst: &F, epsilon: f64) -> Result<Vec<usize>, MinimizeError>
 where
     L: Clone + Eq + Hash + Ord + Debug,
-    W: NumericalWeight + Clone + Debug,
+    W: QuantizableSemiring + Clone + Debug,
     F: Wfst<L, W>,
 {
     let n = fst.num_states();
@@ -267,7 +260,10 @@ where
     for state in 0..n {
         let state_id = state as StateId;
         let fw = if fst.is_final(state_id) {
-            Some(QuantizedWeight::new(fst.final_weight(state_id).numerical_value(), epsilon))
+            Some(QuantizedWeight::from_weight(
+                &fst.final_weight(state_id),
+                epsilon,
+            ))
         } else {
             None
         };
@@ -299,7 +295,10 @@ where
             let mut sig = StateSignature::new();
 
             if fst.is_final(state_id) {
-                sig.final_weight = Some(QuantizedWeight::new(fst.final_weight(state_id).numerical_value(), epsilon));
+                sig.final_weight = Some(QuantizedWeight::from_weight(
+                    &fst.final_weight(state_id),
+                    epsilon,
+                ));
             }
 
             let mut trans_sigs: Vec<(Option<L>, Option<L>, QuantizedWeight, usize)> = Vec::new();
@@ -308,7 +307,7 @@ where
                 trans_sigs.push((
                     trans.input.clone(),
                     trans.output.clone(),
-                    QuantizedWeight::new(trans.weight.numerical_value(), epsilon),
+                    QuantizedWeight::from_weight(&trans.weight, epsilon),
                     target_partition,
                 ));
             }
@@ -424,7 +423,7 @@ where
 pub fn estimate_reduction<L, W, F>(fst: &F) -> usize
 where
     L: Clone + Eq + Hash + Ord + Debug,
-    W: NumericalWeight + Clone + Debug,
+    W: QuantizableSemiring + Clone + Debug,
     F: Wfst<L, W>,
 {
     estimate_reduction_with_epsilon(fst, MINIMIZE_EPSILON)
@@ -436,7 +435,7 @@ where
 pub fn estimate_reduction_with_epsilon<L, W, F>(fst: &F, epsilon: f64) -> usize
 where
     L: Clone + Eq + Hash + Ord + Debug,
-    W: NumericalWeight + Clone + Debug,
+    W: QuantizableSemiring + Clone + Debug,
     F: Wfst<L, W>,
 {
     let n = fst.num_states();
@@ -680,11 +679,7 @@ mod tests {
 
         // Should estimate at least 1 state can be removed
         // (since states 3,4 are equivalent)
-        assert!(
-            reduction >= 1,
-            "Expected reduction >= 1, got {}",
-            reduction
-        );
+        assert!(reduction >= 1, "Expected reduction >= 1, got {}", reduction);
     }
 
     #[test]

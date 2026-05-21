@@ -6,7 +6,7 @@ use std::collections::BinaryHeap;
 use smallvec::SmallVec;
 
 use crate::backend::LatticeBackend;
-use crate::lattice::{Lattice, LatticePath, NodeId, EdgeId};
+use crate::lattice::{EdgeId, Lattice, LatticePath, NodeId};
 use crate::semiring::Semiring;
 
 /// A partial path in the N-best search.
@@ -81,13 +81,11 @@ impl<W: Semiring> Ord for OrderedPath<W> {
         // Reverse ordering for min-heap behavior
         // Use natural_less if available, otherwise treat as equal
         match self.0.weight.natural_less(&other.0.weight) {
-            Some(true) => Ordering::Greater,  // Reversed for min-heap
-            Some(false) => {
-                match other.0.weight.natural_less(&self.0.weight) {
-                    Some(true) => Ordering::Less,
-                    _ => Ordering::Equal,
-                }
-            }
+            Some(true) => Ordering::Greater, // Reversed for min-heap
+            Some(false) => match other.0.weight.natural_less(&self.0.weight) {
+                Some(true) => Ordering::Less,
+                _ => Ordering::Equal,
+            },
             None => Ordering::Equal,
         }
     }
@@ -212,7 +210,7 @@ pub fn nbest<W: Semiring, B: LatticeBackend>(
 mod tests {
     use super::*;
     use crate::backend::HashMapBackend;
-    use crate::lattice::{LatticeBuilder, EdgeMetadata};
+    use crate::lattice::{EdgeMetadata, LatticeBuilder};
     use crate::semiring::TropicalWeight;
 
     #[test]
@@ -249,7 +247,7 @@ mod tests {
 
         let weights: Vec<_> = paths.iter().map(|p| p.weight.value()).collect();
         assert_eq!(weights[0], 2.0); // a + c
-        // ad and bc have same weight (3.0), order depends on heap
+                                     // ad and bc have same weight (3.0), order depends on heap
         assert!(weights[1] == 3.0 || weights[1] == 3.0);
         assert!(weights[2] == 3.0 || weights[2] == 3.0);
         assert_eq!(weights[3], 4.0); // b + d
@@ -262,7 +260,8 @@ mod tests {
 
         for i in 0..10 {
             builder.add_correction(
-                0, 1,
+                0,
+                1,
                 &format!("word{}", i),
                 TropicalWeight::new(i as f64),
                 EdgeMetadata::default(),
@@ -296,8 +295,20 @@ mod tests {
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
 
-        builder.add_correction(0, 1, "hello", TropicalWeight::new(1.0), EdgeMetadata::default());
-        builder.add_correction(1, 2, "world", TropicalWeight::new(2.0), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "hello",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            1,
+            2,
+            "world",
+            TropicalWeight::new(2.0),
+            EdgeMetadata::default(),
+        );
 
         let mut lattice = builder.build(2);
         let paths = nbest(&mut lattice, 10);
@@ -378,7 +389,7 @@ mod tests {
 #[cfg(test)]
 mod property_tests {
     use super::*;
-    use crate::test_utils::{arb_tropical_lattice, arb_linear_lattice, arb_diamond_lattice};
+    use crate::test_utils::{arb_diamond_lattice, arb_linear_lattice, arb_tropical_lattice};
     use proptest::prelude::*;
     use proptest::strategy::ValueTree;
 

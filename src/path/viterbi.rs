@@ -1,7 +1,7 @@
 //! Viterbi algorithm for finding the best path.
 
 use crate::backend::LatticeBackend;
-use crate::lattice::{Lattice, LatticePath, NodeId, EdgeId};
+use crate::lattice::{EdgeId, Lattice, LatticePath, NodeId};
 use crate::semiring::Semiring;
 
 /// Result of Viterbi decoding.
@@ -16,7 +16,10 @@ pub struct ViterbiResult<W: Semiring> {
 impl<W: Semiring> ViterbiResult<W> {
     /// Create a successful result.
     fn success(path: LatticePath<W>) -> Self {
-        Self { path, success: true }
+        Self {
+            path,
+            success: true,
+        }
     }
 
     /// Create a failed result (no path found).
@@ -169,7 +172,10 @@ pub fn viterbi<W: Semiring, B: LatticeBackend>(lattice: &mut Lattice<W, B>) -> V
     let final_weight = if edges.is_empty() {
         W::one()
     } else {
-        best[end_idx].as_ref().map(|(w, _, _)| *w).unwrap_or_else(W::one)
+        best[end_idx]
+            .as_ref()
+            .map(|(w, _, _)| *w)
+            .unwrap_or_else(W::one)
     };
 
     let mut path = LatticePath::with_weight(final_weight);
@@ -187,7 +193,7 @@ pub fn viterbi<W: Semiring, B: LatticeBackend>(lattice: &mut Lattice<W, B>) -> V
 mod tests {
     use super::*;
     use crate::backend::HashMapBackend;
-    use crate::lattice::{LatticeBuilder, EdgeMetadata};
+    use crate::lattice::{EdgeMetadata, LatticeBuilder};
     use crate::semiring::TropicalWeight;
 
     #[test]
@@ -195,7 +201,13 @@ mod tests {
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
 
-        builder.add_correction(0, 1, "the", TropicalWeight::new(0.5), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "the",
+            TropicalWeight::new(0.5),
+            EdgeMetadata::default(),
+        );
         builder.add_correction(0, 1, "a", TropicalWeight::new(1.0), EdgeMetadata::default());
 
         let mut lattice = builder.build(1);
@@ -214,10 +226,28 @@ mod tests {
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
 
-        builder.add_correction(0, 1, "the", TropicalWeight::new(0.5), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "the",
+            TropicalWeight::new(0.5),
+            EdgeMetadata::default(),
+        );
         builder.add_correction(0, 1, "a", TropicalWeight::new(1.0), EdgeMetadata::default());
-        builder.add_correction(1, 2, "quick", TropicalWeight::new(0.3), EdgeMetadata::default());
-        builder.add_correction(1, 2, "slow", TropicalWeight::new(0.7), EdgeMetadata::default());
+        builder.add_correction(
+            1,
+            2,
+            "quick",
+            TropicalWeight::new(0.3),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            1,
+            2,
+            "slow",
+            TropicalWeight::new(0.7),
+            EdgeMetadata::default(),
+        );
 
         let mut lattice = builder.build(2);
         let result = viterbi(&mut lattice);
@@ -248,8 +278,20 @@ mod tests {
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
 
-        builder.add_correction(0, 1, "hello", TropicalWeight::new(1.0), EdgeMetadata::default());
-        builder.add_correction(1, 2, "world", TropicalWeight::new(2.0), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "hello",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            1,
+            2,
+            "world",
+            TropicalWeight::new(2.0),
+            EdgeMetadata::default(),
+        );
 
         let mut lattice = builder.build(2);
         let result = viterbi(&mut lattice);
@@ -305,8 +347,20 @@ mod tests {
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
 
-        builder.add_correction(0, 1, "zero", TropicalWeight::new(0.0), EdgeMetadata::default());
-        builder.add_correction(0, 1, "one", TropicalWeight::new(1.0), EdgeMetadata::default());
+        builder.add_correction(
+            0,
+            1,
+            "zero",
+            TropicalWeight::new(0.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            0,
+            1,
+            "one",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
 
         let mut lattice = builder.build(1);
         let result = viterbi(&mut lattice);
@@ -327,7 +381,7 @@ mod tests {
 mod property_tests {
     use super::*;
     use crate::path::nbest;
-    use crate::test_utils::{arb_tropical_lattice, arb_linear_lattice, arb_diamond_lattice};
+    use crate::test_utils::{arb_diamond_lattice, arb_linear_lattice, arb_tropical_lattice};
     use proptest::prelude::*;
 
     proptest! {

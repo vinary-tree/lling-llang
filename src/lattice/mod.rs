@@ -41,13 +41,13 @@
 //! let lattice = builder.build(1);
 //! ```
 
-mod types;
-mod lattice;
-mod builder;
 mod algorithms;
+mod builder;
 mod iterator;
+mod lattice;
+mod types;
 
-pub use types::{NodeId, EdgeId, Node, Edge, EdgeMetadata};
-pub use lattice::Lattice;
 pub use builder::LatticeBuilder;
-pub use iterator::{PathIterator, LatticePath, LatticePathExt};
+pub use iterator::{LatticePath, LatticePathExt, PathIterator};
+pub use lattice::Lattice;
+pub use types::{Edge, EdgeId, EdgeMetadata, Node, NodeId};

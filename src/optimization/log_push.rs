@@ -32,8 +32,8 @@
 //! - Mohri, Pereira, Riley (2002): "WFSTs in Speech Recognition"
 //! - Mohri, Pereira, Riley (2008): "Speech Recognition with WFSTs" (Handbook)
 
-use crate::semiring::{LogWeight, Semiring, DivisibleSemiring};
-use crate::wfst::{MutableWfst, StateId, Wfst, WeightedTransition, NO_STATE};
+use crate::semiring::{DivisibleSemiring, LogWeight, Semiring};
+use crate::wfst::{MutableWfst, StateId, WeightedTransition, Wfst, NO_STATE};
 
 /// Configuration for log-semiring weight pushing for beam search.
 #[derive(Clone, Debug)]
@@ -139,9 +139,7 @@ where
     }
 
     // Count transitions
-    let num_transitions: usize = (0..n)
-        .map(|s| fst.transitions(s as StateId).len())
-        .sum();
+    let num_transitions: usize = (0..n).map(|s| fst.transitions(s as StateId).len()).sum();
 
     // Compute backward potentials in log semiring
     let potentials = compute_log_potentials(fst)?;
@@ -298,7 +296,9 @@ where
             // In log semiring: w ⊗ V(target) ⊗ V(source)^{-1}
             // = w.times(p_to).divide(p_from)
             let w_times_to = trans.weight.times(p_to);
-            let new_weight = w_times_to.divide(p_from).unwrap_or_else(|| trans.weight.clone());
+            let new_weight = w_times_to
+                .divide(p_from)
+                .unwrap_or_else(|| trans.weight.clone());
 
             new_transitions[state].push(WeightedTransition {
                 from: trans.from,
@@ -443,7 +443,7 @@ impl std::error::Error for LogPushError {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wfst::{VectorWfst, MutableWfst as MutableWfstTrait};
+    use crate::wfst::{MutableWfst as MutableWfstTrait, VectorWfst};
 
     fn build_simple_chain() -> VectorWfst<char, LogWeight> {
         // 0 --a/1.0--> 1 --b/2.0--> 2 (final, weight 0.0)
@@ -539,8 +539,8 @@ mod tests {
     #[test]
     fn test_prepare_for_beam_search_chain() {
         let mut fst = build_simple_chain();
-        let result = prepare_for_beam_search(&mut fst, LogPushConfig::default())
-            .expect("Should prepare");
+        let result =
+            prepare_for_beam_search(&mut fst, LogPushConfig::default()).expect("Should prepare");
 
         assert!(result.pushed);
         assert_eq!(result.num_states, 3);
@@ -560,7 +560,10 @@ mod tests {
         // After backward push, the sum of path weights should be one
         let trans_0 = &fst.transitions(0)[0];
         let trans_1 = &fst.transitions(1)[0];
-        let path_weight = trans_0.weight.times(&trans_1.weight).times(&fst.final_weight(2));
+        let path_weight = trans_0
+            .weight
+            .times(&trans_1.weight)
+            .times(&fst.final_weight(2));
 
         // The pushed path weight should be one (the total weight is absorbed)
         assert!(
@@ -573,8 +576,8 @@ mod tests {
     #[test]
     fn test_prepare_for_beam_search_parallel() {
         let mut fst = build_parallel_paths();
-        let result = prepare_for_beam_search(&mut fst, LogPushConfig::verified())
-            .expect("Should prepare");
+        let result =
+            prepare_for_beam_search(&mut fst, LogPushConfig::verified()).expect("Should prepare");
 
         assert!(result.pushed);
         assert_eq!(result.is_stochastic, Some(true));
@@ -596,8 +599,8 @@ mod tests {
     #[test]
     fn test_prepare_for_beam_search_diamond() {
         let mut fst = build_diamond();
-        let result = prepare_for_beam_search(&mut fst, LogPushConfig::verified())
-            .expect("Should prepare");
+        let result =
+            prepare_for_beam_search(&mut fst, LogPushConfig::verified()).expect("Should prepare");
 
         assert!(result.pushed);
         assert_eq!(result.num_states, 4);
@@ -669,8 +672,7 @@ mod tests {
         let original_total = original_potentials[0].clone();
 
         // Push
-        let result = prepare_for_beam_search(&mut fst, LogPushConfig::default())
-            .expect("push");
+        let result = prepare_for_beam_search(&mut fst, LogPushConfig::default()).expect("push");
 
         // Total weight from result should match original
         assert!(

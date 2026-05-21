@@ -1,7 +1,7 @@
 //! Tests for known bugs that have been fixed and edge cases.
 
-use lling_llang::semiring::{TropicalWeight, LogWeight, Semiring};
-use lling_llang::wfst::{VectorWfst, MutableWfst, Wfst, NO_STATE};
+use lling_llang::semiring::{LogWeight, Semiring, TropicalWeight};
+use lling_llang::wfst::{MutableWfst, VectorWfst, Wfst, NO_STATE};
 
 /// Empty WFST edge cases.
 #[test]

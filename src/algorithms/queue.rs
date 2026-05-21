@@ -18,8 +18,8 @@
 //! affects both correctness (for non-idempotent semirings) and efficiency.
 
 use std::cmp::Ordering;
-use std::collections::VecDeque;
 use std::collections::BinaryHeap;
+use std::collections::VecDeque;
 
 use ordered_float::OrderedFloat;
 use rustc_hash::FxHashSet;
@@ -54,7 +54,10 @@ pub trait ShortestDistanceQueue<W: Semiring> {
     fn with_capacity(capacity: usize) -> Self;
 
     /// Create a new empty queue.
-    fn new() -> Self where Self: Sized {
+    fn new() -> Self
+    where
+        Self: Sized,
+    {
         Self::with_capacity(0)
     }
 
@@ -393,14 +396,20 @@ impl Ord for ShortestFirstEntry {
 ///
 /// # Requirements
 ///
-/// - Weights must be non-negative (for correctness)
-/// - Best with tropical semiring
+/// - **Non-negative weights**: For correctness, the weight semiring must have
+///   non-negative values (see [`NonnegativeSemiring`]). Dijkstra's algorithm
+///   relies on the monotonicity property: once a state is popped from the queue,
+///   its distance is final and cannot be improved by negative-weight paths.
+///
+/// - Best performance with tropical semiring where weights are guaranteed non-negative.
 ///
 /// # Complexity
 ///
 /// - Insert: O(log |Q|)
 /// - Pop: O(log |Q|)
 /// - Overall shortest-distance: O(|E| + |Q| log |Q|)
+///
+/// [`NonnegativeSemiring`]: crate::semiring::NonnegativeSemiring
 #[derive(Clone, Debug)]
 pub struct ShortestFirstQueue {
     heap: BinaryHeap<ShortestFirstEntry>,
@@ -426,7 +435,8 @@ impl ShortestFirstQueue {
 
     /// Initialize the distance tracking array for a given number of states.
     pub fn init_distances(&mut self, num_states: usize) {
-        self.distances.resize(num_states, OrderedFloat(f64::INFINITY));
+        self.distances
+            .resize(num_states, OrderedFloat(f64::INFINITY));
     }
 
     /// Insert a state with the given distance (as f64).
@@ -754,9 +764,15 @@ mod tests {
         let mut queue: AutoQueue = AutoQueue::with_topological_order(None);
 
         <AutoQueue as ShortestDistanceQueue<TropicalWeight>>::insert(
-            &mut queue, 0, &TropicalWeight::new(1.0));
+            &mut queue,
+            0,
+            &TropicalWeight::new(1.0),
+        );
         <AutoQueue as ShortestDistanceQueue<TropicalWeight>>::insert(
-            &mut queue, 1, &TropicalWeight::new(2.0));
+            &mut queue,
+            1,
+            &TropicalWeight::new(2.0),
+        );
 
         assert_eq!(queue.pop(), Some(0));
         assert_eq!(queue.pop(), Some(1));
@@ -767,11 +783,20 @@ mod tests {
         let mut queue: AutoQueue = AutoQueue::with_topological_order(Some(vec![2, 0, 1]));
 
         <AutoQueue as ShortestDistanceQueue<TropicalWeight>>::insert(
-            &mut queue, 0, &TropicalWeight::new(1.0));
+            &mut queue,
+            0,
+            &TropicalWeight::new(1.0),
+        );
         <AutoQueue as ShortestDistanceQueue<TropicalWeight>>::insert(
-            &mut queue, 1, &TropicalWeight::new(2.0));
+            &mut queue,
+            1,
+            &TropicalWeight::new(2.0),
+        );
         <AutoQueue as ShortestDistanceQueue<TropicalWeight>>::insert(
-            &mut queue, 2, &TropicalWeight::new(3.0));
+            &mut queue,
+            2,
+            &TropicalWeight::new(3.0),
+        );
 
         // Should follow topological order: 2, 0, 1
         assert_eq!(queue.pop(), Some(2));

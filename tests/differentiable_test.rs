@@ -3,7 +3,7 @@
 //! Tests forward/backward passes and gradient computation.
 
 use lling_llang::semiring::{LogWeight, Semiring};
-use lling_llang::wfst::{VectorWfst, MutableWfst, Wfst};
+use lling_llang::wfst::{MutableWfst, VectorWfst, Wfst};
 
 /// Create a simple chain WFST for testing.
 fn create_chain_wfst() -> VectorWfst<char, LogWeight> {

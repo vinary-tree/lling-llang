@@ -33,22 +33,27 @@ pub mod language;
 
 // Re-export commonly used items
 pub use arbitrary::{
-    arb_wfst, arb_acyclic_wfst, arb_deterministic_wfst, arb_deterministic_wfst_tropical,
-    arb_tropical_weight, arb_log_weight, arb_probability_weight,
-    arb_tropical_wfst, arb_log_wfst, arb_acyclic_wfst_tropical,
+    arb_acyclic_wfst,
+    arb_acyclic_wfst_tropical,
+    arb_deterministic_wfst,
+    arb_deterministic_wfst_tropical,
+    arb_diamond_lattice,
     arb_label,
+    arb_linear_lattice,
+    arb_log_weight,
+    arb_log_wfst,
+    arb_probability_weight,
     // Lattice strategies
-    arb_tropical_lattice, arb_linear_lattice, arb_diamond_lattice,
+    arb_tropical_lattice,
+    arb_tropical_weight,
+    arb_tropical_wfst,
+    arb_wfst,
 };
 pub use assertions::{
-    approx_eq, wfst_approx_eq, assert_is_deterministic,
-    assert_is_acyclic, assert_has_no_epsilon, assert_wfst_invariants,
+    approx_eq, assert_has_no_epsilon, assert_is_acyclic, assert_is_deterministic,
+    assert_wfst_invariants, wfst_approx_eq,
 };
 pub use fixtures::{
-    linear_wfst, branching_wfst, cyclic_wfst, epsilon_wfst,
-    diamond_wfst, single_state_wfst,
+    branching_wfst, cyclic_wfst, diamond_wfst, epsilon_wfst, linear_wfst, single_state_wfst,
 };
-pub use language::{
-    language_eq, path_weights_eq, accepts_string,
-    enumerate_paths, Path,
-};
+pub use language::{accepts_string, enumerate_paths, language_eq, path_weights_eq, Path};

@@ -2,8 +2,8 @@
 //!
 //! Tests end-to-end lattice construction and path extraction.
 
-use lling_llang::lattice::{LatticeBuilder, EdgeMetadata};
 use lling_llang::backend::HashMapBackend;
+use lling_llang::lattice::{EdgeMetadata, LatticeBuilder};
 use lling_llang::path::viterbi;
 use lling_llang::semiring::TropicalWeight;
 
@@ -14,8 +14,20 @@ fn test_lattice_viterbi_best_path() {
     let mut builder = LatticeBuilder::new(backend);
 
     // Add corrections: position 0 -> 1
-    builder.add_correction(0, 1, "the", TropicalWeight::new(0.5), EdgeMetadata::correction(1));
-    builder.add_correction(0, 1, "a", TropicalWeight::new(1.0), EdgeMetadata::correction(1));
+    builder.add_correction(
+        0,
+        1,
+        "the",
+        TropicalWeight::new(0.5),
+        EdgeMetadata::correction(1),
+    );
+    builder.add_correction(
+        0,
+        1,
+        "a",
+        TropicalWeight::new(1.0),
+        EdgeMetadata::correction(1),
+    );
 
     let mut lattice = builder.build(1);
     let result = viterbi(&mut lattice);
@@ -33,7 +45,10 @@ fn test_empty_lattice() {
     let result = viterbi(&mut lattice);
 
     // Empty lattice where start == end should succeed with empty path
-    assert!(result.success, "Empty lattice with start==end should have empty valid path");
+    assert!(
+        result.success,
+        "Empty lattice with start==end should have empty valid path"
+    );
 }
 
 /// Test single-edge lattice.
@@ -42,7 +57,13 @@ fn test_single_edge_lattice() {
     let backend = HashMapBackend::new();
     let mut builder = LatticeBuilder::new(backend);
 
-    builder.add_correction(0, 1, "hello", TropicalWeight::new(0.0), EdgeMetadata::default());
+    builder.add_correction(
+        0,
+        1,
+        "hello",
+        TropicalWeight::new(0.0),
+        EdgeMetadata::default(),
+    );
 
     let mut lattice = builder.build(1);
     let result = viterbi(&mut lattice);

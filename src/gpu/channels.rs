@@ -400,9 +400,7 @@ pub struct BatchedDecoder<T> {
 impl<T> BatchedDecoder<T> {
     /// Create a new batched decoder.
     pub fn new(config: DecoderConfig) -> Self {
-        let channels = (0..config.max_channels)
-            .map(Channel::new)
-            .collect();
+        let channels = (0..config.max_channels).map(Channel::new).collect();
         let lanes = (0..config.max_lanes)
             .map(|id| Lane::new(id, config.max_tokens))
             .collect();
@@ -451,11 +449,7 @@ impl<T> BatchedDecoder<T> {
     }
 
     /// Start a new utterance on an available channel.
-    pub fn start_utterance(
-        &mut self,
-        user_data: T,
-        total_frames: Option<usize>,
-    ) -> Option<usize> {
+    pub fn start_utterance(&mut self, user_data: T, total_frames: Option<usize>) -> Option<usize> {
         let channel_id = self.find_idle_channel()?;
         self.channels[channel_id].start_utterance(user_data, total_frames);
         self.ready_queue.push_back(channel_id);
@@ -731,12 +725,22 @@ mod tests {
         decoder.schedule();
 
         // Process first frame - get total frames before mutable borrow
-        let total_frames_1 = decoder.channel(1).and_then(|c| c.total_frames()).unwrap_or(10);
-        let total_frames_2 = decoder.channel(2).and_then(|c| c.total_frames()).unwrap_or(10);
+        let total_frames_1 = decoder
+            .channel(1)
+            .and_then(|c| c.total_frames())
+            .unwrap_or(10);
+        let total_frames_2 = decoder
+            .channel(2)
+            .and_then(|c| c.total_frames())
+            .unwrap_or(10);
         let mut frame = 0;
         let completed = decoder.process_frame(|_lane, channel| {
             frame += 1;
-            let total = if channel == 1 { total_frames_1 } else { total_frames_2 };
+            let total = if channel == 1 {
+                total_frames_1
+            } else {
+                total_frames_2
+            };
             (50, frame >= total)
         });
 

@@ -12,12 +12,12 @@ use std::hash::{Hash, Hasher};
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 
-use super::types::{NonTerminal, Terminal, RuleId, Symbol};
+use super::forest::{ForestChild, ForestNode, ForestNodeId, ParseForest};
 use super::grammar::Grammar;
-use super::forest::{ParseForest, ForestNodeId, ForestNode, ForestChild};
+use super::types::{NonTerminal, RuleId, Symbol, Terminal};
 
 use crate::backend::LatticeBackend;
-use crate::lattice::{Lattice, NodeId, EdgeId};
+use crate::lattice::{EdgeId, Lattice, NodeId};
 use crate::semiring::Semiring;
 
 /// An Earley item (chart state).
@@ -116,7 +116,9 @@ impl EarleyState {
     /// Advance the dot by one position after matching a non-terminal.
     pub fn advance_with_nonterminal(&self, child_forest_node: ForestNodeId) -> Self {
         let mut child_nodes = self.child_nodes.clone();
-        child_nodes.push(ForestChild::Derivation(smallvec::smallvec![child_forest_node]));
+        child_nodes.push(ForestChild::Derivation(smallvec::smallvec![
+            child_forest_node
+        ]));
         Self {
             rule: self.rule,
             dot: self.dot + 1,
@@ -147,8 +149,15 @@ impl EarleyState {
 
 impl fmt::Display for EarleyState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{}, {}, {}, {:?}, edges: {}]",
-            self.rule, self.dot, self.start.0, self.forest_node, self.terminal_edges.len())
+        write!(
+            f,
+            "[{}, {}, {}, {:?}, edges: {}]",
+            self.rule,
+            self.dot,
+            self.start.0,
+            self.forest_node,
+            self.terminal_edges.len()
+        )
     }
 }
 
@@ -229,7 +238,10 @@ impl EarleyChart {
 
     /// Get all items at a position.
     pub fn at(&self, pos: NodeId) -> impl Iterator<Item = &EarleyState> {
-        self.positions.get(&pos).into_iter().flat_map(|s| s.values())
+        self.positions
+            .get(&pos)
+            .into_iter()
+            .flat_map(|s| s.values())
     }
 
     /// Pop the next item from the agenda.
@@ -395,11 +407,7 @@ impl<'g> EarleyParser<'g> {
         let completed_nt = completed.lhs(self.grammar);
 
         // Create forest node for completed rule
-        let mut node = ForestNode::new(
-            completed.rule,
-            completed.start,
-            pos,
-        );
+        let mut node = ForestNode::new(completed.rule, completed.start, pos);
 
         // Add all children accumulated during parsing this rule
         node.children = completed.child_nodes.clone();
@@ -407,9 +415,10 @@ impl<'g> EarleyParser<'g> {
         let forest_node = forest.add_node(node);
 
         // If this is a start-symbol rule spanning the entire input, add as root
-        if completed_nt == self.grammar.start() &&
-           completed.start == lattice.start() &&
-           pos == lattice.end() {
+        if completed_nt == self.grammar.start()
+            && completed.start == lattice.start()
+            && pos == lattice.end()
+        {
             forest.add_root(forest_node);
         }
 
@@ -430,10 +439,7 @@ impl<'g> EarleyParser<'g> {
     }
 
     /// Check if the grammar accepts the lattice.
-    pub fn accepts<W: Semiring, B: LatticeBackend>(
-        &self,
-        lattice: &Lattice<W, B>,
-    ) -> bool {
+    pub fn accepts<W: Semiring, B: LatticeBackend>(&self, lattice: &Lattice<W, B>) -> bool {
         self.parse_lattice(lattice).is_ok()
     }
 
@@ -447,9 +453,9 @@ impl<'g> EarleyParser<'g> {
 mod tests {
     use super::*;
     use crate::backend::HashMapBackend;
-    use crate::lattice::{LatticeBuilder, EdgeMetadata};
-    use crate::semiring::TropicalWeight;
     use crate::cfg::GrammarBuilder;
+    use crate::lattice::{EdgeMetadata, LatticeBuilder};
+    use crate::semiring::TropicalWeight;
 
     fn simple_grammar() -> Grammar {
         // S → NP VP
@@ -478,14 +484,19 @@ mod tests {
         let mut backend = HashMapBackend::new();
 
         // Get terminal IDs from grammar and also intern words in backend
-        let word_ids: Vec<_> = words.iter().map(|w| {
-            // Get the terminal ID from grammar (this is what the parser expects)
-            let t = grammar.terminal_by_name(w).expect(&format!("unknown word: {}", w));
-            // Intern in backend for lookup purposes
-            let _id = backend.intern(w);
-            // Use grammar's terminal ID for the edge
-            t.vocab_id()
-        }).collect();
+        let word_ids: Vec<_> = words
+            .iter()
+            .map(|w| {
+                // Get the terminal ID from grammar (this is what the parser expects)
+                let t = grammar
+                    .terminal_by_name(w)
+                    .expect(&format!("unknown word: {}", w));
+                // Intern in backend for lookup purposes
+                let _id = backend.intern(w);
+                // Use grammar's terminal ID for the edge
+                t.vocab_id()
+            })
+            .collect();
 
         let mut builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
 
@@ -612,6 +623,10 @@ mod tests {
         let lattice = builder.build(1);
 
         let result = parser.parse_lattice(&lattice);
-        assert!(result.is_ok(), "Parse with nullable should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Parse with nullable should succeed: {:?}",
+            result
+        );
     }
 }

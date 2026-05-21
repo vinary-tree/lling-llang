@@ -10,7 +10,7 @@
 use rustc_hash::FxHashSet;
 
 use crate::backend::LatticeBackend;
-use crate::lattice::{Lattice, LatticeBuilder, EdgeMetadata, LatticePathExt};
+use crate::lattice::{EdgeMetadata, Lattice, LatticeBuilder, LatticePathExt};
 use crate::semiring::Semiring;
 
 use super::traits::{CorrectionLayer, LayerError, LayerResult};
@@ -75,7 +75,8 @@ impl PosTaggingLayer {
     ///
     /// Paths must match at least one required pattern (if any are specified).
     pub fn with_required_pattern(mut self, pattern: &[&str]) -> Self {
-        self.required_patterns.push(pattern.iter().map(|&s| PosTag::new(s)).collect());
+        self.required_patterns
+            .push(pattern.iter().map(|&s| PosTag::new(s)).collect());
         self
     }
 
@@ -83,7 +84,8 @@ impl PosTaggingLayer {
     ///
     /// Paths containing this sequence will be filtered out.
     pub fn with_forbidden_sequence(mut self, sequence: &[&str]) -> Self {
-        self.forbidden_sequences.push(sequence.iter().map(|&s| PosTag::new(s)).collect());
+        self.forbidden_sequences
+            .push(sequence.iter().map(|&s| PosTag::new(s)).collect());
         self
     }
 
@@ -169,7 +171,7 @@ impl<W: Semiring, B: LatticeBackend> CorrectionLayer<W, B> for PosTaggingLayer {
         // If no paths passed, return error
         if used_edges.is_empty() {
             return Err(LayerError::Other(
-                "no paths passed POS constraints".to_string()
+                "no paths passed POS constraints".to_string(),
             ));
         }
 
@@ -234,7 +236,8 @@ mod tests {
     fn test_layer_name() {
         let layer = PosTaggingLayer::new(Box::new(MockPosModel));
         // Use explicit trait method call with concrete types
-        let name = <PosTaggingLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::name(&layer);
+        let name =
+            <PosTaggingLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::name(&layer);
         assert_eq!(name, "pos-tagging");
     }
 

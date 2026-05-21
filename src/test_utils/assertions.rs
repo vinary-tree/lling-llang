@@ -48,7 +48,10 @@ pub fn assert_approx_eq(a: f64, b: f64, epsilon: f64) {
     assert!(
         approx_eq(a, b, epsilon),
         "assertion failed: approx_eq({}, {}, {})\n  difference: {}",
-        a, b, epsilon, (a - b).abs()
+        a,
+        b,
+        epsilon,
+        (a - b).abs()
     );
 }
 
@@ -58,7 +61,8 @@ pub fn assert_weight_approx_eq<W: Semiring>(a: &W, b: &W, epsilon: f64) {
     assert!(
         a.approx_eq(b, epsilon),
         "assertion failed: weight approx_eq\n  left:  {:?}\n  right: {:?}",
-        a, b
+        a,
+        b
     );
 }
 
@@ -70,11 +74,7 @@ pub fn assert_weight_approx_eq<W: Semiring>(a: &W, b: &W, epsilon: f64) {
 ///
 /// Two WFSTs are approximately equal if they have the same structure
 /// (same states and transitions) and approximately equal weights.
-pub fn wfst_approx_eq<L, W>(
-    fst1: &VectorWfst<L, W>,
-    fst2: &VectorWfst<L, W>,
-    epsilon: f64,
-) -> bool
+pub fn wfst_approx_eq<L, W>(fst1: &VectorWfst<L, W>, fst2: &VectorWfst<L, W>, epsilon: f64) -> bool
 where
     L: Clone + Send + Sync + PartialEq,
     W: Semiring,
@@ -94,7 +94,10 @@ where
             return false;
         }
         if fst1.is_final(state) {
-            if !fst1.final_weight(state).approx_eq(&fst2.final_weight(state), epsilon) {
+            if !fst1
+                .final_weight(state)
+                .approx_eq(&fst2.final_weight(state), epsilon)
+            {
                 return false;
             }
         }
@@ -123,11 +126,7 @@ where
 
 /// Assert two WFSTs are approximately equal.
 #[track_caller]
-pub fn assert_wfst_approx_eq<L, W>(
-    fst1: &VectorWfst<L, W>,
-    fst2: &VectorWfst<L, W>,
-    epsilon: f64,
-)
+pub fn assert_wfst_approx_eq<L, W>(fst1: &VectorWfst<L, W>, fst2: &VectorWfst<L, W>, epsilon: f64)
 where
     L: Clone + Send + Sync + PartialEq + std::fmt::Debug,
     W: Semiring + std::fmt::Debug,
@@ -176,10 +175,7 @@ where
     L: Clone + Send + Sync + PartialEq + Eq + std::hash::Hash + std::fmt::Debug,
     W: Semiring,
 {
-    assert!(
-        is_deterministic(fst),
-        "WFST is not deterministic"
-    );
+    assert!(is_deterministic(fst), "WFST is not deterministic");
 }
 
 /// Check if a WFST is acyclic.
@@ -282,10 +278,7 @@ where
     L: Clone + Send + Sync,
     W: Semiring,
 {
-    assert!(
-        has_no_epsilon(fst),
-        "WFST has epsilon transitions"
-    );
+    assert!(has_no_epsilon(fst), "WFST has epsilon transitions");
 }
 
 /// Check if a WFST is connected (all states reachable from start).
@@ -442,7 +435,12 @@ pub fn assert_plus_commutative<W: Semiring>(a: &W, b: &W, epsilon: f64) {
     assert!(
         ab.approx_eq(&ba, epsilon),
         "Plus is not commutative: {:?} + {:?} = {:?} != {:?} = {:?} + {:?}",
-        a, b, ab, ba, b, a
+        a,
+        b,
+        ab,
+        ba,
+        b,
+        a
     );
 }
 
@@ -454,7 +452,14 @@ pub fn assert_plus_associative<W: Semiring>(a: &W, b: &W, c: &W, epsilon: f64) {
     assert!(
         ab_c.approx_eq(&a_bc, epsilon),
         "Plus is not associative: ({:?} + {:?}) + {:?} = {:?} != {:?} = {:?} + ({:?} + {:?})",
-        a, b, c, ab_c, a_bc, a, b, c
+        a,
+        b,
+        c,
+        ab_c,
+        a_bc,
+        a,
+        b,
+        c
     );
 }
 
@@ -466,7 +471,14 @@ pub fn assert_times_associative<W: Semiring>(a: &W, b: &W, c: &W, epsilon: f64) 
     assert!(
         ab_c.approx_eq(&a_bc, epsilon),
         "Times is not associative: ({:?} * {:?}) * {:?} = {:?} != {:?} = {:?} * ({:?} * {:?})",
-        a, b, c, ab_c, a_bc, a, b, c
+        a,
+        b,
+        c,
+        ab_c,
+        a_bc,
+        a,
+        b,
+        c
     );
 }
 
@@ -501,7 +513,9 @@ pub fn assert_zero_identity<W: Semiring>(a: &W, epsilon: f64) {
     assert!(
         result.approx_eq(a, epsilon),
         "Zero identity failed: {:?} + 0 = {:?} != {:?}",
-        a, result, a
+        a,
+        result,
+        a
     );
 }
 
@@ -513,12 +527,16 @@ pub fn assert_one_identity<W: Semiring>(a: &W, epsilon: f64) {
     assert!(
         result_right.approx_eq(a, epsilon),
         "One identity (right) failed: {:?} * 1 = {:?} != {:?}",
-        a, result_right, a
+        a,
+        result_right,
+        a
     );
     assert!(
         result_left.approx_eq(a, epsilon),
         "One identity (left) failed: 1 * {:?} = {:?} != {:?}",
-        a, result_left, a
+        a,
+        result_left,
+        a
     );
 }
 
@@ -530,12 +548,14 @@ pub fn assert_zero_annihilation<W: Semiring>(a: &W, epsilon: f64) {
     assert!(
         result_right.approx_eq(&W::zero(), epsilon),
         "Zero annihilation (right) failed: {:?} * 0 = {:?} != 0",
-        a, result_right
+        a,
+        result_right
     );
     assert!(
         result_left.approx_eq(&W::zero(), epsilon),
         "Zero annihilation (left) failed: 0 * {:?} = {:?} != 0",
-        a, result_left
+        a,
+        result_left
     );
 }
 

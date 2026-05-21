@@ -9,7 +9,7 @@ use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
 
 use super::types::RuleId;
-use crate::lattice::{NodeId, EdgeId};
+use crate::lattice::{EdgeId, NodeId};
 
 /// Forest node identifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -247,18 +247,27 @@ pub enum ParseTreeChild {
 impl ParseTree {
     /// Get the depth of the tree.
     pub fn depth(&self) -> usize {
-        1 + self.children.iter().map(|c| match c {
-            ParseTreeChild::Tree(t) => t.depth(),
-            ParseTreeChild::Terminal(_) => 0,
-        }).max().unwrap_or(0)
+        1 + self
+            .children
+            .iter()
+            .map(|c| match c {
+                ParseTreeChild::Tree(t) => t.depth(),
+                ParseTreeChild::Terminal(_) => 0,
+            })
+            .max()
+            .unwrap_or(0)
     }
 
     /// Get the number of nodes in the tree.
     pub fn size(&self) -> usize {
-        1 + self.children.iter().map(|c| match c {
-            ParseTreeChild::Tree(t) => t.size(),
-            ParseTreeChild::Terminal(_) => 1,
-        }).sum::<usize>()
+        1 + self
+            .children
+            .iter()
+            .map(|c| match c {
+                ParseTreeChild::Tree(t) => t.size(),
+                ParseTreeChild::Terminal(_) => 1,
+            })
+            .sum::<usize>()
     }
 
     /// Collect all edges in this tree.

@@ -31,7 +31,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use crate::semiring::{DivisibleSemiring, Semiring};
+use crate::semiring::{DivisibleSemiring, Semiring, TotallyOrderedSemiring};
 use crate::wfst::{MutableWfst, StateId, WeightedTransition, Wfst, NO_STATE};
 
 /// Configuration for determinization.
@@ -114,11 +114,14 @@ fn subset_key<W: Semiring + Clone>(subset: &WeightedSubset<W>) -> Vec<(StateId, 
 }
 
 /// Find the minimum weight in a weighted subset.
-fn min_weight<W: Semiring + Clone + PartialOrd>(subset: &WeightedSubset<W>) -> W {
+///
+/// Uses `TotallyOrderedSemiring::total_cmp` for safe comparison without
+/// the `unwrap_or(Equal)` fallback that could hide comparison failures.
+fn min_weight<W: TotallyOrderedSemiring + Clone>(subset: &WeightedSubset<W>) -> W {
     subset
         .values()
         .cloned()
-        .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .min_by(|a, b| a.total_cmp(b))
         .unwrap_or_else(W::zero)
 }
 
@@ -130,8 +133,14 @@ fn min_weight<W: Semiring + Clone + PartialOrd>(subset: &WeightedSubset<W>) -> W
 /// # Type Parameters
 ///
 /// - `L`: Label type (must be Eq + Hash + Clone + Ord)
-/// - `W`: Weight type (must be DivisibleSemiring + PartialOrd)
+/// - `W`: Weight type (must be DivisibleSemiring + TotallyOrderedSemiring)
 /// - `F`: WFST type
+///
+/// # Requirements
+///
+/// The weight semiring must implement `TotallyOrderedSemiring` to ensure safe
+/// weight comparisons. This is a compile-time guarantee that replaces the
+/// previous runtime fallback when `PartialOrd` comparisons returned `None`.
 ///
 /// # Returns
 ///
@@ -145,13 +154,10 @@ fn min_weight<W: Semiring + Clone + PartialOrd>(subset: &WeightedSubset<W>) -> W
 /// let mut fst = build_some_wfst();
 /// let det_fst = determinize(&fst, DeterminizeConfig::standard())?;
 /// ```
-pub fn determinize<L, W, F>(
-    fst: &F,
-    config: DeterminizeConfig,
-) -> Result<F, DeterminizeError>
+pub fn determinize<L, W, F>(fst: &F, config: DeterminizeConfig) -> Result<F, DeterminizeError>
 where
     L: Clone + Eq + Hash + Ord + Debug,
-    W: DivisibleSemiring + PartialOrd + Clone + Debug + Hash + Eq,
+    W: DivisibleSemiring + TotallyOrderedSemiring + Clone + Debug + Hash + Eq,
     F: MutableWfst<L, W> + Wfst<L, W> + Default,
 {
     let n = fst.num_states();

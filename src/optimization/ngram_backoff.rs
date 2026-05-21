@@ -86,7 +86,7 @@ impl Default for NgramLmConfig {
         Self {
             order: 3,
             use_backoff_symbol: true,
-            vocab_size: 0,  // Will be set based on data
+            vocab_size: 0, // Will be set based on data
             prune_threshold: None,
         }
     }
@@ -131,7 +131,7 @@ impl NgramLmBuilder {
         // Skip if below pruning threshold
         if let Some(threshold) = self.config.prune_threshold {
             if log_prob > threshold {
-                return;  // Low probability, skip
+                return; // Low probability, skip
             }
         }
 
@@ -154,7 +154,8 @@ impl NgramLmBuilder {
     /// * `context` - The context for back-off
     /// * `weight` - Back-off weight -log β(context)
     pub fn add_backoff(&mut self, context: &[VocabId], weight: f64) {
-        self.backoff_weights.insert(SmallVec::from_slice(context), weight);
+        self.backoff_weights
+            .insert(SmallVec::from_slice(context), weight);
     }
 
     /// Get or create a state for a context.
@@ -230,7 +231,10 @@ impl NgramLmBuilder {
 
         // Second pass: add n-gram arcs
         for ngram in &ngrams {
-            let source = *self.context_to_state.get(&ngram.context).expect("context exists");
+            let source = *self
+                .context_to_state
+                .get(&ngram.context)
+                .expect("context exists");
 
             // Target context after seeing this word
             let mut new_context = ngram.context.clone();
@@ -238,7 +242,10 @@ impl NgramLmBuilder {
             if new_context.len() > self.config.order - 1 {
                 new_context.remove(0);
             }
-            let target = *self.context_to_state.get(&new_context).expect("target exists");
+            let target = *self
+                .context_to_state
+                .get(&new_context)
+                .expect("target exists");
 
             fst.add_arc(
                 source,
@@ -250,25 +257,26 @@ impl NgramLmBuilder {
         }
 
         // Clone context_to_state for iteration
-        let context_states: Vec<_> = self.context_to_state.iter()
+        let context_states: Vec<_> = self
+            .context_to_state
+            .iter()
             .map(|(k, &v)| (k.clone(), v))
             .collect();
 
         // Third pass: add back-off arcs
         for (context, state) in &context_states {
             if context.is_empty() {
-                continue;  // No back-off from unigram state
+                continue; // No back-off from unigram state
             }
 
             let backoff_context = Self::backoff_context(context);
-            let backoff_state = *self.context_to_state.get(&backoff_context)
+            let backoff_state = *self
+                .context_to_state
+                .get(&backoff_context)
                 .expect("backoff context exists");
 
             // Back-off weight
-            let backoff_weight = self.backoff_weights
-                .get(context)
-                .copied()
-                .unwrap_or(0.0);  // Default: no penalty for back-off
+            let backoff_weight = self.backoff_weights.get(context).copied().unwrap_or(0.0); // Default: no penalty for back-off
 
             // Add back-off arc
             if self.config.use_backoff_symbol {
@@ -276,8 +284,8 @@ impl NgramLmBuilder {
                 // We use VocabId::MAX as the backoff symbol
                 fst.add_arc(
                     *state,
-                    None,  // Epsilon input (matches any)
-                    None,  // Epsilon output
+                    None, // Epsilon input (matches any)
+                    None, // Epsilon output
                     backoff_state,
                     LogWeight::new(backoff_weight),
                 );
@@ -295,10 +303,12 @@ impl NgramLmBuilder {
 
         // Set final weights for states that can end sentences
         // Typically states containing EOS get final weight
-        for (ctx, &state) in self.context_to_state.iter()
+        for (ctx, &state) in self
+            .context_to_state
+            .iter()
             .filter(|(ctx, _)| ctx.last() == Some(&EOS_ID))
         {
-            let _ = ctx;  // ctx is used in filter
+            let _ = ctx; // ctx is used in filter
             fst.set_final(state, LogWeight::one());
         }
 
@@ -362,9 +372,9 @@ impl BigramLm {
     /// Create a new bigram LM.
     pub fn new(vocab_size: usize) -> Self {
         Self {
-            unigram_probs: vec![f64::INFINITY; vocab_size],  // -log(0) = infinity
+            unigram_probs: vec![f64::INFINITY; vocab_size], // -log(0) = infinity
             bigram_probs: FxHashMap::default(),
-            backoff_weights: vec![0.0; vocab_size],  // No penalty by default
+            backoff_weights: vec![0.0; vocab_size], // No penalty by default
             vocab_size,
         }
     }
@@ -399,8 +409,16 @@ impl BigramLm {
         }
 
         // Back-off to unigram
-        let unigram = self.unigram_probs.get(w2 as usize).copied().unwrap_or(f64::INFINITY);
-        let backoff = self.backoff_weights.get(w1 as usize).copied().unwrap_or(0.0);
+        let unigram = self
+            .unigram_probs
+            .get(w2 as usize)
+            .copied()
+            .unwrap_or(f64::INFINITY);
+        let backoff = self
+            .backoff_weights
+            .get(w1 as usize)
+            .copied()
+            .unwrap_or(0.0);
 
         // In log space: log(P(w2) * β(w1)) = log(P(w2)) + log(β(w1))
         // But we store -log, so: -log(P(w2) * β(w1)) = -log(P(w2)) - log(β(w1))
@@ -451,7 +469,7 @@ impl BigramLm {
         for (w, &backoff_weight) in self.backoff_weights.iter().enumerate() {
             fst.add_arc(
                 word_states[w],
-                None,  // Epsilon
+                None, // Epsilon
                 None,
                 backoff_state,
                 LogWeight::new(backoff_weight),
@@ -469,7 +487,9 @@ impl BigramLm {
 
     /// Get statistics.
     pub fn stats(&self) -> BigramStats {
-        let num_unigrams = self.unigram_probs.iter()
+        let num_unigrams = self
+            .unigram_probs
+            .iter()
             .filter(|&&p| p < f64::INFINITY)
             .count();
 
@@ -477,7 +497,8 @@ impl BigramLm {
             vocab_size: self.vocab_size,
             num_unigrams,
             num_bigrams: self.bigram_probs.len(),
-            sparsity: 1.0 - (self.bigram_probs.len() as f64 / (self.vocab_size * self.vocab_size) as f64),
+            sparsity: 1.0
+                - (self.bigram_probs.len() as f64 / (self.vocab_size * self.vocab_size) as f64),
         }
     }
 }
@@ -509,15 +530,19 @@ pub enum PruningStrategy {
 }
 
 /// Helper to compute graph size reduction from back-off.
-pub fn compute_size_reduction(vocab_size: usize, num_observed: usize, order: usize) -> SizeReduction {
+pub fn compute_size_reduction(
+    vocab_size: usize,
+    num_observed: usize,
+    order: usize,
+) -> SizeReduction {
     // Dense representation
     let dense_states = vocab_size.pow((order - 1) as u32);
     let dense_arcs = vocab_size.pow(order as u32);
 
     // Sparse representation with back-off
     // Approximate: states = num_contexts, arcs = num_ngrams + back-off arcs
-    let sparse_states = num_observed / vocab_size + 1;  // Approximate contexts
-    let sparse_arcs = num_observed + sparse_states;  // N-grams + back-off arcs
+    let sparse_states = num_observed / vocab_size + 1; // Approximate contexts
+    let sparse_arcs = num_observed + sparse_states; // N-grams + back-off arcs
 
     SizeReduction {
         dense_states,
@@ -564,20 +589,20 @@ mod tests {
         let mut lm = BigramLm::new(5);
 
         // Set unigrams
-        lm.set_unigram(0, 2.0);  // -log(P(0))
+        lm.set_unigram(0, 2.0); // -log(P(0))
         lm.set_unigram(1, 1.5);
         lm.set_unigram(2, 1.0);
 
         // Set bigrams
-        lm.set_bigram(0, 1, 0.5);  // P(1|0) is high
+        lm.set_bigram(0, 1, 0.5); // P(1|0) is high
         lm.set_bigram(1, 2, 0.3);
 
         // Set back-off
         lm.set_backoff(0, 0.1);
 
         // Query probabilities
-        assert!((lm.prob(0, 1) - 0.5).abs() < 1e-10);  // Direct bigram
-        assert!((lm.prob(0, 2) - (1.0 + 0.1)).abs() < 1e-10);  // Back-off
+        assert!((lm.prob(0, 1) - 0.5).abs() < 1e-10); // Direct bigram
+        assert!((lm.prob(0, 2) - (1.0 + 0.1)).abs() < 1e-10); // Back-off
     }
 
     #[test]
@@ -630,18 +655,18 @@ mod tests {
             order: 2,
             use_backoff_symbol: true,
             vocab_size: 5,
-            prune_threshold: Some(1.0),  // Prune n-grams with -log(P) > 1.0
+            prune_threshold: Some(1.0), // Prune n-grams with -log(P) > 1.0
         };
 
         let mut builder = NgramLmBuilder::new(config);
 
         // Add n-grams with varying probabilities
-        builder.add_ngram(&[], 0, 0.5);  // Keep (< 1.0)
-        builder.add_ngram(&[], 1, 1.5);  // Prune (> 1.0)
-        builder.add_ngram(&[], 2, 2.0);  // Prune (> 1.0)
+        builder.add_ngram(&[], 0, 0.5); // Keep (< 1.0)
+        builder.add_ngram(&[], 1, 1.5); // Prune (> 1.0)
+        builder.add_ngram(&[], 2, 2.0); // Prune (> 1.0)
 
         let stats = builder.stats();
-        assert_eq!(stats.num_ngrams, 1);  // Only one kept
+        assert_eq!(stats.num_ngrams, 1); // Only one kept
     }
 
     #[test]
@@ -655,7 +680,7 @@ mod tests {
 
         // Sparse should be much smaller
         assert!(reduction.sparse_arcs < reduction.dense_arcs);
-        assert!(reduction.arc_reduction > 0.9);  // >90% reduction
+        assert!(reduction.arc_reduction > 0.9); // >90% reduction
     }
 
     #[test]
@@ -689,9 +714,9 @@ mod tests {
         builder.add_backoff(&[1], 0.2);
 
         let stats = builder.stats();
-        assert_eq!(stats.order_counts[1], 4);  // 4 unigrams
-        assert_eq!(stats.order_counts[2], 2);  // 2 bigrams
-        assert_eq!(stats.order_counts[3], 2);  // 2 trigrams
+        assert_eq!(stats.order_counts[1], 4); // 4 unigrams
+        assert_eq!(stats.order_counts[2], 2); // 2 bigrams
+        assert_eq!(stats.order_counts[3], 2); // 2 trigrams
 
         let _fst = builder.build();
     }
@@ -725,6 +750,6 @@ mod tests {
         assert_eq!(stats.vocab_size, 100);
         assert_eq!(stats.num_unigrams, 50);
         assert_eq!(stats.num_bigrams, 100);
-        assert!(stats.sparsity >= 0.99);  // Very sparse (100/10000 = 1% density)
+        assert!(stats.sparsity >= 0.99); // Very sparse (100/10000 = 1% density)
     }
 }

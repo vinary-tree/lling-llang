@@ -182,7 +182,12 @@ impl TransitionMatrix {
     }
 
     /// Add a transition between states.
-    pub fn add_transition(&mut self, from: HmmStateId, to: HmmStateId, log_prob: TransitionLogProb) {
+    pub fn add_transition(
+        &mut self,
+        from: HmmStateId,
+        to: HmmStateId,
+        log_prob: TransitionLogProb,
+    ) {
         if (from as usize) < self.num_states && (to as usize) < self.num_states {
             self.transitions[from as usize].push((to, log_prob));
         }
@@ -481,14 +486,23 @@ impl FramePosterior {
 
     /// Get the log probability for a unit.
     pub fn log_prob(&self, unit: UnitId) -> f32 {
-        self.log_probs.get(unit as usize).copied().unwrap_or(f32::NEG_INFINITY)
+        self.log_probs
+            .get(unit as usize)
+            .copied()
+            .unwrap_or(f32::NEG_INFINITY)
     }
 
     /// Compute top-k units and store them.
     pub fn compute_top_k(&mut self, k: usize) {
         let mut indexed: Vec<(usize, f32)> = self.log_probs.iter().copied().enumerate().collect();
         indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        self.top_k_units = Some(indexed.into_iter().take(k).map(|(i, _)| i as UnitId).collect());
+        self.top_k_units = Some(
+            indexed
+                .into_iter()
+                .take(k)
+                .map(|(i, _)| i as UnitId)
+                .collect(),
+        );
     }
 }
 
