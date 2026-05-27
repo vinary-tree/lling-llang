@@ -1093,6 +1093,54 @@ Section Language.
     exact Henum.
   Qed.
 
+  (** A.5 (reverse inclusion): every real accepting transducing path is
+      enumerated by the product-occurrence closed-path machinery.  Together with
+      [product_occurrence_closed_path_accepting_matching] this is a full
+      bidirectional correspondence between the position-accepting-final closed
+      occurrence paths and the real accepting transducing paths. *)
+  Lemma accepting_matching_has_closed_occurrence_path :
+    forall fst input output p,
+      wfst_well_formed fst ->
+      accepting_path fst p ->
+      path_matches p input output ->
+      exists occs tgt,
+        occurrence_path_transitions occs = p /\
+        In (tgt, occs) (product_occurrence_closed_paths fst
+          (remove_epsilons input) (remove_epsilons output) (length occs)) /\
+        product_accepts_final_position
+          (remove_epsilons input) (remove_epsilons output) tgt = true.
+  Proof.
+    intros fst input output p Hwf Hacc Hmatch.
+    destruct (matching_accepting_path_has_occurrence_path fst input output p
+      Hacc Hmatch) as [occs [Hproj [Hocc_match _]]].
+    destruct Hocc_match as [Hforall [Hacc_occ _]].
+    pose proof (accepting_path_matches_product_matrix_walk fst input output p
+      Hacc Hmatch) as Hwalk.
+    rewrite <- Hproj in Hwalk.
+    exists occs,
+      (product_index (remove_epsilons input) (remove_epsilons output)
+         (path_end_state_from (wfst_start fst) (occurrence_path_transitions occs))
+         (length (remove_epsilons input)) (length (remove_epsilons output))).
+    split; [exact Hproj |].
+    assert (Htgt_lt :
+      product_index (remove_epsilons input) (remove_epsilons output)
+        (path_end_state_from (wfst_start fst) (occurrence_path_transitions occs))
+        (length (remove_epsilons input)) (length (remove_epsilons output))
+      < product_dim fst (remove_epsilons input) (remove_epsilons output)).
+    { apply product_index_lt_dim.
+      - apply accepting_path_end_state_valid; [exact Hwf | exact Hacc_occ].
+      - unfold product_input_bound. apply Nat.lt_succ_diag_r.
+      - unfold product_output_bound. apply Nat.lt_succ_diag_r. }
+    split.
+    - apply (proj2 (product_occurrence_closed_paths_exact fst (remove_epsilons input)
+        (remove_epsilons output) (length occs) _ occs Hwf)).
+      split; [exact Htgt_lt |].
+      split.
+      + apply product_matrix_walk_to_occurrence_walk; [exact Hforall | exact Hwalk].
+      + apply Nat.le_refl.
+    - apply product_accepts_final_position_index.
+  Qed.
+
 End Language.
 
 (** ** Language Operations *)

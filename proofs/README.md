@@ -138,7 +138,9 @@ tlc -metadir /tmp/lling-llang-tlc-rrwm \
   position-accepting closed occurrence path landing on a final state is proved
   to be an actual `accepting_path` whose epsilon-collapsed labels equal the
   strings (`path_matches`, which mentions neither `consume_label` nor
-  `product_transition_matches`). On the weight axis, the product-matrix language
+  `product_transition_matches`), and conversely every real accepting transducing
+  path is enumerated as such a closed occurrence path — a full bidirectional
+  correspondence. On the weight axis, the product-matrix language
   weight is proved equal to a multiplicity-preserving sum of the independent
   `accepting_path_weight` over those genuinely transducing closed paths. The
   older duplicate-free

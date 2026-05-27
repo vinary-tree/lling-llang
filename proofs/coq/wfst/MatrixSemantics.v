@@ -2689,4 +2689,81 @@ Section WfstMatrixSemantics.
           rewrite Hend. exact Hisfinal.
   Qed.
 
+  (** ** Reverse inclusion support: real accepting paths are enumerated
+
+      Helpers for proving every accepting transducing path appears in the
+      product-occurrence closed-path enumeration (the completeness direction
+      complementing [product_occurrence_closed_walk_accepting]). *)
+
+  (** H5: a final state is a valid (in-range) state. *)
+  Lemma is_final_state_valid :
+    forall (fst : Wfst W) (s : StateId),
+      wfst_well_formed fst ->
+      is_final fst s = true ->
+      s < wfst_num_states fst.
+  Proof.
+    intros fst s Hwf Hfin.
+    destruct Hwf as [_ [_ [_ Hlen]]].
+    unfold is_final in Hfin.
+    destruct (get_state fst s) as [state |] eqn:Hget; [| discriminate].
+    unfold get_state in Hget.
+    assert (Hsome : nth_error (wfst_states fst) s <> None)
+      by (rewrite Hget; discriminate).
+    apply nth_error_Some in Hsome.
+    rewrite Hlen in Hsome.
+    exact Hsome.
+  Qed.
+
+  (** H6: an accepting path ends at a valid state. *)
+  Lemma accepting_path_end_state_valid :
+    forall (fst : Wfst W) (p : @Path W),
+      wfst_well_formed fst ->
+      accepting_path fst p ->
+      path_end_state_from (wfst_start fst) p < wfst_num_states fst.
+  Proof.
+    intros fst p Hwf Hacc.
+    unfold accepting_path, path_valid_in_wfst in Hacc.
+    destruct Hacc as [_ [_ Hfinal]].
+    destruct p as [| t rest].
+    - simpl. apply is_final_state_valid; [exact Hwf | exact Hfinal].
+    - destruct Hfinal as [_ Hisfin].
+      rewrite path_end_state_from_cons_last with (default := t).
+      apply is_final_state_valid; [exact Hwf | exact Hisfin].
+  Qed.
+
+  (** H3: lift a product-matrix walk to an occurrence walk along a given
+      occurrence projection. *)
+  Lemma product_matrix_walk_to_occurrence_walk :
+    forall fst input output occs source target,
+      Forall (transition_occurrence_in_wfst fst) occs ->
+      product_matrix_walk fst input output source
+        (occurrence_path_transitions occs) target ->
+      product_occurrence_walk fst input output source occs target.
+  Proof.
+    intros fst input output occs.
+    induction occs as [| occ rest IH]; intros source target Hforall Hwalk.
+    - cbn [occurrence_path_transitions map product_matrix_walk] in Hwalk.
+      cbn [product_occurrence_walk]. exact Hwalk.
+    - cbn [occurrence_path_transitions map product_matrix_walk] in Hwalk.
+      destruct Hwalk as [next [Hstep Hrest]].
+      pose proof (Forall_inv Hforall) as Hocc.
+      pose proof (Forall_inv_tail Hforall) as Htail.
+      assert (Hsrc : occ_source occ = product_state input output source).
+      { unfold transition_occurrence_in_wfst in Hocc.
+        destruct Hocc as [Hfrom _].
+        destruct Hstep as [_ [Hstsrc _]].
+        rewrite Hfrom. symmetry. exact Hstsrc. }
+      assert (Hptm : product_transition_matches input output source next
+                       (occ_transition occ) = true)
+        by (eapply product_matrix_step_matches; exact Hstep).
+      cbn [product_occurrence_walk].
+      exists next. split.
+      + unfold product_occurrence_step. split; [exact Hocc |].
+        split; [exact Hsrc |].
+        unfold product_occurrence_matches. apply andb_true_intro. split.
+        * apply Nat.eqb_eq. exact Hsrc.
+        * exact Hptm.
+      + apply IH; [exact Htail | exact Hrest].
+  Qed.
+
 End WfstMatrixSemantics.
