@@ -47,9 +47,9 @@ pub struct QuantizationParams {
     pub min_val: f64,
     /// Maximum value in the quantization range.
     pub max_val: f64,
-    /// Scale factor: (max_val - min_val) / num_levels.
+    /// Scale factor from real values to the 8-bit max raw index.
     scale: f64,
-    /// Inverse scale for dequantization.
+    /// Real-valued spacing between adjacent 8-bit raw values.
     inv_scale: f64,
 }
 
@@ -63,8 +63,15 @@ impl QuantizationParams {
     ///
     /// # Panics
     ///
-    /// Panics if `min_val >= max_val`.
+    /// Panics if either bound is non-finite, if `min_val >= max_val`, or if
+    /// the range cannot be represented as a finite `f64`.
     pub fn new(min_val: f64, max_val: f64) -> Self {
+        assert!(
+            min_val.is_finite() && max_val.is_finite(),
+            "quantization bounds must be finite: [{}, {}]",
+            min_val,
+            max_val
+        );
         assert!(
             min_val < max_val,
             "min_val must be less than max_val: {} >= {}",
@@ -72,6 +79,12 @@ impl QuantizationParams {
             max_val
         );
         let range = max_val - min_val;
+        assert!(
+            range.is_finite(),
+            "quantization range must be finite: {} - {}",
+            max_val,
+            min_val
+        );
         Self {
             min_val,
             max_val,
@@ -98,9 +111,21 @@ impl QuantizationParams {
             return None;
         }
 
-        // Add small margin to avoid boundary issues
-        let margin = (max_val - min_val) * 0.01;
-        Some(Self::new(min_val - margin, max_val + margin))
+        // Add small margin to avoid boundary issues.
+        let range = max_val - min_val;
+        if !range.is_finite() {
+            return None;
+        }
+        let margin = range * 0.01;
+        if !margin.is_finite() {
+            return None;
+        }
+        let lower = min_val - margin;
+        let upper = max_val + margin;
+        if !(lower.is_finite() && upper.is_finite()) {
+            return None;
+        }
+        Some(Self::new(lower, upper))
     }
 
     /// Create parameters for log-space weights (typical range: -20 to 0).
@@ -565,6 +590,18 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "quantization bounds must be finite")]
+    fn test_quantization_params_reject_nonfinite_bounds() {
+        let _ = QuantizationParams::new(0.0, f64::INFINITY);
+    }
+
+    #[test]
+    #[should_panic(expected = "quantization range must be finite")]
+    fn test_quantization_params_reject_overflowing_range() {
+        let _ = QuantizationParams::new(-f64::MAX, f64::MAX);
+    }
+
+    #[test]
     fn test_roundtrip_8bit() {
         let params = QuantizationParams::for_log_weights();
 
@@ -577,6 +614,26 @@ mod tests {
     }
 
     #[test]
+    fn test_roundtrip_8bit_error_bound() {
+        let params = QuantizationParams::new(-20.0, 20.0);
+        let half_step = (params.max_val - params.min_val) / 255.0 / 2.0;
+
+        for i in 0..=1000 {
+            let value = params.min_val + (params.max_val - params.min_val) * (i as f64) / 1000.0;
+            let quantized = params.quantize_8bit(value);
+            let recovered = params.dequantize_8bit(quantized);
+            let error = (recovered - value).abs();
+            assert!(
+                error <= half_step + 1e-12,
+                "8-bit quantization error {} exceeded half-step {} for value {}",
+                error,
+                half_step,
+                value
+            );
+        }
+    }
+
+    #[test]
     fn test_roundtrip_4bit() {
         let params = QuantizationParams::for_log_weights();
 
@@ -586,6 +643,26 @@ mod tests {
 
         // 4-bit has larger error (~1.33 for 16 levels over range of 20)
         assert!((recovered.value() - original.value()).abs() < 2.0);
+    }
+
+    #[test]
+    fn test_roundtrip_4bit_error_bound() {
+        let params = QuantizationParams::new(-20.0, 20.0);
+        let half_step = (params.max_val - params.min_val) / 15.0 / 2.0;
+
+        for i in 0..=1000 {
+            let value = params.min_val + (params.max_val - params.min_val) * (i as f64) / 1000.0;
+            let quantized = params.quantize_4bit(value);
+            let recovered = params.dequantize_4bit(quantized);
+            let error = (recovered - value).abs();
+            assert!(
+                error <= half_step + 1e-12,
+                "4-bit quantization error {} exceeded half-step {} for value {}",
+                error,
+                half_step,
+                value
+            );
+        }
     }
 
     #[test]
@@ -623,13 +700,13 @@ mod tests {
         let params = QuantizationParams::for_log_weights();
 
         let inf = LogWeight::new(f64::INFINITY);
-        let neg_inf = LogWeight::new(f64::NEG_INFINITY);
+        let below_range = LogWeight::new(-1.0e300);
 
         let q_inf = Quantized8Weight::from_log_weight(inf, &params);
-        let q_neg_inf = Quantized8Weight::from_log_weight(neg_inf, &params);
+        let q_below_range = Quantized8Weight::from_log_weight(below_range, &params);
 
         assert_eq!(q_inf.raw(), 255);
-        assert_eq!(q_neg_inf.raw(), 0);
+        assert_eq!(q_below_range.raw(), 0);
     }
 
     #[test]
@@ -651,6 +728,12 @@ mod tests {
         // Should include some margin
         assert!(params.min_val < 1.0);
         assert!(params.max_val > 7.0);
+    }
+
+    #[test]
+    fn test_params_from_data_rejects_nonfinite_range() {
+        let values = vec![-f64::MAX, f64::MAX];
+        assert!(QuantizationParams::from_data(values.into_iter()).is_none());
     }
 
     #[test]

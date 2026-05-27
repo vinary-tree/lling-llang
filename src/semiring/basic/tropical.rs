@@ -40,9 +40,36 @@ use crate::semiring::traits::{
 pub struct TropicalWeight(pub OrderedFloat<f64>);
 
 impl TropicalWeight {
-    /// Create a new tropical weight from a raw f64.
+    /// Return true when a raw `f64` belongs to the verified tropical domain:
+    /// any finite real cost or positive infinity for the additive identity.
     #[inline]
-    pub const fn new(value: f64) -> Self {
+    pub fn is_valid_raw(value: f64) -> bool {
+        value.is_finite() || (value.is_infinite() && value.is_sign_positive())
+    }
+
+    /// Create a new tropical weight from a raw `f64`.
+    ///
+    /// The verified Rocq model is `R ∪ {+∞}`. This constructor rejects `NaN`
+    /// and `-∞`, which have no counterpart in that model and break semiring
+    /// laws under IEEE-754 arithmetic.
+    #[inline]
+    pub fn new(value: f64) -> Self {
+        Self::try_new(value).expect("tropical weight must be finite or +infinity")
+    }
+
+    /// Try to create a tropical weight in the verified domain.
+    #[inline]
+    pub fn try_new(value: f64) -> Option<Self> {
+        Self::is_valid_raw(value).then_some(TropicalWeight(OrderedFloat(value)))
+    }
+
+    /// Create a tropical weight without checking the verified-domain boundary.
+    ///
+    /// This is only for low-level interop that must preserve arbitrary IEEE-754
+    /// payloads. Semiring algorithms and verified paths should use [`Self::new`]
+    /// or [`Self::try_new`].
+    #[inline]
+    pub const fn new_unchecked(value: f64) -> Self {
         TropicalWeight(OrderedFloat(value))
     }
 
@@ -55,7 +82,7 @@ impl TropicalWeight {
     /// Create a tropical weight representing infinity (unreachable).
     #[inline]
     pub const fn infinity() -> Self {
-        TropicalWeight(OrderedFloat(f64::INFINITY))
+        TropicalWeight::new_unchecked(f64::INFINITY)
     }
 
     /// Check if this weight represents infinity.
@@ -329,7 +356,11 @@ impl<'de> serde::Deserialize<'de> for TropicalWeight {
     where
         D: serde::Deserializer<'de>,
     {
-        f64::deserialize(deserializer).map(TropicalWeight::new)
+        use serde::de::Error;
+
+        let value = f64::deserialize(deserializer)?;
+        TropicalWeight::try_new(value)
+            .ok_or_else(|| D::Error::custom("tropical weight must be finite or +infinity"))
     }
 }
 
@@ -356,6 +387,26 @@ mod tests {
         // Times is add
         assert_eq!(a.times(&b), TropicalWeight::new(5.0));
         assert_eq!(b.times(&a), TropicalWeight::new(5.0));
+    }
+
+    #[test]
+    fn test_verified_domain_constructor() {
+        assert_eq!(
+            TropicalWeight::try_new(1.25),
+            Some(TropicalWeight::new(1.25))
+        );
+        assert_eq!(
+            TropicalWeight::try_new(f64::INFINITY),
+            Some(TropicalWeight::zero())
+        );
+        assert!(TropicalWeight::try_new(f64::NEG_INFINITY).is_none());
+        assert!(TropicalWeight::try_new(f64::NAN).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "tropical weight must be finite or +infinity")]
+    fn test_new_rejects_nan() {
+        let _ = TropicalWeight::new(f64::NAN);
     }
 
     #[test]

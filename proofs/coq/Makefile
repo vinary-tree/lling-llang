@@ -34,7 +34,7 @@ force:
 proof-check:
 	@echo "Checking for unchecked proof escapes..."
 	@if grep -REn "\b(admit|Admitted|Axiom|Conjecture|Parameter|Abort)\b|True[[:space:]]*\(\*|True\." foundations wfst algorithms 2>/dev/null; then \
-		echo "ERROR: Found unchecked proof escapes or vacuous proof placeholders."; \
+		echo "ERROR: Found unchecked or vacuous proof escapes."; \
 		exit 1; \
 	else \
 		echo "No unchecked proof escapes found."; \

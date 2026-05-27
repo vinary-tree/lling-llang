@@ -25,8 +25,11 @@ Definition StateId := nat.
 (** Label type - generic over the label alphabet *)
 Definition Label := nat.
 
-(** Special value for "no state" *)
-Definition NO_STATE : StateId := 0.
+(** Special value for "no state".
+
+    Rust uses [u32::MAX] as the sentinel.  We keep [StateId] as [nat] in
+    Rocq so list indexing remains simple, but use the same numeric sentinel. *)
+Definition NO_STATE : StateId := 4294967295.
 
 (** Epsilon label (no symbol) *)
 Definition EPSILON : option Label := None.
@@ -121,22 +124,56 @@ End WfstAccessors.
 Section WellFormed.
   Context {W : Type}.
 
-  (** A transition is well-formed if it refers to valid states *)
+  (** A transition is well-formed if it refers to valid states. *)
   Definition transition_well_formed (fst : Wfst W) (t : Transition W) : Prop :=
     is_valid_state fst (tr_from t) /\ is_valid_state fst (tr_to t).
 
-  (** A state is well-formed if all its transitions are well-formed *)
+  (** A transition stored in a state's outgoing list must agree with the
+      state's id.  This mirrors Rust's vector-backed representation where
+      transitions are stored under their source state. *)
+  Definition transition_well_formed_from
+      (fst : Wfst W) (source : StateId) (t : Transition W) : Prop :=
+    tr_from t = source /\ transition_well_formed fst t.
+
+  (** A state is well-formed if its id is valid and all outgoing transitions are
+      well-formed transitions from that state. *)
   Definition state_well_formed (fst : Wfst W) (state : WfstState W) : Prop :=
-    Forall (transition_well_formed fst) (ws_outgoing state).
+    is_valid_state fst (ws_id state) /\
+    Forall (transition_well_formed_from fst (ws_id state)) (ws_outgoing state).
+
+  (** Vector-backed WFSTs use state ids as list indices. *)
+  Definition states_indexed (fst : Wfst W) : Prop :=
+    forall s state, get_state fst s = Some state -> ws_id state = s.
+
+  (** Non-empty WFSTs have a valid start state.  Empty WFSTs use [NO_STATE],
+      matching the Rust API. *)
+  Definition start_well_formed (fst : Wfst W) : Prop :=
+    match wfst_states fst with
+    | [] => wfst_start fst = NO_STATE
+    | _ => is_valid_state fst (wfst_start fst)
+    end.
 
   (** A WFST is well-formed if:
-      - The start state is valid
+      - The start state is valid, or the WFST is empty and uses [NO_STATE]
       - All states are well-formed
+      - State ids match their list indices
       - The number of states matches the list length *)
   Definition wfst_well_formed (fst : Wfst W) : Prop :=
-    is_valid_state fst (wfst_start fst) /\
+    start_well_formed fst /\
     Forall (state_well_formed fst) (wfst_states fst) /\
+    states_indexed fst /\
     length (wfst_states fst) = wfst_num_states fst.
+
+  Lemma empty_wfst_well_formed :
+    wfst_well_formed (mkWfst [] NO_STATE 0 : Wfst W).
+  Proof.
+    unfold wfst_well_formed, start_well_formed, states_indexed, get_state.
+    simpl.
+    split; [reflexivity |].
+    split; [constructor |].
+    split; [| reflexivity].
+    - intros s state Hget. destruct s; discriminate.
+  Qed.
 
 End WellFormed.
 

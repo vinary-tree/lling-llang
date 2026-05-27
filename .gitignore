@@ -87,6 +87,9 @@ proofs/coq/**/*.glob
 proofs/coq/**/*.vo
 proofs/coq/**/*.vos
 proofs/coq/**/*.vok
+proofs/coq/.lia.cache
+proofs/coq/.nia.cache
+proofs/coq/.nra.cache
 
 # TLC model-checking state directories
 states/

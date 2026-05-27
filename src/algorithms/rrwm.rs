@@ -26,6 +26,10 @@
 //! where M is the maximum loss per round, T is the number of rounds,
 //! and N is the number of path experts.
 //!
+//! The TLA+ model in `proofs/tla/RRWM.tla` verifies bounded accounting
+//! invariants for finite configurations; it is not a mechanized proof of this
+//! asymptotic regret theorem.
+//!
 //! # Use Cases
 //!
 //! - **Speech recognition**: Combine multiple ASR models

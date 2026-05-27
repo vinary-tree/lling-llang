@@ -49,16 +49,45 @@ use crate::semiring::traits::{
 pub struct LogWeight(pub OrderedFloat<f64>);
 
 impl LogWeight {
-    /// Create a new log weight from a raw negative log probability.
+    /// Return true when a raw `f64` belongs to the verified log-weight
+    /// boundary: any finite real log weight or positive infinity for zero
+    /// probability.
     #[inline]
-    pub const fn new(neg_log_prob: f64) -> Self {
+    pub fn is_valid_raw(neg_log_prob: f64) -> bool {
+        neg_log_prob.is_finite() || (neg_log_prob.is_infinite() && neg_log_prob.is_sign_positive())
+    }
+
+    /// Create a new log weight from a raw negative log probability.
+    ///
+    /// The checked algebra excludes `NaN` and `-∞`; both would break the
+    /// semiring laws under IEEE-754 arithmetic. Finite negative values are
+    /// allowed because closure/intermediate computations may represent total
+    /// probability mass greater than one.
+    #[inline]
+    pub fn new(neg_log_prob: f64) -> Self {
+        Self::try_new(neg_log_prob).expect("log weight must be finite or +infinity")
+    }
+
+    /// Try to create a log weight in the verified domain.
+    #[inline]
+    pub fn try_new(neg_log_prob: f64) -> Option<Self> {
+        Self::is_valid_raw(neg_log_prob).then_some(LogWeight(OrderedFloat(neg_log_prob)))
+    }
+
+    /// Create a log weight without checking the verified-domain boundary.
+    ///
+    /// This is only for low-level interop that must preserve arbitrary IEEE-754
+    /// payloads. Semiring algorithms and verified paths should use [`Self::new`]
+    /// or [`Self::try_new`].
+    #[inline]
+    pub const fn new_unchecked(neg_log_prob: f64) -> Self {
         LogWeight(OrderedFloat(neg_log_prob))
     }
 
     /// Create a log weight from a probability in [0, 1].
     #[inline]
     pub fn from_probability(prob: f64) -> Self {
-        debug_assert!((0.0..=1.0).contains(&prob), "Probability must be in [0, 1]");
+        assert!((0.0..=1.0).contains(&prob), "probability must be in [0, 1]");
         if prob == 0.0 {
             Self::zero()
         } else {
@@ -81,7 +110,7 @@ impl LogWeight {
     /// Create a log weight representing zero probability (impossible).
     #[inline]
     pub const fn infinity() -> Self {
-        LogWeight(OrderedFloat(f64::INFINITY))
+        LogWeight::new_unchecked(f64::INFINITY)
     }
 
     /// Check if this weight represents zero probability.
@@ -394,7 +423,11 @@ impl<'de> serde::Deserialize<'de> for LogWeight {
     where
         D: serde::Deserializer<'de>,
     {
-        f64::deserialize(deserializer).map(LogWeight::new)
+        use serde::de::Error;
+
+        let value = f64::deserialize(deserializer)?;
+        LogWeight::try_new(value)
+            .ok_or_else(|| D::Error::custom("log weight must be finite or +infinity"))
     }
 }
 
@@ -423,6 +456,27 @@ mod tests {
                 recovered
             );
         }
+    }
+
+    #[test]
+    fn test_verified_domain_constructor() {
+        assert_eq!(LogWeight::try_new(-1.25), Some(LogWeight::new(-1.25)));
+        assert_eq!(LogWeight::try_new(2.5), Some(LogWeight::new(2.5)));
+        assert_eq!(LogWeight::try_new(f64::INFINITY), Some(LogWeight::zero()));
+        assert!(LogWeight::try_new(f64::NEG_INFINITY).is_none());
+        assert!(LogWeight::try_new(f64::NAN).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "log weight must be finite or +infinity")]
+    fn test_new_rejects_nan() {
+        let _ = LogWeight::new(f64::NAN);
+    }
+
+    #[test]
+    #[should_panic(expected = "probability must be in [0, 1]")]
+    fn test_from_probability_rejects_out_of_range() {
+        let _ = LogWeight::from_probability(1.25);
     }
 
     #[test]

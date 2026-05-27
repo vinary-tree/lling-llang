@@ -26,6 +26,11 @@ vars == <<composed, currentInput, currentOutput, cascadeOrder>>
 Components == {"AM", "CD", "Lexicon", "LM"}
 AlphabetUniverse == AcousticSymbols \cup PhoneSymbols \cup TriphoneSymbols \cup WordSymbols
 
+SeqToSet(seq) == { seq[i] : i \in 1..Len(seq) }
+
+LastComponent ==
+    cascadeOrder[Len(cascadeOrder)]
+
 InputAlpha(c) ==
     CASE c = "AM" -> AcousticSymbols
       [] c = "CD" -> TriphoneSymbols
@@ -37,6 +42,11 @@ OutputAlpha(c) ==
       [] c = "CD" -> PhoneSymbols
       [] c = "Lexicon" -> WordSymbols
       [] c = "LM" -> WordSymbols
+
+AllowedNext(c1, c2) ==
+    \/ /\ c1 = "AM" /\ c2 = "CD"
+    \/ /\ c1 = "CD" /\ c2 = "Lexicon"
+    \/ /\ c1 = "Lexicon" /\ c2 = "LM"
 
 TypeOK ==
     /\ composed \subseteq (Components \X Components)
@@ -53,26 +63,24 @@ Init ==
 CanCompose(c1, c2) ==
     /\ c1 \in Components
     /\ c2 \in Components
+    /\ AllowedNext(c1, c2)
     /\ OutputAlpha(c1) = InputAlpha(c2)
 
 Compose(c1, c2) ==
     /\ CanCompose(c1, c2)
     /\ <<c1, c2>> \notin composed
+    /\ c2 \notin SeqToSet(cascadeOrder)
+    /\ Len(cascadeOrder) < Cardinality(Components)
     /\ composed' = composed \cup {<<c1, c2>>}
     /\ cascadeOrder' = Append(cascadeOrder, c2)
     /\ currentInput' = currentInput
     /\ currentOutput' = OutputAlpha(c2)
 
 BuildCascade ==
-    \/ /\ Len(cascadeOrder) = 1
-       /\ cascadeOrder[1] = "AM"
-       /\ Compose("AM", "CD")
-    \/ /\ Len(cascadeOrder) = 2
-       /\ cascadeOrder[2] = "CD"
-       /\ Compose("CD", "Lexicon")
-    \/ /\ Len(cascadeOrder) = 3
-       /\ cascadeOrder[3] = "Lexicon"
-       /\ Compose("Lexicon", "LM")
+    /\ Len(cascadeOrder) > 0
+    /\ \E next \in Components :
+        /\ next \notin SeqToSet(cascadeOrder)
+        /\ Compose(LastComponent, next)
 
 CascadeComplete ==
     /\ Len(cascadeOrder) = 4
@@ -122,6 +130,15 @@ ValidCascade ==
         /\ OrderingConstraints
         /\ NoRepetition
 
+PrefixValid ==
+    /\ StartsWithAcoustic
+    /\ AlphabetsCompatible
+    /\ OrderingConstraints
+    /\ NoRepetition
+
+EventuallyCascadeComplete ==
+    <>(Len(cascadeOrder) = Cardinality(Components))
+
 Spec == Init /\ [][Next]_vars
 
 Fairness == WF_vars(BuildCascade)
@@ -132,6 +149,7 @@ THEOREM Spec => []AlphabetsCompatible
 THEOREM Spec => []OrderingConstraints
 THEOREM Spec => []NoRepetition
 THEOREM Spec => []ValidCascade
-THEOREM FairSpec => <>(Len(cascadeOrder) = 4)
+THEOREM Spec => []PrefixValid
+THEOREM FairSpec => EventuallyCascadeComplete
 
 =============================================================================

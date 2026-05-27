@@ -36,3 +36,21 @@ jobs:
 
       - name: Test
         run: cargo test --all-features
+
+  proofs:
+    name: Rocq and TLA+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install proof tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y coq default-jre-headless curl
+          curl -fsSL \
+            -o "$RUNNER_TEMP/tla2tools.jar" \
+            https://downloads.sourceforge.net/project/tlaplus.mirror/v1.7.4/tla2tools.jar
+          echo "TLA2TOOLS_JAR=$RUNNER_TEMP/tla2tools.jar" >> "$GITHUB_ENV"
+
+      - name: Verify proofs and finite models
+        run: make verify-proofs

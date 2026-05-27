@@ -7,11 +7,16 @@
 foundations/Semiring.v
 foundations/TropicalWeight.v
 foundations/LogWeight.v
+foundations/Quantization.v
+foundations/Interval.v
+foundations/Roundoff.v
+foundations/MatrixClosure.v
 foundations/SemiringProperties.v
 
 # WFST definitions and properties
 wfst/Definitions.v
 wfst/Paths.v
+wfst/MatrixSemantics.v
 wfst/Language.v
 
 # Algorithm correctness proofs
