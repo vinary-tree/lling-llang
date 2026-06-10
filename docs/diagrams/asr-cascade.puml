@@ -1,0 +1,40 @@
+@startuml asr-cascade
+' ASR recognition-network construction and decoding.
+' Tildes (H̃, C̃, L̃) denote auxiliary-symbol-augmented transducers; π erases them.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam rectangle {
+  RoundCorner 12
+  FontColor #102027
+  BorderColor #E65100
+}
+skinparam ArrowColor #BF360C
+skinparam ArrowThickness 1.4
+
+title <b>ASR recognition cascade</b>\nN = π( min( det( H ∘ det( C ∘ det( L ∘ G ) ) ) ) )   <size:10>(Mohri, Pereira & Riley 2002)</size>
+
+rectangle "<b>H</b> — HMM transducer\nHMM states → context-dep. phones" as H #FFE0B2
+rectangle "<b>C</b> — context dependency\ntriphones → phones" as C #FFE0B2
+rectangle "<b>L</b> — pronunciation lexicon\nphone strings → words" as L #FFE0B2
+rectangle "<b>G</b> — grammar / n-gram LM\nwords → words" as G #FFE0B2
+
+H -right-> C : ∘
+C -right-> L : ∘
+L -right-> G : ∘
+
+rectangle "<b>Optimize</b>\ndet (determinize) · min (minimize) · π (erase aux symbols)" as OPT #FFCC80
+rectangle "<b>N</b> — static decoding graph\nHMM states → words" as N #FFB74D
+
+G -down-> OPT
+OPT -down-> N
+
+rectangle "<b>Acoustic posteriors</b>\nP(unit | frame)  from a neural acoustic model" as AM #E1BEE7
+rectangle "<b>Search</b>\nViterbi / beam over  AM ∘ N" as DEC #C8E6C9
+rectangle "<b>Words</b>" as W #ECEFF1
+
+N  -down-> DEC
+AM -down-> DEC
+DEC -down-> W
+
+@enduml

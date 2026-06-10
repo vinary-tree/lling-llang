@@ -285,7 +285,7 @@ See [Differentiable Operations](../advanced/differentiable.md) for details.
 
 ### GPU Acceleration
 
-GPU-optimized data structures achieve up to **240× speedup**:
+GPU-ready data structures follow the high-throughput decoder of Braun et al. (2020):
 
 - **CSR Representation**: 1/3 memory of standard formats
 - **uint64 Token Packing**: Lock-free atomic recombination

@@ -18,13 +18,13 @@
 //!
 //! ## Benefits
 //!
-//! - 38× fewer parameters than traditional convolution
+//! - Far fewer parameters than a dense convolution (Hannun et al. (2020) report ≈38× on their setup)
 //! - Better accuracy in many sequence modeling tasks
 //! - Parameters scale with token vocabulary, not input channels
 //!
 //! ## References
 //!
-//! - Hannun et al., "Differentiable Weighted Finite-State Transducers" (ICLR 2021)
+//! - Hannun et al., "Differentiable Weighted Finite-State Transducers" (ICML 2020, arXiv:2010.01003)
 
 use super::forward_score::forward_score;
 use super::gradient::{backward, GradientAccumulator, GradientWfst};

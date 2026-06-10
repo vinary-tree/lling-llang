@@ -6,6 +6,8 @@
 //!
 //! ## Topology Comparison
 //!
+//! Graph-size and memory figures are those reported by Laptev et al. (2022).
+//!
 //! | Topology | States | Arcs | Memory | Accuracy |
 //! |----------|--------|------|--------|----------|
 //! | Correct-CTC | N | N² | Baseline | Best |

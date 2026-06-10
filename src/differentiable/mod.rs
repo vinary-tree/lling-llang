@@ -33,7 +33,7 @@
 //! This module includes components for integrating WFSTs into deep learning:
 //!
 //! - **WFST Convolutional Layers**: Apply kernel WFSTs to hidden unit sequences
-//!   with 38× fewer parameters than traditional convolution.
+//!   with far fewer parameters than a dense convolution (≈38× in Hannun et al. (2020)).
 //!
 //! - **Token Graph Variants**: Encode different prior beliefs about alignments
 //!   (Spike CTC, Duration-Limited CTC, Equally Spaced CTC).
@@ -42,7 +42,7 @@
 //!   marginalizing over all valid decompositions via a lexicon transducer.
 //!
 //! - **N-gram Pruning**: Efficient transition graphs with back-off for large
-//!   vocabularies (87× speedup with pruning).
+//!   vocabularies via pruning and back-off.
 //!
 //! - **Second-Order Differentiation**: Compute Hessian matrices and Fisher
 //!   information for natural gradient optimization.
@@ -72,7 +72,7 @@
 //!
 //! ## References
 //!
-//! - Hannun et al., "Differentiable Weighted Finite-State Transducers" (ICLR 2021)
+//! - Hannun et al., "Differentiable Weighted Finite-State Transducers" (ICML 2020, arXiv:2010.01003)
 
 mod forward_score;
 mod gradient;

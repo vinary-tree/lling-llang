@@ -40,7 +40,7 @@
 //!
 //! - Cortes, C., Kuznetsov, V., Mohri, M., & Warmuth, M. K. (2015).
 //!   "On-Line Learning Algorithms for Path Experts with Non-Additive Losses"
-//!   JMLR 16, 2015.
+//!   COLT 2015, PMLR 40:424-447.
 //!
 //! # Example
 //!

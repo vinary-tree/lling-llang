@@ -43,7 +43,8 @@
 //!
 //! ## References
 //!
-//! - Laptev et al., "GPU-Accelerated Viterbi Exact Lattice Decoder" (NVIDIA, 2020)
+//! - Braun et al., "GPU-Accelerated Viterbi Exact Lattice Decoder for Batched Online and Offline
+//!   Speech Recognition" (ICASSP 2020, arXiv:1910.10032)
 
 use std::collections::VecDeque;
 

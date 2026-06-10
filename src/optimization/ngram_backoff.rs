@@ -24,12 +24,12 @@
 //! - Linear space in number of *observed* n-grams (not all possible)
 //! - Back-off ε-transitions enable graceful degradation
 //! - Compatible with standard WFST operations (composition, determinization)
-//! - 87× speedup reported for 1000 word pieces with pruning
+//! - Large reduction in training cost for big word-piece vocabularies via pruning
 //!
 //! ## References
 //!
 //! - Mohri et al. "Speech Recognition with WFSTs" (2002)
-//! - Hannun et al. "Differentiable WFSTs" (ICLR 2021)
+//! - Hannun et al. "Differentiable WFSTs" (ICML 2020, arXiv:2010.01003)
 
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;

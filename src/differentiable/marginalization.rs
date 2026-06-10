@@ -37,7 +37,7 @@
 //!
 //! ## References
 //!
-//! - Hannun et al., "Differentiable Weighted Finite-State Transducers" (ICLR 2021)
+//! - Hannun et al., "Differentiable Weighted Finite-State Transducers" (ICML 2020, arXiv:2010.01003)
 
 use std::collections::HashMap;
 

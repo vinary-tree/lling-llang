@@ -8,7 +8,7 @@
 ## Overview
 
 Phase 6 implements differentiable WFST operations for end-to-end training, based on the
-ICLR 2021 paper "Differentiable Weighted Finite-State Transducers" by Hannun et al.
+ICML 2020 paper "Differentiable Weighted Finite-State Transducers" (arXiv:2010.01003) by Hannun et al.
 
 This enables gradient-based training with WFST-based loss functions, integrating WFSTs
 into deep learning pipelines.

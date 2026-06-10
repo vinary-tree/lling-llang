@@ -18,10 +18,8 @@
 //!
 //! ## Results
 //!
-//! From Paper 9 experiments:
-//! - Without pruning: 17,939s/epoch for 1000 word pieces
-//! - With pruning (k=10): 204s/epoch (87× speedup)
-//! - No accuracy loss with appropriate pruning threshold
+//! Pruning rare n-grams and backing off sharply reduces per-epoch training cost for large
+//! word-piece vocabularies, with negligible accuracy loss at a suitable threshold.
 //!
 //! ## Back-off Structure
 //!
@@ -33,7 +31,7 @@
 //!
 //! ## References
 //!
-//! - Hannun et al., "Differentiable Weighted Finite-State Transducers" (ICLR 2021)
+//! - Hannun et al., "Differentiable Weighted Finite-State Transducers" (ICML 2020, arXiv:2010.01003)
 //! - Katz, "Estimation of probabilities from sparse data" (1987)
 
 use std::collections::{HashMap, HashSet};

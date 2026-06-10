@@ -116,3 +116,7 @@ ehthumbs.db
 Desktop.ini
 .Spotlight-V100
 .Trashes
+
+.pgmcp.toml
+
+!docs/diagrams/*.svg

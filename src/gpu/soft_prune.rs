@@ -39,8 +39,9 @@
 //!
 //! ## References
 //!
-//! - Laptev et al., "GPU-Accelerated Viterbi Exact Lattice Decoder" (2020)
-//! - Chen et al., "GPU-based WFST Decoder with Exact Lattice Generation" (2018)
+//! - Braun et al., "GPU-Accelerated Viterbi Exact Lattice Decoder for Batched Online and Offline
+//!   Speech Recognition" (ICASSP 2020, arXiv:1910.10032)
+//! - Chen et al., "A GPU-based WFST Decoder with Exact Lattice Generation" (Interspeech 2018)
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 

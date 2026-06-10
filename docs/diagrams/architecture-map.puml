@@ -1,0 +1,44 @@
+@startuml architecture-map
+' lling-llang module architecture. Data flows bottom (algebra) → top (applications).
+' Color legend: blue=foundation, green=algorithms, teal=transducer families,
+' amber=correction/NLP, violet=deep-learning/GPU, orange=speech, crimson=verification.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam rectangle {
+  RoundCorner 12
+  FontColor #102027
+  BorderColor #455A64
+}
+skinparam ArrowColor #37474F
+skinparam ArrowThickness 1.4
+hide stereotype
+
+title <b>lling-llang</b> — module architecture\n<size:11><i>each tier builds on the one below; formal verification underwrites the core</i></size>
+
+rectangle "<b>Applications</b>  ·  grammar correction  ·  speech recognition  ·  constrained generation" as APP #ECEFF1
+
+rectangle "<b>Speech & sequence models</b>\nasr  (H ∘ C ∘ L ∘ G cascade)  ·  acoustic  ·  ctc topologies  ·  transducer (RNN-T)  ·  training (LF-MMI · weak-supervision)" as SPEECH #FFE0B2
+
+rectangle "<b>Deep learning & acceleration</b>\ndifferentiable  (GTN-style autograd, top-down/k2)  ·  gpu  (CSR · uint64 token-packing · k-vector)  ·  simd" as DL #E1BEE7
+
+rectangle "<b>Correction & NLP layers</b>\nlayers  ·  error_models  ·  text_processing (TN/ITN)  ·  multilingual  ·  llm (constrained decoding)  ·  programming" as NLP #FFF59D
+
+rectangle "<b>Grammar & transducer families</b>\ncfg  (Earley on lattices)  ·  multitape  ·  pushdown (PDA)  ·  tree_transducers  ·  subsequential" as TRANS #B2DFDB
+
+rectangle "<b>Algorithms</b>\nalgorithms  (shortest-distance · weight-pushing · ε-removal · determinize · minimize · connect)  ·  path  (viterbi · nbest · beam)  ·  composition  ·  optimization" as ALG #C8E6C9
+
+rectangle "<b>Foundation — weighted-automata algebra</b>\nsemiring  (K, ⊕, ⊗, 0̄, 1̄)  ·  wfst  (states · arcs · lazy ops)  ·  lattice  (weighted DAG)  ·  backend  (vocab storage)" as FND #BBDEFB
+
+rectangle "<b>Formal verification</b>\nCoq/Rocq proofs\nTLA⁺ models" as FV #FFCDD2
+
+FND -up-> ALG
+ALG -up-> TRANS
+TRANS -up-> NLP
+NLP -up-> DL
+DL -up-> SPEECH
+SPEECH -up-> APP
+FV -[#B71C1C,dashed]-> FND : verifies
+FV -[#B71C1C,dashed]-> ALG
+
+@enduml

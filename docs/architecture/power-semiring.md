@@ -302,7 +302,7 @@ push_weights(&mut wfst, PushConfig::backward())
 
 ## References
 
-- Cortes, C., Kuznetsov, V., Mohri, M., & Warmuth, M. K. (2015). "On-Line Learning Algorithms for Path Experts with Non-Additive Losses". JMLR 16, 2015. (Lemma 6 defines the η-power semiring)
+- Cortes, C., Kuznetsov, V., Mohri, M., & Warmuth, M. K. (2015). "On-Line Learning Algorithms for Path Experts with Non-Additive Losses". COLT 2015, PMLR 40:424–447. (Lemma 6 defines the η-power semiring)
 
 ## Related Documentation
 

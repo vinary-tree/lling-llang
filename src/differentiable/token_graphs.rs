@@ -24,7 +24,7 @@
 //!
 //! ## References
 //!
-//! - Hannun et al., "Differentiable Weighted Finite-State Transducers" (ICLR 2021)
+//! - Hannun et al., "Differentiable Weighted Finite-State Transducers" (ICML 2020, arXiv:2010.01003)
 //! - Collobert et al., "Wav2Letter" (2016)
 
 use crate::semiring::{LogWeight, Semiring};

@@ -1,6 +1,6 @@
 # GPU Acceleration
 
-GPU acceleration provides massive speedups for WFST decoding by exploiting parallel computation. This module provides CPU-compatible data structures and algorithms optimized for GPU execution patterns, achieving up to **240× speedup** over single-core CPU and **85% multi-GPU scaling efficiency**.
+GPU acceleration provides large speedups for WFST decoding by exploiting parallel computation. This module provides CPU-side data structures and algorithms shaped for GPU execution patterns. The techniques follow Braun et al. (2020), who report up to a **240× speedup** over single-core CPU decoding for their GPU Viterbi exact-lattice decoder; those figures are from the literature, **not** an independent benchmark of this crate.
 
 ## Concepts
 
@@ -448,6 +448,10 @@ Where:
 | Datacenter | 10,000 | 5,000 | 500 | 5.5 GB |
 
 ## Performance Characteristics
+
+> The device-throughput, WER, and xRTF figures in this section are reproduced from the GPU
+> decoding literature — chiefly Braun et al. (2020) — for the techniques this module models.
+> They are **not** independent benchmarks of this crate.
 
 ### Scalability Across GPUs
 

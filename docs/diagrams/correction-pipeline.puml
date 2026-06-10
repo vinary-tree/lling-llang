@@ -1,0 +1,29 @@
+@startuml correction-pipeline
+' The correction data-path: raw text → candidate lattice → layer pipeline → best hypothesis.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam rectangle {
+  RoundCorner 12
+  FontColor #102027
+  BorderColor #455A64
+}
+skinparam ArrowColor #37474F
+skinparam ArrowThickness 1.4
+
+title <b>Correction pipeline</b> — from raw text to the best hypothesis
+
+rectangle "<b>Input</b>\n\"teh quik fox\"" as IN #ECEFF1
+rectangle "<b>Candidate generation</b>\nlexical (edit-distance) · phonetic · error-models\n<size:10>liblevenshtein · confusion · homophone</size>" as CAND #FFF59D
+rectangle "<b>Weighted lattice</b>  (DAG)\nexponentially many hypotheses, shared structure;\ncosts on arcs come from a semiring" as LAT #BBDEFB
+rectangle "<b>Layer pipeline</b>\nlexical  →  CFG filter  →  LM rerank  →  custom\n<size:10>each layer filters paths or re-weights arcs</size>" as LAYERS #FFF59D
+rectangle "<b>Path extraction</b>\nviterbi (best)  ·  nbest(k)  ·  beam(width)" as PATH #C8E6C9
+rectangle "<b>Output</b>\n\"the quick fox\"" as OUT #ECEFF1
+
+IN  -down-> CAND
+CAND -down-> LAT
+LAT  -down-> LAYERS
+LAYERS -down-> PATH
+PATH -down-> OUT
+
+@enduml

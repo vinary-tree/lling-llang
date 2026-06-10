@@ -22,7 +22,7 @@
 //! ## References
 //!
 //! - [NVIDIA NeMo Text Processing](https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/nlp/text_normalization/wfst/intro.html)
-//! - [NeMo ITN Paper (arXiv 2104.05055)](https://arxiv.org/abs/2104.05055)
+//! - [NeMo Inverse Text Normalization: From Development to Production (arXiv 2104.05055)](https://arxiv.org/abs/2104.05055)
 
 use crate::semiring::Semiring;
 use crate::wfst::{MutableWfst, VectorWfst, WeightedTransition, Wfst};

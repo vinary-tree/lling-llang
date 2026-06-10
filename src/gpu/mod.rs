@@ -5,7 +5,7 @@
 //!
 //! ## Overview
 //!
-//! GPU-accelerated WFST decoding can achieve 100-1000× speedup over single-core CPU
+//! GPU-accelerated WFST decoding achieves large speedups over single-core CPU
 //! by exploiting massive parallelism. Key techniques include:
 //!
 //! 1. **CSR Representation**: Compressed Sparse Row format for cache-efficient access
@@ -45,19 +45,17 @@
 //! - n_c = number of channels
 //! - n_l = number of lanes
 //!
-//! ## Performance Results (from literature)
+//! ## Performance (reported in the literature)
 //!
-//! | Configuration | Speedup vs CPU |
-//! |--------------|----------------|
-//! | Single GPU (V100) | 240× |
-//! | 8× GPU (DGX-1) | 1920× |
-//! | Edge (Jetson Nano) | 11× |
+//! Braun et al. (2020) report up to a 240× speedup over single-core CPU decoding for the
+//! GPU Viterbi exact-lattice decoder these structures model. This crate provides the
+//! GPU-ready CPU-side data structures only; that figure is theirs, not an independent benchmark.
 //!
 //! ## References
 //!
-//! - Laptev et al., "GPU-Accelerated Viterbi Exact Lattice Decoder" (NVIDIA, 2020)
-//! - Chen et al., "GPU-based WFST Decoder with Exact Lattice Generation" (2018)
-//! - Lv et al., "LET-Decoder: Lazy-evaluation Token-group Decoder"
+//! - Braun et al., "GPU-Accelerated Viterbi Exact Lattice Decoder for Batched Online and Offline
+//!   Speech Recognition" (ICASSP 2020, arXiv:1910.10032)
+//! - Chen et al., "A GPU-based WFST Decoder with Exact Lattice Generation" (Interspeech 2018)
 
 mod channels;
 mod csr;

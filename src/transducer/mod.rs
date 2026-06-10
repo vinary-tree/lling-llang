@@ -33,7 +33,7 @@
 //!
 //! - [Sequence Transduction with Recurrent Neural Networks (Graves, 2012)](https://arxiv.org/abs/1211.3711)
 //! - [k2-fsa/k2: FSA/FST algorithms, differentiable](https://github.com/k2-fsa/k2)
-//! - [Factorized Neural Transducer (Microsoft)](https://arxiv.org/abs/2403.13423)
+//! - [Advanced Long-Content Speech Recognition with Factorized Neural Transducer](https://arxiv.org/abs/2403.13423)
 
 mod decoding;
 mod joiner;
