@@ -160,6 +160,8 @@ pub mod differentiable;
 pub mod error_models;
 pub mod gpu;
 pub mod lattice;
+#[cfg(feature = "lattice")]
+pub mod lattice_bridge;
 pub mod layers;
 pub mod llm;
 pub mod multilingual;

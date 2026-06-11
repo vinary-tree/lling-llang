@@ -2,23 +2,26 @@
 name = "lling-llang"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.70"
 authors = ["Dylon Edwards <dylon.edwards@f1r3fly.io>"]
 description = "WFST framework for text normalization and grammar correction"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/f1r3fly-io/lling-llang"
+license = "Apache-2.0"
+repository = "https://github.com/vinary-tree/lling-llang"
 keywords = ["wfst", "lattice", "cfg", "text-normalization", "grammar-correction"]
 categories = ["text-processing", "algorithms"]
 
 [dependencies]
 # Core dependencies (optional - for liblevenshtein integration)
-liblevenshtein = { path = "../liblevenshtein-rust", optional = true }
-libdictenstein = { path = "../libdictenstein", optional = true }
+liblevenshtein = { path = "../liblevenshtein-rust", version = "0.9", optional = true }
+libdictenstein = { path = "../libdictenstein", version = "0.1", optional = true }
+# Shared lattice trait (join/meet) leaf crate — for the semiring↔lattice bridge
+llattice = { path = "../llattice", version = "0.1", optional = true }
 
 # Concurrent hash map for caching
 dashmap = { version = "6.1", optional = true }
 
 # F1R3FLY.io dependencies (optional)
-pathmap = { path = "../PathMap", optional = true }
+pathmap = { version = "0.2", optional = true }
 
 # Data structures
 smallvec = { version = "1.11", features = ["union"] }
@@ -53,6 +56,11 @@ default = []
 # === Core Optional Features ===
 # Integration with liblevenshtein for lexical correction
 levenshtein = ["dep:liblevenshtein", "dep:libdictenstein"]
+
+# libdictenstein lattice bridge: lling-llang semirings as dictionary values (cycle-break)
+lattice = ["dep:llattice", "dep:libdictenstein"]
+# ...with serde-bounded DictionaryValue for disk-backed (persistent-artrie) dictionaries
+lattice-persistent = ["lattice", "libdictenstein/persistent-artrie", "dep:serde"]
 
 # Probabilistic CFG support
 pcfg = []
@@ -101,3 +109,6 @@ test-utils = ["dep:proptest"]
 [[bench]]
 name = "core_benchmarks"
 harness = false
+
+[package.metadata.docs.rs]
+all-features = true
