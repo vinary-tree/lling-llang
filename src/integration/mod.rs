@@ -67,9 +67,9 @@ pub mod prelude {
     };
 
     // Re-export UTF-8 dictionary types
-    pub use libdictenstein::double_array_trie_char::DoubleArrayTrieChar;
-    pub use libdictenstein::dynamic_dawg_char::DynamicDawgChar;
-    pub use libdictenstein::suffix_automaton_char::SuffixAutomatonChar;
+    pub use libdictenstein::double_array_trie::char::DoubleArrayTrieChar;
+    pub use libdictenstein::dynamic_dawg::char::DynamicDawgChar;
+    pub use libdictenstein::suffix_automaton::char::SuffixAutomatonChar;
 
     // Re-export PathMap dictionary when available
     #[cfg(feature = "pathmap-backend")]
@@ -77,7 +77,7 @@ pub mod prelude {
 
     // Re-export WallBreaker for large error bounds
     pub use libdictenstein::scdawg::Scdawg;
-    pub use libdictenstein::scdawg_char::ScdawgChar;
+    pub use libdictenstein::scdawg::char::ScdawgChar;
     pub use liblevenshtein::wallbreaker::{
         PatternPiece, PatternSplitter, WallBreaker, WallBreakerQuery, WallBreakerResult,
     };
