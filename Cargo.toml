@@ -1,6 +1,6 @@
 [package]
 name = "lling-llang"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.70"
 authors = ["Dylon Edwards <dylon.edwards@f1r3fly.io>"]
@@ -13,7 +13,7 @@ categories = ["text-processing", "algorithms"]
 [dependencies]
 # Core dependencies (optional - for liblevenshtein integration)
 liblevenshtein = { path = "../liblevenshtein-rust", version = "0.9", optional = true }
-libdictenstein = { path = "../libdictenstein", version = "0.1", optional = true }
+libdictenstein = { path = "../libdictenstein", version = "0.2", optional = true }
 # Shared lattice trait (join/meet) leaf crate — for the semiring↔lattice bridge
 llattice = { path = "../llattice", version = "0.1", optional = true }
 
