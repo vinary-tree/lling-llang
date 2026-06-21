@@ -2,7 +2,9 @@
 name = "lling-llang"
 version = "0.2.0"
 edition = "2021"
-rust-version = "1.70"
+# `div_ceil` (integer) is used across gpu/load_balance, llm token-masking, and the
+# quantized semiring; it stabilized in Rust 1.73, so 1.73 is the true MSRV.
+rust-version = "1.73"
 authors = ["Dylon Edwards <dylon.edwards@f1r3fly.io>"]
 description = "WFST framework for text normalization and grammar correction"
 license = "Apache-2.0"
@@ -31,6 +33,20 @@ rustc-hash = "1.1"
 
 # Numerics
 ordered-float = "4.0"
+
+# Symbolic-automata + algebra-tower core (hoisted from prattail, Task #21 / ADR-018).
+# Non-optional, default-on (no feature gates): the `symbolic` module is unconditional.
+num-bigint = "0.4"
+num-rational = { version = "0.4", features = ["num-bigint-std"] }
+num-traits = "0.2"
+moniker = { version = "0.5", features = ["moniker-derive"] }
+
+# SMT `ConstraintTheory` backend (Task #22 / ADR-018, §4-B). The Z3 *library*
+# (dynamically linked against the system libz3) is in-process — in-boundary for
+# in-process use; the cvc5/Z3 *CLI* certificate path lives in the WFST sidecar.
+# Non-optional, default-on (no feature gate); availability is probed at runtime via
+# `symbolic::logict_smt::z3_available()` so a solver-less host still links and runs.
+z3 = "0.12"
 
 # Random number generation for path sampling
 rand = "0.9"

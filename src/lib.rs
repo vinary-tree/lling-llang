@@ -14,13 +14,34 @@
 //!
 //! ## Feature Flags
 //!
+//! Core:
 //! - `default`: Standalone WFST framework with no external dependencies
 //! - `levenshtein`: Integration with liblevenshtein for lexical correction
-//! - `pos-tagging`: POS tagging layer support
-//! - `lm-rerank`: Language model reranking layer support
-//! - `f1r3fly`: Full F1R3FLY.io integration (PathMap, MORK, MeTTaTron, MeTTaIL)
+//! - `lattice`: Semiring↔lattice bridge — `lling-llang` semirings as
+//!   `libdictenstein` dictionary values (via `llattice`)
+//! - `lattice-persistent`: serde-bounded dictionary values for disk-backed
+//!   (`persistent-artrie`) dictionaries
+//! - `pcfg`: Probabilistic context-free grammar support
+//! - `error-grammar`: Predefined error grammars
+//!
+//! Extension layers:
+//! - `pos-tagging`: POS-tagging correction layer
+//! - `lm-rerank`: Language-model reranking layer
+//! - `phonetic-rescore`: Phonetic rescoring layer (requires `levenshtein`)
+//! - `code-correction`: Pattern-aware code syntax-recovery layer
+//! - `latex-syntax`: LaTeX syntax-correction layer
+//! - `mathml-semantic`: MathML semantic / homoglyph layer
+//!
+//! F1R3FLY.io integration:
+//! - `f1r3fly`: Full F1R3FLY.io stack (PathMap, MORK, MeTTaTron, MeTTaIL)
 //! - `sexpr`: S-expression path format for MORK compatibility
+//! - `pathmap-backend`: PathMap-optimized lattice backend
+//!
+//! Serialization & testing:
 //! - `serde`: Serialization support
+//! - `bincode-ser`: Bincode serialization (implies `serde`)
+//! - `test-utils`: Expose the `test_utils` module (proptest strategies, fixtures)
+//!   to downstream crates
 //!
 //! ## Architecture
 //!
@@ -40,17 +61,19 @@
 //!
 //! ## Example
 //!
-//! ```rust,ignore
+//! ```
 //! use lling_llang::prelude::*;
 //!
-//! // Build a correction lattice
+//! // Build a correction lattice over a vocabulary-interning backend.
+//! let backend = HashMapBackend::new();
 //! let mut builder = LatticeBuilder::<TropicalWeight, _>::new(backend);
-//! builder.add_correction(0, 1, "the", TropicalWeight(1.0), EdgeMetadata::default());
-//! builder.add_correction(0, 1, "teh", TropicalWeight(0.0), EdgeMetadata::default());
-//! let lattice = builder.build(2);
+//! builder.add_correction(0, 1, "the", TropicalWeight::new(0.5), EdgeMetadata::original());
+//! builder.add_correction(0, 1, "teh", TropicalWeight::new(0.0), EdgeMetadata::correction(1));
+//! let mut lattice = builder.build(1);
 //!
-//! // Extract best path
-//! let best = lattice.best_path();
+//! // Extract the best (Viterbi) path: ⊕ = min over paths, ⊗ = + along a path.
+//! let result = viterbi(&mut lattice);
+//! assert!(result.success);
 //! ```
 
 #![warn(missing_docs)]
@@ -173,6 +196,11 @@ pub mod pushdown;
 pub mod semiring;
 pub mod simd;
 pub mod subsequential;
+/// Symbolic-automata + algebra-tower core (SFA/SFT, Boolean/Heyting/RejectSafe
+/// algebra tower, `ConstraintTheory`/`TheoryAlgebra`, behavioral algebra, Presburger),
+/// hoisted from prattail (Task #21 / ADR-018) as the shared foundational home so
+/// prattail, pgmcp, the constrained decoder, and the WFST sidecar all depend on it here.
+pub mod symbolic;
 pub mod text_processing;
 pub mod training;
 pub mod transducer;

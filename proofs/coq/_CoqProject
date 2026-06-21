@@ -24,3 +24,32 @@ algorithms/Viterbi.v
 algorithms/ShortestDistance.v
 algorithms/Determinize.v
 algorithms/Minimize.v
+
+# ============================================================================
+# Hoisted symbolic-core proofs (Task #21 / ADR-018): the zero-admission Rocq
+# theories proving the algebra laws of the symbolic core, migrated from
+# mettail-rust/formal/rocq with the code they verify (lling-llang::symbolic).
+# Each keeps its own logical root (self-contained; no cross-theory deps except
+# within symbolic_algebra).
+# ============================================================================
+-Q logict LogicTProofs
+-Q presburger PresburgerProofs
+-Q sft Sft
+-Q symbolic_algebra SymbolicAlgebra
+
+logict/LogicTFairness.v
+presburger/PresburgerBooleanAlgebra.v
+sft/OutputTermAlgebra.v
+sft/SftComposition.v
+sft/SftFunctionality.v
+sft/StftComposition.v
+sft/StftFunctionality.v
+symbolic_algebra/EffectiveBooleanAlgebra.v
+symbolic_algebra/HeytingAlgebra.v
+symbolic_algebra/ProductAlgebraClosure.v
+symbolic_algebra/SumAlgebraClosure.v
+symbolic_algebra/CollectionAlgebraClosure.v
+symbolic_algebra/TreeAlgebraClosure.v
+symbolic_algebra/TheoryCombination.v
+symbolic_algebra/GuardTierCertificate.v
+symbolic_algebra/BehavioralNegation.v
