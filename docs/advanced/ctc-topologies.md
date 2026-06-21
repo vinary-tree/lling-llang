@@ -6,9 +6,19 @@ Connectionist Temporal Classification (CTC) topologies define the structure of W
 
 ### What is CTC?
 
-CTC allows training on unsegmented sequence data by introducing a **blank token** that absorbs timing variations. The model outputs a probability distribution over the vocabulary plus blank at each time step, and CTC marginalizes over all valid alignments.
+CTC allows training on unsegmented sequence data by introducing a **blank token** that
+absorbs timing variations ([Graves et al. 2006](../BIBLIOGRAPHY.md#ref-graves2006)). The
+model outputs a probability distribution over the vocabulary plus blank at each time step,
+and CTC marginalizes over all valid alignments. The collapse operator `B` merges runs of
+identical labels then deletes blanks: `B("H E - L O") = "HELO"`.
 
-```
+![CTC collapse: per-frame emissions H E - L O mapped to the output string HELO by merging repeats and deleting blanks](../diagrams/advanced/ctc-collapse.svg)
+
+*Orange = a kept frame emission; grey dashed = a blank (`-`) frame that is deleted; green double-ring = the final collapsed output `"HELO"`.*
+
+<details><summary>Text view</summary>
+
+```text
 Input:  [frame1] [frame2] [frame3] [frame4] [frame5]
 Output:    H        E        -        L        O
            ↓        ↓        ↓        ↓        ↓
@@ -17,11 +27,14 @@ Collapse:  H ────── E ────────────── L �
 The blank token (-) and repeated labels are collapsed.
 ```
 
+</details>
+
 ### The WFST Perspective
 
-CTC can be viewed as composition with a **topology transducer** T:
+CTC can be viewed as composition with a **topology transducer** `T` — the loss is
+`forward_score(E ∘ T ∘ Y)`:
 
-```
+```text
 CTC Loss = forward_score(E ∘ T ∘ Y)
 
 Where:
@@ -30,7 +43,8 @@ Where:
   Y = target label graph
 ```
 
-The topology T determines which label sequences are valid alignments for a given target.
+The topology `T` determines which label sequences are valid alignments for a given target
+(`∘` is WFST composition; see [Mohri et al. 2002](../BIBLIOGRAPHY.md#ref-mohri2002)).
 
 ### Why Multiple Topologies?
 
@@ -38,12 +52,13 @@ Different topologies trade off:
 
 | Concern | Correct-CTC | Compact-CTC | Minimal-CTC |
 |---------|-------------|-------------|-------------|
-| Graph size | O(N²) | O(N) | O(N) |
+| Graph size | `O(N²)` | `O(N)` | `O(N)` |
 | Memory usage | High | Medium | Low |
 | Accuracy | Baseline | Same | Slightly lower |
 | Training speed | Slower | Faster | Fastest |
 
-Where N = vocabulary size (number of distinct labels).
+Where `N` = vocabulary size (number of distinct labels), and the topology variants follow
+[Laptev et al. 2022](../BIBLIOGRAPHY.md#ref-laptev2022).
 
 ## Core API
 
@@ -118,9 +133,16 @@ pub fn topology_info<W: Semiring>(
 
 ### Correct-CTC (Standard)
 
-The standard CTC topology is a **complete directed graph** with self-loops:
+The standard CTC topology is a **complete directed graph** with self-loops: `N` states and
+`N²` arcs (a self-loop on every state, plus an arc between every ordered pair).
 
-```
+![Correct-CTC for N=3: complete all-to-all automaton with self-loops, blank as start and final](../diagrams/advanced/ctc-correct.svg)
+
+*`circo` layout exposes the all-to-all symmetry. Orange double-ring = the blank state (state 0), which is both start and final; blue = label states; grey dashed = `ε`-output arcs (blank emits `ε`). Every state has a self-loop (label repetition).*
+
+<details><summary>Text view</summary>
+
+```text
 Structure:
   - N states (one per vocabulary unit + blank)
   - N² arcs (transitions between all pairs + self-loops)
@@ -140,9 +162,11 @@ Graph for N=3 (blank + 2 labels):
               (all-to-all transitions)
 ```
 
+</details>
+
 **Properties**:
-- States: N
-- Arcs: N²
+- States: `N`
+- Arcs: `N²`
 - Allows any label at any time
 - Self-loops allow label repetition
 
@@ -162,8 +186,16 @@ assert_eq!(info.num_arcs, 1_000_000);  // 1000²
 ### Compact-CTC
 
 Compact-CTC uses a **back-off structure** instead of explicit all-to-all transitions:
+`N` states and `3N−2` arcs (`N` self-loops + `N−1` blank→label entries + `N−1` label→blank
+back-offs).
 
-```
+![Compact-CTC for N=3: each non-blank label backs off through the blank state, 3N-2 arcs](../diagrams/advanced/ctc-compact.svg)
+
+*Orange double-ring = blank (start and final); solid blue = `ε:label` entry arcs and non-blank self-loops; grey dashed = `label:ε` back-off arcs through blank. For `N=3` this is `3·3−2 = 7` arcs.*
+
+<details><summary>Text view</summary>
+
+```text
 Structure:
   - N states (one per vocabulary unit + blank)
   - 3N-2 arcs
@@ -187,9 +219,11 @@ Graph for N=3:
 Back-off: Non-blank labels go through blank to transition
 ```
 
+</details>
+
 **Properties**:
-- States: N
-- Arcs: 3N - 2
+- States: `N`
+- Arcs: `3N − 2`
 - **1.5× smaller** than Correct-CTC
 - Same accuracy as Correct-CTC
 - Requires frame interleaving for training
@@ -207,9 +241,16 @@ assert_eq!(info.num_arcs, 2998);  // 3×1000 - 2
 
 ### Minimal-CTC
 
-Minimal-CTC uses a **single state** with only blank-to-label transductions:
+Minimal-CTC uses a **single state** with only blank-to-label transductions: `1` state and
+`N` arcs (one `blank:label` per label, plus the `blank:ε` self-loop).
 
-```
+![Minimal-CTC for N=3: a single start-and-final state with N blank-to-label transductions](../diagrams/advanced/ctc-minimal.svg)
+
+*Orange double-ring = the lone state (start and final); solid blue = `blank:label` transductions returning to the state; grey dashed = the `blank:ε` self-loop. Every emission is a blank→label transduction.*
+
+<details><summary>Text view</summary>
+
+```text
 Structure:
   - 1 state
   - N arcs (blank→label transductions)
@@ -230,9 +271,11 @@ Graph:
 All non-blank emissions are blank→label transductions
 ```
 
+</details>
+
 **Properties**:
-- States: 1
-- Arcs: N
+- States: `1`
+- Arcs: `N`
 - **2× smaller** than Correct-CTC
 - Slightly lower accuracy (~0.2% WER increase)
 - Encourages "peaky" CTC behavior (blank-dominant)
@@ -251,9 +294,16 @@ assert_eq!(info.num_arcs, 1000);
 
 ### Selfless Variants
 
-Selfless variants remove **non-blank self-loops**, forcing the model to use blank tokens between repeated labels:
+Selfless variants remove **non-blank self-loops**, forcing the model to use blank tokens
+between repeated labels (so `"aaa"` must be written `"a-a-a"`).
 
-```
+![Selfless-CTC (compact base, N=3): non-blank self-loops removed, only the blank epsilon self-loop survives](../diagrams/advanced/ctc-selfless.svg)
+
+*Same Compact-CTC skeleton, but the `a`/`b` self-loops are intentionally absent — only the blank `ε` self-loop (grey dashed) remains. A repeated label must be separated by a blank. Arc budget drops to `2N−1` for the compact base (`5` for `N=3`).*
+
+<details><summary>Text view</summary>
+
+```text
 Standard:          Selfless:
   a                  a
   ↺                  (no self-loop)
@@ -264,12 +314,14 @@ With self-loop:    Without self-loop:
                      "a-a-a" → "aaa" → "a"
 ```
 
+</details>
+
 **When to use selfless**:
 
 | Context Window | Recommended |
 |----------------|-------------|
-| Short (γ=0.25, ~11 frames) | Standard (with self-loops) |
-| Long (γ=1.0) | Selfless |
+| Short (`γ=0.25`, ~11 frames) | Standard (with self-loops) |
+| Long (`γ=1.0`) | Selfless |
 | Unlimited (Conformer) | Selfless |
 
 **Intuition**: Wide context models can "see" the full sequence, making explicit blank tokens more informative than self-loops.
@@ -380,14 +432,18 @@ Dummy frame: probability 1 for blank→label transition
 ```rust
 use lling_llang::ctc::interleave_frames;
 
-// Original emissions: T × N
+// Original emissions: T × N  (T frames × N vocabulary units)
 let emissions: Vec<Vec<f32>> = neural_network_output();
 
-// Interleaved: 2T × (N+1) where +1 is the dummy unit
+// Interleaved: 2T × (N+1), where +1 is the dummy unit
 let interleaved = interleave_frames(&emissions);
 
 // Now compatible with compact_ctc topology
 ```
+
+Here `T` is the number of frames and `N` the vocabulary size; interleaving doubles the
+frame axis (`2T`) and adds one dummy unit (`N+1`) so the `ε`-output back-off arcs of
+Compact-CTC have a frame to consume.
 
 ## Complexity
 
@@ -395,9 +451,9 @@ let interleaved = interleave_frames(&emissions);
 
 | Topology | States | Arcs | Relative Size |
 |----------|--------|------|---------------|
-| Correct-CTC | N | N² | 1.00× |
-| Compact-CTC | N | 3N-2 | ~0.003× for N=1000 |
-| Minimal-CTC | 1 | N | ~0.001× for N=1000 |
+| Correct-CTC | `N` | `N²` | 1.00× |
+| Compact-CTC | `N` | `3N−2` | ~0.003× for `N=1000` |
+| Minimal-CTC | `1` | `N` | ~0.001× for `N=1000` |
 
 ### Memory Usage for LF-MMI Training
 
@@ -409,13 +465,13 @@ let interleaved = interleave_frames(&emissions);
 
 ### Decoding Graph Size
 
-When composed with language models (T ∘ L ∘ G):
+When composed with language models (`T ∘ L ∘ G`):
 
 | Topology | Relative TLG Size |
 |----------|-------------------|
-| T_correct ∘ LG | 1.00× |
-| T_compact ∘ LG | ~0.75× |
-| T_minimal ∘ LG | ~0.50× |
+| `T_correct ∘ LG` | 1.00× |
+| `T_compact ∘ LG` | ~0.75× |
+| `T_minimal ∘ LG` | ~0.50× |
 
 ## Counter-Intuitive Finding
 
@@ -475,9 +531,14 @@ impl LfMmiConfig {
 
 ## Visualization
 
-### Correct-CTC (N=4)
+The rendered `N=3` automata for each topology are embedded under
+[Topology Variants](#topology-variants) above (Correct, Compact, Minimal, Selfless). The
+`N=4` ASCII restatements below are kept as an accessible text fallback and to show how the
+arc counts scale (`N²`, `3N−2`, `N`).
 
-```
+<details><summary>Correct-CTC (N=4) — text view</summary>
+
+```text
      ┌─────────────────────────────────────────┐
      │              All-to-all                 │
      ▼                                         │
@@ -492,9 +553,11 @@ impl LfMmiConfig {
 States: 4, Arcs: 16 (4²)
 ```
 
-### Compact-CTC (N=4)
+</details>
 
-```
+<details><summary>Compact-CTC (N=4) — text view</summary>
+
+```text
               ┌──────────────────────────┐
               │      Back-off to blank   │
               ▼                          │
@@ -507,12 +570,14 @@ States: 4, Arcs: 16 (4²)
      ▼       (back-off ε transitions)
    (self)
 
-States: 4, Arcs: 10 (3×4 - 2)
+States: 4, Arcs: 10 (3×4 − 2)
 ```
 
-### Minimal-CTC (N=4)
+</details>
 
-```
+<details><summary>Minimal-CTC (N=4) — text view</summary>
+
+```text
                     ┌───────────────┐
                     │               │
             blank:a │  blank:b      │ blank:c
@@ -529,13 +594,15 @@ States: 4, Arcs: 10 (3×4 - 2)
 States: 1, Arcs: 4
 ```
 
+</details>
+
 ## Performance Tips
 
 1. **Use Compact-CTC by default**: Same accuracy as Correct, 1.5× smaller
 2. **Use Minimal-CTC for large vocabularies**: 4× memory savings, small WER impact
 3. **Use Selfless variants for Conformer**: Improves accuracy for wide context
 4. **Enable warmup for LF-MMI**: Prevents OOM in early training epochs
-5. **Compose incrementally**: det(T ∘ det(L ∘ G)) is more efficient than det(T ∘ L ∘ G)
+5. **Compose incrementally**: `det(T ∘ det(L ∘ G))` is more efficient than `det(T ∘ L ∘ G)`
 
 ## Theoretical Notes
 
@@ -560,6 +627,22 @@ Wide context models can "see" adjacent frames, so:
 - Self-loops become redundant (model knows next frame)
 - Explicit blanks provide clearer segmentation signal
 - Forces model to use blank for actual silence/uncertainty
+
+## References
+
+- [Graves et al. 2006](../BIBLIOGRAPHY.md#ref-graves2006) — Graves, A., Fernández, S.,
+  Gomez, F., & Schmidhuber, J. *Connectionist Temporal Classification: Labelling
+  Unsegmented Sequence Data with Recurrent Neural Networks.* The original CTC loss, blank
+  token, and collapse operator `B`.
+- [Laptev et al. 2022](../BIBLIOGRAPHY.md#ref-laptev2022) — Laptev, A., Majumdar, S., &
+  Ginsburg, B. *CTC Variations Through New WFST Topologies.* The Compact, Minimal, and
+  Selfless topologies and their accuracy/size trade-offs.
+- [Mohri et al. 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — Mohri, M., Pereira, F., & Riley, M.
+  *Weighted Finite-State Transducers in Speech Recognition.* WFST composition `∘` and the
+  `T ∘ L ∘ G` decoding cascade.
+- [Miao et al. 2015](../BIBLIOGRAPHY.md#ref-miao2015) — Miao, Y., Gowayyed, M., & Metze, F.
+  *EESEN: End-to-End Speech Recognition using Deep RNN Models and WFST-based Decoding.*
+  CTC emissions decoded through a WFST `T ∘ L ∘ G`.
 
 ## Next Steps
 

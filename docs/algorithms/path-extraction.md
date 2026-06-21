@@ -1,6 +1,18 @@
 # Path Extraction Algorithms
 
-Path extraction finds optimal paths through lattices. lling-llang provides three algorithms with different trade-offs between exactness, speed, and memory usage.
+Path extraction finds optimal paths through lattices. lling-llang provides three algorithms with different trade-offs between exactness, speed, and memory usage. (A lattice is a weighted DAG — **D**irected **A**cyclic **G**raph — whose start→end paths enumerate hypotheses.)
+
+## Terms & symbols
+
+Defined centrally in [`../NOTATION.md`](../NOTATION.md); repeated locally for the terms this doc uses.
+
+| Symbol | Meaning |
+|---|---|
+| `⊕` / `⊗` | semiring *plus* (combine alternative scores) / *times* (accumulate a path's edges). |
+| `0̄` / `1̄` | `⊕`-identity / `⊗`-identity. |
+| `∣V∣`, `∣E∣` | number of lattice nodes / edges (cardinality bar `∣` = U+2223). |
+| `L` | path length (edge count). |
+| `k`, `B`, `D` | number of paths requested / beam width / average out-degree. |
 
 ## Concepts
 
@@ -8,33 +20,51 @@ Path extraction finds optimal paths through lattices. lling-llang provides three
 
 Given a lattice with weighted edges, path extraction finds the "best" paths from start to end. What "best" means depends on the semiring:
 
-- **TropicalWeight**: Lowest total cost (sum of edge weights)
-- **LogWeight**: Highest probability (product of probabilities)
+- **TropicalWeight**: Lowest total cost (`⊗` = sum of edge weights)
+- **LogWeight**: Highest probability (`⊗` = product of probabilities)
 - **BoolWeight**: Any valid path
 
-```
+```text
             ┌───the(0.5)───┐
    start ──►│              ├───quick(0.5)───►end
             └───teh(0.0)───┘
 
-   Path 1: the + quick = 0.5 + 0.5 = 1.0 (tropical)
-   Path 2: teh + quick = 0.0 + 0.5 = 0.5 (tropical)
+   Path 1: the ⊗ quick = 0.5 + 0.5 = 1.0 (tropical)
+   Path 2: teh ⊗ quick = 0.0 + 0.5 = 0.5 (tropical)
 
    Best path (lowest weight): "teh quick" (0.5)
 ```
+
+The frontier diagram below shows N-best/beam advancing left-to-right over a richer lattice: the green spine is the Viterbi best, grey are alternatives, and the amber cut is the beam frontier that keeps only the top-`B` partial hypotheses at a column.
+
+![N-best / beam over a lattice: a left-to-right DAG of word hypotheses with the Viterbi best path the/quick/brown/fox drawn bold green, grey alternative arcs, and an amber dashed beam frontier at one column annotated keep top-B partials](../diagrams/algorithms/nbest-beam.svg)
+
+*Green bold = Viterbi best path; grey = alternatives; amber dashed = the beam frontier (rank partials by accumulated weight, keep the best `B`); green double-ring = the end state.*
+
+<details><summary>Text view</summary>
+
+```text
+        the(0.2)   quick(0.3)  brown(0.1)  fox(0.2)
+  0 ──────────► 1 ─────────► 2 ─────────► 3 ─────────► (4)   ← Viterbi best
+   └─ teh(0.9) ─┘ quik(0.8) ─┘ brow(0.7) ─┘ box(0.9) ─┘     ← alternatives
+                    ↑
+            beam frontier (B=2): keep top-B partials
+```
+
+</details>
 
 ### Algorithm Selection Guide
 
 | Algorithm | Time | Space | Exact? | Use Case |
 |-----------|------|-------|--------|----------|
-| Viterbi | O(V + E) | O(V) | Yes | Single best path |
-| N-best | O(k log k)* | O(k × L) | Yes | Top-k paths |
-| Beam search | O(V × B × D) | O(B × L) | No | Approximate top-k |
+| Viterbi | `` `O(∣V∣ + ∣E∣)` `` | `` `O(∣V∣)` `` | Yes | Single best path |
+| N-best | `` `O(k log k)` `` * | `` `O(k × L)` `` | Yes | Top-k paths |
+| Beam search | `` `O(∣V∣ × B × D)` `` | `` `O(B × L)` `` | No | Approximate top-k |
 
 Where:
-- V = nodes, E = edges, L = path length
-- k = number of paths, B = beam width, D = average out-degree
-- *After initial O(V + E) topological sort
+- `∣V∣` = nodes, `∣E∣` = edges, `L` = path length
+- `k` = number of paths, `B` = beam width, `D` = average out-degree
+- \* After an initial `` `O(∣V∣ + ∣E∣)` `` topological sort
 
 ### Core Types
 
@@ -51,8 +81,34 @@ The **Viterbi algorithm** finds the single best path using dynamic programming. 
 
 ### How It Works
 
-1. **Forward pass**: Process nodes in topological order, computing the best score to reach each node
-2. **Backward pass**: Trace back from the end node to reconstruct the path
+The Viterbi algorithm is a forward dynamic-programming pass over the topological order
+followed by a back-trace. The invariant is that when a node is processed, every
+predecessor's best score is already final, so the node's best score is settled in one
+visit. (`δ[v]` = best score to reach `v`; `bp[v]` = the edge it came in on.)
+
+```text
+⟨ viterbi forward pass ⟩ ≡
+    δ[start] ← 1̄;  δ[v] ← 0̄ for v ≠ start
+    for v in topological_order:
+        for edge e = v --w--> u:
+            cand ← δ[v] ⊗ w
+            if cand is ⊕-better than δ[u]:   // tropical: smaller
+                δ[u] ← δ[v] ⊕ cand; bp[u] ← e
+```
+
+```text
+⟨ viterbi back-trace ⟩ ≡
+    if δ[end] = 0̄: return (failure)          // end unreachable
+    walk bp[end], bp[…], … back to start, reversing the edges → best path
+```
+
+```text
+⟨ viterbi ⟩ ≡
+    ⟨ viterbi forward pass ⟩
+    return ⟨ viterbi back-trace ⟩            // O(∣V∣ + ∣E∣) total
+```
+
+In code:
 
 ```rust
 use lling_llang::path::viterbi;
@@ -94,8 +150,8 @@ pub struct ViterbiResult<W: Semiring> {
 
 ### Complexity
 
-- **Time**: O(V + E) - each node and edge visited exactly once
-- **Space**: O(V) - stores best score and backpointer for each node
+- **Time**: `` `O(∣V∣ + ∣E∣)` `` - each node and edge visited exactly once
+- **Space**: `` `O(∣V∣)` `` - stores best score and backpointer for each node
 
 ### When to Use Viterbi
 
@@ -153,8 +209,8 @@ for path in iter {
 
 ### Complexity
 
-- **Time**: O(k log k) for extracting k paths (after O(V+E) setup)
-- **Space**: O(k × L) where L is average path length
+- **Time**: `` `O(k log k)` `` for extracting `k` paths (after `` `O(∣V∣ + ∣E∣)` `` setup)
+- **Space**: `` `O(k × L)` `` where `L` is average path length
 
 The key insight is that paths are enumerated lazily - if you only need 3 paths, only those 3 are fully computed.
 
@@ -214,8 +270,8 @@ let paths = beam_search_with_config(&mut lattice, config);
 
 ### Complexity
 
-- **Time**: O(V × B × D) where B = beam width, D = average out-degree
-- **Space**: O(B × L) where L = path length
+- **Time**: `` `O(∣V∣ × B × D)` `` where `B` = beam width, `D` = average out-degree
+- **Space**: `` `O(B × L)` `` where `L` = path length
 
 ### Trade-offs
 
@@ -438,3 +494,9 @@ fn process_batch(lattices: &mut [Lattice<TropicalWeight, HashMapBackend>]) -> Ve
 - [Topological Sort](topological-sort.md): DAG ordering algorithm
 - [Lattices](../architecture/lattices.md): Lattice construction
 - [Semirings](../architecture/semirings.md): Weight algebra
+
+## References
+
+- [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms*: the single-source shortest-distance (Viterbi) algorithm over acyclic weighted graphs and the general `n`-shortest-paths formulation that the N-best enumerator specializes.
+- [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted Finite-State Transducers in Speech Recognition*: lattices as weighted acyclic graphs and best-path / `n`-best extraction as the decoding step of the recognition cascade.
+- **[Huang & Chiang 2005]** Huang, L., & Chiang, D. (2005). *Better k-best Parsing.* IWPT 2005:53–64. [ACL W05-1506](https://aclanthology.org/W05-1506/) — the lazy priority-queue `k`-best enumeration scheme the `NBestIterator` implements.

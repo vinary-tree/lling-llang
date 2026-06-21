@@ -42,9 +42,16 @@ Audio Input
 | ARPA | Various | Text-based format |
 | JSON | Custom | Structured JSON |
 
+> **Illustrative.** The `lling_llang::io::*` lattice-format readers/writers in
+> this section (`io::htk`, `io::openfst`, `io::json`, `io::kaldi`) describe the
+> *intended* import/export surface and are **not yet shipped** by the crate. The
+> code blocks below are forward-looking sketches; build lattices today with
+> [`LatticeBuilder`](../../api/lattice-reference.md) from your ASR system's API
+> (see *Building from API* below).
+
 ### HTK SLF Import
 
-```rust
+```rust,ignore
 use lling_llang::io::htk::HtkSlf;
 
 // Parse HTK SLF file
@@ -58,7 +65,7 @@ println!("Imported {} nodes, {} edges", lattice.num_nodes(), lattice.num_edges()
 
 ### OpenFST Import
 
-```rust
+```rust,ignore
 use lling_llang::io::openfst::OpenFstReader;
 
 // Read binary FST
@@ -70,7 +77,7 @@ let lattice = reader.to_lattice::<TropicalWeight, HashMapBackend>()?;
 
 ### Custom JSON Format
 
-```rust
+```rust,ignore
 use lling_llang::io::json::JsonLatticeReader;
 
 // Example JSON structure
@@ -279,7 +286,7 @@ for word in result.words {
 
 ### Reading Kaldi Lattices
 
-```rust
+```rust,ignore
 use lling_llang::io::kaldi::{KaldiLatticeReader, KaldiSymbolTable};
 
 // Load symbol table
@@ -300,7 +307,7 @@ for (utt_id, lattice) in reader.read_archive("lat.ark")? {
 
 ### Writing Kaldi-Compatible Output
 
-```rust
+```rust,ignore
 use lling_llang::io::kaldi::KaldiLatticeWriter;
 
 let writer = KaldiLatticeWriter::new(&symbols);
@@ -390,7 +397,13 @@ impl StreamingProcessor {
 
 Before processing large lattices:
 
-```rust
+> **Illustrative.** A `lling_llang::prune` module with standalone `beam_prune` /
+> `posterior_prune` lattice→lattice helpers is **not yet shipped**. The shipped
+> pruning primitive is the path-side
+> [`beam_search`](../../api/path-reference.md) in `lling_llang::path`; the sketch
+> below shows the intended lattice-level pruning API.
+
+```rust,ignore
 use lling_llang::prune::{beam_prune, posterior_prune};
 
 // Beam pruning: keep paths within beam of best

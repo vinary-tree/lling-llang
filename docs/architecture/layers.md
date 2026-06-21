@@ -2,13 +2,30 @@
 
 The correction layer system provides an extensible architecture for building text normalization pipelines. Each layer receives a lattice and returns a (typically smaller) lattice with paths filtered or reweighted.
 
+## Terms & symbols
+
+Symbols link to [`NOTATION.md`](../NOTATION.md); conventions in [`STYLE.md`](../STYLE.md).
+
+| Symbol / term | Meaning |
+|---|---|
+| **Correction layer** | A transformation stage (`` `CorrectionLayer` `` trait) mapping a lattice to a lattice. |
+| **Pipeline** | An ordered sequence of layers (`` `LayerPipeline` ``), applied left-to-right. |
+| **Lattice** | The weighted DAG of hypotheses flowing between layers (see [lattices](lattices.md)). |
+| `λ` | A back-off mixing coefficient in LM reranking, `` `P(w∣h) = λ·P̂(w∣h) + (1−λ)·P(w∣h′)` ``. |
+
 ## Concepts
 
 ### What is a Correction Layer?
 
-A **correction layer** is a transformation stage in a text processing pipeline. Think of it like a filter in a photo editing app - each layer applies a specific transformation, and you can stack multiple layers to achieve complex effects.
+A **correction layer** is a transformation stage in a text processing pipeline. Think of it like a filter in a photo editing app — each layer applies a specific transformation, and you can stack multiple layers to achieve complex effects. The pipeline below shows the full correction data-path: raw text → candidate generation → weighted lattice → the layer pipeline → path extraction → best hypothesis.
 
-```
+![Correction pipeline from raw text to best hypothesis: Input "teh quik fox" → Candidate generation (lexical edit-distance, phonetic, error-models) → Weighted lattice (DAG with semiring arc costs) → Layer pipeline (lexical → CFG filter → LM rerank → custom) → Path extraction (viterbi, nbest, beam) → Output "the quick fox".](../diagrams/correction-pipeline.svg)
+
+*Grey = input/output text; amber = candidate generation and the layer pipeline (the NLP-tier color); blue = the weighted lattice; green = path extraction. Arrows show the top-to-bottom dataflow.*
+
+<details><summary>Text view — the layer stack</summary>
+
+```text
 Input Lattice
      │
      ▼
@@ -29,6 +46,8 @@ Input Lattice
      ▼
 Output Lattice (filtered/reweighted)
 ```
+
+</details>
 
 Each layer can:
 - **Filter**: Remove paths that violate constraints (grammar rules, semantic types)
@@ -531,3 +550,11 @@ impl PipelineMetrics {
 - [Composition](../algorithms/composition.md): Lazy lattice-grammar composition
 - [F1R3FLY.io Integration](../integration/f1r3fly/vision.md): MeTTaIL and other F1R3FLY.io layers
 - [API Reference](../api/layer-reference.md): Complete API documentation
+
+## References
+
+Full entries — including DOIs — are in [`BIBLIOGRAPHY.md`](../BIBLIOGRAPHY.md).
+
+- [**Mohri 2002**](../BIBLIOGRAPHY.md#ref-mohri2002) — Mohri, Pereira & Riley, *Weighted Finite-State Transducers in Speech Recognition*: cascaded WFST composition as the model for a sequential layer pipeline. [doi:10.1006/csla.2001.0184](https://doi.org/10.1006/csla.2001.0184)
+- [**Earley 1970**](../BIBLIOGRAPHY.md#ref-earley1970) — Earley, *An Efficient Context-Free Parsing Algorithm*: the parser underlying `` `CfgFilterLayer` ``'s syntactic filtering. [doi:10.1145/362007.362035](https://doi.org/10.1145/362007.362035)
+- [**Goodman 1999**](../BIBLIOGRAPHY.md#ref-goodman1999) — Goodman, *Semiring Parsing*: filtering vs. reweighting expressed uniformly through the choice of semiring. [ACL J99-4004](https://aclanthology.org/J99-4004/)

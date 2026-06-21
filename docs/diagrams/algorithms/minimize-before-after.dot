@@ -1,0 +1,47 @@
+// minimize-before-after.dot — minimization by partition refinement. LEFT: a
+// deterministic acceptor whose state pairs {1,2} and {3,4} are equivalent (same
+// future behaviour). RIGHT: the minimal acceptor, one state per equivalence class.
+//
+// SHARED DOT PREAMBLE (copy into every Graphviz automaton; palette = docs/diagrams/README.md):
+//   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · text #102027 · edge #607D8B
+//   best/Viterbi #2E7D32 bold(penwidth=2) · alternative #B0BEC5 · epsilon #9E9E9E dashed
+//   final = doublecircle fill #C8E6C9 border #2E7D32 · start = arrow from invisible point
+digraph minimize_before_after {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>Minimization</b> — equivalent states {1,2} and {3,4} (left) merge into one class each (right)>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.5];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  // ── before ────────────────────────────────────────────────────────
+  subgraph cluster_before {
+    label=<<b>before</b> — 5 states; {1,2} share future, {3,4} share future>;
+    color="#1565C0"; fontcolor="#0D47A1"; style="rounded"; bgcolor="#E3F2FD";
+    m0 [label="0"];
+    m1 [label="1", fillcolor="#FFF59D", color="#F9A825"];  // class A (amber)
+    m2 [label="2", fillcolor="#FFF59D", color="#F9A825"];  // class A
+    m3 [label="3", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];  // class B (final)
+    m4 [label="4", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];  // class B (final)
+    s0 [shape=point, width=0.01, color="#1565C0"]; s0 -> m0;
+    m0 -> m1 [label="a / 1.0"];
+    m0 -> m2 [label="c / 1.0"];
+    m1 -> m3 [label="b / 1.0"];
+    m2 -> m4 [label="b / 1.0"];
+  }
+
+  // ── after ─────────────────────────────────────────────────────────
+  subgraph cluster_after {
+    label=<<b>after</b> — 3 states (40% fewer); class A = {1,2}, class B = {3,4}>;
+    color="#2E7D32"; fontcolor="#1B5E20"; style="rounded"; bgcolor="#E8F5E9";
+    q0 [label="0"];
+    qA [label="A\n{1,2}", fillcolor="#FFF59D", color="#F9A825"];
+    qB [label="B\n{3,4}", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+    sq [shape=point, width=0.01, color="#1565C0"]; sq -> q0;
+    q0 -> qA [label="a / 1.0"];
+    q0 -> qA [label="c / 1.0", color="#B0BEC5"];
+    qA -> qB [label="b / 1.0", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+  }
+}

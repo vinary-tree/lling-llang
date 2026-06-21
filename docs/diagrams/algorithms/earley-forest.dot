@@ -1,0 +1,40 @@
+// earley-forest.dot — a shared-packed parse forest (SPPF) for "the dog barked"
+// under S → NP VP, NP → Det N, VP → V. Ellipse = non-terminal forest node spanning
+// [start,end); box = terminal leaf (a lattice edge). The forest packs all parses;
+// here there is one root. Transducer-family teal marks grammar/forest structure.
+//
+// SHARED DOT PREAMBLE (copy into every Graphviz automaton; palette = docs/diagrams/README.md):
+//   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · text #102027 · edge #607D8B
+//   transducer-family accent fill #B2DFDB / border #00695C · terminal leaf #ECEFF1/#455A64
+digraph earley_forest {
+  rankdir=TB;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>Packed parse forest</b> — S → NP VP over "the dog barked"; ellipse = non-terminal [i,j), box = terminal edge>;
+  node  [shape=ellipse, style=filled, fillcolor="#B2DFDB", color="#00695C",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4];
+  edge  [color="#00695C", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  S  [label="S [0,3)", penwidth=2.0];
+  NP [label="NP [0,2)"];
+  VP [label="VP [2,3)"];
+  Det [label="Det [0,1)"];
+  N  [label="N [1,2)"];
+  V  [label="V [2,3)"];
+
+  // terminal leaves = lattice edges (neutral boxes)
+  node [shape=box, fillcolor="#ECEFF1", color="#455A64"];
+  t_the    [label="the\n(edge 0→1)"];
+  t_dog    [label="dog\n(edge 1→2)"];
+  t_barked [label="barked\n(edge 2→3)"];
+
+  S  -> NP;
+  S  -> VP;
+  NP -> Det;
+  NP -> N;
+  VP -> V;
+  Det -> t_the;
+  N   -> t_dog;
+  V   -> t_barked;
+}

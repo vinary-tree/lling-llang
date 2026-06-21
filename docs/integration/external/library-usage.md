@@ -264,7 +264,11 @@ fn load_config() -> CorrectorConfig {
 
 ### Saving and Loading Lattices
 
-```rust
+> **Illustrative.** A `lling_llang::io` module with `LatticeWriter` /
+> `LatticeReader` is *not yet shipped*; this sketch documents the intended
+> save/load surface (behind the `serde` feature), not a current API.
+
+```rust,ignore
 use lling_llang::io::{LatticeWriter, LatticeReader};
 
 // Save lattice

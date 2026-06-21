@@ -6,7 +6,16 @@ Reranking lattice paths using phonetic similarity for error recovery and OOV han
 
 Phonetic rescoring adjusts lattice edge weights based on how words *sound*, not just their surface form. This helps recover from ASR errors where acoustic confusions produce phonetically similar but orthographically different words.
 
-```
+![Phonetic-rescoring worked example as a left-to-right WFSA: position 0 chooses between the acoustically-confused "knight" and "night" (which normalize to the same Zompist form), position 1 between "mare" and "mayor"; after rescoring against the reference "night mayor", the bold green path "night mayor" is the best path.](../../diagrams/integration/phonetic-rescore.svg)
+
+*Green bold = the best (Viterbi) path after rescoring; grey = alternatives. The
+homophone "knight" is boosted from `1.00` → `0.60` because it normalizes to the
+same phonetic form as the reference word "night", yet the known word "night"
+(`0.50`) still wins. The green double-ring node `2` is final.*
+
+<details><summary>Text view</summary>
+
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                       Phonetic Rescoring in Lattices                         │
 ├─────────────────────────────────────────────────────────────────────────────┤
@@ -27,6 +36,8 @@ Phonetic rescoring adjusts lattice edge weights based on how words *sound*, not 
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+</details>
 
 ## Terminology
 
@@ -164,20 +175,25 @@ let rescored_lattice = layer.apply(&input_lattice)?;
 
 ### Weight Interpolation Formula
 
-The rescoring interpolates between original and phonetic scores:
+The rescoring interpolates between original and phonetic scores, where `λ ∈ [0, 1]`
+is the phonetic mixing weight:
+`new_weight = (1 − λ)·original_weight + λ·phonetic_cost`.
 
-```
-new_weight = (1 - λ) × original_weight + λ × phonetic_cost
+```text
+new_weight = (1 − λ) × original_weight + λ × phonetic_cost
 
 where:
-  λ             = phonetic weight (0.0 to 1.0)
+  λ               = phonetic weight (0.0 to 1.0)
   original_weight = edge weight from input lattice
-  phonetic_cost   = -log(phonetic_score) for the word
+  phonetic_cost   = −log(phonetic_score) for the word
 ```
 
 ### Phonetic Score Calculation
 
-```
+Phonetic similarity is `sim = 1 − levenshtein(normalize(w₁), normalize(w₂)) / max_len`,
+so words that normalize to the same Zompist form score `sim = 1`.
+
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                       Phonetic Score Calculation                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
@@ -260,27 +276,31 @@ liblevenshtein's `.llev` format supports:
 
 ```rust
 use lling_llang::layers::{
-    CorrectionLayer, CorrectionPipeline,
-    PhoneticRescoreLayer, ConfusionLayer, BeamPruner
+    LayerPipelineBuilder, PhoneticRescoreLayer, ConfusionLayer,
 };
 use std::sync::Arc;
 
-// Build correction pipeline
+// Build correction pipeline. `add_layer` takes the layer by value and
+// boxes it internally, so concrete layers are passed directly (not wrapped
+// in `Box::new`).
 let vocab_ref = Arc::new(VocabularyReference::new(vocabulary));
 
-let pipeline = CorrectionPipeline::new()
+let pipeline = LayerPipelineBuilder::new()
     // Step 1: Expand with confusion alternatives
-    .add_layer(Box::new(ConfusionLayer::new(confusion_set)))
+    .add_layer(ConfusionLayer::new(confusion_matrix))
     // Step 2: Rescore based on phonetics
-    .add_layer(Box::new(
+    .add_layer(
         PhoneticRescoreLayer::new(vocab_ref)
-            .with_weight(0.4)
-    ))
-    // Step 3: Prune low-scoring paths
-    .add_layer(Box::new(BeamPruner::new(100)));
+            .with_weight(0.4),
+    )
+    .build();
 
-// Apply full pipeline
+// Apply the layer pipeline to the input lattice.
 let corrected = pipeline.apply(&input_lattice)?;
+
+// Beam pruning is a path-side operation rather than a layer: after the
+// pipeline produces the reweighted lattice, prune with `beam_search`
+// (see `lling_llang::path::{beam_search, BeamSearchConfig}`).
 ```
 
 ## Thread Safety
@@ -418,5 +438,15 @@ let layer = PhoneticRescoreLayer::new(reference)
 ## Related Documentation
 
 - [libgrammstein Phonetic Embeddings](../../../libgrammstein/docs/components/embedding/phonetic.md)
+  — sibling-repo link; assumes `libgrammstein` is checked out beside
+  `lling-llang` (see the [integration README](../README.md#external-repository-link-convention)).
 - [CorrectionLayer API](../../architecture/layers.md)
-- [Lattice Operations](../../architecture/lattice.md)
+- [Lattice Operations](../../architecture/lattices.md)
+
+## References
+
+- <a id="cite-mohri2002"></a>[Mohri 2002](../../BIBLIOGRAPHY.md#ref-mohri2002) —
+  Mohri, M., Pereira, F., & Riley, M. (2002). *Weighted Finite-State Transducers
+  in Speech Recognition.* Computer Speech & Language 16(1):69–88. Lattice
+  rescoring as edge-weight adjustment over a fixed WFSA topology — the operation
+  this layer performs in the phonetic domain.

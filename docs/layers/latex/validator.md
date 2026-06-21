@@ -306,3 +306,10 @@ assert!(!invalid.is_valid);
 - [Overview](./overview.md): Layer architecture
 - [Grammar](./grammar.md): CFG rules
 - [Repair](./repair.md): Repair strategies
+
+## References
+
+- [Earley 1970](../../BIBLIOGRAPHY.md#ref-earley1970) — context-free parsing;
+  structural validation complements the parser by checking the non-context-free
+  constraints (`` `\begin{X}` `` ⇄ `` `\end{X}` `` name agreement, delimiter
+  nesting) that a CFG alone does not enforce.

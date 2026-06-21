@@ -6,7 +6,16 @@ lling-llang is designed as the lattice processing core for the F1R3FLY.io distri
 
 F1R3FLY.io provides a suite of technologies for distributed, content-addressed computation with formal verification. lling-llang integrates at multiple levels:
 
-```
+![Full-stack F1R3FLY.io integration architecture: applications sit atop the lling-llang lattice core, whose correction pipeline feeds the MeTTaIL type, MORK rule, and MeTTaTron compiler integration layers, all resting on the PathMap content-addressed storage and Rholang concurrency substrate.](../../diagrams/integration/f1r3fly-vision.svg)
+
+*Blue = lling-llang foundation and PathMap storage; green = the correction
+pipeline; amber = the MeTTaIL/MORK type-and-rule layers; purple = MeTTaTron
+compilation and Rholang concurrency; grey = applications. Every F1R3FLY layer
+shown is an integration **target** (forward-looking), not a shipped API.*
+
+<details><summary>Text view</summary>
+
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Application Layer                            │
 │  (Speech Recognition, Text Correction, Code Completion)        │
@@ -30,6 +39,8 @@ F1R3FLY.io provides a suite of technologies for distributed, content-addressed c
 │  └─────────────────────────┘  └─────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+</details>
 
 ## Component Integration
 

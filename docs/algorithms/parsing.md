@@ -1,6 +1,19 @@
 # Earley Parsing for Lattices
 
-lling-llang includes an Earley parser modified to work with lattice input, enabling syntactic filtering of correction candidates based on context-free grammars.
+lling-llang includes an Earley parser ([Earley 1970](../BIBLIOGRAPHY.md#ref-earley1970)) modified to work with lattice input, enabling syntactic filtering of correction candidates based on context-free grammars.
+
+## Terms & symbols
+
+Defined centrally in [`../NOTATION.md`](../NOTATION.md); repeated locally for the terms this doc uses.
+
+| Symbol | Meaning |
+|---|---|
+| `CFG` / `CFL` | **C**ontext-**F**ree **G**rammar / **L**anguage. |
+| `•` | the Earley dot — how much of a production has been matched, e.g. `S → NP • VP`. |
+| `ε` | the empty label / empty production (nullable non-terminal). |
+| `[A → α • β, i)` | an Earley item: rule `A → αβ`, dot after `α`, started at lattice node `i`. |
+| `∣V∣`, `∣G∣` | number of lattice nodes / grammar size (cardinality bar `∣` = U+2223). |
+| `Σ*` | all finite strings over the input alphabet. |
 
 ## Concepts
 
@@ -23,7 +36,7 @@ Traditional Earley parsing works on strings (sequences of tokens). lling-llang e
 - Chart positions correspond to lattice nodes
 - Result is a parse **forest** containing all valid parses
 
-```
+```text
 Traditional:  "the dog saw" → Parser → Parse tree
 
 Lattice:      ┌─the─┐
@@ -186,7 +199,24 @@ pub enum ParseError {
 
 ## Parse Forest
 
-The parser returns a `ParseForest` that compactly represents all valid parses.
+The parser returns a `ParseForest` that compactly represents all valid parses — a shared-packed parse forest (SPPF). Non-terminal nodes span a half-open lattice interval `[i, j)`; terminal leaves are lattice edges shared across derivations. The example below parses "the dog barked" under `` `S → NP VP` ``, `` `NP → Det N` ``, `` `VP → V` `` into a single-rooted forest.
+
+![Packed parse forest for "the dog barked": S[0,3) branches to NP[0,2) and VP[2,3); NP to Det[0,1) and N[1,2); each non-terminal ultimately resolving to a terminal leaf box for the lattice edges the, dog, barked](../diagrams/algorithms/earley-forest.svg)
+
+*Teal ellipses = non-terminal forest nodes labelled with their span `[i, j)`; neutral boxes = terminal leaves (the lattice edges); the bold `S` is the forest root. Packing lets shared sub-derivations be reused across parses.*
+
+<details><summary>Text view</summary>
+
+```text
+S [0,3)
+├─ NP [0,2)
+│  ├─ Det [0,1) ─ "the"    (edge 0→1)
+│  └─ N   [1,2) ─ "dog"    (edge 1→2)
+└─ VP [2,3)
+   └─ V  [2,3) ─ "barked"  (edge 2→3)
+```
+
+</details>
 
 ### Structure
 
@@ -276,27 +306,65 @@ pub struct EarleyState {
 }
 ```
 
-For example, with rule `S → NP • VP`:
-- `rule` = the S → NP VP production
-- `dot` = 1 (after NP, before VP)
-- `start` = the lattice node where we started matching S
+For example, with rule `` `S → NP • VP` ``:
+- `rule` = the `` `S → NP VP` `` production
+- `dot` = 1 (after `NP`, before `VP`)
+- `start` = the lattice node where we started matching `S`
 
 ### Three Operations
 
-1. **Predictor**: When expecting a non-terminal, add items for all its productions
-   ```
-   [S → • NP VP, 0] predicts [NP → • Det N, 0]
-   ```
+The chart at each lattice node holds a set of Earley items; the three operations close
+each chart under prediction, scanning, and completion until no new item appears
+([Earley 1970](../BIBLIOGRAPHY.md#ref-earley1970)). The invariant is that
+`` `[A → α • β, i)` `` sits in the chart at node `j` iff `α` derives the lattice
+fragment from `i` to `j`.
 
-2. **Scanner**: When expecting a terminal, follow matching lattice edges
-   ```
-   [Det → • "the", 0] scans edge "the" → [Det → "the" •, 0]
-   ```
+```text
+⟨ predict at node j ⟩ ≡
+    // dot sits before a non-terminal B
+    for item [A → α • B β, i) in chart[j]:
+        for each production B → γ:
+            add [B → • γ, j) to chart[j]      // start B here
+            if B is nullable: also advance the dot past B  // ε-completion
+```
 
-3. **Completer**: When a rule finishes, advance waiting items
-   ```
-   [Det → "the" •, 0] completes [NP → Det • N, 0] → [NP → Det N • , 0]
-   ```
+```text
+⟨ scan from node j ⟩ ≡
+    // dot sits before a terminal t
+    for item [A → α • t β, i) in chart[j]:
+        for each lattice edge j --t--> k labelled t:
+            add [A → α t • β, i) to chart[k]  // follow the edge (not a fixed +1)
+```
+
+```text
+⟨ complete at node j ⟩ ≡
+    // a production finished: dot at the end
+    for item [B → γ •, i) in chart[j]:
+        for waiting item [A → α • B β, h) in chart[i]:
+            add [A → α B • β, h) to chart[j]  // advance the parent, record forest edge
+```
+
+```text
+⟨ Earley recognise over a lattice ⟩ ≡
+    seed chart[start] with [S → • γ, start] for every start production
+    for each lattice node j in topological order:
+        repeat ⟨ predict at node j ⟩, ⟨ scan from node j ⟩, ⟨ complete at node j ⟩
+        until chart[j] reaches a fixpoint
+    accept iff [S → γ •, start) ∈ chart[end]
+```
+
+Worked one-step traces:
+
+```text
+predict:   [S → • NP VP, 0]            ⇒ [NP → • Det N, 0]
+scan:      [Det → • "the", 0]  ·"the"  ⇒ [Det → "the" •, 0]
+complete:  [Det → "the" •, 0] + [NP → • Det N, 0]
+                                       ⇒ [NP → Det • N, 0]
+```
+
+The only change from string Earley is in `` `⟨ scan from node j ⟩` ``: instead of
+advancing one fixed position it follows *every* outgoing lattice edge with the matching
+terminal, which is what lets a single chart sweep parse all paths of the lattice at once.
 
 ### Nullable Non-terminals
 
@@ -315,11 +383,11 @@ This is used for:
 
 | Grammar Type | Time |
 |--------------|------|
-| Unambiguous | O(n³) |
-| Bounded ambiguity | O(n²) |
-| General CFG | O(n³) |
+| Unambiguous | `` `O(∣V∣³)` `` |
+| Bounded ambiguity | `` `O(∣V∣²)` `` |
+| General CFG | `` `O(∣V∣³)` `` |
 
-Where n = number of lattice nodes. In practice, most natural language grammars are closer to O(n²).
+Where `∣V∣` = number of lattice nodes. In practice, most natural language grammars are closer to `` `O(∣V∣²)` `` ([Earley 1970](../BIBLIOGRAPHY.md#ref-earley1970)).
 
 ## Common Patterns
 
@@ -398,6 +466,11 @@ let filtered = layer.apply(&lattice)?;
 ```
 
 See [Layers](../architecture/layers.md) for pipeline composition.
+
+## References
+
+- [Earley 1970](../BIBLIOGRAPHY.md#ref-earley1970) — *An Efficient Context-Free Parsing Algorithm*: the predict/scan/complete chart algorithm, its `` `O(∣V∣³)` `` / `` `O(∣V∣²)` `` bounds, and the dotted-item formulation used here (generalized to lattice edges in the scanner).
+- [Goodman 1999](../BIBLIOGRAPHY.md#ref-goodman1999) — *Semiring Parsing*: the semiring view of chart parsing that underpins weighted/PCFG parse forests and `collect_used_edges`-style inside computations.
 
 ## Next Steps
 

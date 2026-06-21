@@ -26,9 +26,19 @@ Standard Graph (must match exactly):
    (0)         (1)         (2)         (3)
 ```
 
-A WST graph adds bypass arcs for low-confidence tokens:
+A WST graph adds **bypass arcs** for low-confidence tokens. The diagram below
+shows the graph for a noisy transcript `"the cat sat"` where `"cat"` is unreliable
+(confidence `0.30`): a single-token bypass `ε`-arc skips it, a multi-token bypass
+spans further, and blank self-loops absorb timing slack (`build_wst_graph`,
+`src/training/weak_supervision.rs`).
 
-```
+![WST training graph for "the cat sat": solid token arcs with confidences, a dashed epsilon bypass arc over the low-confidence "cat", a multi-token bypass span, and dashed blank self-loops on each state](../diagrams/training/weak-supervision-bypass.svg)
+
+*Bold green arcs are the confident tokens (`the`, `sat`); the plain arc is the low-confidence `cat`; dashed grey arcs are the `ε` token-bypass, the multi-token-span bypass, and the blank self-loops. The single-token bypass weight is `token_bypass_weight · (1 − confidence) = 2.0 · 0.7 = 1.4`.*
+
+<details><summary>Text view</summary>
+
+```text
 WST Graph (flexible matching):
 
               ┌──────── ε ────────┐
@@ -42,11 +52,19 @@ WST Graph (flexible matching):
               └──────── ε ──────► (2)
 ```
 
-The epsilon (ε) arcs allow skipping tokens. Each bypass arc carries a weight that penalizes its use—higher penalty for skipping tokens the system is more confident about.
+</details>
+
+The epsilon (`ε`) arcs allow skipping tokens. Each bypass arc carries a weight
+that penalizes its use — higher penalty for skipping tokens the system is more
+confident about.
 
 ### Bypass Arc Types
 
 **Token Bypass Arcs**: Skip unreliable tokens entirely via ε-transitions.
+
+The bypass weight scales with the confidence deficit:
+`weight = token_bypass_weight · (1 − confidence)`. For `confidence = 0.3` and the
+default `token_bypass_weight = 2.0`, that is `2.0 · 0.7 = 1.4`.
 
 ```rust
 // Token with low confidence gets a bypass arc
@@ -334,6 +352,68 @@ A high bypass ratio during training suggests:
 
 ## Advanced Topics
 
+### Lattice-Free MMI (LF-MMI)
+
+**LF-MMI** (Lattice-Free Maximum Mutual Information) is the sibling
+sequence-discriminative objective in this module (`src/training/lfmmi.rs`,
+[Povey 2016](../BIBLIOGRAPHY.md#ref-povey2016)). Where WST relaxes a *single* noisy
+reference path with bypass arcs, LF-MMI contrasts the **numerator** graph (the
+correct transcript) against a **denominator** graph (a phone loop + LM covering
+*all* hypotheses), so the competing-hypothesis lattice is never materialized —
+hence "lattice-free". The objective is
+`L_MMI = −( log P_num(x) − log P_den(x) )`, warm-started by cross-entropy
+regularization for stability.
+
+![LF-MMI: acoustic posteriors scored by the numerator graph (correct transcript) and denominator graph (phone loop + LM) via forward-backward, combined into the MMI objective, warmed up with cross-entropy and L2 regularization, then backpropagated to gradients](../diagrams/training/lf-mmi.svg)
+
+*Purple = acoustic posteriors `log P(pdf∣frame)`; orange = the numerator / denominator graphs (`build_numerator_graph` / `build_denominator_graph`); green = their forward-backward scores; the amber node is the MMI objective and the red node is the warmup / regularization interpolation (`xent_regularize`, `l2_regularize`, `leaky_hmm_coefficient` in `LfMmiConfig`).*
+
+<details><summary>Text view</summary>
+
+```text
+                 acoustic posteriors  log P(pdf | frame)
+                    │                              │
+        forward-backward                   forward-backward
+                    ▼                              ▼
+        numerator graph                  denominator graph
+        (correct transcript)             (phone loop + LM, all hyps)
+                    │                              │
+            log P_num(x)                    log P_den(x)
+                    └──────────────┬───────────────┘
+                                   ▼
+              L_MMI = −( log P_num − log P_den )
+                                   │
+                + xent_regularize · L_xent   (warmup)
+                + l2_regularize   · ‖out‖²
+                + leaky_hmm_coefficient
+                                   ▼
+              gradients  ∂L / ∂(acoustic scores)
+```
+
+</details>
+
+```rust
+use lling_llang::training::{
+    lfmmi_loss, build_numerator_graph, build_denominator_graph,
+    HmmTopology, LfMmiConfig,
+};
+use lling_llang::semiring::LogWeight;
+
+// HMM topology: num_phones phones, 1 PDF-emitting state each (chain topology)
+let topo = HmmTopology::new(/* num_phones */ 10, /* states_per_phone */ 1);
+let pdf_to_phone: Vec<u32> = (0..10).collect();
+
+// Numerator: the reference transcript; Denominator: phone loop (no phone LM)
+let numerator: VectorWfst<u32, LogWeight>   = build_numerator_graph(&transcript, &pdf_to_phone, &topo);
+let denominator: VectorWfst<u32, LogWeight> = build_denominator_graph(10, &topo, None);
+
+// MMI loss with cross-entropy warmup (xent_regularize) for early-training stability
+let config = LfMmiConfig::default();
+let result = lfmmi_loss(&acoustic_scores, &numerator, &denominator, &config);
+println!("MMI loss: {}  (num {} − den {})",
+    result.loss, result.numerator_log_prob, result.denominator_log_prob);
+```
+
 ### Integration with CTC Training
 
 WST graphs can be combined with CTC topologies:
@@ -386,4 +466,12 @@ This prevents underflow when multiplying many small probabilities.
 
 ## References
 
-- [WST: Weakly Supervised Transducer (arXiv 2511.04035)](https://arxiv.org/abs/2511.04035)
+- [Gao 2025](../BIBLIOGRAPHY.md#ref-gao2025) — *WST: Weakly Supervised Transducer
+  for Automatic Speech Recognition.* The bypass-arc training graph this document
+  implements.
+- [Povey 2016](../BIBLIOGRAPHY.md#ref-povey2016) — *Purely Sequence-Trained Neural
+  Networks for ASR Based on Lattice-Free MMI.* The numerator/denominator LF-MMI
+  objective and cross-entropy warmup.
+- [Graves 2006](../BIBLIOGRAPHY.md#ref-graves2006) — *Connectionist Temporal
+  Classification.* The CTC topology composed with the WST/LF-MMI graphs for
+  training (`blank` units, repetition handling).

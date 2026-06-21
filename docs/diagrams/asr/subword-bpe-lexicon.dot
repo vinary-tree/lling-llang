@@ -1,0 +1,39 @@
+// subword-bpe-lexicon.dot — BPE / word-piece subword lexicon automaton.
+// Each subword unit maps a phone span to a subword id; LeftMarked continuation
+// pieces ("+lo", "+ld") carry the '+' marker, initial pieces ("hel", "wor") do
+// not. The reconstruction rule re-joins continuation pieces into whole words.
+// Matches SubwordLexiconBuilder / MarkingStyle::LeftMarked in src/asr/subword_lexicon.rs.
+//
+// SHARED DOT PREAMBLE (palette = docs/diagrams/README.md):
+//   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · text #102027 · edge #607D8B
+//   best/Viterbi #2E7D32 bold(penwidth=2) · alternative #B0BEC5 · epsilon #9E9E9E dashed
+//   final = doublecircle fill #C8E6C9 border #2E7D32 · start = arrow from invisible point
+digraph subword_bpe_lexicon {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>Subword (BPE) lexicon automaton</b> — initial pieces start a word; '+'-marked pieces continue it>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.55];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  __start__ [shape=point, width=0.01, color="#1565C0"];
+  __start__ -> w;
+
+  // Word-boundary hub: also final, so a stream of whole words is accepted.
+  w  [label="word\nboundary", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+
+  // ── "hello" = hel · +lo (initial piece, then a continuation piece) ─────────
+  a1 [label="a₁"];
+  w -> a1 [label="HH:hel  /  AH:ε  /  L:ε",  color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+  a1 -> w [label="L:+lo  /  OW:ε   (continue → 'hello')", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+
+  // ── "world" = wor · +ld ────────────────────────────────────────────────────
+  b1 [label="b₁"];
+  w -> b1 [label="W:wor  /  ER:ε"];
+  b1 -> w [label="L:+ld  /  D:ε   (continue → 'world')"];
+
+  // ── whole-word piece "the" (WholeWord, no marker) ─────────────────────────
+  w -> w [label="DH:the  /  AH:ε   (whole word)", color="#B0BEC5"];
+}

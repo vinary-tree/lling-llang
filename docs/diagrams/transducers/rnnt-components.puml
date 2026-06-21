@@ -1,0 +1,44 @@
+@startuml rnnt-components
+' RNN-T encoder–predictor–joiner wiring (lling-llang src/transducer).
+' Acoustic features feed the encoder; previously emitted labels feed the
+' autoregressive predictor; the joiner combines a frame f_t and a label state
+' g_u into log-probs over the vocabulary ∪ {blank}. Palette: docs/diagrams/README.md
+' (speech/ASR tier orange #FFE0B2 / #E65100; IO neutral grey).
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam component {
+  BackgroundColor #FFE0B2
+  BorderColor #E65100
+  FontColor #102027
+}
+skinparam interface {
+  BackgroundColor #ECEFF1
+  BorderColor #455A64
+}
+skinparam ArrowColor #607D8B
+
+title <b>RNN-T components</b>  —  AcousticEncoder · AutoregressivePredictor · JointNetwork
+
+[ x : acoustic features ] as X #ECEFF1
+[ y<u : emitted labels ] as Y #ECEFF1
+
+component "AcousticEncoder\n(Conformer / CNN)" as ENC
+component "AutoregressivePredictor\n(LSTM language model)" as PRED
+component "JointNetwork\n(FeedForward / Factorized / Additive)" as JOIN
+component "TransducerLattice\nT × (U+1) log-probs" as LAT #B2DFDB
+component "loss / decoding\n(forward-backward · beam search)" as OUT #C8E6C9
+
+X --> ENC
+Y --> PRED
+ENC --> JOIN : EncoderOutput f_t  [T, D]
+PRED --> JOIN : PredictorOutput g_u  [U+1, D]
+JOIN --> LAT : log P(k ∣ t, u)  over vocab ∪ {blank}
+LAT --> OUT : ⊕ over alignments → −log P(y∣x)
+
+note bottom of JOIN
+  <b>forward(f_t, g_u)</b> → Vec<f32> of length vocab_size (index 0 = blank).
+  Batched via <b>forward_batch</b>. The lattice's <b>to_wfst()</b> exposes the grid
+  as a VectorWfst for composition with an external LM.
+end note
+@enduml

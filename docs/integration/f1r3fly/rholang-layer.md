@@ -11,6 +11,36 @@ The Rholang Concurrency Layer enables distributed, concurrent lattice processing
 - **Joins**: Synchronize parallel computations
 - **Unforgeable names**: Secure inter-process communication
 
+In the integration flow, Rholang is the **concurrency substrate** wrapping the
+pipeline: it partitions the lattice, runs the [MeTTaIL](mettail-layer.md),
+[MORK](mork-layer.md), and [MeTTaTron](mettatron-layer.md) passes across regions
+and nodes, and joins the results — with [PathMap](pathmap-backend.md) sharing
+large structures by content hash.
+
+![F1R3FLY layer integration overview: a candidate lattice is type-filtered by the MeTTaIL layer, rule-filtered by MORK, rewritten by MeTTaTron-compiled specs, and parallelized by the Rholang layer, with PathMap as the content-addressed substrate beneath; the output is a pruned, reweighted lattice.](../../diagrams/integration/mettail-mork-rholang.svg)
+
+*Green = the candidate lattice; amber = the MeTTaIL/MORK type-and-rule filters;
+purple = MeTTaTron compilation and Rholang concurrency; blue = the PathMap
+substrate; grey = the final lattice. All four layers are forward-looking
+integration **targets**. Dotted edges are cross-layer dependencies.*
+
+<details><summary>Text view</summary>
+
+```text
+candidate lattice
+      │  all paths
+      ▼
+[ MeTTaIL type layer ]  ── type-consistent paths ──▶ [ MORK rule layer ]
+                                                            │ rule-valid paths
+                                                            ▼
+   pruned + reweighted  ◀── merged regions ── [ Rholang ] ◀── [ MeTTaTron ]
+        lattice                                    │  compiled pass
+                                                   ▼
+                                  PathMap (persist · share by hash)
+```
+
+</details>
+
 ## Rholang Basics
 
 ### Process Calculus

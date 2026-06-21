@@ -1,0 +1,47 @@
+// gpu-csr-layout.dot — Compressed Sparse Row (CSR) memory layout of a WFST for GPU
+// decoding (src/gpu/csr.rs). Three parallel arrays modelled as Graphviz `record`
+// nodes; arrows show how a state's (arc_start, arc_count) slices the arc/label arrays.
+//   State array : 12 bytes/state = row_offset(u32) · final_weight(f32) · state_flags(u32)
+//   Arc array   :  8 bytes/arc   = next_state(u32) · weight(f32)
+//   Label array :  4 bytes/arc   = ilabel(u32)   (+ olabel for transducers)
+//   ⇒ M_fst = 12·∣Q∣ + 8·∣E∣ + 4·∣E∣
+// Purple = deep-learning/GPU tier (palette = docs/diagrams/README.md).
+digraph gpu_csr_layout {
+  rankdir=TB;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>CSR WFST layout</b> — row offsets index contiguous arc &amp; label slices (M_fst = 12·∣Q∣ + 8·∣E∣ + 4·∣E∣)>;
+  node  [shape=record, style=filled, fillcolor="#E1BEE7", color="#6A1B9A",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4];
+  edge  [color="#6A1B9A", fontcolor="#37474F", fontname="Helvetica", fontsize=10, penwidth=1.3];
+
+  // ── State array (one cell per state; each cell is the 12-byte record) ──────────
+  states [label="{<title> State array — 12 bytes/state |
+                   {<s0> state 0\nstart:0 · cnt:2 · fin:∞ |
+                    <s1> state 1\nstart:2 · cnt:1 · fin:0.0 |
+                    <s2> state 2\nstart:3 · cnt:0 · fin:0.0 }}",
+           fillcolor="#D1C4E9"];
+
+  // ── Arc array (next_state · weight) — 8 bytes/arc ─────────────────────────────
+  arcs   [label="{<title> Arc array — 8 bytes/arc |
+                   {<a0> arc0\n→1 · 0.5 |
+                    <a1> arc1\n→2 · 1.2 |
+                    <a2> arc2\n→2 · 0.3 }}"];
+
+  // ── Label array (ilabel, +olabel for transducers) — 4 bytes/arc ───────────────
+  labels [label="{<title> Label array — 4 bytes/arc |
+                   {<l0> i:a |
+                    <l1> i:b |
+                    <l2> i:c }}",
+           fillcolor="#F3E5F5"];
+
+  // state row-offset → first arc of its slice
+  states:s0 -> arcs:a0 [label="arc_start=0\narc_count=2"];
+  states:s1 -> arcs:a2 [label="arc_start=2\narc_count=1"];
+
+  // arc index is shared with the parallel label array (lock-step indexing)
+  arcs:a0 -> labels:l0 [style=dashed, label="same index"];
+  arcs:a1 -> labels:l1 [style=dashed];
+  arcs:a2 -> labels:l2 [style=dashed];
+}

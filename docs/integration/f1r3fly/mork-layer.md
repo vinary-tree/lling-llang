@@ -11,6 +11,34 @@ The MORK Rule Layer applies declarative logic rules to filter and reweight latti
 - **Rule chaining**: Compose rules for complex constraints
 - **Incremental evaluation**: Efficient re-evaluation on changes
 
+In the integration flow, MORK is the **second** F1R3FLY filter: it consumes the
+type-consistent paths the [MeTTaIL layer](mettail-layer.md) produced and applies
+declarative grammar/semantic rules before MeTTaTron and Rholang downstream.
+
+![F1R3FLY layer integration overview: a candidate lattice is type-filtered by the MeTTaIL layer, rule-filtered by MORK, rewritten by MeTTaTron-compiled specs, and parallelized by the Rholang layer, with PathMap as the content-addressed substrate beneath; the output is a pruned, reweighted lattice.](../../diagrams/integration/mettail-mork-rholang.svg)
+
+*Green = the candidate lattice; amber = the MeTTaIL/MORK type-and-rule filters;
+purple = MeTTaTron compilation and Rholang concurrency; blue = the PathMap
+substrate; grey = the final lattice. All four layers are forward-looking
+integration **targets**. Dotted edges are cross-layer dependencies.*
+
+<details><summary>Text view</summary>
+
+```text
+candidate lattice
+      │  all paths
+      ▼
+[ MeTTaIL type layer ]  ── type-consistent paths ──▶ [ MORK rule layer ]
+                                                            │ rule-valid paths
+                                                            ▼
+   pruned + reweighted  ◀── merged regions ── [ Rholang ] ◀── [ MeTTaTron ]
+        lattice                                    │  compiled pass
+                                                   ▼
+                                  PathMap (persist · share by hash)
+```
+
+</details>
+
 ## Rule Language
 
 ### Basic Syntax

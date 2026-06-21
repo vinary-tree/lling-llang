@@ -23,8 +23,8 @@
 //! builder.add_word("hello", &["HH", "AH", "L", "OW"], LogWeight::one());
 //!
 //! // Add subword entries (e.g., from BPE)
-//! builder.add_subword("hel", &["HH", "AH", "L"], SubwordPosition::Initial);
-//! builder.add_subword("lo", &["L", "OW"], SubwordPosition::Final);
+//! builder.add_subword("hel", &["HH", "AH", "L"], SubwordPosition::Initial, LogWeight::one());
+//! builder.add_subword("lo", &["L", "OW"], SubwordPosition::Final, LogWeight::one());
 //!
 //! // Build into cascade
 //! let cascade = builder.build_cascade(&ngram)?;

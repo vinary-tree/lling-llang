@@ -1,0 +1,37 @@
+// ngram-backoff.dot — the back-off chain h → h′ → … → ε for a trigram LM.
+// Solid blue arcs = observed n-gram emissions; dashed grey ε arcs = back-off
+// transitions of weight −log β(h) to the shorter context; green = the unigram
+// root ε that every chain bottoms out in. Models
+//   P(w∣h) = λ·P̂(w∣h) + (1−λ)·P(w∣h′).
+//
+// SHARED DOT PREAMBLE (palette = docs/diagrams/README.md):
+//   bg #FFFFFF · context state fill #BBDEFB / border #1565C0 · back-off ε #9E9E9E dashed
+//   unigram root = doublecircle #C8E6C9 / #2E7D32
+digraph ngram_backoff {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>N-gram back-off chain</b> — h → h′ → … → ε ; dashed = back-off ε with weight −log β(h)>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.7];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  h2  [label="(w₁,w₂)\\ntrigram ctx"];
+  h1  [label="(w₂)\\nbigram ctx"];
+  eps [label="ε\\nunigram", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+
+  // observed emissions (solid) — direct n-gram arcs out of each context
+  h2 -> h2 [label="w₃ : −log P(w₃∣w₁w₂)", color="#1565C0"];
+  h1 -> h1 [label="w₃ : −log P(w₃∣w₂)", color="#1565C0"];
+  eps -> eps [label="w₃ : −log P̂(w₃)", color="#1565C0"];
+
+  // back-off ε chain (dashed grey) — shorten the context one word at a time
+  h2 -> h1  [label="ε : −log β(w₁,w₂)", color="#9E9E9E", style=dashed, penwidth=1.6];
+  h1 -> eps [label="ε : −log β(w₂)",    color="#9E9E9E", style=dashed, penwidth=1.6];
+
+  // the interpolation identity, shown as an annotation node (neutral)
+  note [shape=note, fillcolor="#ECEFF1", color="#455A64", penwidth=1.2,
+        label="P(w∣h) = λ·P̂(w∣h) + (1−λ)·P(w∣h′)\\nlog space: a seen arc, else back-off ε then retry at h′"];
+  eps -> note [style=invis];
+}

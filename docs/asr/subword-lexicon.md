@@ -1,12 +1,24 @@
 # Subword Lexicon Builder
 
-Building WFST lexicons with BPE/subword tokenization for ASR.
+Building WFST lexicons with **BPE** (Byte-Pair Encoding) / subword tokenization
+for **ASR** (Automatic Speech Recognition). **WFST** = Weighted Finite-State
+Transducer; **OOV** = Out-Of-Vocabulary.
 
 ## What is a Subword Lexicon?
 
-A subword lexicon maps subword units (from BPE or SentencePiece) to phone sequences, enabling ASR systems to handle open vocabulary without explicit word boundaries.
+A subword lexicon maps subword units (from BPE or SentencePiece) to phone
+sequences, enabling ASR systems to handle open vocabulary without explicit word
+boundaries. Where a traditional whole-word lexicon `L` cannot pronounce a word it
+never saw (the OOV problem), a subword lexicon `L'` composes the unseen word from
+**initial** pieces (which start a word) and `+`-marked **continuation** pieces.
 
-```
+![BPE subword lexicon automaton: a word-boundary hub with arcs for initial pieces (hel, wor), continuation pieces (+lo, +ld) returning to the hub, and a whole-word self-loop (the)](../diagrams/asr/subword-bpe-lexicon.svg)
+
+*The double-ring **word-boundary** hub is the start and final state; bold green arcs build `hel · +lo → "hello"`; plain arcs build `wor · +ld → "world"`; the grey self-loop is the whole-word piece `the`. Each arc emits its subword id on the first phone and `ε` thereafter.*
+
+<details><summary>Text view</summary>
+
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                        Subword Lexicon in ASR                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
@@ -32,6 +44,8 @@ A subword lexicon maps subword units (from BPE or SentencePiece) to phone sequen
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+</details>
 
 ## Terminology
 
@@ -298,5 +312,15 @@ println!("Phone inventory size: {}", num_phones);
 ## Related Documentation
 
 - [CTC Topologies](../advanced/ctc-topologies.md)
-- [ASR Cascade](../asr/cascade.md)
+- [ASR Cascade](cascade-construction.md)
 - [libgrammstein BPE](../../libgrammstein/docs/components/embedding/bpe.md)
+
+## References
+
+- [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted Finite-State
+  Transducers in Speech Recognition.* The lexicon transducer `L` whose subword
+  variant is described here, and its place in the `H ∘ C ∘ L ∘ G` cascade.
+- [Miao 2015](../BIBLIOGRAPHY.md#ref-miao2015) — *EESEN: End-to-End Speech
+  Recognition using Deep RNN Models and WFST-based Decoding.* WFST decoding from
+  subword/character units, the setting in which an open-vocabulary subword `L'`
+  composes with a CTC topology.

@@ -388,3 +388,9 @@ For saving/loading configurations:
 - [Overview](overview.md) - Code correction introduction
 - [Syntax Recovery](syntax-recovery.md) - Error recovery layer
 - [Pattern-Aware Correction](pattern-aware.md) - Idiom-based boosting
+
+## References
+
+- [Mohri 2002](../../BIBLIOGRAPHY.md#ref-mohri2002) — weighted finite-state
+  transducers; per-language costs (`edit_cost`, `insertion_cost`, `keyword_boost`,
+  …) are arc weights in the correction lattice the layer builds.

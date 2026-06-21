@@ -1,0 +1,42 @@
+// nbest-beam.dot — N-best / beam frontier advancing left-to-right over a lattice.
+// The lattice is a DAG of word hypotheses; the green bold path is the Viterbi best,
+// grey are alternatives. The amber dashed "frontier" cut marks the column where a
+// beam of width B keeps only the top-B partial hypotheses (lower tropical = better).
+//
+// SHARED DOT PREAMBLE (copy into every Graphviz automaton; palette = docs/diagrams/README.md):
+//   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · text #102027 · edge #607D8B
+//   best/Viterbi #2E7D32 bold(penwidth=2) · alternative #B0BEC5 · final = doublecircle
+digraph nbest_beam {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>N-best / beam over a lattice</b> — green = Viterbi best; amber dashed = beam frontier keeping top-B partials>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.5];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  n0 [label="0"];
+  n1 [label="1"];
+  n2 [label="2"];
+  n3 [label="3"];
+  n4 [label="4", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+  s0 [shape=point, width=0.01, color="#1565C0"]; s0 -> n0;
+
+  // best (Viterbi) path — bold green
+  n0 -> n1 [label="the / 0.2",  color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+  n1 -> n2 [label="quick / 0.3", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+  n2 -> n3 [label="brown / 0.1", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+  n3 -> n4 [label="fox / 0.2",   color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+
+  // alternatives — light grey
+  n0 -> n1 [label="teh / 0.9",   color="#B0BEC5"];
+  n1 -> n2 [label="quik / 0.8",  color="#B0BEC5"];
+  n2 -> n3 [label="brow / 0.7",  color="#B0BEC5"];
+  n3 -> n4 [label="box / 0.9",   color="#B0BEC5"];
+
+  // beam frontier cut at the n2 column (states 2): rank-then-prune to width B
+  frontier [shape=plaintext, fontcolor="#F9A825",
+            label=<<b>beam frontier (B=2)</b><br/><i>rank partials, keep top-B</i>>];
+  frontier -> n2 [style=dashed, color="#F9A825", arrowhead=none, constraint=false];
+}

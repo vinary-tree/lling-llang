@@ -4,9 +4,10 @@ This module provides WFST-based components for building speech recognition syste
 
 ## Overview
 
-The standard ASR pipeline constructs a recognition network as:
+The standard ASR pipeline constructs a recognition network as
+`N = π(min(det(H̃ ∘ det(C̃ ∘ det(L̃ ∘ G)))))`:
 
-```
+```text
 N = π(min(det(H̃ ∘ det(C̃ ∘ det(L̃ ∘ G)))))
 ```
 
@@ -15,9 +16,16 @@ Where:
 - **L̃**: Pronunciation lexicon with auxiliary symbols
 - **C̃**: Context-dependency transducer (triphone/tetraphone)
 - **H̃**: HMM transducer with auxiliary distribution symbols
-- **π**: Erasing operation (auxiliary symbols → ε)
+- **`π`**: Erasing operation (auxiliary symbols → `ε`)
+- **`∘`**: WFST composition; **`det`**: determinization; **`min`**: minimization
 
-```
+![ASR transducer cascade: acoustic features through HMM, context-dependency, lexicon, and grammar transducers](../diagrams/asr-cascade.svg)
+
+*The `H ∘ C ∘ L ∘ G` cascade: acoustic features `x(t)` enter the HMM transducer `H̃` (→ context-dependent phones), the context-dependency transducer `C̃` (CI → CD triphones), the lexicon `L̃` (phones → words), and the grammar `G` (n-gram LM over words).*
+
+<details><summary>Text view</summary>
+
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    ASR Transducer Cascade                    │
 ├─────────────────────────────────────────────────────────────┤
@@ -33,6 +41,8 @@ Where:
 └─────────────────────────────────────────────────────────────┘
 ```
 
+</details>
+
 ## Context-Dependency Transducers
 
 Context-dependency transducers map context-independent phone sequences to context-dependent phone sequences.
@@ -40,8 +50,8 @@ Context-dependency transducers map context-independent phone sequences to contex
 ### Triphone Construction
 
 A triphone considers one phone of left and right context:
-- **States**: O(n²) for n phones—representing (previous, current) pairs
-- **Arcs**: O(n³)—one arc per (previous, current, next) triple
+- **States**: `O(n²)` for `n` phones — representing (previous, current) pairs
+- **Arcs**: `O(n³)` — one arc per (previous, current, next) triple
 
 ```rust
 use lling_llang::asr::{TriphoneBuilder, ContextDependencyConfig, PhoneId};
@@ -58,8 +68,8 @@ println!("Expected arcs: {}", builder.expected_arcs());     // 41 * 40 = 1640
 ### Tetraphone Construction
 
 A tetraphone extends context to two phones on each side:
-- **States**: O(n³)
-- **Arcs**: O(n⁴)
+- **States**: `O(n³)`
+- **Arcs**: `O(n⁴)`
 
 ```rust
 use lling_llang::asr::TetraploneBuilder;
@@ -126,17 +136,20 @@ Efficient WFST representation of n-gram LMs using backoff structure.
 
 ### Backoff Architecture
 
-Instead of O(|V|²) transitions for bigrams, we use:
+Instead of `O(∣V∣²)` transitions for bigrams, we use:
 - **Seen n-gram**: Direct transition with probability weight
 - **Unseen n-gram**: ε-transition to backoff state, then unigram probability
 
-```
+A seen bigram `w₁→w₂` is a direct arc weighted `P(w₂∣w₁)`; an unseen bigram `w₁→w₃` routes
+through the back-off state with weight `β(w₁)` then the unigram `P(w₃)`:
+
+```text
 Seen bigram w₁→w₂:     Direct transition
-                       ●───w₂:w₂/P(w₂|w₁)───►●
+                       ●───w₂:w₂ / P(w₂∣w₁)───►●
 
 Unseen bigram w₁→w₃:   Via backoff
-                       ●───ε:ε/β(w₁)───►○───w₃:w₃/P(w₃)───►●
-                       (state w₁)    (backoff)         (state w₃)
+                       ●───ε:ε / β(w₁)───►○───w₃:w₃ / P(w₃)───►●
+                       (state w₁)      (backoff)          (state w₃)
 ```
 
 ### API
@@ -178,7 +191,7 @@ println!("States: {}", lm.as_fst().num_states());
 Weights are stored in negative log probability format:
 - `Weight = -log(P(word|history))`
 - Lower weights = higher probability
-- Uses log semiring (⊕ = log-sum-exp, ⊗ = addition)
+- Uses the log semiring (`⊕` = log-sum-exp, `⊗` = addition)
 
 ### N-gram State Structure
 
@@ -284,7 +297,7 @@ let config = CascadeConfig {
 
 Apply determinization after each composition to control graph size:
 
-```
+```text
 1. det(L̃ ∘ G)       - Compose lexicon with grammar, determinize
 2. det(C̃ ∘ result)  - Add context-dependency, determinize
 3. det(H̃ ∘ result)  - Add HMM structure, determinize
@@ -311,14 +324,15 @@ Chain (can be factored):
 
 ### Gain Function
 
-A chain is only factored when gain is positive:
+A chain is only factored when the gain is positive — `G(σ) = ∣σ∣ − ∣o∣ − 1`:
 
-```
-G(σ) = |σ| − |o| − 1
+```text
+G(σ) = ∣σ∣ − ∣o∣ − 1
 
 Where:
   σ = input sequence (e.g., phones)
   o = output sequence (e.g., word labels)
+  ∣·∣ = sequence length
 ```
 
 ```rust
@@ -368,7 +382,7 @@ let factored_fst = result.fst;
 
 ### Result
 
-The factored transducer typically has ~1.4× the transitions of the word grammar alone, a significant reduction from the full H∘C∘L∘G cascade.
+The factored transducer typically has ~1.4× the transitions of the word grammar alone, a significant reduction from the full `H ∘ C ∘ L ∘ G` cascade.
 
 ## Lattice Rescoring
 
@@ -376,9 +390,9 @@ Multi-pass recognition with lattice rescoring.
 
 ### Multi-Pass Recognition
 
-```
+```text
 First Pass:  Generate word lattices with simpler models (e.g., bigram LM)
-             Speed: 12.5× RT → 1.2× RT (with det(L∘G))
+             Speed: 12.5× RT → 1.2× RT (with det(L ∘ G))
 
 Second Pass: Use lattice as "grammar" G for rescoring
              Speed: 0.18× RT → 0.02× RT (with optimization)
@@ -454,28 +468,28 @@ let config = RescoreConfig {
 
 | Transducer | States | Transitions |
 |------------|--------|-------------|
-| G | 1,339,664 | 3,926,010 |
-| L∘G | 8,606,729 | 11,406,721 |
-| det(L∘G) | 7,082,404 | 9,836,629 |
-| C∘det(L∘G) | 7,273,035 | 10,201,269 |
-| min(F) | 2,616,948 | 5,497,952 |
+| `G` | 1,339,664 | 3,926,010 |
+| `L ∘ G` | 8,606,729 | 11,406,721 |
+| `det(L ∘ G)` | 7,082,404 | 9,836,629 |
+| `C ∘ det(L ∘ G)` | 7,273,035 | 10,201,269 |
+| `min(F)` | 2,616,948 | 5,497,952 |
 
 ### Recognition Speed
 
 | Configuration | Speed (× real-time) |
 |---------------|---------------------|
-| C∘L∘G | 12.5 |
-| C∘det(L∘G) | 1.2 |
-| det(H∘C∘L∘G) | 1.0 |
-| min(F) (factored) | **0.7** |
+| `C ∘ L ∘ G` | 12.5 |
+| `C ∘ det(L ∘ G)` | 1.2 |
+| `det(H ∘ C ∘ L ∘ G)` | 1.0 |
+| `min(F)` (factored) | **0.7** |
 
 ### Rescoring Speed (Second Pass)
 
 | Configuration | Speed (× real-time) |
 |---------------|---------------------|
-| C∘L∘G | 0.18 |
-| C∘det(L∘G) | 0.13 |
-| C∘min(det(L∘G)) | **0.02** (9× speedup) |
+| `C ∘ L ∘ G` | 0.18 |
+| `C ∘ det(L ∘ G)` | 0.13 |
+| `C ∘ min(det(L ∘ G))` | **0.02** (9× speedup) |
 
 ## Best Practices
 
@@ -508,6 +522,21 @@ Apply chain factoring to reduce memory footprint:
 let factored = chain_factor(&hclg, &ChainFactorConfig::default());
 // Typically ~1.4× transitions of G alone
 ```
+
+## References
+
+- [Mohri et al. 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — Mohri, M., Pereira, F., & Riley, M.
+  *Weighted Finite-State Transducers in Speech Recognition.* Computer Speech & Language
+  16(1):69–88. The `N = π(min(det(H̃ ∘ C̃ ∘ L̃ ∘ G)))` recognition cascade, context-dependency
+  and lexicon transducers, n-gram back-off, chain factoring, and the NAB-40K experimental
+  figures reproduced above.
+- [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, M. *Weighted Automata Algorithms*
+  (Handbook of Weighted Automata) — determinization, minimization, and weight pushing for
+  the cascade stages.
+- [Allauzen et al. 2007](../BIBLIOGRAPHY.md#ref-allauzen2007) — Allauzen, C., Riley, M.,
+  Schalkwyk, J., Skut, W., & Mohri, M. *OpenFst: A General and Efficient Weighted
+  Finite-State Transducer Library.* The reference implementation of the composition,
+  determinization, and minimization operators used throughout the cascade.
 
 ## Next Steps
 

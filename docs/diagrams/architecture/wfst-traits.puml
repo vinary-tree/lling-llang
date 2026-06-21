@@ -1,0 +1,68 @@
+@startuml wfst-traits
+' lling-llang WFST trait hierarchy: a read-only core (Wfst) extended for mutation
+' (MutableWfst) and on-demand expansion (LazyWfst). Palette: docs/diagrams/README.md.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment left
+skinparam class {
+  BackgroundColor #BBDEFB
+  BorderColor #1565C0
+  FontColor #102027
+  ArrowColor #607D8B
+}
+hide empty members
+hide circle
+
+title <b>WFST trait hierarchy</b>\n<size:11><i>read-only core, extended for mutation and lazy expansion</i></size>
+
+interface "Wfst<L, W: Semiring>" as W {
+  +start() : StateId
+  +is_final(StateId) : bool
+  +final_weight(StateId) : W      .. ρ
+  +transitions(StateId) : &[WeightedTransition<L,W>]
+  +num_states() : usize
+  +num_transitions(StateId) : usize
+  +total_transitions() : usize
+  +is_empty() : bool
+}
+
+interface "MutableWfst<L, W>" as M #C8E6C9 {
+  +add_state() : StateId
+  +set_start(StateId)
+  +set_final(StateId, W)
+  +add_transition(StateId, WeightedTransition)
+  +add_arc(...) / add_epsilon(...)
+  +reserve_states(usize)
+  +clear_transitions(StateId)
+}
+
+interface "LazyWfst<L, W>" as L #C8E6C9 {
+  +is_expanded(StateId) : bool
+  +expand(StateId)
+  +transitions_lazy(&mut, StateId) : &[..]
+  +cache_policy() : CachePolicy
+  +set_cache_policy(CachePolicy)
+  +computed_states() : usize
+  +clear_cache()
+}
+
+class "VectorWfst<L, W>" as VEC #ECEFF1
+class "LazyWfstWrapper<S, L, W>" as LZW #ECEFF1
+enum "CachePolicy" as CP #FFE0B2 {
+  CacheAll
+  Lru { max_states }
+  NoCache
+}
+
+W <|-- M
+W <|-- L
+M <|.. VEC
+W <|.. VEC
+L <|.. LZW
+L ..> CP : uses
+
+note bottom of L
+  Lazy operations (union · concat · closure · invert · project · compose · synchronize)
+  build a <b>LazyWfstWrapper</b> over a <b>StateSource</b>, expanding product states on demand.
+end note
+@enduml

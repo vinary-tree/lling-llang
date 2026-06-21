@@ -366,15 +366,15 @@ let improved = layer.apply(&correction_lattice)?;
 
 | Metric | Complexity |
 |--------|------------|
-| Pattern matching | O(n × p × m) |
-| Weight adjustment | O(e) |
-| Total | O(n × p × m + e) |
+| Pattern matching | `O(n × p × m)` |
+| Weight adjustment | `O(e)` |
+| Total | `O(n × p × m + e)` |
 
 Where:
-- n = number of tokens
-- p = number of patterns
-- m = maximum pattern length
-- e = number of edges
+- `n` = number of tokens
+- `p` = number of patterns
+- `m` = maximum pattern length
+- `e` = number of edges
 
 The pattern index reduces average complexity by grouping patterns by first token.
 
@@ -437,3 +437,11 @@ fn update_patterns(layer: &mut PatternAwareLayer, corpus: &[FlatTree]) {
 - [Syntax Recovery](syntax-recovery.md) - Error recovery layer
 - [Language Configuration](configuration.md) - Per-language settings
 - [Subtree Mining](../../../libgrammstein/docs/components/subtree/overview.md) - Pattern discovery
+
+## References
+
+- [Mohri 2002](../../BIBLIOGRAPHY.md#ref-mohri2002) — weighted finite-state
+  transducers; pattern boosts are negative-cost arcs in the tropical-semiring
+  lattice, so boosted idioms become lower-cost (preferred) paths.
+- [Goodman 1999](../../BIBLIOGRAPHY.md#ref-goodman1999) — semiring parsing; the
+  algebraic basis for accumulating pattern weights along derivations.

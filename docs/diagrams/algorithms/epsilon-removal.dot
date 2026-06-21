@@ -1,0 +1,44 @@
+// epsilon-removal.dot — ε-removal preserving the weighted language. LEFT: a chain
+// with ε arcs (grey dashed). The ε-closure of a state collects all ε-reachable
+// states with accumulated weight. RIGHT: ε-free result; each real arc is retargeted
+// across the closure and ε-reachable finals absorb their ε-weight into ρ.
+//
+// SHARED DOT PREAMBLE (copy into every Graphviz automaton; palette = docs/diagrams/README.md):
+//   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · text #102027 · edge #607D8B
+//   best/Viterbi #2E7D32 bold(penwidth=2) · alternative #B0BEC5 · epsilon #9E9E9E dashed
+//   final = doublecircle fill #C8E6C9 border #2E7D32 · start = arrow from invisible point
+digraph epsilon_removal {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>ε-removal</b> — grey dashed ε arcs (left) folded into real arcs via ε-closure (right)>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.5];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  // ── before ────────────────────────────────────────────────────────
+  subgraph cluster_before {
+    label=<<b>before</b> — 0 ─ε/1.0→ 1 ─a/2.0→ 2 ─ε/0.5→ 3 (final)>;
+    color="#1565C0"; fontcolor="#0D47A1"; style="rounded"; bgcolor="#E3F2FD";
+    e0 [label="0"];
+    e1 [label="1"];
+    e2 [label="2"];
+    e3 [label="3", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+    s0 [shape=point, width=0.01, color="#1565C0"]; s0 -> e0;
+    e0 -> e1 [label="ε / 1.0", color="#9E9E9E", style=dashed, fontcolor="#616161"];
+    e1 -> e2 [label="a / 2.0"];
+    e2 -> e3 [label="ε / 0.5", color="#9E9E9E", style=dashed, fontcolor="#616161"];
+  }
+
+  // ── after ─────────────────────────────────────────────────────────
+  subgraph cluster_after {
+    label=<<b>after</b> — 0 ─a/(1.0⊗2.0⊗0.5)=3.5→ (final); state 0 now final-reachable>;
+    color="#2E7D32"; fontcolor="#1B5E20"; style="rounded"; bgcolor="#E8F5E9";
+    f0 [label="0"];
+    f3 [label="3", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+    sf [shape=point, width=0.01, color="#1565C0"]; sf -> f0;
+    // a-arc retargeted across the destination's ε-closure; ε weights folded in:
+    f0 -> f3 [label="a / 3.5", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+  }
+}

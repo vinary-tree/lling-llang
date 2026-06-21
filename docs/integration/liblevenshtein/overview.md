@@ -13,7 +13,21 @@ liblevenshtein-rust provides high-performance fuzzy string matching for lling-ll
 
 ## Architecture
 
-```
+The stack is read **bottom-up**: a dictionary tier stores the vocabulary, a
+Levenshtein automaton is driven over it by a transducer, and fuzzy-collection
+caches sit on top. lling-llang consumes the transducer's `Candidate { term,
+distance }` stream and turns each match into a weighted correction edge.
+
+![Container view of the liblevenshtein fuzzy-matching stack feeding lling-llang's correction layers: a query term enters the transducer, which builds a Levenshtein automaton over a trie dictionary; the dictionary returns candidates with edit distances that lling-llang adds as weighted lattice edges.](../../diagrams/integration/liblevenshtein-overview.svg)
+
+*Blue = dictionary foundation; teal = transducer/automata; amber = fuzzy
+collections; orange = liblevenshtein boundary; grey = lling-llang
+applications. The bold orange arrow is the `Candidate` hand-off across the
+library boundary.*
+
+<details><summary>Text view</summary>
+
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                    liblevenshtein                               │
 ├─────────────────────────────────────────────────────────────────┤
@@ -46,6 +60,8 @@ liblevenshtein-rust provides high-performance fuzzy string matching for lling-ll
 │  └──────────────┘  └──────────────┘  └────────────────────────┘│
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+</details>
 
 ## Core Concepts
 
@@ -163,11 +179,13 @@ pub enum Algorithm {
 
 | Automata | Build Cost | Query Cost | Memory | Use Case |
 |----------|------------|------------|--------|----------|
-| Lazy | Per-query | O(nm) | Low | Diverse queries |
-| Universal | Precompute | O(nm) | Medium | Repeated patterns |
-| Generalized | Runtime | O(nm) | Medium | Custom operations |
+| Lazy | Per-query | `O(n·m)` | Low | Diverse queries |
+| Universal | Precompute | `O(n·m)` | Medium | Repeated patterns |
+| Generalized | Runtime | `O(n·m)` | Medium | Custom operations |
 
-Where n = query length, m = dictionary size.
+Where `n` = query length, `m` = matched dictionary subtree size. Trie traversal
+is linear in the query length per surviving branch, with branches pruned as soon
+as the running edit distance exceeds the threshold `k`.
 
 ## Thread Safety
 
@@ -209,3 +227,16 @@ liblevenshtein = { version = "1.0", features = [
 - [Transducers](transducers.md): Query API and algorithms
 - [Fuzzy Collections](fuzzy-collections.md): Maps and caches
 - [Integration](lling-llang-integration.md): Using with lling-llang
+
+## References
+
+- <a id="cite-mohri2009"></a>[Mohri 2009](../../BIBLIOGRAPHY.md#ref-mohri2009) —
+  Mohri, M. (2009). *Weighted Automata Algorithms.* In *Handbook of Weighted
+  Automata*, pp. 213–254. Springer. The weighted-automata and edit-distance
+  transducer framework underlying fuzzy matching as automaton-over-dictionary
+  traversal.
+- <a id="cite-allauzen2007"></a>[Allauzen 2007](../../BIBLIOGRAPHY.md#ref-allauzen2007) —
+  Allauzen, C., Riley, M., Schalkwyk, J., Skut, W., & Mohri, M. (2007).
+  *OpenFst: A General and Efficient Weighted Finite-State Transducer Library.*
+  CIAA 2007. The transducer-library design lineage these dictionary/automaton
+  abstractions follow.

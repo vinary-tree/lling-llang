@@ -1,0 +1,34 @@
+// lexicon-fst.dot — pronunciation lexicon transducer L for one word, "cat".
+// The first phone arc emits the WordId on the output tape; subsequent phone arcs
+// emit ε; the final phone returns to the start state so word sequences chain.
+// Matches build_lexicon_for_composition in docs/asr/cascade-construction.md.
+//
+// SHARED DOT PREAMBLE (palette = docs/diagrams/README.md):
+//   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · text #102027 · edge #607D8B
+//   best/Viterbi #2E7D32 bold(penwidth=2) · alternative #B0BEC5 · epsilon #9E9E9E dashed
+//   final = doublecircle fill #C8E6C9 border #2E7D32 · start = arrow from invisible point
+digraph lexicon_fst {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>Lexicon transducer L</b> — "cat" = k:cat / æ:ε / t:ε, returning to start for the next word>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.55];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  __start__ [shape=point, width=0.01, color="#1565C0"];
+  __start__ -> start;
+
+  // The start state is also final (W::one()), so empty/looping word streams are accepted.
+  start [label="start", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+  s1 [label="s₁"];
+  s2 [label="s₂"];
+
+  // first phone emits the word id on the output tape (bold green = the live path)
+  start -> s1 [label="k : cat", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+  // interior phones emit ε (word already emitted)
+  s1 -> s2 [label="æ : ε", color="#9E9E9E", style=dashed];
+  // last phone returns to start so consecutive words concatenate
+  s2 -> start [label="t : ε  (return)", color="#9E9E9E", style=dashed];
+}

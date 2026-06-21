@@ -1,0 +1,64 @@
+# liblevenshtein-overview.d2 — container view of how liblevenshtein's fuzzy-string
+# stack feeds lling-llang's correction layers (D2 + elk). Flow: a query term enters
+# the transducer, which drives a Levenshtein automaton over a trie dictionary; the
+# dictionary tier (and the fuzzy-collection caches above it) supply candidates that
+# lling-llang turns into weighted correction edges in a lattice.
+# Palette mirrors docs/diagrams/README.md (one intuitive color per tier).
+# NB: D2 reserves `layers`, `steps`, `scenarios` as keywords — shape ids avoid them.
+# Render: d2 --layout elk liblevenshtein-overview.d2 liblevenshtein-overview.svg
+
+direction: right
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    pad: 20
+  }
+}
+
+classes: {
+  foundation: {style: {fill: "#BBDEFB"; stroke: "#1565C0"; font-color: "#102027"; border-radius: 10}}
+  transducers: {style: {fill: "#B2DFDB"; stroke: "#00695C"; font-color: "#102027"; border-radius: 10}}
+  nlp: {style: {fill: "#FFF59D"; stroke: "#F9A825"; font-color: "#102027"; border-radius: 10}}
+  speech: {style: {fill: "#FFE0B2"; stroke: "#E65100"; font-color: "#102027"; border-radius: 10}}
+  app: {style: {fill: "#ECEFF1"; stroke: "#455A64"; font-color: "#102027"; border-radius: 10}}
+}
+
+query: "query term\n(possibly misspelled)" {class: app}
+
+llev: "liblevenshtein — fuzzy string matching" {
+  class: speech
+
+  collections: "Fuzzy collections\n(FuzzyMap · FuzzyMultiMap · LRU/TTL/LFU caches)" {
+    class: nlp
+  }
+  transducer: "Transducer\n(query API · Algorithm · SubstitutionPolicy)" {
+    class: transducers
+  }
+  automata: "Levenshtein automata\n(lazy · universal · generalized)" {
+    class: transducers
+  }
+  dictionary: "Dictionary tier\n(DoubleArrayTrie · DynamicDawg · SuffixAutomaton)" {
+    class: foundation
+  }
+
+  collections -> transducer: "fuzzy lookup" {style.stroke: "#37474F"}
+  transducer -> automata: "build for query" {style.stroke: "#37474F"}
+  automata -> dictionary: "parallel traversal\n(prune by `≤ k`)" {style.stroke: "#37474F"}
+  dictionary -> transducer: "candidates + distance" {style.stroke: "#00695C"}
+}
+
+llang: "lling-llang — correction layers" {
+  class: app
+
+  spelling: "SpellingCorrectionLayer\n+ PhoneticMatchingLayer\n+ CodeCompletionLayer" {
+    class: nlp
+  }
+  lattice: "weighted lattice\n(correction edges with `⊗` weights)" {
+    class: foundation
+  }
+  spelling -> lattice: "add correction edges" {style.stroke: "#F9A825"}
+}
+
+query -> llev.transducer: "query(term, k)" {style.stroke: "#455A64"}
+llev.transducer -> llang.spelling: "Candidate { term, distance }" {style: {stroke: "#E65100"; stroke-width: 2}}

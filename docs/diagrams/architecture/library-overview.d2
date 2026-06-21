@@ -1,0 +1,78 @@
+# library-overview.d2 — hero container view of lling-llang's tiers (D2 + elk).
+# Data flows bottom (algebra) → top (applications); formal verification underwrites
+# the core. Palette mirrors docs/diagrams/README.md (one intuitive color per tier).
+# Render: d2 --layout elk library-overview.d2 library-overview.svg
+
+direction: up
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    pad: 20
+  }
+}
+
+classes: {
+  foundation: {style: {fill: "#BBDEFB"; stroke: "#1565C0"; font-color: "#102027"; border-radius: 10}}
+  algorithms: {style: {fill: "#C8E6C9"; stroke: "#2E7D32"; font-color: "#102027"; border-radius: 10}}
+  transducers: {style: {fill: "#B2DFDB"; stroke: "#00695C"; font-color: "#102027"; border-radius: 10}}
+  nlp: {style: {fill: "#FFF59D"; stroke: "#F9A825"; font-color: "#102027"; border-radius: 10}}
+  dl: {style: {fill: "#E1BEE7"; stroke: "#6A1B9A"; font-color: "#102027"; border-radius: 10}}
+  speech: {style: {fill: "#FFE0B2"; stroke: "#E65100"; font-color: "#102027"; border-radius: 10}}
+  verify: {style: {fill: "#FFCDD2"; stroke: "#B71C1C"; font-color: "#102027"; border-radius: 10}}
+  app: {style: {fill: "#ECEFF1"; stroke: "#455A64"; font-color: "#102027"; border-radius: 10}}
+}
+
+fnd: "Foundation — weighted-automata algebra" {
+  class: foundation
+  semiring: "semiring\n(K, ⊕, ⊗, 0̄, 1̄)"
+  wfst: "wfst\n(states · arcs · lazy ops)"
+  lattice: "lattice\n(weighted DAG)"
+  backend: "backend\n(vocab storage)"
+}
+alg: "Algorithms & search" {
+  class: algorithms
+  algorithms: "algorithms\n(shortest-distance · pushing · determinize · minimize)"
+  path: "path\n(viterbi · nbest · beam)"
+  composition: "composition"
+  optimization: "optimization"
+}
+trans: "Grammar & transducer families" {
+  class: transducers
+  cfg: "cfg (Earley on lattices)"
+  multitape: "multitape"
+  pushdown: "pushdown (PDA)"
+  tree: "tree_transducers"
+  subseq: "subsequential"
+}
+nlp: "Correction & NLP layers" {
+  class: nlp
+  corr_layers: "layers"
+  error_models: "error_models"
+  text_processing: "text_processing (TN/ITN)"
+  multilingual: "multilingual"
+  llm: "llm (constrained decoding)"
+  programming: "programming"
+}
+dl: "Deep learning & acceleration" {
+  class: dl
+  differentiable: "differentiable (GTN · top-down/k2)"
+  gpu: "gpu (CSR · token-packing)"
+  simd: "simd"
+}
+speech: "Speech & sequence models" {
+  class: speech
+  asr: "asr (H ∘ C ∘ L ∘ G)"
+  acoustic: "acoustic"
+  ctc: "ctc topologies"
+  transducer: "transducer (RNN-T)"
+  training: "training (LF-MMI · weak-sup)"
+}
+app: "Applications — grammar correction · speech recognition · constrained generation" {
+  class: app
+}
+fv: "Formal verification\nCoq/Rocq · TLA⁺" {class: verify}
+
+fnd -> alg -> trans -> nlp -> dl -> speech -> app: {style.stroke: "#37474F"}
+fv -> fnd: verifies {style: {stroke: "#B71C1C"; stroke-dash: 4}}
+fv -> alg: {style: {stroke: "#B71C1C"; stroke-dash: 4}}

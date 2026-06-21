@@ -1,0 +1,45 @@
+// beam-optimization.dot — log-semiring weight pushing for beam search (src/optimization/
+// log_push.rs). Backward potentials V(q) = −log Σ exp(−path_weight) are computed, then
+// every arc is reweighted w'(e) = w(e) + V(target) − V(source) and finals set to 1̄.
+// After pushing the automaton is STOCHASTIC: Σ exp(−w') = 1 at each state, which makes
+// beam-pruning likelihood-ratio-optimal (Mohri et al.). Two stacked views: before vs after.
+//
+// SHARED DOT PREAMBLE (palette = docs/diagrams/README.md):
+//   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · best #2E7D32 bold · final #C8E6C9
+digraph beam_optimization {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>Log-semiring weight pushing for beam search</b> — w′(e) = w(e) + V(dst) − V(src), finals → 1̄>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.55];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  // ── Before pushing: weight mass scattered along the path ──────────────────────
+  subgraph cluster_before {
+    label=<before — V(2)=0.0, V(1)=2.0, V(0)=3.0>;
+    color="#1565C0"; fontcolor="#0D47A1"; style=rounded;
+    b0 [label="0"];
+    b1 [label="1"];
+    b2 [label="2", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+    __b__ [shape=point, width=0.01, color="#1565C0"]; __b__ -> b0;
+    b0 -> b1 [label="a / 1.0"];
+    b1 -> b2 [label="b / 2.0"];
+  }
+
+  // ── After pushing: arc costs absorbed, automaton is stochastic ────────────────
+  subgraph cluster_after {
+    label=<after — Σ exp(−w′) = 1 at each state (stochastic)>;
+    color="#2E7D32"; fontcolor="#1B5E20"; style=rounded;
+    a0 [label="0", fillcolor="#C8E6C9", color="#2E7D32"];
+    a1 [label="1", fillcolor="#C8E6C9", color="#2E7D32"];
+    a2 [label="2", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+    __a__ [shape=point, width=0.01, color="#2E7D32"]; __a__ -> a0;
+    a0 -> a1 [label="a / 0.0", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+    a1 -> a2 [label="b / 0.0", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+  }
+
+  // correspondence between the two views
+  b0 -> a0 [style=dotted, color="#9E9E9E", label="push"];
+}

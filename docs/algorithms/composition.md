@@ -1,33 +1,54 @@
 # Lazy Composition
 
-lling-llang provides lazy composition operators for combining WFSTs with other WFSTs or context-free grammars. Product states are computed on-demand during traversal, avoiding the O(n×m) state explosion of eager composition.
+lling-llang provides lazy composition operators for combining WFSTs with other WFSTs or context-free grammars. Product states are computed on-demand during traversal, avoiding the `` `O(n × m)` `` state explosion of eager composition. (WFST = **W**eighted **F**inite-**S**tate **T**ransducer; CFG = **C**ontext-**F**ree **G**rammar.)
+
+## Terms & symbols
+
+Defined centrally in [`../NOTATION.md`](../NOTATION.md); repeated locally for the terms this doc uses.
+
+| Symbol | Meaning |
+|---|---|
+| `∘` | composition — `A ∘ B` chains transducers: `A`'s output tape feeds `B`'s input tape. |
+| `⊕` / `⊗` | semiring *plus* (combine alternatives) / *times* (combine arcs). |
+| `0̄` / `1̄` | `⊕`-identity / `⊗`-identity. |
+| `ε` | the empty label (consumes/emits nothing); the `ε`-filter sequences these. |
+| `ρ(q)` | final-weight function `ρ : F → K`. |
+| `∣Q∣`, `∣E∣`, `∣V∣`, `∣G∣` | states / transitions / lattice nodes / grammar size (cardinality bar `∣` = U+2223). |
 
 ## Concepts
 
 ### What is Composition?
 
-**Composition** combines two transducers into one, chaining their transformations. If FST₁ maps A→B and FST₂ maps B→C, their composition FST₁ ∘ FST₂ maps A→C.
+**Composition** combines two transducers into one, chaining their transformations. If `FST₁` maps `A → B` and `FST₂` maps `B → C`, their composition `` `FST₁ ∘ FST₂` `` maps `A → C`. The product is built lazily: a state is a triple `` `(s₁, s₂, φ)` `` pairing one state from each operand with an `ε`-filter state `φ`, and an arc exists when `FST₁`'s output label matches `FST₂`'s input label.
 
-```
+![Composition product: two operand transducers T₁ (a:x) and T₂ (x:p) above, and the lazily-built product whose states are triples (s₁,s₂,φ) with an ε-filter inset showing the None/Eps1/Eps2 transitions, the composed path a:p drawn in green](../diagrams/algorithms/composition-product.svg)
+
+*Blue panels = operands `T₁`, `T₂`; green panel = the lazy product (states `` `(s₁, s₂, φ)` ``, composed arc `` `a:p / 1.0 ⊗ 0.5` ``); grey-dashed inset = the sequencing `ε`-filter that admits each `ε`-interleaving exactly once.*
+
+<details><summary>Text view</summary>
+
+```text
 FST₁: a:x ──► b:y ──► c:z
 FST₂: x:p ──► y:q ──► z:r
 
 Composed: a:p ──► b:q ──► c:r
 ```
 
-The key insight: FST₁'s output symbols must match FST₂'s input symbols for transitions to synchronize.
+</details>
+
+The key insight: `FST₁`'s output symbols must match `FST₂`'s input symbols for transitions to synchronize.
 
 ### Composition Types
 
 | Operator | Description | Use Case |
 |----------|-------------|----------|
-| FST ∘ FST | WFST composition | Cascaded transducers |
-| NFA ∩ FST | NFA intersection | Phonetic matching |
-| CFG × FST | CFG filtering | Grammar constraints |
+| `` `FST ∘ FST` `` | WFST composition | Cascaded transducers |
+| `` `NFA ∩ FST` `` | NFA intersection | Phonetic matching |
+| `` `CFG × FST` `` | CFG filtering | Grammar constraints |
 
 ### Why Lazy Evaluation?
 
-Eager composition computes all product states upfront. For FSTs with `n` and `m` states, this produces up to `n×m` states - problematic for large transducers.
+Eager composition computes all product states upfront. For FSTs with `n` and `m` states, this produces up to `` `n × m` `` states - problematic for large transducers.
 
 Lazy composition defers computation:
 - States computed only when visited
@@ -39,14 +60,14 @@ Lazy composition defers computation:
 
 | Type | Description |
 |------|-------------|
-| `LazyComposition` | Lazy FST ∘ FST composition |
+| `LazyComposition` | Lazy FST `∘` FST composition |
 | `LazyCfgComposition` | Lazy CFG × Lattice composition |
 | `ProductStateId` | State in composed transducer |
 | `FilterState` | Epsilon filter state |
 | `EpsilonFilter` | Epsilon transition handler |
 | `FilteredLattice` | View of grammatically valid edges |
 
-## FST ∘ FST Composition
+## FST `∘` FST Composition
 
 ### Basic Usage
 
@@ -94,9 +115,9 @@ pub struct ProductStateId {
 ```
 
 A transition exists in the composed FST when:
-- FST₁ outputs label `x`
-- FST₂ inputs label `x` (same label)
-- Weights combine via semiring multiplication
+- `FST₁` outputs label `x`
+- `FST₂` inputs label `x` (same label)
+- Weights combine via semiring multiplication `` `⊗` ``
 
 ### LazyComposition API
 
@@ -165,16 +186,16 @@ pub struct ComposedPath<L: Clone, W: Semiring> {
 
 ### The Epsilon Problem
 
-Epsilon (ε) transitions complicate composition. If FST₁ outputs ε and FST₂ inputs ε at the same time, we could:
-1. Advance FST₁ only
-2. Advance FST₂ only
+Epsilon (`ε`) transitions complicate composition. If `FST₁` outputs `ε` and `FST₂` inputs `ε` at the same time, we could:
+1. Advance `FST₁` only
+2. Advance `FST₂` only
 3. Advance both
 
 Uncontrolled advancement leads to duplicate or missed paths.
 
 ### Epsilon Filter
 
-The epsilon filter (based on Mohri 2009) ensures correct path enumeration:
+The epsilon filter (based on [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009)) ensures correct path enumeration. It is the grey-dashed inset of the [composition product diagram](#what-is-composition): the filter state `` `φ ∈ {None, Eps1, Eps2}` `` records whether an `ε` run is in progress on `T₁` or `T₂`, admitting each interleaving exactly once.
 
 ```rust
 pub enum FilterState {
@@ -387,23 +408,49 @@ println!("Computed {} states", composed.computed_states());
 
 ### Algorithm: FST Composition
 
-1. **Start state**: `(fst1.start(), fst2.start(), FilterState::None)`
+The product is enumerated lazily from the start triple; each visited state expands its
+matching arcs and `ε`-moves under the filter. The invariant is that a triple
+`` `(s₁, s₂, φ)` `` is reachable in the product iff there is a label-consistent pair of
+prefixes reaching `s₁` in `FST₁` and `s₂` in `FST₂` with filter history `φ`.
 
-2. **Transition matching**:
-   - For each FST₁ output `x` and FST₂ input `x`: create transition
-   - Weight = `fst1_weight ⊗ fst2_weight` (semiring multiplication)
-   - Target = `(fst1_target, fst2_target, new_filter_state)`
+```text
+⟨ composition start state ⟩ ≡
+    (fst1.start(), fst2.start(), FilterState::None)
+```
 
-3. **Epsilon handling**:
-   - FST₁ outputs ε: advance FST₁ only
-   - FST₂ inputs ε: advance FST₂ only
-   - Filter state tracks which is in progress
+```text
+⟨ matched move (label x shared) ⟩ ≡
+    // FST₁ arc s₁ --a:x/w₁--> t₁  and  FST₂ arc s₂ --x:b/w₂--> t₂
+    emit arc  a:b / (w₁ ⊗ w₂)  →  (t₁, t₂, None)
+```
 
-4. **Final states**: Product state `(s1, s2, _)` is final iff both `s1` and `s2` are final. Final weight = `fst1.final_weight(s1) ⊗ fst2.final_weight(s2)`.
+```text
+⟨ epsilon move (filter-gated) ⟩ ≡
+    if FST₁ arc s₁ --a:ε/w₁--> t₁  and φ admits Eps1:
+        emit arc  a:ε / w₁  →  (t₁, s₂, Eps1)        // advance FST₁ only
+    if FST₂ arc s₂ --ε:b/w₂--> t₂  and φ admits Eps2:
+        emit arc  ε:b / w₂  →  (s₁, t₂, Eps2)        // advance FST₂ only
+```
+
+```text
+⟨ expand a product state (s₁, s₂, φ) ⟩ ≡
+    for every label-matched arc pair:   ⟨ matched move (label x shared) ⟩
+    for every ε on either side:         ⟨ epsilon move (filter-gated) ⟩
+```
+
+```text
+⟨ product is final at (s₁, s₂, φ) ⟩ ≡
+    s₁ ∈ F₁  and  s₂ ∈ F₂   with   ρ'(s₁,s₂) = ρ₁(s₁) ⊗ ρ₂(s₂)
+```
+
+The sequencing filter (the inset in the [product diagram](#what-is-composition)) is what
+makes `` `⟨ epsilon move (filter-gated) ⟩` `` enumerate each `ε`-interleaving exactly
+once, so no path is duplicated or dropped.
 
 ### Algorithm: CFG × Lattice
 
-The CFG × Lattice composition uses Earley parsing internally:
+The `` `CFG × Lattice` `` composition uses Earley parsing internally
+([Earley 1970](../BIBLIOGRAPHY.md#ref-earley1970)):
 
 1. Run Earley parser on lattice (modified for lattice input)
 2. Build parse forest of all valid derivations
@@ -411,25 +458,25 @@ The CFG × Lattice composition uses Earley parsing internally:
 4. Filter lattice to valid edges only
 
 This is more efficient than explicit product construction because:
-- Earley parsing is O(n³) in lattice size
+- Earley parsing is `` `O(∣V∣³)` `` in lattice size
 - Product construction would be exponential in grammar size
 
 ### Time Complexity
 
-**FST ∘ FST**:
-- Worst case: O(n × m) where n, m are state counts
-- With lazy evaluation: O(k) where k is visited states
-- In practice, k << n × m for most traversals
+**`` `FST ∘ FST` ``**:
+- Worst case: `` `O(∣Q₁∣ × ∣Q₂∣)` `` where `` `∣Q₁∣`, `∣Q₂∣` `` are state counts
+- With lazy evaluation: `` `O(k)` `` where `k` is the number of visited states
+- In practice, `` `k ≪ ∣Q₁∣ × ∣Q₂∣` `` for most traversals
 
-**CFG × Lattice**:
-- Parsing: O(|V|³ × |G|) where V = nodes, G = grammar size
-- Filtering: O(|E|) where E = edges
+**`` `CFG × Lattice` ``**:
+- Parsing: `` `O(∣V∣³ × ∣G∣)` `` where `∣V∣` = nodes, `∣G∣` = grammar size
+- Filtering: `` `O(∣E∣)` `` where `∣E∣` = edges
 
 ### Memory Complexity
 
-**With CacheAll**: O(visited states)
-**With Lru**: O(max_states)
-**With NoCache**: O(current path depth)
+- **With `CacheAll`**: `O(visited states)`
+- **With `Lru`**: `` `O(max_states)` ``
+- **With `NoCache`**: `O(current path depth)`
 
 ## Common Patterns
 
@@ -499,6 +546,13 @@ for path in composed.accepting_paths() {
 println!("Found {} paths, computed {} states",
     path_count, composed.computed_states());
 ```
+
+## References
+
+- [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms*: the composition algorithm and the `ε`-filter (sequencing) construction that makes `ε`-interleavings unambiguous.
+- [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted Finite-State Transducers in Speech Recognition*: cascaded composition `` `H ∘ C ∘ L ∘ G` `` and the `⊗`-combination of arc weights.
+- [Earley 1970](../BIBLIOGRAPHY.md#ref-earley1970) — *An Efficient Context-Free Parsing Algorithm*: the `` `O(∣V∣³)` `` parser underlying `` `CFG × Lattice` `` composition (see [parsing.md](parsing.md)).
+- [Allauzen 2007](../BIBLIOGRAPHY.md#ref-allauzen2007) — *OpenFst*: the reference `Compose` operation and lazy/on-the-fly composition model this implementation follows.
 
 ## Next Steps
 

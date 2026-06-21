@@ -1,0 +1,76 @@
+// deep-learning-layers.dot — WFSTs as differentiable neural-network layers
+// (src/differentiable/). A neural network emits per-frame log-probabilities E; the
+// differentiable WFST stack composes them with a token graph (CTC variant), the
+// closure of per-token graphs, a lexicon transducer L, and the target Y, then takes
+// a forward (log-sum-exp) score whose gradient flows back as ∂Loss/∂E.
+//
+// The structural spine is the lexicon-marginalization alignment graph
+//   A = E ∘ (B ∘ ((T₁ + … + T_C)* ∘ (L ∘ Y)))
+// and the loss is −log P(Y∣X) = forwardScore(Z) − forwardScore(A), with
+//   Z = E ∘ (token graph)  the unconstrained normalizer.
+//
+// Purple = deep-learning/GPU tier; green = the forward/best (Viterbi) accent and the
+// accepting target; amber = the marginalization note; grey-dashed = ε / back-off arcs.
+// Palette: docs/diagrams/README.md.
+//
+// SHARED DOT PREAMBLE (palette = docs/diagrams/README.md):
+//   bg #FFFFFF · DL node fill #E1BEE7 / border #6A1B9A · text #102027 · edge #6A1B9A
+//   forward/best #2E7D32 bold(penwidth=2) · final/target #C8E6C9 · ε/back-off #9E9E9E dashed
+digraph deep_learning_layers {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>WFST as a differentiable layer</b> — neural emissions E composed through a token graph, lexicon L, and target Y; forward score is the loss, its gradient flows back to E>;
+  node  [shape=box, style="filled,rounded", fillcolor="#E1BEE7", color="#6A1B9A",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4];
+  edge  [color="#6A1B9A", fontcolor="#37474F", fontname="Helvetica", fontsize=10, penwidth=1.3];
+
+  // ── 1. Neural front end → per-frame emission posteriors ──────────────────────────
+  nn  [label="neural network\n(encoder)", fillcolor="#ECEFF1", color="#455A64"];
+  emit [shape=record, fillcolor="#F3E5F5",
+        label="{ emissions E (log-probs) | {<f0> frame t₀ | <f1> t₁ | <f2> t₂ | <f3> … } }"];
+  nn -> emit [label="forward", color="#455A64"];
+
+  // ── 2. Token graph: the chosen CTC variant (Standard / Spike / Duration / Spaced)
+  tok [label="token graph T\n(CTC variant:\nStandard · Spike ·\nDurationLimited · EquallySpaced)"];
+  // ε self-loop = blank / repeat allowed by the CTC topology
+  tok -> tok [label="ε : blank / repeat", color="#9E9E9E", style=dashed, fontcolor="#616161"];
+
+  // ── 3. Lexicon marginalization: closure of per-token graphs, then L, then target Y
+  subgraph cluster_marg {
+    label=<<b>lexicon marginalization</b>  A = E ∘ (B ∘ ((T₁ + … + T_C)* ∘ (L ∘ Y)))>;
+    color="#6A1B9A"; fontcolor="#4A148C"; style=rounded; bgcolor="#F5EEF8";
+    closure [label="(T₁ + … + T_C)*\nKleene closure over\nword-piece token graphs"];
+    lex     [label="lexicon L\nword piece → graphemes\n(sums over all\ndecompositions)"];
+    tgt     [label="target Y\ngrapheme sequence", fillcolor="#C8E6C9", color="#2E7D32"];
+    closure -> lex [label="∘"];
+    lex -> tgt     [label="∘ Y", color="#2E7D32", penwidth=2.0];
+  }
+
+  // ── 4. Forward (log-sum-exp) score over the constrained alignment graph A ─────────
+  fwdA [label="forwardScore(A)\nlog-sum-exp over all\naligned paths", fillcolor="#CE93D8", color="#4A148C"];
+
+  // ── 5. Normalizer Z = E ∘ token-graph (unconstrained), and the loss ──────────────
+  fwdZ [label="forwardScore(Z)\nZ = E ∘ token graph\n(unconstrained sum)", fillcolor="#D1C4E9"];
+  loss [label="loss = −log P(Y∣X)\n= forwardScore(Z) − forwardScore(A)",
+        fillcolor="#FFE0B2", color="#E65100"];
+
+  // emissions feed the token graph and the closure (composition ∘)
+  emit -> tok      [label="∘ (compose)", color="#2E7D32", penwidth=2.0];
+  tok  -> closure  [label="∘", color="#6A1B9A"];
+  tgt  -> fwdA     [label="forward", color="#2E7D32", penwidth=2.0];
+  emit -> fwdZ     [label="∘ token graph", color="#9E9E9E", style=dashed];
+  fwdA -> loss     [label="− A", color="#2E7D32", penwidth=2.0];
+  fwdZ -> loss     [label="Z −", color="#607D8B"];
+
+  // ── 6. Backward pass: gradient of the forward score flows back to the emissions ──
+  grad [label="∂Loss/∂E\n(arc posteriors;\ntop-down autograd)", fillcolor="#CE93D8", color="#4A148C"];
+  loss -> grad [label="backward", color="#6A1B9A"];
+  grad -> nn   [label="∂Loss/∂E  (gradient descent)", color="#B71C1C", style=dashed, constraint=false];
+
+  // marginalization annotation (amber note)
+  note [shape=note, fillcolor="#FFF59D", color="#F9A825",
+        label="marginalize: sum over every valid\nword-piece decomposition of Y\n(adaptive, task-salient tokenization)"];
+  lex -> note [style=dotted, color="#9E9E9E", constraint=false];
+}

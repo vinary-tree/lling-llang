@@ -529,7 +529,7 @@ let prob = lm.prob(word1_id, word2_id); // Uses back-off if unseen
 | Optimization | Source | Benefit | Verified |
 |--------------|--------|---------|----------|
 | Log Weight Pushing | Mohri et al. 2002 | Up to 18× beam search speedup | ✓ |
-| Token Grouping | LET-Decoder 2023 | 10-20× fewer composition ops | ✓ |
+| Token Grouping | LET-Decoder (Lv 2021) | 10-20× fewer composition ops | ✓ |
 | N-gram Back-off | WFST Literature | O(\|V\|²) → O(\|V\|) space | ✓ |
 
 ---

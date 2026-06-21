@@ -1,0 +1,49 @@
+@startuml multilingual-flow
+' Detect → route → rescore activity flow for the multilingual correction pipeline.
+' LanguageDetector picks argmax_ℓ P(ℓ | context) per span; CodeSwitchTransducer
+' resolves switch points; each span is rescored by its per-language LanguageModel.
+' Palette: docs/diagrams/README.md (Correction & NLP = amber #FFF59D / #F9A825;
+' Foundation = blue #BBDEFB / #1565C0; Neutral/IO = #ECEFF1 / #455A64).
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #607D8B
+skinparam ArrowThickness 1.3
+skinparam activity {
+  BackgroundColor #FFF59D
+  BorderColor #F9A825
+  FontColor #102027
+  DiamondBackgroundColor #BBDEFB
+  DiamondBorderColor #1565C0
+  StartColor #1565C0
+  EndColor #2E7D32
+}
+
+title <b>Multilingual correction</b>  —  detect → route → rescore
+
+start
+:Tokenize input into words;
+note right #ECEFF1
+  words: ["hello", "mundo"]
+end note
+
+:<b>LanguageDetector.detect_word</b>\nargmax<sub>ℓ</sub> P(ℓ | context)\nper word / span;
+#BBDEFB:Code-switch present?\n(more than one ℓ argmax);
+if (yes) then (switch)
+  :<b>CodeSwitchTransducer.best_path</b>\nViterbi over (word × language)\nwith switch_penalty;
+  :Segment into LanguageSpans\n(contiguous single-language runs);
+else (monolingual)
+  :Single LanguageSpan\n= whole utterance;
+endif
+
+:Route each span to its\nper-language <b>LanguageModel</b>;
+fork
+  :Rescore en span\nLanguageModel("en");
+fork again
+  :Rescore es span\nLanguageModel("es");
+end fork
+
+:Recombine spans into one\nscored hypothesis;
+#C8E6C9:Emit CodeSwitchPath\n(word_languages, switch_points, score);
+stop
+@enduml

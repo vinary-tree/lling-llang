@@ -1,6 +1,29 @@
 # Top-Down Automatic Differentiation
 
-Top-down automatic differentiation (autograd) computes gradients through WFST operations at the algorithm level rather than tracking individual primitive operations. This approach, pioneered by the k2 framework, offers better numerical stability and computational efficiency for sequence-level training.
+Top-down automatic differentiation (autograd) computes gradients through WFST operations
+at the algorithm level rather than tracking individual primitive operations. This
+approach, pioneered by the k2 framework and formalized for differentiable WFSTs by
+[Hannun et al. 2020](../BIBLIOGRAPHY.md#ref-hannun2020) (the GTN framework, **ICML 2020**),
+offers better numerical stability and computational efficiency for sequence-level training.
+
+![Top-down autograd: the gradient of a WFST is a WFST with the same topology, arc weight replaced by arc posterior](../diagrams/advanced/topdown-autograd-graph.svg)
+
+*Blue = the original WFST with arc weights `w` and forward scores `α`; purple = the gradient WFST with the **same topology** but each arc weight replaced by its posterior `g = exp(α[s] + w + β[t] − Z)`; green double-ring = the final state with backward score `β`. Bold green arcs carry the higher posterior. The worked diamond has `Z = 1.35`. Dotted grey = the `∂/∂w` correspondence between the two views.*
+
+<details><summary>Text view</summary>
+
+```text
+original WFST (weights w)        gradient WFST (weight → posterior g)
+  α=0.0                            β=1.35
+  (0) ─w=1.0─► (1) α=1.0           (0) ─g=0.86═► (1) β=0.5
+   │  ╲w=2.0    │ w=0.5             │  ╲g=0.39    │ g=0.86
+   │   ╲        ▼                   │   ╲         ▼
+   │   (2) ─w=0.3─► ((3))           │   (2) ─g=0.39─► ((3))
+   │   α=2.0        α=1.35          │   β=0.3        β=0.0
+  g(arc) = exp(α[s] + w + β[t] − Z),   Z = 1.35,   ((·)) = final
+```
+
+</details>
 
 ## Background
 
@@ -13,12 +36,15 @@ Forward:  x → op1 → y → op2 → z → op3 → loss
 Backward: ∂L/∂x ← ∂op1 ← ∂L/∂y ← ∂op2 ← ∂L/∂z ← ∂op3 ← 1
 ```
 
-**Top-Down (k2-style)**: For WFST operations, we compute gradients using mathematical properties of the algorithms (forward-backward scores) rather than tracking primitive operations.
+**Top-Down (k2-style)**: For WFST operations, we compute gradients using mathematical
+properties of the algorithms (forward-backward scores) rather than tracking primitive
+operations. The arc gradient is `−posterior × output_grad`, with
+`posterior = exp(α[src] + w + β[dst] − Z)`:
 
-```
+```text
 Forward:  Compute α (forward) and β (backward) scores
-Backward: Gradient = -posterior × output_grad
-          where posterior = exp(α[src] + w + β[dst] - Z)
+Backward: Gradient = −posterior × output_grad
+          where posterior = exp(α[src] + w + β[dst] − Z)
 ```
 
 ### Why Top-Down Works Better for WFSTs
@@ -32,19 +58,22 @@ Backward: Gradient = -posterior × output_grad
 
 ### Forward-Backward Algorithm
 
-The forward-backward algorithm computes the probability of each arc being used in any accepting path:
+The forward-backward algorithm computes the probability of each arc being used in any
+accepting path. The forward score is `α[s] = log Σ exp(α[prev] + w(prev→s))`, the
+backward score is `β[s] = log Σ exp(w(s→next) + β[next])`, and the partition function is
+`Z = α[start] + β[start]`:
 
-```
+```text
 Forward Scores (α):
-  α[start] = 0  (log domain: probability 1)
-  α[s] = log Σ exp(α[prev] + w(prev→s))  for each incoming arc
+  α[start] = 0̄        (log domain: probability 1, the ⊗-identity)
+  α[s] = log Σ exp(α[prev] + w(prev→s))   for each incoming arc
 
 Backward Scores (β):
   β[final] = final_weight
-  β[s] = log Σ exp(w(s→next) + β[next])  for each outgoing arc
+  β[s] = log Σ exp(w(s→next) + β[next])    for each outgoing arc
 
 Total Log-Probability (Z):
-  Z = α[start] + β[start]  (or α[any] + β[any] for acyclic)
+  Z = α[start] + β[start]   (or α[any] + β[any] for acyclic)
 ```
 
 Visually:
@@ -64,10 +93,11 @@ Visually:
 
 ### Arc Posteriors
 
-The posterior probability of an arc is the probability it appears in a random path sampled according to path weights:
+The posterior probability of an arc is the probability it appears in a random path
+sampled according to path weights — `P(arc ∣ obs) = exp(α[src] + w(arc) + β[dst] − Z)`:
 
-```
-P(arc | observation) = exp(α[src] + w(arc) + β[dst] - Z)
+```text
+P(arc | observation) = exp(α[src] + w(arc) + β[dst] − Z)
 ```
 
 Where:
@@ -76,10 +106,11 @@ Where:
 - `β[dst]` = log-probability of reaching a final state from destination
 - `Z` = total log-probability (partition function)
 
-For negative log-likelihood loss, the gradient with respect to arc weight is:
+For negative log-likelihood loss, the gradient with respect to arc weight is the negated
+posterior — `∂Loss/∂w(arc) = −P(arc ∣ obs)`:
 
-```
-∂Loss/∂w(arc) = -P(arc | observation)
+```text
+∂Loss/∂w(arc) = −P(arc | observation)
 ```
 
 ### Sparse Gradient Representation
@@ -392,7 +423,7 @@ Key stability practices:
 1. **Never exponentiate then log**: Work in log domain throughout
 2. **Use log-sum-exp trick**: Factor out maximum before summing
 3. **Threshold small posteriors**: Ignore arcs with posterior < 1e-10
-4. **Check for infinities**: Handle -∞ (zero probability) gracefully
+4. **Check for infinities**: Handle `−∞` (zero probability, the log-semiring `0̄`) gracefully
 
 ### Gradient Accumulation for Multiple Paths
 
@@ -438,7 +469,7 @@ fn chunked_backward(
 
 | Aspect | Bottom-Up | Top-Down |
 |--------|-----------|----------|
-| **Memory** | O(ops × state) | O(states + arcs) |
+| **Memory** | `O(ops × ∣Q∣)` | `O(∣Q∣ + ∣E∣)` |
 | **Numerical Stability** | Prone to underflow | Log-domain stable |
 | **Pruning** | Awkward | Natural |
 | **Implementation** | Framework-dependent | Algorithm-specific |
@@ -453,5 +484,15 @@ fn chunked_backward(
 
 ## References
 
-- [k2-fsa/k2 GitHub](https://github.com/k2-fsa/k2) - Differentiable FSA/FST framework
-- [k2 Documentation](https://k2-fsa.org/) - Official k2 documentation
+- [Hannun et al. 2020](../BIBLIOGRAPHY.md#ref-hannun2020) — Hannun, A., Pratap, V., Kahn, J.,
+  & Hsu, W.-N. *Differentiable Weighted Finite-State Transducers.*
+  **ICML 2020 (PMLR 119), [arXiv:2010.01003](https://arxiv.org/abs/2010.01003)** — the GTN
+  framework: algorithm-level (top-down) autograd over WFSTs via log-semiring
+  forward/backward, exactly the arc-posterior gradient used here. *(Earlier drafts
+  miscited this as "ICLR 2021"; the correct venue is ICML 2020.)*
+- [Graves et al. 2006](../BIBLIOGRAPHY.md#ref-graves2006) — Graves, A., Fernández, S.,
+  Gomez, F., & Schmidhuber, J. *Connectionist Temporal Classification.* The forward–backward
+  marginalization that the top-down backward pass differentiates.
+- [k2-fsa/k2 GitHub](https://github.com/k2-fsa/k2) — the differentiable FSA/FST framework
+  that pioneered this top-down style.
+- [k2 Documentation](https://k2-fsa.org/) — official k2 documentation.

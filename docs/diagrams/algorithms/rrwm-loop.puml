@@ -1,0 +1,42 @@
+@startuml rrwm-loop
+' RRWM online weighted-majority update loop (Cortes et al. 2015, Fig. 6).
+' Each round: predict by sampling Wₜ₋₁, observe a loss transducer Vₜ, compose,
+' weight-push to restore a stochastic automaton. Deep-learning purple for the
+' learner; algorithms-green for the WFST ops it drives. Palette: docs/diagrams/README.md.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #607D8B
+skinparam ArrowThickness 1.3
+skinparam activity {
+  BackgroundColor #E1BEE7
+  BorderColor #6A1B9A
+  FontColor #102027
+  DiamondBackgroundColor #FFF59D
+  DiamondBorderColor #F9A825
+  DiamondFontColor #5D4037
+}
+
+title <b>RRWM online learning loop</b>\n<size:11><i>cumulative automaton Wₜ over the η-power semiring; regret E[R_T] ≤ 2M√(T log N)</i></size>
+
+start
+:**W₀** ← one-state automaton\n(all paths weight 1̄);
+repeat
+  #E1BEE7:**predict** ŷₜ ~ Wₜ₋₁\n(sample ∝ weight);
+  :observe outcome yₜ\nbuild loss transducer **Vₜ**;
+  #C8E6C9:**compose**  Wₜ ← Wₜ₋₁ ∘ Vₜ\n(combine all path experts);
+  #C8E6C9:**weight-push**  Wₜ ← push(Wₜ)\n(restore stochastic: out-weights sum to 1̄);
+  :accumulate loss ℓ(ŷₜ, yₜ);
+repeat while (round < T  and  states < max_rounds?) is (yes)
+->no\n(reset Wₜ ← W₀ if cap hit);
+:return W_T\n(learned expert weighting);
+stop
+
+legend right
+  | Step | Operation |
+  |<#E1BEE7> predict | sample path from Wₜ₋₁ |
+  | observe | construct Vₜ from loss |
+  |<#C8E6C9> compose | Wₜ₋₁ ∘ Vₜ |
+  |<#C8E6C9> push | make stochastic for next sample |
+endlegend
+@enduml

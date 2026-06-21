@@ -1,0 +1,43 @@
+// ctc-collapse.dot — the CTC collapse (B operator): a per-frame emission row is
+// mapped to the output label string by (1) merging runs of identical labels and
+// (2) deleting blanks. Worked example "H E - L O" (5 frames) → "HELO".
+// Top rank = frames (neutral IO fill); bottom = the collapsed output (green/final).
+//
+// SHARED DOT PREAMBLE (palette = docs/diagrams/README.md):
+//   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · text #102027 · edge #607D8B
+//   best/Viterbi #2E7D32 bold · alternative #B0BEC5 · epsilon/blank #9E9E9E dashed · final #C8E6C9
+digraph ctc_collapse {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>CTC collapse B</b> — merge repeats, delete blanks:  "H E - L O" → "HELO">;
+  node  [fontname="Helvetica", fontcolor="#102027", penwidth=1.4];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  // ── Frame row (the neural-net argmax per time step) ───────────────────────────
+  { rank=same;
+    f1 [shape=box, style="filled,rounded", fillcolor="#FFE0B2", color="#E65100", label="frame 1\nH"];
+    f2 [shape=box, style="filled,rounded", fillcolor="#FFE0B2", color="#E65100", label="frame 2\nE"];
+    f3 [shape=box, style="filled,rounded", fillcolor="#ECEFF1", color="#9E9E9E", label="frame 3\n- (blank)"];
+    f4 [shape=box, style="filled,rounded", fillcolor="#FFE0B2", color="#E65100", label="frame 4\nL"];
+    f5 [shape=box, style="filled,rounded", fillcolor="#FFE0B2", color="#E65100", label="frame 5\nO"];
+    f1 -> f2 -> f3 -> f4 -> f5 [style=invis];
+  }
+
+  // ── Collapsed output row ──────────────────────────────────────────────────────
+  { rank=same;
+    oH [shape=circle, style=filled, fillcolor="#C8E6C9", color="#2E7D32", label="H"];
+    oE [shape=circle, style=filled, fillcolor="#C8E6C9", color="#2E7D32", label="E"];
+    oL [shape=circle, style=filled, fillcolor="#C8E6C9", color="#2E7D32", label="L"];
+    oO [shape=doublecircle, style=filled, fillcolor="#C8E6C9", color="#2E7D32", label="O"];
+    oH -> oE -> oL -> oO [color="#2E7D32", penwidth=2.0];
+  }
+
+  // ── Frame → output mapping ────────────────────────────────────────────────────
+  f1 -> oH [label="keep",   color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+  f2 -> oE [label="keep",   color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+  f3 -> oE [label="delete (blank)", color="#9E9E9E", style=dashed];
+  f4 -> oL [label="keep",   color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+  f5 -> oO [label="keep",   color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+}

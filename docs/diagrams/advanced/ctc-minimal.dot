@@ -1,0 +1,31 @@
+// ctc-minimal.dot — Minimal-CTC topology (N=3). A SINGLE state that is start and
+// final, carrying N arcs: one blank→label transduction per label (drawn here as
+// self-loops on the lone state), plus the ε self-loop for blank. "Peaky", blank-
+// dominant CTC; smallest possible graph (1 state, N arcs).
+//
+// SHARED DOT PREAMBLE (palette = docs/diagrams/README.md):
+//   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · text #102027 · edge #607D8B
+//   best/Viterbi #2E7D32 bold(penwidth=2) · alternative #B0BEC5 · epsilon #9E9E9E dashed
+//   final = doublecircle fill #C8E6C9 border #2E7D32 · start = arrow from invisible point
+digraph ctc_minimal {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>Minimal-CTC (N=3)</b> — one state, N arcs: every emission is a blank→label transduction>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  __start__ [shape=point, width=0.01, color="#1565C0"];
+  __start__ -> q;
+
+  // the single state is start AND final
+  q [label="0\n(single,\nfinal)", shape=doublecircle, fillcolor="#FFE0B2", color="#E65100", width=0.9];
+
+  // N arcs, all returning to the one state:
+  //   blank ε self-loop + one blank→label transduction per non-blank label
+  q -> q [label="blank:ε", color="#9E9E9E", style=dashed];
+  q -> q [label="blank:a"];
+  q -> q [label="blank:b"];
+}

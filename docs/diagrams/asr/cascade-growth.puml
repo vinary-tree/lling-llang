@@ -1,0 +1,46 @@
+@startuml cascade-growth
+' Incremental det/min state-count growth through the ASR cascade:
+'   G → L∘G → det(L∘G) → C∘det(L∘G) → det(C∘L∘G) → H∘… → N
+' Determinizing after each composition keeps the state count bounded instead of
+' exploding. Stage labels mirror CascadeStats in src/asr/cascade.rs; the counts
+' are the illustrative figures from docs/asr/cascade-construction.md.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #BF360C
+skinparam ArrowThickness 1.4
+skinparam rectangle {
+  RoundCorner 12
+  FontColor #102027
+  BorderColor #E65100
+}
+
+title <b>Cascade growth with incremental determinization</b>\n<size:11>N = π( min( det( H ∘ det( C ∘ det( L ∘ G ) ) ) ) )  —  det/min cap the state count after each ∘</size>
+
+rectangle "<b>G</b> — grammar\n≈ 1K states" as G #FFE0B2
+rectangle "<b>L ∘ G</b>\n≈ 500K states  (blow-up)" as LG #FFCC80
+rectangle "<b>det(L ∘ G)</b>\n≈ 50K states  (10× ↓)" as DLG #FFE0B2
+rectangle "<b>C ∘ det(L ∘ G)</b>\n≈ 200K states" as CLG #FFCC80
+rectangle "<b>det(C ∘ L ∘ G)</b>\n≈ 100K states" as DCLG #FFE0B2
+rectangle "<b>H ∘ det(C ∘ L ∘ G)</b>\nexpand HMM states" as HCLG #FFCC80
+rectangle "<b>N</b> = π(min(…))\nminimal decoding graph" as N #FFB74D
+
+G   -right-> LG   : ∘ L
+LG  -right-> DLG  : det
+DLG -right-> CLG  : ∘ C
+CLG -right-> DCLG : det
+DCLG -right-> HCLG : ∘ H
+HCLG -right-> N    : min · π
+
+note bottom of LG
+  Without incremental det the L ∘ G product can reach
+  millions of states and exhaust memory before C and H
+  are even composed (docs/asr/cascade-construction.md).
+end note
+
+note bottom of DCLG
+  After each composition, <b>det</b> (powerset construction)
+  removes redundant paths and ε-arcs; the final <b>min</b>
+  merges equivalent states; <b>π</b> erases auxiliary symbols.
+end note
+@enduml

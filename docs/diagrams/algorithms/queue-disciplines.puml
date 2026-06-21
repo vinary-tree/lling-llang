@@ -1,0 +1,43 @@
+@startuml queue-disciplines
+' Decision flow for picking the shortest-distance queue discipline.
+' Foundation-blue start; algorithms-green terminal disciplines; amber decisions.
+' Palette: docs/diagrams/README.md.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #607D8B
+skinparam ArrowThickness 1.3
+skinparam activity {
+  BackgroundColor #BBDEFB
+  BorderColor #1565C0
+  FontColor #102027
+  DiamondBackgroundColor #FFF59D
+  DiamondBorderColor #F9A825
+  DiamondFontColor #5D4037
+}
+
+title <b>Queue-discipline selection</b>\n<size:11><i>single-source shortest-distance: structure + semiring → discipline</i></size>
+
+start
+if (graph acyclic?) then (yes)
+  #C8E6C9:**Topological queue**\nprocess each state once\nO(∣Q∣ + ∣E∣);
+  stop
+else (no)
+  if (tropical + nonneg weights?) then (yes)
+    #C8E6C9:**Shortest-first (Dijkstra)**\nmin-distance priority queue\nO(∣E∣ + ∣Q∣ log ∣Q∣);
+    stop
+  else (no)
+    #C8E6C9:**FIFO queue**\ngeneral k-closed semiring\nO(C · ∣E∣);
+    stop
+  endif
+endif
+
+legend right
+  | Discipline | When |
+  |<#C8E6C9> Topological | DAGs / lattices |
+  |<#C8E6C9> Shortest-first | tropical, w ≥ 0 |
+  |<#C8E6C9> FIFO | cyclic, k-closed |
+  ----
+  Auto picks Topological if a topo-sort exists, else FIFO.
+endlegend
+@enduml

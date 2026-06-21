@@ -54,9 +54,22 @@ Clones share structure until modified, then copy only the modified portion.
 
 ### Distributed Access
 
-PathMap distributes data across cluster nodes:
+PathMap distributes data across cluster nodes. The component view below shows the
+end-to-end path: a `LatticeBuilder` calls through the `LatticeBackend` interface
+into `PathMapBackend`, which checks a local LRU vocabulary cache and, on a miss,
+reaches the cluster's content-addressing layer that shards interned words across
+nodes and deduplicates identical substructures via copy-on-write.
 
-```
+![Component view of PathMapBackend: lling-llang's LatticeBuilder talks through the LatticeBackend interface to PathMapBackend, which fronts a local LRU cache; cache misses reach the PathMap cluster's content-addressing and structural-sharing components that shard data across three storage nodes.](../../diagrams/integration/pathmap-backend.svg)
+
+*Blue = lling-llang components and the PathMap cluster boundary; amber = the
+local vocabulary cache; green = storage-node databases; grey = the
+`LatticeBackend` interface. Dotted edges denote content-addressed deduplication.
+Forward-looking integration **target**.*
+
+<details><summary>Text view</summary>
+
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    PathMap Cluster                          │
 │   ┌─────────┐     ┌─────────┐     ┌─────────┐              │
@@ -73,6 +86,8 @@ PathMap distributes data across cluster nodes:
     │ llang   │     │ llang   │     │ llang   │
     └─────────┘     └─────────┘     └─────────┘
 ```
+
+</details>
 
 ## Planned API
 

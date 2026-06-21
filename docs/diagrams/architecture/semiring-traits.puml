@@ -1,0 +1,78 @@
+@startuml semiring-traits
+' lling-llang semiring trait hierarchy. Core algebra (blue) refined by capability
+' traits (green) and property markers (amber). Palette: docs/diagrams/README.md.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment left
+skinparam class {
+  BackgroundColor #BBDEFB
+  BorderColor #1565C0
+  FontColor #102027
+  ArrowColor #607D8B
+}
+hide empty members
+hide circle
+
+title <b>Semiring trait hierarchy</b>\n<size:11><i>the core algebra, refined by capability traits and property markers</i></size>
+
+interface "Semiring\n(K, ⊕, ⊗, 0̄, 1̄)" as S {
+  +zero() : Self      .. 0̄
+  +one() : Self       .. 1̄
+  +plus(&Self) : Self    .. ⊕
+  +times(&Self) : Self   .. ⊗
+  +is_zero() : bool
+  +is_one() : bool
+  +approx_eq(&Self, f64) : bool
+  +natural_less(&Self) : Option<bool>
+  +to_bytes() : Vec<u8>
+}
+
+interface "DivisibleSemiring" as DIV #C8E6C9 {
+  +divide(&Self) : Option<Self>
+}
+interface "StarSemiring" as STAR #C8E6C9 {
+  +star() : Option<Self>
+}
+interface "FallibleStarSemiring" as FSTAR #C8E6C9 {
+  +star() : Result<Self, StarDivergenceError>
+}
+interface "WeaklyLeftDivisibleSemiring" as WLD #C8E6C9 {
+  +left_divide(&Self) : Option<Self>
+}
+interface "KClosedSemiring" as KC #C8E6C9 {
+  +closure_bound() : Option<usize>
+}
+
+interface "IdempotentSemiring" as IDEM #FFF59D
+interface "CommutativeTimesSemiring" as COMM #FFF59D
+interface "ZeroSumFreeSemiring" as ZSF #FFF59D
+interface "NonnegativeSemiring" as NN #FFF59D
+interface "TotallyOrderedSemiring" as TOT #FFF59D {
+  +total_cmp(&Self) : Ordering
+}
+interface "StochasticSemiring" as STO #FFF59D {
+  +to_probability() : f64
+}
+interface "QuantizableSemiring" as QNT #FFF59D {
+  +quantize(f64) : i64
+}
+
+S <|-- DIV
+S <|-- STAR
+S <|-- FSTAR
+S <|-- WLD
+S <|-- KC
+S <|-- IDEM
+S <|-- COMM
+S <|-- ZSF
+S <|-- NN
+S <|-- TOT
+S <|-- STO
+S <|-- QNT
+
+note bottom of S
+  Concrete weights implement the subset of traits their algebra supports:
+  <b>Tropical</b>(min,+) · <b>Log</b>(⊕ₗₒg,+) · <b>Probability</b>(+,×) · <b>Boolean</b>(∨,∧)
+  · Count · Expectation · Gödel · Power(η) · Product · Lexicographic · SignedTropical · String/Set/Edit
+end note
+@enduml

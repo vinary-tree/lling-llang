@@ -1,0 +1,81 @@
+@startuml multitape-traits
+' lling-llang multi-tape WFST trait hierarchy. Core query trait (teal) refined by
+' the operations extension (green); the vector implementation and builder (blue)
+' realize them, parametrized by the multi-tape label/transition value types (amber).
+' Palette: docs/diagrams/README.md (transducer family = teal #B2DFDB / #00695C).
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment left
+skinparam class {
+  BackgroundColor #B2DFDB
+  BorderColor #00695C
+  FontColor #102027
+  ArrowColor #607D8B
+}
+hide empty members
+hide circle
+
+title <b>Multi-tape WFST trait hierarchy</b>\n<size:11><i>query trait, operations extension, vector backing, and value types</i></size>
+
+interface "MultiTapeWfst<L, W, const N>" as MT {
+  +start() : StateId
+  +is_final(StateId) : bool
+  +final_weight(StateId) : W
+  +transitions(StateId) : &[MultiTapeTransition]
+  +num_states() : usize
+  +num_transitions() : usize
+  +states() : impl Iterator
+  +final_states() : impl Iterator
+  +num_tapes() : usize  .. = N
+}
+
+interface "MultiTapeWfstOps<L, W, N>" as OPS #C8E6C9 {
+  +transitions_matching_tape(s, tape, &L)
+  +tape_epsilon_transitions(s, tape)
+  +tape_alphabet(tape) : Vec<L>
+  +has_epsilon_transitions() : bool
+  +transduce(&[MultiTapeLabel]) : Option<W>
+  +accepts(&[MultiTapeLabel]) : bool
+}
+
+class "VectorMultiTapeWfst<L, W, N>" as VEC #BBDEFB {
+  -states : Vec<MultiTapeState>
+  -start : StateId
+  +add_state() : StateId
+  +set_final(StateId, W)
+  +add_transition(MultiTapeTransition)
+}
+
+class "MultiTapeWfstBuilder<L, W, N>" as BLD #BBDEFB {
+  +add_state() : StateId
+  +add_full_transition(from, to, [L; N], W)
+  +add_single_tape_transition(..)
+  +build() : VectorMultiTapeWfst
+}
+
+class "MultiTapeLabel<L, const N>" as LBL #FFF59D {
+  +labels : [Option<L>; N]
+  +from_values([L; N])
+  +single(tape, L)
+  +is_tape_epsilon(tape) : bool
+}
+
+class "MultiTapeTransition<L, W, N>" as TRN #FFF59D {
+  +from : StateId
+  +labels : MultiTapeLabel
+  +to : StateId
+  +weight : W
+}
+
+MT <|-- OPS : blanket impl
+MT <|.. VEC : implements
+BLD *-- VEC : builds
+VEC *-- TRN : stores
+TRN *-- LBL : carries
+
+note bottom of OPS
+  <b>MultiTapeWfstOps</b> is auto-derived for every <b>MultiTapeWfst</b>
+  via a blanket impl — concrete types implement only the query trait.
+  <b>transduce</b> walks the N synchronized tapes, taking ⊗ along a path.
+end note
+@enduml

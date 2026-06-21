@@ -1,0 +1,37 @@
+// path-sampling.dot — forward sampling as a random walk from start to a final state.
+// At each state a transition is drawn ∝ weight (proportional) or uniformly; at a
+// final state the walk may stop with the final-vs-continue probability. Green bold =
+// the sampled walk; the per-arc probabilities annotate the proportional choice.
+//
+// SHARED DOT PREAMBLE (copy into every Graphviz automaton; palette = docs/diagrams/README.md):
+//   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · text #102027 · edge #607D8B
+//   best/Viterbi #2E7D32 bold(penwidth=2) · alternative #B0BEC5 · final = doublecircle
+digraph path_sampling {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>Forward path sampling</b> — random walk drawing each arc ∝ weight; green = one sampled path>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.5];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  q0 [label="0"];
+  q1 [label="1"];
+  q2 [label="2", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+  q3 [label="3", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+  s0 [shape=point, width=0.01, color="#1565C0"]; s0 -> q0;
+
+  // proportional probabilities at state 0 (a:0.3, b:0.5, c:0.2)
+  q0 -> q1 [label="a / P=0.3", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];   // sampled
+  q0 -> q2 [label="b / P=0.5", color="#B0BEC5"];
+  q0 -> q3 [label="c / P=0.2", color="#B0BEC5"];
+
+  // from state 1: continue vs stop (state 1 is non-final here → must continue)
+  q1 -> q2 [label="d / P=1.0", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];   // sampled
+
+  // stop decision annotation at the reached final state
+  stop [shape=plaintext, fontcolor="#2E7D32",
+        label=<<b>stop?</b> P(stop)=ρ ∕ (ρ ⊕ Σ out-weights)>];
+  stop -> q2 [style=dotted, color="#2E7D32", arrowhead=none, constraint=false];
+}

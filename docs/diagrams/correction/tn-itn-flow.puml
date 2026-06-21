@@ -1,0 +1,55 @@
+@startuml tn-itn-flow
+' Classify → normalize-per-class → reassemble activity flow for TN/ITN.
+' A classifier WFST tags each token with a SemioticClass; a per-class verbalizer
+' τ_c rewrites it (TN: written→spoken; ITN: spoken→written); plain tokens pass
+' through; the reassembler concatenates the verbalized spans.
+' Palette: docs/diagrams/README.md (Correction & NLP = amber #FFF59D / #F9A825;
+' Foundation = blue #BBDEFB / #1565C0; Algorithms = green #C8E6C9 / #2E7D32).
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #607D8B
+skinparam ArrowThickness 1.3
+skinparam activity {
+  BackgroundColor #FFF59D
+  BorderColor #F9A825
+  FontColor #102027
+  DiamondBackgroundColor #BBDEFB
+  DiamondBorderColor #1565C0
+  StartColor #1565C0
+  EndColor #2E7D32
+}
+
+title <b>TN / ITN</b>  —  classify → normalize-per-class (τ<sub>c</sub>) → reassemble
+
+start
+:Input text\n(TN: "I have 123 apples"\nITN: "... one hundred twenty three ...");
+
+:<b>Classifier WFST</b>\ntag tokens with SemioticClass\n→ Vec&lt;TaggedToken&gt;;
+note right #ECEFF1
+  c ∈ {CARDINAL, ORDINAL,
+       MONEY, TIME, DATE,
+       MEASURE, …, PLAIN}
+end note
+
+repeat :for each TaggedToken;
+  #BBDEFB:Which SemioticClass c?;
+  split
+    -> CARDINAL;
+    :τ<sub>CARDINAL</sub>\n"123" ↔ "one hundred twenty three";
+  split again
+    -> MONEY;
+    :τ<sub>MONEY</sub>\n"$5" ↔ "five dollars";
+  split again
+    -> TIME / DATE / MEASURE / ORDINAL;
+    :τ<sub>c</sub>  (per-class verbalizer);
+  split again
+    -> PLAIN;
+    :pass through unchanged;
+  end split
+repeat while (more tokens?) is (yes) not (no)
+
+:<b>Reassemble</b>\nconcatenate verbalized spans\nin original order;
+#C8E6C9:Emit Vec&lt;(String, W)&gt;\n(weighted candidates for beam search);
+stop
+@enduml

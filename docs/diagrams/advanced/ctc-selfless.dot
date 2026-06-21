@@ -1,0 +1,36 @@
+// ctc-selfless.dot — Selfless-CTC (here: selfless variant of Compact-CTC, N=3).
+// The non-blank self-loops are REMOVED, so a repeated label must be separated by a
+// blank ("a-a-a" → "aaa" → "a"). Only the blank ε self-loop survives. Wide-context
+// models (Conformer) prefer this: explicit blanks segment better than self-loops.
+// Arc budget = (3N−2) − (N−1) = 2N−1 for the compact base (5 for N=3).
+//
+// SHARED DOT PREAMBLE (palette = docs/diagrams/README.md):
+//   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · text #102027 · edge #607D8B
+//   best/Viterbi #2E7D32 bold(penwidth=2) · alternative #B0BEC5 · epsilon #9E9E9E dashed
+//   final = doublecircle fill #C8E6C9 border #2E7D32 · start = arrow from invisible point
+digraph ctc_selfless {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>Selfless-CTC (compact base, N=3)</b> — non-blank self-loops removed; repeats need a blank>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.6];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  __start__ [shape=point, width=0.01, color="#1565C0"];
+  __start__ -> b;
+
+  b [label="blank\n0", shape=doublecircle, fillcolor="#FFE0B2", color="#E65100"];
+  a [label="a\n1"];
+  c [label="b\n2"];
+
+  // ONLY the blank keeps a self-loop; the a/b self-loops are intentionally absent.
+  b -> b [label="ε / -", color="#9E9E9E", style=dashed];
+
+  // entry + back-off arcs are unchanged from Compact-CTC
+  b -> a [label="ε:a"];
+  b -> c [label="ε:b"];
+  a -> b [label="a:ε (back-off)", color="#9E9E9E", style=dashed];
+  c -> b [label="b:ε (back-off)", color="#9E9E9E", style=dashed];
+}

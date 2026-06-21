@@ -1,0 +1,37 @@
+// hmm-3state.dot — standard 3-state left-to-right HMM transducer per phone (H).
+// Each state has a self-loop (duration modelling) and a forward arc to the next
+// state; the first arc emits the phone label, the rest emit ε. Matches
+// TransitionMatrix::left_to_right(3, p) in src/acoustic/mod.rs.
+//
+// SHARED DOT PREAMBLE (palette = docs/diagrams/README.md):
+//   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · text #102027 · edge #607D8B
+//   best/Viterbi #2E7D32 bold(penwidth=2) · alternative #B0BEC5 · epsilon #9E9E9E dashed
+//   final = doublecircle fill #C8E6C9 border #2E7D32 · start = arrow from invisible point
+digraph hmm_3state {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>3-state HMM transducer (H)</b> — self-loops model duration; forward arcs advance the phone>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.55];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  __start__ [shape=point, width=0.01, color="#1565C0"];
+  __start__ -> s0;
+
+  s0 [label="S₀"];
+  s1 [label="S₁"];
+  s2 [label="S₂"];
+  s3 [label="exit", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+
+  // forward arcs (advance to next sub-phonetic state) — first emits the phone id
+  s0 -> s1 [label="pdf₀ : n  / aₒₙ"];
+  s1 -> s2 [label="pdf₁ : ε  / aₒₙ"];
+  s2 -> s3 [label="pdf₂ : ε  / aₒₙ"];
+
+  // self-loops (duration modelling) — dashed grey to read as the "stay" choice
+  s0 -> s0 [label="pdf₀ : ε / aₛₗ", color="#9E9E9E", style=dashed];
+  s1 -> s1 [label="pdf₁ : ε / aₛₗ", color="#9E9E9E", style=dashed];
+  s2 -> s2 [label="pdf₂ : ε / aₛₗ", color="#9E9E9E", style=dashed];
+}

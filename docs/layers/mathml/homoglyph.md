@@ -381,16 +381,30 @@ The disambiguator scores each possible meaning based on context:
 
 | Factor | Impact |
 |--------|--------|
-| Previous was number | +0.3 for Multiplication |
-| Previous was operator | +0.3 for Variable |
-| In math mode | +0.2 for Multiplication |
-| Explicit glyph (×, ⋅) | +0.4 for Multiplication |
-| At expression start | +0.4 for UnaryMinus |
-| Between digits | +0.5 for DecimalPoint |
-| After variable in math | +0.4 for Prime |
+| Previous was number | `+0.3` for Multiplication |
+| Previous was operator | `+0.3` for Variable |
+| In math mode | `+0.2` for Multiplication |
+| Explicit glyph (`×`, `⋅`) | `+0.4` for Multiplication |
+| At expression start | `+0.4` for UnaryMinus |
+| Between digits | `+0.5` for DecimalPoint |
+| After variable in math | `+0.4` for Prime |
+
+The score for each candidate meaning is the weighted sum
+`` `score = context_weight · context_factors + frequency_weight · frequency` ``;
+the highest-scoring meaning wins, and a margin below `disambiguation_threshold`
+is recorded as an `` `AmbiguousGlyph` `` issue.
 
 ## Related
 
 - [Overview](./overview.md): Layer architecture
 - [Types](./types.md): Type system
 - [Checker](./checker.md): Type checking
+
+## References
+
+- *Unicode Technical Standard #39: Unicode Security Mechanisms* — the canonical
+  treatment of confusables and the "skeleton" normalization this disambiguator's
+  canonical-form mapping mirrors: <https://www.unicode.org/reports/tr39/>.
+- [Mohri 2002](../../BIBLIOGRAPHY.md#ref-mohri2002) — weighted finite-state
+  transducers; disambiguation decisions reweight (and, under `normalize`, rewrite)
+  the glyph labels of the correction lattice.

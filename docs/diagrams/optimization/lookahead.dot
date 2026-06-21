@@ -1,0 +1,62 @@
+// lookahead.dot — backward-potential lookahead table L[q] pushed to a beam frontier.
+// Left: a small WFSA whose backward potentials V(q) = ⊕ over arcs reachable from q
+// to a final state (log semiring). Right: the frontier comparison that uses
+// accumulated ⊗ L[q] to prune. Green = final / best; amber = the lookahead table.
+//
+// SHARED DOT PREAMBLE (palette = docs/diagrams/README.md):
+//   bg #FFFFFF · state fill #BBDEFB / border #1565C0 · final = doublecircle #C8E6C9/#2E7D32
+//   best #2E7D32 bold · alt #B0BEC5 · table = HTML amber (correction tier accent)
+digraph lookahead {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>Lookahead pruning</b> — L[q] = ⊕ over arcs reachable from q (backward potential), pushed to the frontier>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.5];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  subgraph cluster_fst {
+    label=<WFSA — arc weights are −log p>;
+    labeljust="l"; color="#455A64"; fontcolor="#37474F"; style=dashed;
+
+    __start__ [shape=point, width=0.01, color="#1565C0"];
+    __start__ -> q0;
+
+    q0 [label="q0\nV=3.0"];
+    q1 [label="q1\nV=2.0"];
+    q2 [label="q2\nV=2.0"];
+    q3 [label="q3\nV=0", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+
+    q0 -> q1 [label="a / 1.0", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+    q1 -> q3 [label="b / 2.0", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+    q0 -> q2 [label="c / 1.0", color="#B0BEC5"];
+    q2 -> q3 [label="d / 2.0", color="#B0BEC5"];
+  }
+
+  // the materialized lookahead table L (amber HTML table)
+  table [shape=plaintext, label=<
+    <table border="0" cellborder="1" cellspacing="0" cellpadding="4"
+           color="#F9A825" bgcolor="#FFF59D">
+      <tr><td colspan="2"><b>LookaheadTable L</b></td></tr>
+      <tr><td>q</td><td>L[q] = V(q)</td></tr>
+      <tr><td>q0</td><td>3.0</td></tr>
+      <tr><td>q1</td><td>2.0</td></tr>
+      <tr><td>q2</td><td>2.0</td></tr>
+      <tr><td>q3</td><td>0.0</td></tr>
+    </table>>];
+
+  // frontier: each hypothesis is scored g(q) ⊗ L[q] then compared to the beam
+  frontier [shape=plaintext, label=<
+    <table border="0" cellborder="1" cellspacing="0" cellpadding="4"
+           color="#2E7D32" bgcolor="#C8E6C9">
+      <tr><td><b>pruning frontier</b></td></tr>
+      <tr><td>hyp @ q1 : g=1.0 ⊗ L=2.0 = 3.0  ✓ keep</td></tr>
+      <tr><td>hyp @ q2 : g=1.0 ⊗ L=2.0 = 3.0  ✓ keep</td></tr>
+      <tr><td>best + beam threshold = 3.0 + β</td></tr>
+    </table>>];
+
+  edge [color="#9E9E9E", style=dotted, arrowhead=vee, constraint=false];
+  q3 -> table  [label="compute_log_potentials (backward)"];
+  table -> frontier [label="normalize_score: g ⊗ L[q]"];
+}

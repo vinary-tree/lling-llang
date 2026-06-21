@@ -1,0 +1,53 @@
+// rnnt-grid.dot — the RNN-T alignment lattice over a T × (U+1) grid.
+// Each node (t,u) is a state; a blank arc advances time (t→t+1, drawn UP) and an
+// emit arc outputs the next label (u→u+1, drawn RIGHT). A monotone staircase from
+// (0,0) to (T,U) is one alignment; P(y∣x) = ⊕ over all such paths (log-semiring).
+// Here T = 3 frames, U = 2 target labels (y₁,y₂), so positions u ∈ {0,1,2}.
+//
+// SHARED DOT PREAMBLE (palette = docs/diagrams/README.md):
+//   speech/ASR accent fill #FFE0B2 / border #E65100   (RNN-T lives in the ASR tier)
+//   emit arc = #E65100 solid · blank arc = #607D8B · best path = #2E7D32 bold
+//   final = doublecircle fill #C8E6C9 border #2E7D32
+digraph rnnt_grid {
+  rankdir=BT;                 // bottom-to-top so blank (t increasing) goes UP
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>RNN-T lattice</b> (T×(U+1) grid) — blank ↑ advances time t, emit → advances label u>;
+  node  [shape=circle, style=filled, fillcolor="#FFE0B2", color="#E65100",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.5];
+  edge  [fontname="Helvetica", fontsize=10, penwidth=1.3];
+
+  // lay out columns (u) and rows (t) on a grid
+  node [group=u0];
+  n00 [label="0,0"]; n10 [label="1,0"]; n20 [label="2,0"]; n30 [label="3,0"];
+  node [group=u1];
+  n01 [label="0,1"]; n11 [label="1,1"]; n21 [label="2,1"]; n31 [label="3,1"];
+  node [group=u2];
+  n02 [label="0,2"]; n12 [label="1,2"]; n22 [label="2,2"];
+  n32 [label="3,2", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];   // final (T,U)
+
+  // align rows so each t shares a rank
+  { rank=same; n00; n01; n02 }
+  { rank=same; n10; n11; n12 }
+  { rank=same; n20; n21; n22 }
+  { rank=same; n30; n31; n32 }
+
+  // BLANK arcs: (t,u) → (t+1,u), drawn upward (grey)
+  edge [color="#607D8B", fontcolor="#455A64"];
+  n00 -> n10 [label="ø"]; n10 -> n20 [label="ø"]; n20 -> n30 [label="ø"];
+  n01 -> n11 [label="ø"]; n11 -> n21 [label="ø"]; n21 -> n31 [label="ø"];
+  n02 -> n12 [label="ø"]; n12 -> n22 [label="ø"]; n22 -> n32 [label="ø"];
+
+  // EMIT arcs: (t,u) → (t+1,u+1) advancing both time and label (orange).
+  // (In this library's lattice an emission consumes a frame too: see to_wfst.)
+  edge [color="#E65100", fontcolor="#BF360C"];
+  n00 -> n11 [label="y₁"]; n10 -> n21 [label="y₁"]; n20 -> n31 [label="y₁"];
+  n01 -> n12 [label="y₂"]; n11 -> n22 [label="y₂"]; n21 -> n32 [label="y₂"];
+
+  // one highlighted alignment: blank, emit y₁, emit y₂  (the green staircase)
+  edge [color="#2E7D32", fontcolor="#1B5E20", penwidth=2.2];
+  n00 -> n10 [label="ø"];
+  n10 -> n21 [label="y₁"];
+  n21 -> n32 [label="y₂"];
+}

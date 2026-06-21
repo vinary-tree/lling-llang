@@ -1,0 +1,53 @@
+@startuml differentiable-passes
+' Two-pass forward-backward over a WFST: the forward pass accumulates α (log-sum-exp
+' over prefixes), the backward pass accumulates β (over suffixes), and arc posteriors
+' ∂Z/∂w = exp(α[s] + w + β[t] − Z) fall out of the two. Palette: docs/diagrams/README.md
+' (deep-learning tier = purple #E1BEE7 / #6A1B9A).
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam sequence {
+  ArrowColor #6A1B9A
+  ArrowThickness 1.3
+  LifeLineBorderColor #6A1B9A
+  LifeLineBackgroundColor #F3E5F5
+  ParticipantBorderColor #6A1B9A
+  ParticipantBackgroundColor #E1BEE7
+  ParticipantFontColor #102027
+}
+
+title <b>Forward–backward autograd over a WFST</b>\n<size:11><i>forward score → backward arc-posteriors; gradient = −posterior</i></size>
+
+participant "Neural\nemissions E" as NN #FFE0B2
+participant "Forward pass\nα[s]" as FWD
+participant "Backward pass\nβ[s]" as BWD
+participant "Arc gradients\n∂Z/∂w" as G #C8E6C9
+
+== Forward pass (prefix scores, topological order) ==
+NN -> FWD : log-prob arc weights w
+note over FWD
+  α[q₀] = 1̄ (= 0 in log)
+  α[t] = α[t] ⊕ (α[s] ⊗ w)
+  for every arc (s, t, w)
+end note
+FWD -> FWD : Z = ⊕_{f∈F} (α[f] ⊗ ρ[f])
+
+== Backward pass (suffix scores, reverse topological order) ==
+FWD -> BWD : partition function Z
+note over BWD
+  β[f] = ρ[f] for finals
+  β[s] = β[s] ⊕ (w ⊗ β[t])
+  for every arc (s, t, w)
+end note
+
+== Combine: per-arc posterior ==
+FWD -> G : α[s]
+BWD -> G : β[t]
+note over G
+  posterior(arc) =
+    exp(α[s] + w + β[t] − Z)
+  ∂Loss/∂w = −posterior
+end note
+G --> NN : gradients back to emissions
+
+@enduml

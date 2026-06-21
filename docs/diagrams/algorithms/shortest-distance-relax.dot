@@ -1,0 +1,41 @@
+// shortest-distance-relax.dot — one relaxation step of Mohri's generalized
+// single-source shortest-distance. State s is dequeued; its remainder r[s] is
+// pushed along each outgoing arc as r[s] ⊗ w(e), updating both the distance d[t]
+// (⊕-accumulated) and the remainder r[t] (weight still to propagate).
+//
+// SHARED DOT PREAMBLE (copy into every Graphviz automaton; palette = docs/diagrams/README.md):
+//   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · text #102027 · edge #607D8B
+//   best/Viterbi #2E7D32 bold(penwidth=2) · alternative #B0BEC5 · epsilon #9E9E9E dashed
+//   final = doublecircle fill #C8E6C9 border #2E7D32 · start = arrow from invisible point
+digraph shortest_distance_relax {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>Relaxation step</b> — pop s, push remainder r[s] along arcs: d[t] ⊕= r[s]⊗w(e), r[t] ⊕= r[s]⊗w(e)>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.7];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  // the state being relaxed (highlighted, algorithms-green)
+  s  [label="s\nr[s]=R", fillcolor="#C8E6C9", color="#2E7D32", penwidth=2.0];
+  t1 [label="t₁\nd,r ⊕= R⊗w₁"];
+  t2 [label="t₂\nd,r ⊕= R⊗w₂"];
+  t3 [label="t₃\nd,r ⊕= R⊗w₃"];
+
+  // queue inset (FIFO) feeding the relaxation
+  subgraph cluster_q {
+    label=<<b>queue</b> (discipline-dependent order)>; color="#455A64"; fontcolor="#455A64"; style="rounded,dashed"; bgcolor="#ECEFF1";
+    Q [shape=record, style=filled, fillcolor="#ECEFF1", color="#455A64",
+       label="{ s | … | t₂ | t₁ }"];
+  }
+  Q -> s [label="pop", color="#455A64", style=dotted];
+
+  s -> t1 [label="w₁", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+  s -> t2 [label="w₂", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+  s -> t3 [label="w₃", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+
+  // re-enqueue successors whose distance changed
+  t1 -> Q [label="update", color="#455A64", style=dotted, constraint=false];
+  t2 -> Q [label="update", color="#455A64", style=dotted, constraint=false];
+}

@@ -1,0 +1,36 @@
+// lattice-worked.dot — the worked-example correction lattice as a left-to-right
+// weighted finite-state acceptor (WFSA). Graphviz twin of docs/diagrams/lattice.puml,
+// embeddable beyond the README. Green = the best (Viterbi) path "the quick fox" = 1.0.
+//
+// SHARED DOT PREAMBLE (copy into every Graphviz automaton; palette = docs/diagrams/README.md):
+//   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · text #102027 · edge #607D8B
+//   best/Viterbi #2E7D32 bold(penwidth=2) · alternative #B0BEC5 · epsilon #9E9E9E dashed
+//   final = doublecircle fill #C8E6C9 border #2E7D32 · start = arrow from invisible point
+digraph lattice_worked {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>Correction lattice (WFSA)</b> — green marks the best (Viterbi) path>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.5];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  // start marker
+  __start__ [shape=point, width=0.01, color="#1565C0"];
+  __start__ -> n0;
+
+  n0 [label="0"];
+  n1 [label="1"];
+  n2 [label="2"];
+  n3 [label="3", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];   // final
+
+  // best (Viterbi) path — bold green
+  n0 -> n1 [label="the / 0.5",   color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+  n1 -> n2 [label="quick / 0.5", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+  n2 -> n3 [label="fox / 0.0",   color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+
+  // alternatives — light grey
+  n0 -> n1 [label="teh / 1.0",  color="#B0BEC5"];
+  n1 -> n2 [label="quik / 1.0", color="#B0BEC5"];
+}

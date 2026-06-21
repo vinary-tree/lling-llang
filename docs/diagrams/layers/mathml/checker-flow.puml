@@ -1,0 +1,66 @@
+@startuml checker-flow
+' MathMLSemanticLayer.apply pipeline: Phase 1 homoglyph disambiguation (context
+' scoring + optional canonical normalization) → Phase 2 type checking (signature
+' lookup, Hindley–Milner unification, arity & division-by-zero checks), optionally
+' pruning paths that carry type errors. Config flags are MathMLSemanticConfig fields.
+' Correction tier = amber; decisions = grey diamonds; green terminal. Palette: docs/diagrams/README.md.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #607D8B
+skinparam ArrowThickness 1.3
+skinparam activity {
+  BackgroundColor #FFF59D
+  BorderColor #F9A825
+  FontColor #102027
+  DiamondBackgroundColor #ECEFF1
+  DiamondBorderColor #455A64
+  StartColor #1565C0
+  EndColor #2E7D32
+}
+skinparam note {
+  BackgroundColor #ECEFF1
+  BorderColor #455A64
+}
+
+title <b>MathML check / homoglyph normalization</b>\n<size:11><i>MathMLSemanticLayer.apply over a token lattice</i></size>
+
+start
+:Input lattice  Lattice⟨W, B⟩;
+
+if (disambiguate_homoglyphs?) then (yes)
+  :<b>Phase 1 — Homoglyph disambiguation</b>\nHomoglyphDisambiguator scores each\nconfusable glyph against MathContext;
+  note right
+    e.g. '×' vs 'x', '−' vs '-',
+    '0' vs 'O'. Context: prev_was_number,
+    prev_was_operator, in_math_mode, …
+  end note
+  if (normalize_homoglyphs?) then (yes)
+    :replace glyphs with canonical forms\n('×' → 'x', '−' → '-');
+  else (no)
+  endif
+  if (confidence < disambiguation_threshold?) then (yes)
+    :record AmbiguousGlyph issue;
+  else (no)
+  endif
+else (no)
+endif
+
+if (check_types?) then (yes)
+  :<b>Phase 2 — Type checking</b>\nMathTypeChecker: signature lookup +\nHindley–Milner unification;
+  :validate arity · detect division by zero\n· infer/bind variables (TypeEnvironment);
+  note right
+    Issues: TypeMismatch, ArityMismatch,
+    UndefinedVariable, DivisionByZero.
+  end note
+  if (prune_type_errors ∧ path has a type Error?) then (yes)
+    :drop the offending path;
+  else (no — keep)
+  endif
+else (no)
+endif
+
+:Output lattice + SemanticResult\n(inferred_type, issues, disambiguations);
+stop
+
+@enduml

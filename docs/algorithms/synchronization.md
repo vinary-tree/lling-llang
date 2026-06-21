@@ -1,12 +1,26 @@
 # Synchronization
 
-Synchronization normalizes the input/output label shifting in transducers, producing a synchronized form where labels are emitted in a controlled manner. This is useful for canonical representation and for certain composition operations.
+Synchronization normalizes the input/output label shifting in transducers, producing a synchronized form where labels are emitted in a controlled manner. This is useful for canonical representation and for certain composition operations ([Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009)).
+
+## Terms & symbols
+
+Defined centrally in [`../NOTATION.md`](../NOTATION.md); repeated locally for the terms this doc uses.
+
+| Symbol | Meaning |
+|---|---|
+| `Σ` / `Δ` | input alphabet / output alphabet (the two tapes of the transducer). |
+| `ε` | epsilon — a transition that consumes/emits nothing on a tape. |
+| `∘` | composition — chains transducers; synchronization makes the result well-behaved. |
+| `1̄` | `⊗`-identity ("empty path", zero cost). |
+| `F` | set of final states. |
+| `d` | **delay** — `` `d = ∣output consumed∣ − ∣input consumed∣` `` along a path. |
+| `∣Q∣`, `∣E∣` | number of states / transitions (cardinality bar `∣` = U+2223). |
 
 ## Concepts
 
 ### What is Synchronization?
 
-In a transducer, input and output labels can be "out of sync"—you might consume several input symbols before producing any output, or vice versa. The **delay** tracks this difference:
+In a transducer, input and output labels can be "out of sync"—you might consume several input symbols before producing any output, or vice versa. The **delay** `d` tracks this difference, `` `d = ∣output consumed∣ − ∣input consumed∣` ``:
 
 ```
 Delay = |output consumed| - |input consumed|
@@ -21,7 +35,25 @@ After 'x': consumed 1 input, 1 output → delay = 0 (synchronized)
 After 'b:y': consumed 2 inputs, 2 outputs → delay = 0
 ```
 
-Synchronization transforms a transducer so that delays are handled in a canonical way, with draining states to emit residual symbols at final states.
+Synchronization transforms a transducer so that delays are handled in a canonical way, with draining states to emit residual symbols at final states. The figure below contrasts a delayed transducer (`a:ε` runs the input tape ahead) with its synchronized form, whose states carry the residual delay `(q, in∣out)` and whose draining tail flushes leftover symbols at the final state.
+
+![Synchronization before/after: a delayed transducer with an a:ε arc that runs the input tape one symbol ahead, beside its synchronized form whose states carry the residual delay (q, in∣out) and a draining tail that emits leftover output symbols before the final state](../diagrams/algorithms/synchronization.svg)
+
+*Teal = transducer-family accent; the **before** cluster shows the delay swinging `` `−1 → 0` `` as `a:ε` then `b:x`, `c:y` are read; the **after** cluster carries the residual delay inside each state `(state, in∣out)`, green-bold arcs emit a buffered residual, and grey-dashed `ε` arcs in the amber `DRAIN` state flush leftovers before the green double-ring final.*
+
+<details><summary>Text view</summary>
+
+```text
+before (delayed):                         after (synchronized):
+
+        a:ε        b:x        c:y          (0,·) ─a:ε─► (1,a∣) ─b:a─► (2,·) ─c:x─► (3,·)
+  [0] ──────► 1 ──────► 2 ──────► (3)                 │ input        │ emit   │ emit
+                                                      │ residual [a] │ 'a'    │ 'x'
+  delay:  −1         0          0                     └─► … ─ε:y─► DRAIN ─ε:ε─► FINAL
+                                                                  drain leftover 'y'
+```
+
+</details>
 
 ### String Delay
 
@@ -176,9 +208,11 @@ if sync.is_expanded(0) {
 
 ## Algorithm Details
 
+Synchronization is a lazy reachability search over **synchronized states** — pairs of an original state and the residual delay accumulated to reach it. The loop invariant is that every reachable synchronized state carries a *canonical* delay (its common prefix already cancelled, so at most one tape is non-empty); expanding a state therefore produces at most one successor per original arc, and a bounded delay guarantees the search visits finitely many states. The literate chunks below name the three phases — `` `⟨ step a synchronized state ⟩` ``, `` `⟨ cancel the common prefix ⟩` ``, and `` `⟨ drain residuals at a final state ⟩` `` — and `` `⟨ synchronize ⟩` `` assembles them.
+
 ### Synchronized States
 
-States in the synchronized transducer are triplets:
+States in the synchronized transducer are triplets `` `(q, x, y)` ``:
 
 ```
 (q, x, y) where:
@@ -191,40 +225,57 @@ Only one of x or y is non-empty at any time.
 
 ### State Transitions
 
-For an original transition `p --a:b/w--> q`:
+For an original transition `` `p ─a:b/w─► q` ``, stepping the synchronized state appends the arc's labels to the running delay, cancels any newly-matched common prefix, and emits whatever can be emitted:
 
+```text
+⟨ step a synchronized state ⟩ ≡
+    for each original arc  p ─a:b/w─► q  out of p:
+        new_input  ← delay.input  ++ ([a] if a ≠ ε else [])
+        new_output ← delay.output ++ ([b] if b ≠ ε else [])
+        residual   ← ⟨ cancel the common prefix ⟩ (new_input, new_output)
+        emit       ← leading matched symbols (output label of the new arc)
+        push successor (q, residual) carrying arc weight w   // ⊗ along the path
 ```
-From synchronized state (p, delay):
 
-1. Extend delays:
-   new_input = delay.input ++ [a] if a ≠ ε
-   new_output = delay.output ++ [b] if b ≠ ε
+### Common Prefix Cancellation
 
-2. Synchronize (cancel common prefix):
-   while new_input[0] == new_output[0]:
-       remove first from both
+The delay is kept canonical by cancelling the longest common prefix of the two tapes, so a symbol that has been both consumed and produced is dropped from the residual:
 
-3. Create output transition:
-   - Output label: first symbol from synchronized delay
-   - Target: (q, remaining_delay)
+```text
+⟨ cancel the common prefix ⟩ (input, output) ≡
+    while input ≠ [] and output ≠ [] and input[0] = output[0]:
+        drop input[0];  drop output[0]              // matched on both tapes
+    return StringDelay { input, output }            // at most one is non-empty
 ```
 
 ### Draining States
 
-When a final state has non-empty delay, we need to "drain" the residual:
+When a final state has non-empty delay, we need to "drain" the residual — a tail of `` `ε`-output arcs emits the leftover symbols so the path can accept with delay `` `0` `` and final weight `1̄`:
 
-```
-Original: state q is final with delay = [a, b]
-
-Synchronized:
-  (q, [a,b]) --a:ε--> (DRAIN, [b])
-             --ε:ε--> final         if delay empty
-
-  (DRAIN, [b]) --b:ε--> (DRAIN, [])
-  (DRAIN, []) = final state
+```text
+⟨ drain residuals at a final state ⟩ ≡
+    if q ∈ F:
+        if residual = ([], []):  mark (q, residual) final with weight 1̄
+        else:                    // spill the leftover symbols one at a time
+            (q, [a, b, …]) ─a:ε─► (DRAIN, [b, …]) ─b:ε─► (DRAIN, …) ─ε:ε─► FINAL
 ```
 
 This ensures all accumulated symbols are emitted before accepting.
+
+### Putting It Together
+
+```text
+⟨ synchronize ⟩ ≡
+    seed ← (start, ([], []));  queue ← [seed];  result.start ← seed
+    while queue not empty:
+        (q, residual) ← queue.pop()
+        ⟨ drain residuals at a final state ⟩      // make finals well-formed
+        ⟨ step a synchronized state ⟩             // one successor per original arc
+        push freshly-created successors onto queue
+    return result                                 // lazy: only visited states realized
+```
+
+The construction terminates exactly when the delay is bounded (§ *Bounded Delay*); the `max_delay` cap of `` `synchronize_bounded` `` truncates any branch whose residual would exceed it, trading completeness for a guaranteed finite state space.
 
 ### Delay Synchronization (Common Prefix Cancellation)
 
@@ -253,24 +304,28 @@ After sync:
 
 ### Time Complexity
 
-```
-O((|Q| + |E|) × (|Σ|^d + |Δ|^d))
+The synchronized transducer has `` `O((∣Q∣ + ∣E∣) × (∣Σ∣ᵈ + ∣Δ∣ᵈ))` `` arcs to realize:
+
+```text
+O((∣Q∣ + ∣E∣) × (∣Σ∣ᵈ + ∣Δ∣ᵈ))
 ```
 
 Where:
-- |Q| = original states
-- |E| = original transitions
-- d = maximum delay
-- |Σ| = input alphabet size
-- |Δ| = output alphabet size
+- `∣Q∣` = original states
+- `∣E∣` = original transitions
+- `d` = maximum delay
+- `∣Σ∣` = input alphabet size
+- `∣Δ∣` = output alphabet size
 
 ### Space Complexity
 
-```
-O(|Q| × |Σ|^d × |Δ|^d)
+The synchronized state space is `` `O(∣Q∣ × ∣Σ∣ᵈ × ∣Δ∣ᵈ)` ``:
+
+```text
+O(∣Q∣ × ∣Σ∣ᵈ × ∣Δ∣ᵈ)
 ```
 
-This can be exponential in the delay, which is why bounded delay is required.
+This can be exponential in the delay `d`, which is why bounded delay is required.
 
 ### Why Bounded Delay Matters
 
@@ -439,3 +494,8 @@ The delay is the difference in "head positions" on these tapes.
 - [Epsilon Removal](epsilon-removal.md): Can affect delay patterns
 - [WFST Operations](../architecture/wfst-operations.md): Building transducers
 - [Composition](composition.md): Synchronized transducers in composition
+
+## References
+
+- [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms*: the delay/synchronization machinery for transducers, the bounded-delay (twins-style) condition under which a canonical synchronized form exists, and its role in making composition and determinization well-behaved.
+- [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted Finite-State Transducers in Speech Recognition*: input/output label delay in the recognition cascade and why a synchronized (canonical) transducer form matters when composing the cascade stages.

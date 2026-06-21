@@ -2,6 +2,32 @@
 
 The type checker performs type inference and checking on mathematical expressions based on Content MathML semantics.
 
+Type checking is **Phase 2** of `MathMLSemanticLayer::apply`, running after
+homoglyph disambiguation has resolved ambiguous glyphs. The diagram below places
+the checker within the full check / normalization pipeline.
+
+![Activity diagram: the MathML check pipeline, where type checking (signature lookup, Hindley-Milner unification, arity and division-by-zero checks) follows homoglyph disambiguation and optionally prunes paths carrying type errors.](../../diagrams/layers/mathml/checker-flow.svg)
+
+*Amber = the disambiguation/type-check activities; grey diamonds =
+`MathMLSemanticConfig` gates; green terminal = the output lattice plus its
+`` `SemanticResult` ``. Type checking is the `check_types` branch.*
+
+<details><summary>Text view</summary>
+
+```text
+input lattice
+  → [disambiguate_homoglyphs?]  Phase 1: HomoglyphDisambiguator + MathContext
+        → [normalize_homoglyphs?]  '×' → 'x', '−' → '-'
+        → [confidence < disambiguation_threshold?]  record AmbiguousGlyph
+  → [check_types?]  Phase 2: MathTypeChecker
+        → signature lookup + Hindley–Milner unification
+        → validate arity · detect division by zero · bind variables
+        → [prune_type_errors ∧ path has a type Error?]  drop the path
+  → output lattice + SemanticResult (inferred_type, issues, disambiguations)
+```
+
+</details>
+
 ## Type Checker Structure
 
 ```rust
@@ -73,26 +99,26 @@ The type checker registers standard mathematical signatures automatically:
 
 | Command | Type | Description |
 |---------|------|-------------|
-| `\frac` | (Number, Number) -> Number | Fraction |
-| `\sqrt` | (Number) -> Number | Square root |
-| `\binom` | (Number, Number) -> Number | Binomial coefficient |
+| `\frac` | `(Number, Number) -> Number` | Fraction |
+| `\sqrt` | `(Number) -> Number` | Square root |
+| `\binom` | `(Number, Number) -> Number` | Binomial coefficient |
 
 ### Trigonometric Functions
 
 | Command | Type |
 |---------|------|
-| `\sin`, `\cos`, `\tan` | (Number) -> Number |
-| `\cot`, `\sec`, `\csc` | (Number) -> Number |
-| `\arcsin`, `\arccos`, `\arctan` | (Number) -> Number |
-| `\sinh`, `\cosh`, `\tanh` | (Number) -> Number |
+| `\sin`, `\cos`, `\tan` | `(Number) -> Number` |
+| `\cot`, `\sec`, `\csc` | `(Number) -> Number` |
+| `\arcsin`, `\arccos`, `\arctan` | `(Number) -> Number` |
+| `\sinh`, `\cosh`, `\tanh` | `(Number) -> Number` |
 
 ### Logarithms and Exponentials
 
 | Command | Type |
 |---------|------|
-| `\log` | (Number) -> Number |
-| `\ln` | (Number) -> Number |
-| `\exp` | (Number) -> Number |
+| `\log` | `(Number) -> Number` |
+| `\ln` | `(Number) -> Number` |
+| `\exp` | `(Number) -> Number` |
 
 ### N-ary Operators
 
@@ -101,7 +127,7 @@ The type checker registers standard mathematical signatures automatically:
 | `\sum` | NaryOp | Calculus |
 | `\prod` | NaryOp | Calculus |
 | `\int` | NaryOp | Calculus |
-| `\lim` | (Number) -> Number | Calculus |
+| `\lim` | `(Number) -> Number` | Calculus |
 
 ### Relations
 
@@ -115,10 +141,10 @@ The type checker registers standard mathematical signatures automatically:
 
 | Command | Type |
 |---------|------|
-| `\land` | (Boolean, Boolean) -> Boolean |
-| `\lor` | (Boolean, Boolean) -> Boolean |
-| `\lnot` | (Boolean) -> Boolean |
-| `\implies`, `\iff` | (Boolean, Boolean) -> Boolean |
+| `\land` | `(Boolean, Boolean) -> Boolean` |
+| `\lor` | `(Boolean, Boolean) -> Boolean` |
+| `\lnot` | `(Boolean) -> Boolean` |
+| `\implies`, `\iff` | `(Boolean, Boolean) -> Boolean` |
 
 ### Set Operations
 
@@ -141,8 +167,8 @@ All Greek letters (`\alpha`, `\beta`, ..., `\omega`) are registered as `Variable
 
 | Command | Type |
 |---------|------|
-| `\det` | (Matrix) -> Number |
-| `\tr` | (Matrix) -> Number |
+| `\det` | `(Matrix) -> Number` |
+| `\tr` | `(Matrix) -> Number` |
 
 ## Type Checking
 
@@ -386,3 +412,13 @@ for error in &result.errors {
 - [Overview](./overview.md): Layer architecture
 - [Types](./types.md): Type system
 - [Homoglyph](./homoglyph.md): Glyph disambiguation
+
+## References
+
+- [Goodman 1999](../../BIBLIOGRAPHY.md#ref-goodman1999) — semiring parsing; the
+  algebra for combining per-derivation type-check scores.
+- Hindley–Milner type inference follows Milner, R. (1978), *A Theory of Type
+  Polymorphism in Programming*, J. Comput. Syst. Sci. 17(3):348–375
+  ([doi:10.1016/0022-0000(78)90014-4](https://doi.org/10.1016/0022-0000(78)90014-4)).
+- The signature semantics follow the W3C *Content MathML* model (MathML 3.0,
+  §4 *Content Markup*): <https://www.w3.org/TR/MathML3/chapter4.html>.

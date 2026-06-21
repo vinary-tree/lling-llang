@@ -1,0 +1,59 @@
+@startuml correction-layers
+' lling-llang correction-layer pipeline composition. A LayerPipeline applies its
+' boxed CorrectionLayers in order — lexical → CFG → LM → custom domain layers —
+' each consuming a Lattice<W,B> and returning a (typically smaller) Lattice<W,B>.
+' Correction/NLP tier = amber (fill #FFF59D / border #F9A825); neutral IO = grey.
+' Palette & conventions: docs/diagrams/README.md.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #607D8B
+skinparam ArrowThickness 1.3
+skinparam activity {
+  BackgroundColor #FFF59D
+  BorderColor #F9A825
+  FontColor #102027
+  DiamondBackgroundColor #ECEFF1
+  DiamondBorderColor #455A64
+  StartColor #1565C0
+  EndColor #2E7D32
+}
+skinparam note {
+  BackgroundColor #ECEFF1
+  BorderColor #455A64
+}
+
+title <b>Correction-layer pipeline</b>\n<size:11><i>LayerPipeline.apply: each CorrectionLayer maps Lattice⟨W,B⟩ → Lattice⟨W,B⟩, composed left to right</i></size>
+
+|#ECEFF1|IO|
+start
+:Input lattice  Lattice⟨W, B⟩;
+note right
+  A weighted DAG of token
+  alternatives (the WFSA the
+  earlier stages produced).
+end note
+
+|#FFF59D|filtering (lexical)|
+:<b>EditDistanceLayer</b> / <b>ConfusionLayer</b>\nLexical pruning & expansion —\nLevenshtein distance to a dictionary,\nconfusion-matrix substitutions;
+
+|#FFF59D|filtering (CFG)|
+:<b>CfgFilterLayer</b>\nKeep only paths a context-free\ngrammar accepts (Earley over the lattice);
+
+|#FFF59D|rescoring (LM)|
+:<b>LanguageModelLayer</b>\nReweight surviving edges by an\nn-gram / neural language model;
+
+|#FFF59D|custom (domain)|
+if (which domain layer?) then ([code])
+  :<b>CodeCorrectionLayer</b>\nsyntax recovery + pattern boost;
+elseif ([LaTeX]) then
+  :<b>LatexSyntaxLayer</b>\ngrammar filter + validate + repair;
+else ([MathML])
+  :<b>MathMLSemanticLayer</b>\nhomoglyph + type checking;
+endif
+
+|#ECEFF1|IO|
+:Output lattice  Lattice⟨W, B⟩\n(filtered & reweighted);
+stop
+
+@enduml

@@ -1,0 +1,53 @@
+@startuml constrained-decode
+' lling-llang grammar-constrained decoding pipeline:
+'   CFG → PDA → compressed FSM → per-step token mask → masked LLM logits.
+' Correction & NLP tier (amber) for the llm module; deep-learning tier (purple)
+' for the LLM logit stage; foundation (blue) for the automaton artifacts; green
+' for the accepted token. Palette: docs/diagrams/README.md.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #F9A825
+skinparam ArrowThickness 1.3
+skinparam activity {
+  BackgroundColor #FFF59D
+  BorderColor #F9A825
+  FontColor #102027
+  DiamondBackgroundColor #FFF59D
+  DiamondBorderColor #F9A825
+}
+skinparam note {
+  BackgroundColor #ECEFF1
+  BorderColor #455A64
+}
+
+title <b>Grammar-constrained decoding pipeline</b>\n<size:11><i>CFG → PDA → compressed FSM → token mask m[v]=1 iff v∈allowed → masked logits</i></size>
+
+|#BBDEFB|compile (once)|
+start
+:CFG  G = (V, Σ, R, S);
+note right
+  Context-free grammar:
+  V variables · Σ terminals
+  R rules · S start symbol
+end note
+:build PDA  (Q, Σ, Γ, δ, q₀, Z₀);
+note right: stack Γ recognizes CFL nesting
+:compress to FSM\n(precompute valid-token sets\n+ batch transitions);
+:cache  valid_tokens[q] : TokenMask;
+
+|#FFF59D|decode (per step)|
+repeat
+  :DecoderState s = (automaton_state, stack);
+  :m ← valid_tokens(s)   // m[v] = 1 iff v ∈ allowed;
+  |#E1BEE7|LLM|
+  :logits ℓ over vocabulary V;
+  :ℓ′[v] ← ℓ[v] if m[v]=1 else −∞;
+  :sample / argmax  token t  with m[t]=1;
+  |#FFF59D|decode (per step)|
+  :s ← advance(s, t)   // PDA push/pop or FSM step;
+backward :more tokens & ¬is_accepting(s)?;
+repeat while (continue) is (yes) not (no)
+#C8E6C9:accepted sequence ∈ L(G);
+stop
+@enduml

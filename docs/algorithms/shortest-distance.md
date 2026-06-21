@@ -1,25 +1,40 @@
 # Shortest-Distance Algorithms
 
-Shortest-distance algorithms compute the total weight of all paths between states in a WFST. These are foundational algorithms that underpin weight pushing, epsilon removal, and many optimization techniques.
+Shortest-distance algorithms compute the total weight of all paths between states in a WFST. These are foundational algorithms that underpin weight pushing, epsilon removal, and many optimization techniques. (WFST = **W**eighted **F**inite-**S**tate **T**ransducer.)
+
+## Terms & symbols
+
+The symbols below are defined centrally in [`../NOTATION.md`](../NOTATION.md); this doc repeats only what it uses.
+
+| Symbol | Meaning |
+|---|---|
+| `⊕` | semiring *plus* — combines **alternative** paths (Tropical: `min`; Log: `⊕ₗₒg`; Probability: `+`). |
+| `⊗` | semiring *times* — combines **sequential** arcs along one path. |
+| `0̄` / `1̄` | the `⊕`-identity ("no path") / the `⊗`-identity ("empty path", zero cost). |
+| `d(s,t)` | shortest distance: the `⊕`-sum of every `s → t` path weight. |
+| `a*` | star/closure `a* = 1̄ ⊕ a ⊕ a² ⊕ …`. |
+| `∣Q∣`, `∣E∣` | number of states / transitions (cardinality bar `∣` = U+2223). |
 
 ## Concepts
 
 ### What is Shortest-Distance?
 
-In a weighted automaton, the "shortest distance" from state `s` to state `t` is the combination of all path weights using the semiring's ⊕ operation:
+In a weighted automaton, the "shortest distance" from state `s` to state `t` is the combination of all path weights using the semiring's `⊕` operation:
 
-```
+```text
 d(s,t) = ⊕ { w(π) : π is a path from s to t }
 ```
 
+That is, `` `d(s,t) = ⊕ { w(π) : π a path s→t }` `` accumulates every alternative path with `⊕` and every arc within a path with `⊗`.
+
 The meaning of "shortest" depends on the semiring:
 
-| Semiring | ⊕ Operation | "Shortest" Means |
+| Semiring | `⊕` Operation | "Shortest" Means |
 |----------|-------------|------------------|
-| Tropical | min | Minimum cost path |
-| Log | log-sum-exp | Total probability (in log-space) |
-| Probability | + | Sum of probabilities |
-| Boolean | ∨ | Any path exists |
+| Tropical | `min` | Minimum cost path |
+| Log | `⊕ₗₒg` (log-sum-exp) | Total probability (in log-space) |
+| Probability | `+` | Sum of probabilities |
+| Boolean | `∨` | Any path exists |
 
 ### Why Shortest-Distance?
 
@@ -81,11 +96,40 @@ pub fn shortest_distance_to_final<L, W, F>(
 
 ## Queue Disciplines
 
-The choice of queue discipline significantly impacts algorithm performance:
+The choice of queue discipline significantly impacts algorithm performance. The decision tree below routes each WFST to a discipline by its structure (acyclic?) and its semiring (tropical with non-negative weights?).
+
+![Queue-discipline selection: acyclic → topological; tropical non-negative → shortest-first (Dijkstra); otherwise → FIFO](../diagrams/algorithms/queue-disciplines.svg)
+
+*Foundation-blue start; amber diamonds are decisions; algorithms-green terminals are the chosen disciplines with their complexity. `Auto` picks topological when a topological sort exists, else FIFO.*
+
+<details><summary>Text view</summary>
+
+```text
+                    ┌─────────────────┐
+                    │ Graph acyclic?  │
+                    └────────┬────────┘
+                      yes/   \no
+                        /     \
+            ┌──────────┘       └──────────┐
+            │                             │
+    ┌───────▼───────┐           ┌─────────▼─────────┐
+    │ Topological   │           │ Tropical semiring? │
+    │ O(∣Q∣ + ∣E∣)  │           └─────────┬─────────┘
+    └───────────────┘                yes/   \no
+                                      /     \
+                          ┌──────────┘       └──────────┐
+                          │                             │
+                  ┌───────▼───────┐           ┌─────────▼─────────┐
+                  │ ShortestFirst │           │       FIFO        │
+                  │ O(∣E∣+∣Q∣log∣Q∣)│         │     O(C · ∣E∣)    │
+                  └───────────────┘           └───────────────────┘
+```
+
+</details>
 
 ### FIFO Queue
 
-```
+```text
 ┌───┬───┬───┬───┐
 │ 0 │ 1 │ 2 │ 3 │  →  Process in arrival order
 └───┴───┴───┴───┘
@@ -95,7 +139,7 @@ The choice of queue discipline significantly impacts algorithm performance:
 
 **When to use**: General-purpose for any k-closed semiring.
 
-**Complexity**: O(C · |E|) where C bounds the path length.
+**Complexity**: `` `O(C · ∣E∣)` `` where `C` bounds the path length.
 
 ```rust
 let config = ShortestDistanceConfig::general();
@@ -104,15 +148,15 @@ let distances = single_source_shortest_distance(&fst, config);
 
 ### Topological Queue
 
-```
+```text
 Graph: 0 → 1 → 2 → 3  (acyclic)
        ↓
 Order: [0, 1, 2, 3]  (process in dependency order)
 ```
 
-**When to use**: Acyclic graphs (lattices, DAGs).
+**When to use**: Acyclic graphs (lattices, DAGs). (DAG = **D**irected **A**cyclic **G**raph.)
 
-**Complexity**: O(|Q| + |E|) — each state processed exactly once.
+**Complexity**: `` `O(∣Q∣ + ∣E∣)` `` — each state processed exactly once.
 
 ```rust
 let config = ShortestDistanceConfig::acyclic();
@@ -121,7 +165,7 @@ let distances = single_source_shortest_distance(&fst, config);
 
 ### Shortest-First Queue (Dijkstra)
 
-```
+```text
 Priority Queue:
   ┌─────────────────────────────┐
   │ (state=2, dist=1.0) ← min  │
@@ -132,7 +176,7 @@ Priority Queue:
 
 **When to use**: Tropical semiring with non-negative weights.
 
-**Complexity**: O(|E| + |Q| log |Q|) — Dijkstra's algorithm.
+**Complexity**: `` `O(∣E∣ + ∣Q∣ log ∣Q∣)` `` — Dijkstra's algorithm.
 
 ```rust
 let config = ShortestDistanceConfig::tropical();
@@ -244,49 +288,102 @@ println!("Distance 0→3: {:?}", distances[0][3]);
 
 ### Gen-Single-Source (Mohri's Algorithm)
 
-The algorithm generalizes classical relaxation-based shortest paths:
+The algorithm generalizes classical relaxation-based shortest paths to an arbitrary
+semiring ([Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009)). Each state carries two
+quantities: its current distance `` `d[s]` `` (the `⊕`-sum of all start→`s` paths seen
+so far) and a **remainder** `` `r[s]` `` (the part of `` `d[s]` `` not yet propagated to
+successors). The loop invariant is that `` `d[s]` `` equals the true distance restricted
+to the paths already explored, and `r[s]` holds exactly the weight that still must be
+pushed out of `s`. The relaxation step below pops a state and pushes its remainder
+along every outgoing arc.
 
-```
+![Relaxation step: pop state s, push remainder r[s] along each arc as r[s] ⊗ w(e), updating distance and remainder of the target, then re-enqueue changed targets](../diagrams/algorithms/shortest-distance-relax.svg)
+
+*Algorithms-green = the state being relaxed; arcs carry `` `r[s] ⊗ w(e)` ``; the dotted queue (FIFO/shortest-first/topological per the discipline) feeds and re-receives updated successors.*
+
+<details><summary>Text view</summary>
+
+```text
 procedure SINGLE_SOURCE(fst):
-    d[s] ← 1̄ for all states s (⊗-identity, meaning "zero cost")
-    d[start] ← 0̄ (⊕-identity, meaning "no accumulated weight")
-    r[s] ← 0̄ for all states s (remainder to propagate)
+    d[s] ← 0̄ for all states s        (⊕-identity, "no path yet")
+    d[start] ← 1̄                      (⊗-identity, "empty path, zero cost")
+    r[s] ← 0̄ for all states s         (remainder to propagate)
     r[start] ← 1̄
     Q.insert(start)
-
     while Q not empty:
         s ← Q.pop()
-        remainder ← r[s]
-        r[s] ← 0̄
-
+        remainder ← r[s]; r[s] ← 0̄
         for each arc (s, label, weight, t):
             contribution ← remainder ⊗ weight
             if d[t] ⊕ contribution ≠ d[t]:
                 d[t] ← d[t] ⊕ contribution
                 r[t] ← r[t] ⊕ contribution
                 Q.update(t)
-
     return d
 ```
 
-Key insight: Track "remainder" separately from distance. The remainder represents weight that still needs to be propagated to successor states.
+</details>
+
+The procedure decomposes into three literate chunks.
+
+```text
+⟨ initialize distances and remainders ⟩ ≡
+    for each state s in Q:  d[s] ← 0̄;  r[s] ← 0̄
+    d[start] ← 1̄;  r[start] ← 1̄
+    Q.insert(start)
+```
+
+```text
+⟨ relax outgoing arcs ⟩ ≡
+    remainder ← r[s];  r[s] ← 0̄          // take and clear the pending weight
+    for each arc e = (s, label, w, t):
+        contribution ← remainder ⊗ w      // ⟨ extend the remainder by the arc ⟩
+        if d[t] ⊕ contribution ≠ d[t]:    // only when it changes the distance
+            d[t] ← d[t] ⊕ contribution
+            r[t] ← r[t] ⊕ contribution
+            Q.update(t)                   // (re)enqueue under the active discipline
+```
+
+```text
+⟨ single-source shortest distance ⟩ ≡
+    ⟨ initialize distances and remainders ⟩
+    while Q not empty:
+        s ← Q.pop()
+        ⟨ relax outgoing arcs ⟩
+    return d
+```
+
+**Key insight.** Tracking the remainder `` `r[s]` `` separately from the distance
+`` `d[s]` `` is what generalizes Dijkstra/Bellman-Ford to non-idempotent semirings:
+the remainder is the weight that *still needs to be propagated*, so a state may be
+relaxed more than once until its remainder settles to `0̄`. The convergence test
+`` `d[t] ⊕ contribution ≠ d[t]` `` halts propagation as soon as a path stops
+improving the distance.
+
+**Complexity.** With the topological discipline on a DAG each state is popped once,
+giving `` `O(∣Q∣ + ∣E∣)` ``. With the FIFO discipline on a general `k`-closed
+semiring a state is relaxed at most `k` times for a bound of `` `O(C · ∣E∣)` ``
+where `C` is the per-state processing bound. With the shortest-first discipline on
+the tropical semiring it is exactly Dijkstra's `` `O(∣E∣ + ∣Q∣ log ∣Q∣)` ``.
 
 ### Floyd-Warshall Generalization
 
 For all-pairs distances, the algorithm uses a star operation for cycles:
 
-```
+```text
 d[i][j] ← d[i][j] ⊕ (d[i][k] ⊗ d[k][k]* ⊗ d[k][j])
 ```
 
-Where `d[k][k]*` handles cycles through state k. The star operation computes:
+i.e. `` `d[i][j] ⊕= d[i][k] ⊗ d[k][k]* ⊗ d[k][j]` ``, where `` `d[k][k]*` `` (the
+star/closure) handles cycles through state `k`. The star operation computes:
 
-```
+```text
 a* = 1̄ ⊕ a ⊕ a² ⊕ a³ ⊕ ...
 ```
 
-For tropical semiring: `a* = 0` if `a ≥ 0`, undefined otherwise.
-For log semiring: `a* = -log(1 - exp(-a))` if `a > 0`.
+i.e. `` `a* = 1̄ ⊕ a ⊕ a² ⊕ a³ ⊕ …` ``.
+For the tropical semiring: `` `a* = 0̄` `` (i.e. `0`) if `` `a ≥ 0̄` ``, undefined otherwise.
+For the log semiring: `` `a* = −log(1 − e⁻ᵃ)` `` if `` `a > 0` ``.
 
 ## Performance
 
@@ -294,45 +391,26 @@ For log semiring: `a* = -log(1 - exp(-a))` if `a > 0`.
 
 | Queue | Time Complexity | Space | Best For |
 |-------|-----------------|-------|----------|
-| Topological | O(\|Q\| + \|E\|) | O(\|Q\|) | Acyclic graphs |
-| ShortestFirst | O(\|E\| + \|Q\| log \|Q\|) | O(\|Q\|) | Tropical semiring |
-| FIFO | O(C · \|E\|) | O(\|Q\|) | General k-closed |
-| All-Pairs | O(\|Q\|³) | O(\|Q\|²) | Complete matrix |
+| Topological | `` `O(∣Q∣ + ∣E∣)` `` | `` `O(∣Q∣)` `` | Acyclic graphs |
+| ShortestFirst | `` `O(∣E∣ + ∣Q∣ log ∣Q∣)` `` | `` `O(∣Q∣)` `` | Tropical semiring |
+| FIFO | `` `O(C · ∣E∣)` `` | `` `O(∣Q∣)` `` | General k-closed |
+| All-Pairs | `` `O(∣Q∣³)` `` | `` `O(∣Q∣²)` `` | Complete matrix |
 
 Where:
-- |Q| = number of states
-- |E| = number of transitions
-- C = bound on number of times a state is processed (depends on semiring)
+- `` `∣Q∣` `` = number of states
+- `` `∣E∣` `` = number of transitions
+- `C` = bound on number of times a state is processed (depends on semiring)
 
 ### Queue Selection Decision Tree
 
-```
-                    ┌─────────────────┐
-                    │ Graph acyclic?  │
-                    └────────┬────────┘
-                      yes/   \no
-                        /     \
-            ┌──────────┘       └──────────┐
-            │                             │
-    ┌───────▼───────┐           ┌─────────▼─────────┐
-    │ Topological   │           │ Tropical semiring? │
-    │ O(|Q| + |E|)  │           └─────────┬─────────┘
-    └───────────────┘                yes/   \no
-                                      /     \
-                          ┌──────────┘       └──────────┐
-                          │                             │
-                  ┌───────▼───────┐           ┌─────────▼─────────┐
-                  │ ShortestFirst │           │       FIFO        │
-                  │ O(|E|+|Q|log|Q|)│         │     O(C · |E|)    │
-                  └───────────────┘           └───────────────────┘
-```
+See the [Queue Disciplines](#queue-disciplines) decision-tree diagram above: acyclic → topological `` `O(∣Q∣ + ∣E∣)` ``; otherwise tropical with non-negative weights → shortest-first `` `O(∣E∣ + ∣Q∣ log ∣Q∣)` ``; else FIFO `` `O(C · ∣E∣)` ``.
 
 ## Convergence
 
 ### When Does It Converge?
 
-- **Acyclic graphs**: Always converges in O(|Q|) iterations
-- **k-closed semirings**: Converges after at most k iterations per state
+- **Acyclic graphs**: Always converges in `` `O(∣Q∣)` `` iterations
+- **k-closed semirings**: Converges after at most `k` iterations per state
 - **Tropical with negative cycles**: May not converge (returns `None`)
 
 ### Detecting Non-Convergence
@@ -349,9 +427,14 @@ match single_source_shortest_distance(&fst, config) {
 }
 ```
 
+## References
+
+- [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms* (Handbook of Weighted Automata): the generalized single-source shortest-distance algorithm with the distance/remainder decomposition, queue disciplines, and `k`-closed convergence used here.
+- [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted Finite-State Transducers in Speech Recognition*: shortest-distance as the workhorse behind weight pushing and lattice scoring.
+
 ## Next Steps
 
 - [Weight Pushing](weight-pushing.md): Uses shortest-distance for normalization
-- [Epsilon Removal](epsilon-removal.md): Uses shortest-distance for ε-closures
+- [Epsilon Removal](epsilon-removal.md): Uses shortest-distance for `ε`-closures
 - [Determinization](determinization.md): Uses shortest-distance for subset weights
-- [Semirings](../architecture/semirings.md): Understanding ⊕ and ⊗ operations
+- [Semirings](../architecture/semirings.md): Understanding `⊕` and `⊗` operations

@@ -1,0 +1,45 @@
+@startuml posterior-fusion
+' Neural emission posteriors fused into the WFST decoding graph.
+' AcousticModel::forward emits per-frame log-posteriors P(unit∣frame); FusionConfig
+' weights them against the LM score inside the recognition network N = H∘C∘L∘G;
+' the weighted product is searched (Viterbi/beam) to yield words.
+' Matches AcousticModel / FusionConfig / AcousticLanguageModel in src/acoustic/mod.rs.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #6A1B9A
+skinparam ArrowThickness 1.4
+skinparam rectangle {
+  RoundCorner 12
+  FontColor #102027
+  BorderColor #E65100
+}
+
+title <b>Neural posterior fusion into the decoding graph</b>\n<size:11>combined = λ_am · log P(unit∣frame) + λ_lm · log P(word∣context) + penalties</size>
+
+rectangle "<b>Audio frames</b>\n[T × feature_dim]" as X #ECEFF1
+rectangle "<b>AcousticModel</b>\nneural net · forward()" as AM #E1BEE7
+rectangle "<b>Posteriors</b>\nlog P(unit∣frame)\nFramePosterior / PosteriorSequence" as POST #E1BEE7
+
+X  -down-> AM  : features
+AM -down-> POST : per-frame log-probs
+
+rectangle "<b>Recognition network N</b>\nH ∘ C ∘ L ∘ G   (unit → word)" as N #FFB74D
+rectangle "<b>FusionConfig</b>\nλ_am · acoustic_weight\nλ_lm · lm_weight\nword/blank penalties" as FUSE #FFE0B2
+
+POST -down-> FUSE : λ_am · log P(unit∣frame)
+N    -down-> FUSE : λ_lm · log P(word∣context)
+
+rectangle "<b>Search</b>\nViterbi / beam over  posteriors ⊗ N" as DEC #C8E6C9
+rectangle "<b>Words</b>" as W #ECEFF1
+
+FUSE -down-> DEC : weighted product
+DEC  -down-> W
+
+note right of FUSE
+  Scores live in a log-domain semiring (LogWeight), so
+  the fused product is a semiring ⊗ and alternative paths
+  combine with ⊕. AcousticLanguageModel::to_log_weight
+  packages the result as a WFST arc weight.
+end note
+@enduml

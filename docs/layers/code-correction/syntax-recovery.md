@@ -21,7 +21,23 @@ pub enum RecoveryStrategy {
 
 ### How Each Strategy Works
 
-```
+The layer scans the token stream as a small state machine: at each position it may
+take an **Insertion**, **Deletion**, or **Replacement** transition (each gated by
+the configured `RecoveryStrategy` set and adding its per-operation cost), while
+tracking an open-bracket stack. At end of input, any unclosed brackets are
+balanced before reaching the accepting `Recovered` state. Every repair is added as
+a *parallel* lattice edge, so all candidates coexist and the lowest-cost path —
+`` `cost = original_cost + Σ recovery_costs` `` — is preferred downstream.
+
+![State diagram: from Scanning, conditional transitions to Insertion (+insertion_cost), Deletion (+deletion_cost via an ε edge), and Replacement (+replacement_cost), each returning to Scanning; at end of input, green edges go to Balancing (if the bracket stack is non-empty) then to the green double-ringed Recovered state, or directly to Recovered when the stack is empty.](../../diagrams/layers/code-correction/syntax-recovery.svg)
+
+*Amber = recovery states; bold green = the accepting transitions to the green
+double-ring `Recovered` state; guards in `` `[ … ]` `` are the strategy/cost/limit
+conditions (`max_insertions`, `max_deletions`); `` `ε` `` is the empty (skip) label.*
+
+<details><summary>Text view (per-strategy lattice edits)</summary>
+
+```text
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                       Recovery Strategies                                │
 ├─────────────────────────────────────────────────────────────────────────┤
@@ -62,6 +78,8 @@ pub enum RecoveryStrategy {
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+</details>
 
 ## Configuration
 
@@ -232,18 +250,20 @@ let config = SyntaxRecoveryConfig::default()
 
 ## Cost Model
 
-Costs determine which corrections are preferred:
+Costs determine which corrections are preferred. The total cost of a recovered
+path is `` `total_cost = original_cost + Σ recovery_costs` ``:
 
-```
-Total Cost = original_cost + sum(recovery_costs)
+```text
+total_cost = original_cost + Σ recovery_costs
 
 Recovery costs:
-- Insertion: insertion_cost per token (default 2.0)
-- Deletion: deletion_cost per token (default 1.5)
+- Insertion:   insertion_cost   per token (default 2.0)
+- Deletion:    deletion_cost    per token (default 1.5)
 - Replacement: replacement_cost per token (default 1.0)
 ```
 
-Lower total cost = more preferred path.
+Lower total cost = more preferred path. Because weights live in the tropical
+semiring (`` `⊕ = min` ``, `` `⊗ = +` ``), the best path is the minimum-cost path.
 
 ### Cost Tuning
 
@@ -393,3 +413,11 @@ This helps with planning pipeline resources.
 - [Overview](overview.md) - Code correction introduction
 - [Pattern-Aware Correction](pattern-aware.md) - Idiom-based boosting
 - [Language Configuration](configuration.md) - Per-language settings
+
+## References
+
+- [Mohri 2002](../../BIBLIOGRAPHY.md#ref-mohri2002) — weighted finite-state
+  transducers; recovery edits are weighted arcs, and the corrected reading is the
+  best path through the resulting lattice.
+- [Mohri 2009](../../BIBLIOGRAPHY.md#ref-mohri2009) — shortest-/best-path
+  algorithms over the tropical semiring used to select the minimum-cost recovery.

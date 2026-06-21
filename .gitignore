@@ -119,4 +119,9 @@ Desktop.ini
 
 .pgmcp.toml
 
+# Committed, version-controlled diagram artifacts (rendered from sources beside
+# them via `make diagrams`). The recursive glob covers per-section subdirectories
+# (docs/diagrams/architecture/, docs/diagrams/algorithms/, …); the non-recursive
+# line is kept for the five top-level README diagrams.
 !docs/diagrams/*.svg
+!docs/diagrams/**/*.svg

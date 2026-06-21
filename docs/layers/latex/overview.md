@@ -4,7 +4,24 @@ The LaTeX syntax layer provides CFG-based filtering and structural validation fo
 
 ## Architecture
 
-```
+`LatexSyntaxLayer::apply` runs a three-pass pipeline over the input lattice,
+each pass gated by a `LatexSyntaxConfig` flag: **Pass 1** prunes ungrammatical
+edges with an Earley parse over the `LatexGrammar`; **Pass 2** validates structure
+(brace matching, environment begin/end pairing, math-delimiter balance) with the
+`LatexValidator`; **Pass 3** generates repair suggestions for any
+`` `ValidationIssue` ``s, optionally applying high-confidence ones automatically
+when `` `confidence ≥ auto_repair_threshold` ``.
+
+![Activity diagram: LatexSyntaxLayer.apply flows from the input lattice through an optional grammar-filter pass (prune_ungrammatical), a structural-validation pass (validate_structure) that emits ValidationIssues, and a repair-generation pass (generate_repairs) that sorts suggestions by confidence and either auto-applies them or stashes them in last_repairs, ending at the output lattice plus repair suggestions.](../../diagrams/layers/latex/repair-flow.svg)
+
+*Amber = the validate/repair activities; grey diamonds = the `LatexSyntaxConfig`
+gates (`prune_ungrammatical`, `validate_structure`, `generate_repairs`,
+`auto_repair`); green terminal = the filtered lattice plus its
+`` `RepairSuggestion` `` list.*
+
+<details><summary>Text view</summary>
+
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                   LaTeX Syntax Layer                         │
 ├─────────────────────────────────────────────────────────────┤
@@ -58,6 +75,8 @@ The LaTeX syntax layer provides CFG-based filtering and structural validation fo
 └─────────────────────────────────────────────────────────────┘
 ```
 
+</details>
+
 ## Components
 
 | Component | Description |
@@ -100,15 +119,16 @@ for repair in layer.last_repairs() {
 The LaTeX syntax layer integrates with the lling-llang correction pipeline:
 
 ```rust
-use lling_llang::pipeline::CorrectionPipeline;
+use lling_llang::layers::LayerPipelineBuilder;
 use lling_llang::layers::latex::LatexSyntaxLayer;
 use lling_llang::layers::mathml::MathMLSemanticLayer;
 
-let pipeline = CorrectionPipeline::new()
+let pipeline = LayerPipelineBuilder::new()
     .add_layer(LatexSyntaxLayer::new(LatexGrammar::standard()?))
-    .add_layer(MathMLSemanticLayer::new());
+    .add_layer(MathMLSemanticLayer::new())
+    .build();
 
-let result = pipeline.correct(&input_lattice)?;
+let result = pipeline.apply(&input_lattice)?;
 ```
 
 ## Configuration Presets
@@ -141,3 +161,10 @@ let result = pipeline.correct(&input_lattice)?;
 - [Validator](./validator.md): Structural validation
 - [Repair](./repair.md): Repair strategies
 - [MathML Layer](../mathml/overview.md): Semantic type checking
+
+## References
+
+- [Earley 1970](../../BIBLIOGRAPHY.md#ref-earley1970) — the context-free parsing
+  algorithm that drives Pass 1 (grammar filtering) over the lattice.
+- [Mohri 2002](../../BIBLIOGRAPHY.md#ref-mohri2002) — weighted finite-state
+  transducers; the lattice representation the layer filters and repairs.

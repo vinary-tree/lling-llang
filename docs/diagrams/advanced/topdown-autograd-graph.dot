@@ -1,0 +1,52 @@
+// topdown-autograd-graph.dot — k2-style top-down autograd: the gradient of a WFST is a
+// WFST with the SAME topology, where each arc weight is replaced by its posterior.
+// Worked diamond (matches differentiable.md): α forward, β backward, Z = 1.35.
+//   g(arc) = ∂Z/∂w = exp(α[s] + w + β[t] − Z)   →   ∂Loss/∂w = −g(arc)
+// Two stacked sub-graphs share node ranks; green arcs carry the higher posterior.
+//
+// SHARED DOT PREAMBLE (palette = docs/diagrams/README.md):
+//   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · best/posterior #2E7D32 bold · final #C8E6C9
+digraph topdown_autograd {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>Top-down autograd (k2-style)</b> — same topology, arc weight → arc posterior  (Z = 1.35)>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.55];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  // ── Original WFST (weights w) ─────────────────────────────────────────────────
+  subgraph cluster_weights {
+    label=<original WFST — arc weights w (log domain)>;
+    color="#1565C0"; fontcolor="#0D47A1"; style=rounded;
+    w0 [label="0\nα=0.0"];
+    w1 [label="1\nα=1.0"];
+    w2 [label="2\nα=2.0"];
+    w3 [label="3\nα=1.35", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+    __ws__ [shape=point, width=0.01, color="#1565C0"]; __ws__ -> w0;
+    w0 -> w1 [label="w=1.0"];
+    w0 -> w2 [label="w=2.0"];
+    w1 -> w3 [label="w=0.5"];
+    w2 -> w3 [label="w=0.3"];
+  }
+
+  // ── Gradient WFST (weights → posteriors g) ────────────────────────────────────
+  subgraph cluster_grads {
+    label=<gradient WFST — same arcs, weight → posterior g = exp(α[s]+w+β[t]−Z)>;
+    color="#6A1B9A"; fontcolor="#4A148C"; style=rounded;
+    g0 [label="0\nβ=1.35", fillcolor="#E1BEE7", color="#6A1B9A"];
+    g1 [label="1\nβ=0.5",  fillcolor="#E1BEE7", color="#6A1B9A"];
+    g2 [label="2\nβ=0.3",  fillcolor="#E1BEE7", color="#6A1B9A"];
+    g3 [label="3\nβ=0.0",  shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+    __gs__ [shape=point, width=0.01, color="#6A1B9A"]; __gs__ -> g0;
+    // higher-posterior arcs bold green; lower ones light
+    g0 -> g1 [label="g=0.86", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+    g0 -> g2 [label="g=0.39", color="#B0BEC5"];
+    g1 -> g3 [label="g=0.86", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+    g2 -> g3 [label="g=0.39", color="#B0BEC5"];
+  }
+
+  // tie the two views together (vertical correspondence)
+  w0 -> g0 [style=dotted, color="#9E9E9E", constraint=true, label="∂/∂w"];
+}

@@ -1,0 +1,42 @@
+// simd-lanes.dot — horizontal lane reduction for simd_tropical_reduce_min over an
+// AVX2 (4-lane) accumulator. The accumulator absorbs 4 elements per step with a
+// vertical min_pd; a final horizontal fold collapses the 4 lanes to one scalar.
+//
+// SHARED DOT PREAMBLE (palette = docs/diagrams/README.md):
+//   bg #FFFFFF · record fill #E1BEE7 / border #6A1B9A (SIMD / deep-learning tier)
+//   reduce/result accent #2E7D32 bold · scalar tail #ECEFF1 / #455A64
+digraph simd_lanes {
+  rankdir=TB;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>SIMD lane reduction</b> — simd_tropical_reduce_min, AVX2 (4 lanes), ⊕ = min>;
+  node  [shape=record, style=filled, fillcolor="#E1BEE7", color="#6A1B9A",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4];
+  edge  [color="#6A1B9A", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  input [label="{ input slice a[0..12] | { a0 | a1 | a2 | a3 | a4 | a5 | a6 | a7 | a8 | a9 | a10 | a11 } }",
+         fillcolor="#ECEFF1", color="#455A64"];
+
+  acc0 [label="{ acc = (∞, ∞, ∞, ∞) | { ∞ | ∞ | ∞ | ∞ } }"];
+  acc1 [label="{ acc ← min(acc, a[0..4]) | { a0 | a1 | a2 | a3 } }"];
+  acc2 [label="{ acc ← min(acc, a[4..8]) | { min(a0,a4) | min(a1,a5) | min(a2,a6) | min(a3,a7) } }"];
+  acc3 [label="{ acc ← min(acc, a[8..12]) | { l0 | l1 | l2 | l3 } }"];
+
+  fold [label="{ horizontal fold (scalar) | min(l0, l1, l2, l3) }",
+        color="#2E7D32", penwidth=2.0];
+  out  [shape=doublecircle, label="result\\nscalar f64", style=filled,
+        fillcolor="#C8E6C9", color="#2E7D32", penwidth=2.0];
+
+  input -> acc0 [style=invis];
+  acc0 -> acc1 [label="_mm256_min_pd"];
+  acc1 -> acc2 [label="_mm256_min_pd"];
+  acc2 -> acc3 [label="_mm256_min_pd"];
+  acc3 -> fold [label="store + min"];
+  fold -> out;
+
+  // vertical lanes stay independent until the fold — show the lane lineage faintly
+  edge [color="#B0BEC5", style=dashed, constraint=false, arrowhead=none];
+  acc1 -> acc2;
+  acc2 -> acc3;
+}

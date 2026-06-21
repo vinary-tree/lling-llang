@@ -1,0 +1,62 @@
+@startuml backends
+' lling-llang backend storage hierarchy: the LatticeBackend interning trait (blue)
+' implemented by the in-memory HashMapBackend and the structurally-sharing
+' PathMapBackend, the latter extended by the PathMapSharingBackend trait (green).
+' Palette: docs/diagrams/README.md.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment left
+skinparam class {
+  BackgroundColor #BBDEFB
+  BorderColor #1565C0
+  FontColor #102027
+  ArrowColor #607D8B
+}
+hide empty members
+hide circle
+
+title <b>Backend storage hierarchy</b>\n<size:11><i>one interning trait, two storage strategies</i></size>
+
+interface "LatticeBackend\n(str ↔ VocabId)" as LB {
+  +intern(&str) : VocabId
+  +lookup(VocabId) : Option<&str>
+  +vocab_size() : usize
+  +contains(&str) : bool
+  +get_id(&str) : Option<VocabId>
+  +iter() : impl Iterator<(VocabId, &str)>
+  +supports_sharing() : bool = false
+}
+
+interface "PathMapSharingBackend\n(cfg f1r3fly)" as PSB #C8E6C9 {
+  +share_prefix(&[u8]) : Option<Self>
+  +shares_structure_with(&Self) : bool
+}
+
+class "HashMapBackend" as HMB #ECEFF1 {
+  word_to_id : FxHashMap<Arc<str>, VocabId>
+  id_to_word : Vec<Arc<str>>
+  --
+  supports_sharing() = false
+  sequential IDs · O(1) intern/lookup
+}
+
+class "PathMapBackend\n(cfg f1r3fly)" as PMB #ECEFF1 {
+  storage : Arc<PathMap<VocabMetadata>>
+  vocab : IndexMap<Arc<str>, VocabId>
+  --
+  supports_sharing() = true
+  copy-on-write · structural sharing
+}
+
+LB <|.. HMB
+LB <|.. PMB
+LB <|-- PSB
+PSB <|.. PMB
+
+note bottom of LB
+  A backend interns strings to compact <b>VocabId</b> (u32) handles so lattice
+  edges store IDs, not strings. <b>HashMapBackend</b> is the default single-process
+  store; <b>PathMapBackend</b> adds persistent, content-addressed structural sharing
+  for F1R3FLY.io deployments (feature <b>f1r3fly</b>).
+end note
+@enduml

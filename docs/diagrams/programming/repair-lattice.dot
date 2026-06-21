@@ -1,0 +1,45 @@
+// repair-lattice.dot — token-repair lattice for a missing-bracket example.
+// Input "foo ( )" is missing its block brace; the repairer weighs candidate edits
+// as arcs. Green = the least-cost accepting path (insert " {" then "}"); grey =
+// dominated alternatives; dashed grey = an ε / no-op (identity copy).
+//
+// SHARED DOT PREAMBLE (palette = docs/diagrams/README.md):
+//   bg #FFFFFF · state fill #BBDEFB / border #1565C0 · best path #2E7D32 bold
+//   alt #B0BEC5 · epsilon #9E9E9E dashed · final = doublecircle #C8E6C9 / #2E7D32
+digraph repair_lattice {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>Token-repair lattice</b> — input "foo ( )" missing a block; green = least-cost repair (Σ = 0.6)>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.5];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  __start__ [shape=point, width=0.01, color="#1565C0"];
+  __start__ -> n0;
+
+  n0 [label="0"];
+  n1 [label="1"];
+  n2 [label="2"];
+  n3 [label="3"];
+  n4 [label="4", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+
+  // identity copies of the observed tokens (input:output / cost)
+  n0 -> n1 [label="foo:foo / 0.0"];
+  n1 -> n2 [label="( : ( / 0.0"];
+
+  // least-cost repair: insert " {" after ")", then insert "}" before EOF — green/bold
+  n2 -> n3 [label="ε : \" {\" / 0.3", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+  n3 -> n4 [label="ε : \"}\" / 0.3", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+
+  // identity copy of ")" on the green path (closing paren is kept)
+  n2 -> n3 [label=") : ) / 0.0", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+
+  // dominated alternatives (grey)
+  n2 -> n4 [label=") : ) / 0.0  (no repair → still ERROR)", color="#B0BEC5"];
+  n2 -> n3 [label="delete ) / 1.0", color="#B0BEC5"];
+
+  // ε no-op identity self-skip (dashed grey)
+  n1 -> n2 [label="ε / 0.0", color="#9E9E9E", style=dashed];
+}

@@ -4,7 +4,23 @@ The MathML semantic layer provides type checking and homoglyph disambiguation fo
 
 ## Architecture
 
-```
+`MathMLSemanticLayer::apply` runs two phases over the input lattice, each gated by
+a `MathMLSemanticConfig` flag. **Phase 1** disambiguates homoglyphs: the
+`HomoglyphDisambiguator` scores each confusable glyph against its `MathContext`
+(and optionally normalizes it to a canonical form). **Phase 2** type-checks the
+expression: the `MathTypeChecker` looks up signatures and applies Hindley–Milner
+unification, optionally pruning any path that carries a type error.
+
+![Activity diagram: MathMLSemanticLayer.apply flows from the input lattice through Phase 1 homoglyph disambiguation (context scoring, optional canonical normalization, low-confidence AmbiguousGlyph issues) into Phase 2 type checking (signature lookup, Hindley-Milner unification, arity and division-by-zero checks, optional pruning of paths with type errors), ending at the output lattice plus a SemanticResult.](../../diagrams/layers/mathml/checker-flow.svg)
+
+*Amber = the disambiguation/type-check activities; grey diamonds = the
+`MathMLSemanticConfig` gates (`disambiguate_homoglyphs`, `normalize_homoglyphs`,
+`check_types`, `prune_type_errors`); green terminal = the filtered lattice plus
+its `` `SemanticResult` `` (`inferred_type`, `issues`, `disambiguations`).*
+
+<details><summary>Text view</summary>
+
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                   MathML Semantic Layer                      │
 ├─────────────────────────────────────────────────────────────┤
@@ -47,6 +63,8 @@ The MathML semantic layer provides type checking and homoglyph disambiguation fo
 └─────────────────────────────────────────────────────────────┘
 ```
 
+</details>
+
 ## Components
 
 | Component | Description |
@@ -85,15 +103,16 @@ for result in layer.last_results() {
 The MathML semantic layer integrates with the lling-llang correction pipeline:
 
 ```rust
-use lling_llang::pipeline::CorrectionPipeline;
+use lling_llang::layers::LayerPipelineBuilder;
 use lling_llang::layers::latex::LatexSyntaxLayer;
 use lling_llang::layers::mathml::MathMLSemanticLayer;
 
-let pipeline = CorrectionPipeline::new()
+let pipeline = LayerPipelineBuilder::new()
     .add_layer(LatexSyntaxLayer::new(LatexGrammar::standard()?))
-    .add_layer(MathMLSemanticLayer::new());
+    .add_layer(MathMLSemanticLayer::new())
+    .build();
 
-let result = pipeline.correct(&input_lattice)?;
+let result = pipeline.apply(&input_lattice)?;
 ```
 
 ## Configuration Presets
@@ -180,3 +199,12 @@ for decision in &result.disambiguations {
 - [Checker](./checker.md): Type checking
 - [Homoglyph](./homoglyph.md): Homoglyph disambiguation
 - [LaTeX Layer](../latex/overview.md): Syntactic filtering
+
+## References
+
+- [Mohri 2002](../../BIBLIOGRAPHY.md#ref-mohri2002) — weighted finite-state
+  transducers; the lattice the two phases filter and reweight.
+- [Goodman 1999](../../BIBLIOGRAPHY.md#ref-goodman1999) — semiring parsing; the
+  algebraic basis for propagating per-path semantic scores.
+- The type semantics follow the W3C *Content MathML* model (MathML 3.0,
+  §4 *Content Markup*): <https://www.w3.org/TR/MathML3/chapter4.html>.

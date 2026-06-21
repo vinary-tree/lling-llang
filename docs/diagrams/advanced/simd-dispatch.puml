@@ -1,0 +1,49 @@
+@startuml simd-dispatch
+' lling-llang SIMD ISA-dispatch ladder. One runtime probe selects the widest
+' lane width the CPU supports, falling through to scalar. Palette: docs/diagrams/README.md.
+' Deep-learning & GPU tier (purple) for the SIMD kernels; neutral (grey) for the
+' scalar fallback / IO; green for the chosen-kernel terminus.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #6A1B9A
+skinparam ArrowThickness 1.3
+skinparam activity {
+  BackgroundColor #E1BEE7
+  BorderColor #6A1B9A
+  FontColor #102027
+  DiamondBackgroundColor #E1BEE7
+  DiamondBorderColor #6A1B9A
+  DiamondFontColor #102027
+}
+skinparam note {
+  BackgroundColor #ECEFF1
+  BorderColor #455A64
+}
+
+title <b>SIMD ISA-dispatch ladder</b>\n<size:11><i>SimdCapability::detect() picks the widest lane width; each kernel falls through to scalar</i></size>
+
+start
+:slice pair (a, b) : &[f64];
+note right
+  vector_width = f64 lanes per register
+  AVX-512 → 8 · AVX2 → 4 · SSE4.2 → 2 · NEON → 2 · scalar → 1
+end note
+
+if (is_x86_feature_detected!("avx512f")?) then (yes)
+  #E1BEE7:AVX-512 kernel\n8 lanes / register;
+elseif (is_x86_feature_detected!("avx2")?) then (yes)
+  #E1BEE7:AVX2 kernel\n4 lanes / register;
+elseif (is_x86_feature_detected!("sse4.2")?) then (yes)
+  #E1BEE7:SSE4.2 kernel\n2 lanes / register;
+elseif (target_arch = "aarch64"?) then (yes)
+  #E1BEE7:NEON kernel\n2 lanes / register;
+else (none)
+  #ECEFF1:scalar fallback\n1 lane (portable loop);
+endif
+
+:process ⌊n / width⌋ full vectors\nwith ⊕ (min / log-add) or ⊗ (+);
+:handle n mod width tail elements\nin scalar;
+#C8E6C9:return Vec<f64> result;
+stop
+@enduml

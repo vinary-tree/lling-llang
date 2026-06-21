@@ -22,6 +22,10 @@ use std::collections::{HashMap, HashSet};
 /// Token ID type for LLM vocabulary.
 pub type TokenId = u32;
 
+/// SFA-driven constrained decoder (materialize-φ → `TokenMask`), Task #22 §4-C.1.
+pub mod symbolic_decoder;
+pub use symbolic_decoder::SymbolicConstrainedDecoder;
+
 /// Bit vector for efficient token masking.
 #[derive(Debug, Clone)]
 pub struct TokenMask {

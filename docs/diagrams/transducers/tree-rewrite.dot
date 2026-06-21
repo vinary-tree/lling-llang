@@ -1,0 +1,43 @@
+// tree-rewrite.dot — a weighted tree transducer rule applied to an input AST.
+// Rule  q(S(x₀, x₁)) → T(x₁, x₀), w=0  (a swap): the output relabels S→T and
+// reorders the two child variables. Solid teal = tree edges; dashed amber =
+// the variable binding x₀,x₁ carried from input children to output positions.
+//
+// SHARED DOT PREAMBLE (palette = docs/diagrams/README.md):
+//   transducer-family accent fill #B2DFDB / border #00695C
+//   variable-binding edge = #F9A825 dashed (correction/amber accent)
+digraph tree_rewrite {
+  rankdir=TB;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>Tree rewrite</b> — rule q(S(x₀,x₁)) → T(x₁,x₀); amber = variable binding (reorder)>;
+  node  [shape=ellipse, style=filled, fillcolor="#B2DFDB", color="#00695C",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4];
+  edge  [color="#00695C", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.4];
+
+  subgraph cluster_in {
+    label=<<b>input</b>>; labelloc="b"; color="#90A4AE"; fontcolor="#37474F"; style="rounded";
+    iS  [label="S"];
+    ia  [label="a", fillcolor="#C8E6C9", color="#2E7D32"];
+    ib  [label="b", fillcolor="#C8E6C9", color="#2E7D32"];
+    iS -> ia [label="x₀"];
+    iS -> ib [label="x₁"];
+  }
+
+  subgraph cluster_out {
+    label=<<b>output</b>>; labelloc="b"; color="#90A4AE"; fontcolor="#37474F"; style="rounded";
+    oT  [label="T"];
+    ob  [label="b", fillcolor="#C8E6C9", color="#2E7D32"];
+    oa  [label="a", fillcolor="#C8E6C9", color="#2E7D32"];
+    oT -> ob [label="pos 0"];
+    oT -> oa [label="pos 1"];
+  }
+
+  // variable bindings: input child x₁ → output position 0, x₀ → output position 1
+  ib -> ob [constraint=false, color="#F9A825", style=dashed, penwidth=1.6, label="x₁", fontcolor="#E65100"];
+  ia -> oa [constraint=false, color="#F9A825", style=dashed, penwidth=1.6, label="x₀", fontcolor="#E65100"];
+
+  // the rule application itself (root → root), weighted
+  iS -> oT [constraint=false, color="#00695C", style=bold, penwidth=2.0, label="apply / 0", fontcolor="#004D40"];
+}

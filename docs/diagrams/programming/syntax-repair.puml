@@ -1,0 +1,56 @@
+@startuml syntax-repair
+' lling-llang syntax-repair component diagram. A ParserBackend (foundation tier,
+' blue) locates errors; the SyntaxRepairTransducer (correction & NLP tier, amber)
+' proposes weighted edits over a token lattice and emits the least-cost repair.
+' Palette: docs/diagrams/README.md.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment left
+skinparam component {
+  BackgroundColor #FFF59D
+  BorderColor #F9A825
+  FontColor #102027
+}
+skinparam interface {
+  BackgroundColor #BBDEFB
+  BorderColor #1565C0
+}
+skinparam ArrowColor #607D8B
+skinparam ArrowThickness 1.3
+
+title <b>Syntax repair: ParserBackend ↔ SyntaxRepairTransducer</b>\n<size:11><i>parse → locate errors → weighted token edits → least-cost repair</i></size>
+
+[source text] as SRC #ECEFF1
+
+package "parsing (blue)" {
+  interface "ParserBackend" as PB #BBDEFB
+  component "tree-sitter /\nLALRPOP / pest /\nSimpleParserBackend" as IMPL #BBDEFB
+  component "ParseResult<N>\n{ tree, errors:\nVec<ParserError> }" as PR #BBDEFB
+}
+
+package "repair (amber)" {
+  component "tokenizer\n→ Vec<Token>" as TOK #B2DFDB
+  component "SyntaxRepairTransducer<W>\n• rules: Vec<SyntaxRepairRule>\n• costs: SyntaxRepairCosts" as SRT
+  component "find_repairs\n→ Vec<RepairCandidate>" as FIND
+  component "select_non_overlapping\n(least-cost cover)" as SEL
+}
+
+[repaired text +\napplied repairs] as OUT #C8E6C9
+
+SRC --> PB : parse(input)
+PB ..> IMPL : implemented by
+IMPL --> PR : tree + errors
+SRC --> TOK : lex
+PR --> SRT : error ranges /\nMISSING nodes
+TOK --> SRT : Token stream
+SRT --> FIND : apply weighted rules
+FIND --> SEL : sort by cost ⊕ = min
+SEL --> OUT : apply edits\n(reverse byte order)
+
+note bottom of SRT
+  Each rule carries a cost (a tropical weight under <b>W</b>):
+  typo_fix 0.2 · missing_punctuation 0.3 · insert/delete/substitute 1.0.
+  build_token_wfst(alphabet) lifts the rules into a VectorWfst<String, W>
+  for composition with downstream transducers.
+end note
+@enduml

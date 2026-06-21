@@ -1,0 +1,48 @@
+// weight-pushing.dot — backward weight pushing reweights arcs by potentials V(q)
+// (the ⊕-sum of all q→final path weights) so weight migrates toward the start while
+// every path's total is preserved. LEFT: original tropical weights. RIGHT: pushed —
+// arcs near the start carry the mass, final weight normalised to 1̄.
+//
+// SHARED DOT PREAMBLE (copy into every Graphviz automaton; palette = docs/diagrams/README.md):
+//   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · text #102027 · edge #607D8B
+//   best/Viterbi #2E7D32 bold(penwidth=2) · alternative #B0BEC5 · epsilon #9E9E9E dashed
+//   final = doublecircle fill #C8E6C9 border #2E7D32 · start = arrow from invisible point
+digraph weight_pushing {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>Weight pushing</b> (backward, tropical) — reweight by potential V(q); path totals unchanged, ρ → 1̄>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.55];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  // ── before ────────────────────────────────────────────────────────
+  subgraph cluster_before {
+    label=<<b>before</b> — path 0→1→2 = 1.0 ⊗ 2.0 ⊗ ρ(0.5) = 3.5;  V(2)=0.5, V(1)=2.5, V(0)=3.5>;
+    color="#1565C0"; fontcolor="#0D47A1"; style="rounded"; bgcolor="#E3F2FD";
+    b0 [label="0\nV=3.5"];
+    b1 [label="1\nV=2.5"];
+    b2 [label="2\nV=0.5", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+    s0 [shape=point, width=0.01, color="#1565C0"]; s0 -> b0;
+    b0 -> b1 [label="a / 1.0"];
+    b1 -> b2 [label="b / 2.0"];
+    b2 -> bf0 [label="ρ = 0.5", color="#2E7D32", fontcolor="#1B5E20", style=dashed, arrowhead=none];
+    bf0 [shape=point, width=0.01, color="#2E7D32"];
+  }
+
+  // ── after ─────────────────────────────────────────────────────────
+  subgraph cluster_after {
+    label=<<b>after</b> — w'(e)=V(t)⊗w(e)⊗V(s)⁻¹;  0→1 = 3.5−2.5... mass pulled to the start; ρ → 1̄=0>;
+    color="#2E7D32"; fontcolor="#1B5E20"; style="rounded"; bgcolor="#E8F5E9";
+    a0 [label="0"];
+    a1 [label="1"];
+    a2 [label="2", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+    sa [shape=point, width=0.01, color="#1565C0"]; sa -> a0;
+    // w'(0→1) = V(1)+w−V(0) = 2.5+1.0−3.5 = 0.0 ; w'(1→2) = 0.5+2.0−2.5 = 0.0
+    a0 -> a1 [label="a / 0.0", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+    a1 -> a2 [label="b / 0.0", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+    a2 -> af0 [label="ρ = 0.0 (1̄)", color="#2E7D32", fontcolor="#1B5E20", style=dashed, arrowhead=none];
+    af0 [shape=point, width=0.01, color="#2E7D32"];
+  }
+}

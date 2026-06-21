@@ -364,3 +364,12 @@ println!("{}", mat);  // "Mat<Number>^(2x3)"
 - [Overview](./overview.md): Layer architecture
 - [Checker](./checker.md): Type checking
 - [Homoglyph](./homoglyph.md): Glyph disambiguation
+
+## References
+
+- The type taxonomy (`Number`, `Function`, `Relation`, `Set`, `Vector`, `Matrix`,
+  …) follows the W3C *Content MathML* model (MathML 3.0, §4 *Content Markup*):
+  <https://www.w3.org/TR/MathML3/chapter4.html>.
+- `MathType::TypeVar` and unification follow Milner, R. (1978), *A Theory of Type
+  Polymorphism in Programming*, J. Comput. Syst. Sci. 17(3):348–375
+  ([doi:10.1016/0022-0000(78)90014-4](https://doi.org/10.1016/0022-0000(78)90014-4)).

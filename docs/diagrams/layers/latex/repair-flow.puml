@@ -1,0 +1,65 @@
+@startuml repair-flow
+' LatexSyntaxLayer.apply pipeline: Earley grammar filter → structural validation
+' (braces / environments / math delimiters) → repair generation, with an optional
+' auto-repair branch that applies suggestions whose confidence ≥ threshold.
+' Correction tier = amber; decisions = grey diamonds; green terminal = output.
+' Config flags shown are LatexSyntaxConfig fields. Palette: docs/diagrams/README.md.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #607D8B
+skinparam ArrowThickness 1.3
+skinparam activity {
+  BackgroundColor #FFF59D
+  BorderColor #F9A825
+  FontColor #102027
+  DiamondBackgroundColor #ECEFF1
+  DiamondBorderColor #455A64
+  StartColor #1565C0
+  EndColor #2E7D32
+}
+skinparam note {
+  BackgroundColor #ECEFF1
+  BorderColor #455A64
+}
+
+title <b>LaTeX validate → repair pipeline</b>\n<size:11><i>LatexSyntaxLayer.apply over a token lattice</i></size>
+
+start
+:Input lattice  Lattice⟨W, B⟩;
+
+if (prune_ungrammatical?) then (yes)
+  :<b>Pass 1 — Grammar filter</b>\nEarleyParser over LatexGrammar;\nkeep only edges on a parse;
+else (no)
+  :keep all edges;
+endif
+
+if (validate_structure?) then (yes)
+  :<b>Pass 2 — Structural validation</b>\nLatexValidator: brace matching ·\nenvironment begin/end · math delimiters;
+  note right
+    Emits ValidationIssue values
+    (UnmatchedOpenBrace,
+     EnvironmentMismatch,
+     UnmatchedMathDelimiter, …).
+  end note
+else (no)
+endif
+
+if (issues found?) then (yes)
+  if (generate_repairs?) then (yes)
+    :<b>Pass 3 — Repair generation</b>\nCompositeRepairStrategy:\nBrace · Environment · Math;
+    :sort suggestions by confidence\n(keep ≤ max_repairs_per_issue);
+    if (auto_repair ∧ confidence ≥ auto_repair_threshold?) then (yes)
+      :apply high-confidence repairs\ninto the lattice;
+    else (no)
+      :stash in last_repairs()\nfor the caller;
+    endif
+  else (no)
+  endif
+else (no — valid)
+endif
+
+:Output lattice + repair suggestions;
+stop
+
+@enduml

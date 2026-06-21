@@ -1,0 +1,69 @@
+// composition-product.dot — the FST∘FST state-product construction with the
+// ε-filter. Top row = the two operand transducers (T₁ over a:x, T₂ over x:p);
+// bottom = the lazily-built product whose states are triples (s₁, s₂, φ) where
+// φ ∈ {None, Eps1, Eps2} is the ε-filter state (Mohri 2009). Green = the realised
+// composed path a:p; grey-dashed = ε moves that the filter sequences.
+//
+// SHARED DOT PREAMBLE (copy into every Graphviz automaton; palette = docs/diagrams/README.md):
+//   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · text #102027 · edge #607D8B
+//   best/Viterbi #2E7D32 bold(penwidth=2) · alternative #B0BEC5 · epsilon #9E9E9E dashed
+//   final = doublecircle fill #C8E6C9 border #2E7D32 · start = arrow from invisible point
+//   algorithms-tier accent fill #C8E6C9 / border #2E7D32
+digraph composition_product {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>Composition</b> T₁ ∘ T₂ — operands (top) and the lazy product with ε-filter (bottom); green = composed path>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.5];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  // ── operand T₁ : a:x ──────────────────────────────────────────────
+  subgraph cluster_t1 {
+    label=<<b>T₁</b> (input a → output x)>; color="#1565C0"; fontcolor="#0D47A1"; style="rounded"; bgcolor="#E3F2FD";
+    a0 [label="0"];
+    a1 [label="1", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+    sa [shape=point, width=0.01, color="#1565C0"]; sa -> a0;
+    a0 -> a1 [label="a : x / 1.0"];
+  }
+
+  // ── operand T₂ : x:p ──────────────────────────────────────────────
+  subgraph cluster_t2 {
+    label=<<b>T₂</b> (input x → output p)>; color="#1565C0"; fontcolor="#0D47A1"; style="rounded"; bgcolor="#E3F2FD";
+    b0 [label="0"];
+    b1 [label="1", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+    sb [shape=point, width=0.01, color="#1565C0"]; sb -> b0;
+    b0 -> b1 [label="x : p / 0.5"];
+  }
+
+  // ── lazily-built product T₁ ∘ T₂ ──────────────────────────────────
+  subgraph cluster_prod {
+    label=<<b>T₁ ∘ T₂</b>  product states (s₁, s₂, φ);  φ = ε-filter state>;
+    color="#2E7D32"; fontcolor="#1B5E20"; style="rounded"; bgcolor="#E8F5E9";
+    node [fillcolor="#C8E6C9", color="#2E7D32"];
+
+    p00 [label="(0,0,N)"];
+    p11 [label="(1,1,N)", shape=doublecircle, color="#2E7D32"];
+    sp  [shape=point, width=0.01, color="#2E7D32"]; sp -> p00;
+
+    // matched move: T₁ emits x, T₂ consumes x → composed a:p, weight 1.0 ⊗ 0.5
+    p00 -> p11 [label="a : p / 1.5", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+  }
+
+  // ── ε-filter inset: the three filter states and their legal moves ──
+  subgraph cluster_filter {
+    label=<<b>ε-filter</b> (sequencing) — admits each ε-interleaving once>;
+    color="#9E9E9E"; fontcolor="#424242"; style="rounded,dashed"; bgcolor="#FAFAFA";
+    node [shape=circle, fillcolor="#ECEFF1", color="#455A64", width=0.5];
+    fN [label="None"];
+    f1 [label="Eps1"];
+    f2 [label="Eps2"];
+    fN -> f1 [label="x:ε  (advance T₁)", color="#9E9E9E", style=dashed];
+    fN -> f2 [label="ε:x  (advance T₂)", color="#9E9E9E", style=dashed];
+    f1 -> fN [label="x:x  (match)", color="#9E9E9E", style=dashed];
+    f2 -> fN [label="x:x  (match)", color="#9E9E9E", style=dashed];
+    f1 -> f1 [label="x:ε", color="#9E9E9E", style=dashed];
+    f2 -> f2 [label="ε:x", color="#9E9E9E", style=dashed];
+  }
+}

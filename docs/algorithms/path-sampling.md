@@ -1,6 +1,19 @@
 # Path Sampling
 
-Path sampling provides algorithms for randomly drawing accepting paths from WFSTs, enabling Monte Carlo methods, online learning, and diverse output generation.
+Path sampling provides algorithms for randomly drawing accepting paths from WFSTs, enabling Monte Carlo methods, online learning, and diverse output generation. (WFST = **W**eighted **F**inite-**S**tate **T**ransducer.)
+
+## Terms & symbols
+
+Defined centrally in [`../NOTATION.md`](../NOTATION.md); repeated locally for the terms this doc uses.
+
+| Symbol | Meaning |
+|---|---|
+| `⊕` / `⊗` | semiring *plus* (combine alternatives) / *times* (accumulate a path's arcs). |
+| `0̄` / `1̄` | `⊕`-identity / `⊗`-identity. |
+| `ρ(q)` | final-weight function `ρ : F → K` — used in the stop-vs-continue decision. |
+| `ε` | the empty label (optionally excluded from the emitted output). |
+| `P(t)` | sampling probability of transition `t`. |
+| `η` | power-semiring exponent (soft weights for proportional sampling). |
 
 ## Concepts
 
@@ -18,66 +31,103 @@ While shortest-path algorithms find the single best path, sampling provides:
 
 ### Forward Sampling Algorithm
 
-The sampling algorithm performs a random walk from the start state to a final state:
+The sampling algorithm performs a random walk from the start state to a final state. At
+each step it draws one outgoing transition under the chosen strategy; at a final state it
+may stop with a strategy-dependent probability. The green path in the figure is one such
+walk; the per-arc probabilities annotate the proportional choice.
 
-```
+![Forward path sampling: a random walk from start state 0 drawing each arc proportional to its weight (a/P=0.3 sampled over b/0.5 and c/0.2), then a/P=1.0 into a final state, with an inset showing the stop decision P(stop)=ρ/(ρ ⊕ Σ out-weights)](../diagrams/algorithms/path-sampling.svg)
+
+*Green bold = one sampled path; grey = the alternatives not taken; arc labels carry the proportional `` `P` ``; the dotted inset is the final-state stop rule `` `P(stop) = ρ ∕ (ρ ⊕ Σ out-weights)` ``.*
+
+<details><summary>Text view</summary>
+
+```text
 ForwardSample(WFST):
     current ← start state
     path ← empty list
-
     while not at final state:
         if current is final and should_stop():
             return path
-
         transitions ← outgoing transitions from current
         trans ← sample_transition(transitions)
         path.append(trans)
         current ← trans.destination
-
     return path
 ```
 
-The key decision is how to choose transitions. This is controlled by the **sampling strategy**.
+</details>
+
+The walk decomposes into a step and a stop test; the **sampling strategy** parameterizes
+both.
+
+```text
+⟨ sample one transition ⟩ ≡
+    // Proportional:  P(t) = weight(t) ∕ Σ weight(out)      (normalize on the fly)
+    // Uniform:       P(t) = 1 ∕ ∣out∣
+    draw t ∈ out(current) with probability P(t)
+```
+
+```text
+⟨ stop-or-continue at a final state ⟩ ≡
+    // Proportional:  P(stop) = ρ(current) ∕ (ρ(current) ⊕ Σ weight(out))
+    // Uniform:       P(stop) = 1 ∕ (1 + ∣out∣)
+    return true with probability P(stop)
+```
+
+```text
+⟨ forward sample a path ⟩ ≡
+    current ← start;  path ← [ ];  w ← 1̄
+    loop:
+        if current ∈ F and ⟨ stop-or-continue at a final state ⟩:
+            return (path, w ⊗ ρ(current))
+        t ← ⟨ sample one transition ⟩
+        path.append(t);  w ← w ⊗ weight(t);  current ← target(t)
+        if ∣path∣ > max_length:  error MaxLengthExceeded
+```
+
+The key decision is how `` `⟨ sample one transition ⟩` `` weights the choice. This is
+controlled by the **sampling strategy**.
 
 ### Sampling Strategies
 
 Two strategies are supported:
 
-**Proportional Sampling**
+**Proportional Sampling** — `` `P(t) = weight(t) ∕ Σ weight(out)` ``:
 
-```
-P(transition t) = weight(t) / Σ weight(all transitions)
+```text
+P(transition t) = weight(t) ∕ Σ weight(all transitions)
 ```
 
 Transitions are chosen proportional to their weights. For a stochastic (weight-pushed) WFST, this gives proper probability sampling.
 
-```
+```text
 State 0:                         Proportional sampling:
-  ┌─ a/0.3 → State 1            P(a) = 0.3/(0.3+0.5+0.2) = 0.3
-  ├─ b/0.5 → State 2            P(b) = 0.5/(0.3+0.5+0.2) = 0.5
-  └─ c/0.2 → State 3            P(c) = 0.2/(0.3+0.5+0.2) = 0.2
+  ┌─ a/0.3 → State 1            P(a) = 0.3 ∕ (0.3+0.5+0.2) = 0.3
+  ├─ b/0.5 → State 2            P(b) = 0.5 ∕ (0.3+0.5+0.2) = 0.5
+  └─ c/0.2 → State 3            P(c) = 0.2 ∕ (0.3+0.5+0.2) = 0.2
 ```
 
-**Uniform Sampling**
+**Uniform Sampling** — `` `P(t) = 1 ∕ ∣out∣` ``:
 
-```
-P(transition t) = 1 / (number of transitions)
+```text
+P(transition t) = 1 ∕ (number of transitions)
 ```
 
 All transitions have equal probability, regardless of weights. Useful for exploration.
 
-```
+```text
 State 0:                         Uniform sampling:
-  ┌─ a/0.3 → State 1            P(a) = 1/3 ≈ 0.33
-  ├─ b/0.5 → State 2            P(b) = 1/3 ≈ 0.33
-  └─ c/0.2 → State 3            P(c) = 1/3 ≈ 0.33
+  ┌─ a/0.3 → State 1            P(a) = 1 ∕ 3 ≈ 0.33
+  ├─ b/0.5 → State 2            P(b) = 1 ∕ 3 ≈ 0.33
+  └─ c/0.2 → State 3            P(c) = 1 ∕ 3 ≈ 0.33
 ```
 
 ### Stochastic vs Non-Stochastic WFSTs
 
 For best results with proportional sampling, use **weight-pushed** WFSTs where outgoing weights sum to 1:
 
-```
+```text
 Before pushing:                  After pushing:
 State 0:                        State 0:
   ├─ a/2.0 → s1                   ├─ a/0.4 → s1 (2/5)
@@ -375,25 +425,30 @@ match result {
 
 When the current state is final but has outgoing transitions, the algorithm must decide whether to stop or continue:
 
-**Proportional strategy:**
-```
-P(stop) = final_weight / (final_weight + Σ transition_weights)
+**Proportional strategy** — `` `P(stop) = ρ(q) ∕ (ρ(q) ⊕ Σ transition_weights)` ``:
+```text
+P(stop) = final_weight ∕ (final_weight ⊕ Σ transition_weights)
 ```
 
-**Uniform strategy:**
-```
-P(stop) = 1 / (1 + number_of_transitions)
+**Uniform strategy** — `` `P(stop) = 1 ∕ (1 + ∣out∣)` ``:
+```text
+P(stop) = 1 ∕ (1 + number_of_transitions)
 ```
 
 ### Weight Accumulation
 
-Path weight is accumulated using semiring multiplication:
+Path weight is accumulated using semiring multiplication, i.e. `` `w = w₁ ⊗ w₂ ⊗ … ⊗ wₙ ⊗ ρ(qₙ)` ``:
 
-```
+```text
 path_weight = w₁ ⊗ w₂ ⊗ ... ⊗ wₙ ⊗ final_weight
 ```
 
-For tropical semiring, this is addition. For probability semiring, multiplication.
+For the tropical semiring, `` `⊗` `` is addition. For the probability semiring, multiplication.
+
+## References
+
+- [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms*: the stochastic/weight-pushed automaton form that makes proportional sampling a proper probability distribution.
+- [Cortes 2015](../BIBLIOGRAPHY.md#ref-cortes2015) — *On-Line Learning Algorithms for Path Experts with Non-Additive Losses*: the online-learning setting (RRWM) that consumes proportional path samples as predictions.
 
 ## Related Documentation
 

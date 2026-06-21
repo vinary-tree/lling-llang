@@ -2,6 +2,22 @@
 
 Weighted Finite State Transducers (WFSTs) are the theoretical foundation for lling-llang. This document explains the trait hierarchy that provides a unified interface for both eager and lazy WFST implementations.
 
+## Terms & symbols
+
+Symbols link to [`NOTATION.md`](../NOTATION.md); conventions in [`STYLE.md`](../STYLE.md).
+
+| Symbol / term | Meaning |
+|---|---|
+| **WFST** | Weighted Finite-State Transducer — input label, output label, and weight per arc. |
+| **WFSA** | Weighted Finite-State Acceptor — a WFST with `input = output` (a lattice is a WFSA). |
+| `` `Q` `` / `` `∣Q∣` `` | The state set and its cardinality. |
+| `` `E` `` / `` `∣E∣` `` | The arc (transition) set and its cardinality. |
+| `q₀` | The start state (`` `Wfst::start()` ``). |
+| `F` | The final (accepting) states. |
+| `ρ` | The final-weight function `` `ρ : F → K` `` (`` `Wfst::final_weight()` ``). |
+| `` `ε` `` | Epsilon — a transition consuming/emitting no symbol (`` `input = output = None` ``). |
+| `` `⊗` `` | Semiring *times*: accumulates weight along a path (see [semirings](semirings.md)). |
+
 ## Concepts
 
 ### What is a WFST?
@@ -19,10 +35,10 @@ A **Weighted Finite State Transducer** is a finite automaton that:
 ```
 
 This transducer:
-- From state 0, reading 'a', writes 'b' with weight 0.5, going to state 1
-- From state 1, reading 'c', writes 'd' with weight 0.3, going to state 2
-- State 2 is final with weight 0.2
-- Path "ac" → "bd" has total weight 0.5 ⊗ 0.3 ⊗ 0.2 = 1.0 (tropical)
+- From state 0, reading `` `'a'` ``, writes `` `'b'` `` with weight `` `0.5` ``, going to state 1
+- From state 1, reading `` `'c'` ``, writes `` `'d'` `` with weight `` `0.3` ``, going to state 2
+- State 2 is final with weight `` `0.2` ``
+- Path `` `"ac" → "bd"` `` has total weight `` `0.5 ⊗ 0.3 ⊗ 0.2 = 1.0` `` (tropical)
 
 ### Relation to Lattices
 
@@ -35,17 +51,30 @@ This means lattice algorithms can leverage WFST theory while maintaining the sim
 
 ### Trait Hierarchy
 
-```
-         Wfst<L, W>
+The read-only core `` `Wfst` `` is extended two ways: `` `MutableWfst` `` adds construction, and `` `LazyWfst` `` adds on-demand state expansion with a `` `CachePolicy` ``. The eager `` `VectorWfst` `` implements both `` `Wfst` `` and `` `MutableWfst` ``; lazy operations build a `` `LazyWfstWrapper` `` over a state source.
+
+![WFST trait hierarchy: the read-only Wfst<L, W> core (blue) with start/is_final/final_weight/transitions/num_states extended by MutableWfst<L, W> (green, add_state/set_start/set_final/add_arc/add_epsilon) and LazyWfst<L, W> (green, is_expanded/expand/transitions_lazy/cache_policy); VectorWfst implements Wfst and MutableWfst, LazyWfstWrapper implements LazyWfst, and a CachePolicy enum (CacheAll, Lru, NoCache) configures lazy expansion.](../diagrams/architecture/wfst-traits.svg)
+
+*Blue = the read-only `` `Wfst` `` core (carrying the final-weight function `` `ρ` ``); green = the `` `MutableWfst` `` (construction) and `` `LazyWfst` `` (on-demand expansion) extension traits; grey = the concrete `` `VectorWfst` `` / `` `LazyWfstWrapper` `` types; orange = the `` `CachePolicy` `` enum.*
+
+<details><summary>Text view</summary>
+
+```text
+         Wfst<L, W>                    (read-only core; carries ρ : F → K)
               │
     ┌─────────┴─────────┐
     ▼                   ▼
-MutableWfst<L, W>   LazyWfst<L, W>
+MutableWfst<L, W>   LazyWfst<L, W>      (uses CachePolicy: CacheAll | Lru | NoCache)
+    │                   │
+ VectorWfst         LazyWfstWrapper<S, L, W>
+ (eager: Wfst + MutableWfst)
 ```
 
 - **Wfst**: Read-only access to transducer structure
 - **MutableWfst**: Add states and transitions
 - **LazyWfst**: On-demand state expansion with caching
+
+</details>
 
 ## The Wfst Trait
 
@@ -287,7 +316,7 @@ Benefits:
 
 ### Epsilon Transitions
 
-Epsilon (ε) transitions consume/produce no symbols:
+Epsilon (`` `ε` ``) transitions consume/produce no symbols:
 
 ```rust
 // Add epsilon transition with weight
@@ -387,3 +416,11 @@ fn is_reachable<L, W: Semiring>(
 - [Composition](../algorithms/composition.md): Lazy composition operators
 - [Path Extraction](../algorithms/path-extraction.md): Finding paths through WFSTs
 - [API Reference](../api/wfst-reference.md): Complete API documentation
+
+## References
+
+Full entries — including DOIs — are in [`BIBLIOGRAPHY.md`](../BIBLIOGRAPHY.md).
+
+- [**Mohri 2009**](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, *Weighted Automata Algorithms*: the WFST model `` `(Q, Σ, q₀, F, E, ρ)` ``, epsilon handling, and the `` `O(∣Q∣ + ∣E∣)` `` traversal bounds this trait surface supports. [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)
+- [**Mohri 2002**](../BIBLIOGRAPHY.md#ref-mohri2002) — Mohri, Pereira & Riley, *Weighted Finite-State Transducers in Speech Recognition*: lazy composition as the motivation for the `` `LazyWfst` `` trait and its `` `CachePolicy` ``. [doi:10.1006/csla.2001.0184](https://doi.org/10.1006/csla.2001.0184)
+- [**Allauzen 2007**](../BIBLIOGRAPHY.md#ref-allauzen2007) — Allauzen et al., *OpenFst: A General and Efficient Weighted Finite-State Transducer Library*: the mutable/immutable/lazy `Fst` interface design that `` `Wfst` `` / `` `MutableWfst` `` / `` `LazyWfst` `` mirror. [doi:10.1007/978-3-540-76336-9_3](https://doi.org/10.1007/978-3-540-76336-9_3)

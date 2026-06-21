@@ -11,11 +11,29 @@ Beam search is the standard inference algorithm for large WFST-based systems, pr
 | Log-Semiring Pushing | Stochastic normalization | Up to 18× speedup |
 | Lookahead Tables | Future cost estimation | Improved pruning |
 | Token Grouping | Lazy evaluation for composition | 10-20× fewer ops |
-| N-gram Back-off | Compact LM representation | Avoids O(\|V\|²) |
+| N-gram Back-off | Compact LM representation | Avoids `O(∣V∣²)` |
 
 ## Log-Semiring Weight Pushing
 
-This is the **most critical optimization** for beam search. The key insight from Mohri et al. is that weight pushing must be done in the **log semiring, NOT tropical**.
+This is the **most critical optimization** for beam search. The key insight from
+[Mohri et al. 2002](../BIBLIOGRAPHY.md#ref-mohri2002) is that weight pushing must be
+done in the **log semiring, NOT tropical**.
+
+![Log-semiring weight pushing for beam search: before vs after, with the after-automaton stochastic](../diagrams/advanced/beam-optimization.svg)
+
+*Blue = the original automaton with weight mass `w` scattered along the path; green = after pushing `w′(e) = w(e) + V(dst) − V(src)`, where the cost is absorbed and `Σ exp(−w′) = 1` at every state (stochastic). Dotted grey = the per-state correspondence.*
+
+<details><summary>Text view</summary>
+
+```text
+before — V(2)=0.0, V(1)=2.0, V(0)=3.0
+  __start__ ──► (0) ──a/1.0──► (1) ──b/2.0──► ((2))   ((·)) = final
+
+after — Σ exp(−w′) = 1 at each state (stochastic)
+  __start__ ──► (0) ══a/0.0══► (1) ══b/0.0══► ((2))   (bold = absorbed cost)
+```
+
+</details>
 
 ### Why Log Semiring?
 
@@ -30,37 +48,42 @@ This is the **most critical optimization** for beam search. The key insight from
 
 ### The Stochastic Property
 
-After log-semiring pushing, at each state q:
+After log-semiring pushing, at each state `q` the outgoing transitions (plus the final
+weight) form a proper probability distribution — `Σ exp(−w′) = 1`:
 
+```text
+Σ exp(−w′) = 1
+   over outgoing arcs of q + final weight of q
+
+In log space:  ⊕ₗₒg(all outgoing weights + final weight) ≈ 0̄
 ```
-Σ exp(-weight) = 1
-    outgoing arcs + final
 
-In log space: logadd(all outgoing weights + final weight) ≈ 0
-```
-
-This means transitions represent proper probability distributions, making beam pruning decisions statistically meaningful.
+This means transitions represent proper probability distributions, making beam pruning
+decisions statistically meaningful (`0̄` is the log-semiring additive identity, `+∞`).
 
 ### Algorithm
 
-1. **Compute backward potentials**: V(q) = -log(Σ exp(-path_weight)) for all paths from q to final
-2. **Reweight transitions**: w'(e) = w(e) + V(target) - V(source)
-3. **Normalize finals**: Set final weights to LogWeight::one()
+1. **Compute backward potentials**: `V(q) = −log(Σ exp(−path_weight))` for all paths from `q` to a final state.
+2. **Reweight transitions**: `w′(e) = w(e) + V(target) − V(source)`.
+3. **Normalize finals**: set final weights to `1̄` (`LogWeight::one()`, the `⊗`-identity `= 0`).
 
-```
+```text
 Before pushing:
   0 --a/1.0--> 1 --b/2.0--> 2 (final)
 
-  V(2) = 0.0 (final, log(1) = 0)
-  V(1) = 2.0 (path 1→2 has weight 2.0)
-  V(0) = 3.0 (path 0→2 has weight 1.0+2.0)
+  V(2) = 0.0   (final, −log 1 = 0)
+  V(1) = 2.0   (path 1→2 has weight 2.0)
+  V(0) = 3.0   (path 0→2 has weight 1.0 + 2.0)
 
 After pushing:
-  Transition 0→1: w' = 1.0 + V(1) - V(0) = 1.0 + 2.0 - 3.0 = 0.0
-  Transition 1→2: w' = 2.0 + V(2) - V(1) = 2.0 + 0.0 - 2.0 = 0.0
+  Transition 0→1:  w′ = 1.0 + V(1) − V(0) = 1.0 + 2.0 − 3.0 = 0.0
+  Transition 1→2:  w′ = 2.0 + V(2) − V(1) = 2.0 + 0.0 − 2.0 = 0.0
 
-  Result: All path weight absorbed into initial state potential
+  Result: all path weight absorbed into the initial-state potential
 ```
+
+In prose: each arc is reweighted `w′(e) = w(e) + V(dst) − V(src)`, so the telescoping
+sum along any start→final path collapses to the original total minus `V(start)`.
 
 ### Core API
 
@@ -233,7 +256,7 @@ use lling_llang::optimization::lookahead::compute_lookahead_single;
 let lookahead = compute_lookahead_single(&fst, state_id);
 ```
 
-## Token Grouping (LET-Decoder)
+## Token Grouping (LET-Decoder, [Lv 2021](../BIBLIOGRAPHY.md#ref-lv2021))
 
 For on-the-fly composition (e.g., HCLG ∘ G_r), token grouping reduces redundant operations by 10-20×.
 
@@ -376,10 +399,10 @@ For large vocabulary LMs, back-off structure avoids O(|V|²) transitions.
 ### Problem
 
 Naively representing an n-gram LM:
-- O(|V|^{n-1}) states for contexts
-- O(|V|^n) arcs for all n-grams
+- `O(∣V∣ⁿ⁻¹)` states for contexts
+- `O(∣V∣ⁿ)` arcs for all n-grams
 
-For vocabulary of 100K words: 10^10 potential bigram arcs.
+For a vocabulary of 100K words: `10¹⁰` potential bigram arcs.
 
 ### Solution: Back-off
 
@@ -586,9 +609,10 @@ Mohri et al. conjecture that log-semiring pushing provides the **optimal likelih
 
 > "The acoustic likelihoods and transducer probabilities are now synchronized to obtain the optimal likelihood ratio test for deciding whether to prune."
 
-### α-Stable Property
+### `α`-Stable Property
 
-Token grouping maintains the **α-stable property**:
+Token grouping maintains the **`α`-stable property** (here `α` denotes a group's best
+forward log-probability, not the forward score of the FB algorithm):
 - Updating unexpanded groups doesn't change their forward probability
 - Enables correct lattice generation despite deferred expansion
 - Guarantees exact results with lazy evaluation
@@ -599,30 +623,41 @@ Token grouping maintains the **α-stable property**:
 
 | Operation | Time | Space |
 |-----------|------|-------|
-| Compute potentials | O(\|Q\| + \|E\|) acyclic | O(\|Q\|) |
-| Apply push | O(\|E\|) | O(\|E\|) |
+| Compute potentials | `O(∣Q∣ + ∣E∣)` acyclic | `O(∣Q∣)` |
+| Apply push | `O(∣E∣)` | `O(∣E∣)` |
 
 ### Lookahead Table
 
 | Operation | Time | Space |
 |-----------|------|-------|
-| Build table | O(\|Q\| + \|E\|) | O(\|Q\|) |
-| Query | O(1) | - |
+| Build table | `O(∣Q∣ + ∣E∣)` | `O(∣Q∣)` |
+| Query | `O(1)` | - |
 
 ### Token Grouping
 
 | Operation | Time |
 |-----------|------|
-| Process token | O(1) amortized |
-| Advance frame | O(groups) |
-| Back-trace | O(path length) |
+| Process token | `O(1)` amortized |
+| Advance frame | `O(groups)` |
+| Back-trace | `O(path length)` |
 
 ## References
 
-1. Mohri, Pereira, Riley (2002): "WFSTs in Speech Recognition"
-2. Mohri, Pereira, Riley (2008): "Speech Recognition with WFSTs" (Handbook)
-3. Lv et al. (2023): "LET-Decoder: Lazy-evaluation Token-group Decoder"
-4. Hannun et al. (2021): "Differentiable WFSTs" (ICLR)
+- [Mohri et al. 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — Mohri, M., Pereira, F., & Riley, M.
+  *Weighted Finite-State Transducers in Speech Recognition.* The source of the
+  log-semiring-pushing-for-pruning result and the optimal-likelihood-ratio conjecture.
+- [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, M. *Weighted Automata Algorithms*
+  (Handbook of Weighted Automata) — weight pushing and shortest-distance algorithms.
+- [Hannun et al. 2020](../BIBLIOGRAPHY.md#ref-hannun2020) — Hannun, A., Pratap, V., Kahn, J.,
+  & Hsu, W.-N. *Differentiable Weighted Finite-State Transducers.*
+  **ICML 2020 (PMLR 119), [arXiv:2010.01003](https://arxiv.org/abs/2010.01003)** —
+  the GTN framework whose log-semiring forward/backward underlies the differentiable
+  beam-search graphs here. *(Earlier drafts miscited this as "ICLR 2021"; the correct
+  venue is ICML 2020.)*
+- [Lv 2021](../BIBLIOGRAPHY.md#ref-lv2021) — Lv, H., Povey, D., et al. *LET-Decoder: A
+  WFST-Based Lazy-Evaluation Token-Group Decoder with Exact Lattice Generation*
+  (IEEE SPL 28:703–707) — the token-grouping + lazy-evaluation strategy and the
+  `α`-stable property used here.
 
 ## Next Steps
 

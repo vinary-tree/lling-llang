@@ -1,0 +1,52 @@
+@startuml syntax-recovery
+' Syntax-error recovery state machine for SyntaxRecoveryLayer. Scanning a token
+' stream, each position may take an Insertion / Deletion / Replacement repair
+' transition (gated by RecoveryStrategy and the per-strategy cost), tracking an
+' open-bracket stack; at end of input any unclosed brackets are balanced.
+' Correction tier = amber; final state = green double ring. Palette: docs/diagrams/README.md.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #607D8B
+skinparam ArrowThickness 1.3
+skinparam state {
+  BackgroundColor #FFF59D
+  BorderColor #F9A825
+  FontColor #102027
+  StartColor #1565C0
+  EndColor #2E7D32
+}
+hide empty description
+
+title <b>Syntax-recovery state machine</b>  —  green marks acceptance (a parseable token sequence)
+
+[*] --> Scanning : begin / stack = ∅
+
+state "Scanning" as Scanning : read next token;\nupdate bracket stack
+state "Insertion" as Ins : emit insertable token\n(+insertion_cost)
+state "Deletion" as Del : skip token via ε edge\n(+deletion_cost)
+state "Replacement" as Rep : swap token for a\nbracket-matched one\n(+replacement_cost)
+state "Balancing" as Bal : pop unmatched opens,\nappend their closers\n(+insertion_cost each)
+state "Recovered" as Done #C8E6C9 : parseable sequence
+
+Scanning --> Ins   : [Insertion ∈ strategies\n∧ count < max_insertions]
+Scanning --> Del   : [Deletion ∈ strategies\n∧ deletable ∧ count < max_deletions]
+Scanning --> Rep   : [Replacement ∈ strategies\n∧ wrong bracket type]
+Ins --> Scanning   : token emitted
+Del --> Scanning   : token skipped
+Rep --> Scanning   : token replaced
+Scanning --> Scanning : ordinary token\n(push '(' / pop matching ')')
+
+Scanning -[#2E7D32,bold]-> Bal : end of input\n∧ balance_brackets ∧ stack ≠ ∅
+Scanning -[#2E7D32,bold]-> Done : end of input\n∧ stack = ∅
+Bal -[#2E7D32,bold]-> Done : stack drained
+
+Done --> [*]
+
+note bottom of Bal
+  Lower total cost = preferred path:
+  cost = original_cost + Σ recovery_costs.
+  Each repair is a parallel lattice edge,
+  so all candidates coexist for later stages.
+end note
+@enduml

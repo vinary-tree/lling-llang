@@ -1,0 +1,59 @@
+# f1r3fly-vision.d2 — full-stack view of how lling-llang sits inside the F1R3FLY.io
+# platform (D2 + elk). Data flows top (applications) → down into the lling-llang
+# lattice core → through the F1R3FLY integration layers → onto the storage &
+# concurrency substrate. Every F1R3FLY layer shown here is an *integration target*
+# (forward-looking), not a shipped API; see docs/integration/f1r3fly/vision.md.
+# Palette mirrors docs/diagrams/README.md (one intuitive color per tier).
+# NB: D2 reserves `layers`, `steps`, `scenarios` as keywords — shape ids avoid them.
+# Render: d2 --layout elk f1r3fly-vision.d2 f1r3fly-vision.svg
+
+direction: down
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    pad: 20
+  }
+}
+
+classes: {
+  foundation: {style: {fill: "#BBDEFB"; stroke: "#1565C0"; font-color: "#102027"; border-radius: 10}}
+  algorithms: {style: {fill: "#C8E6C9"; stroke: "#2E7D32"; font-color: "#102027"; border-radius: 10}}
+  nlp: {style: {fill: "#FFF59D"; stroke: "#F9A825"; font-color: "#102027"; border-radius: 10}}
+  dl: {style: {fill: "#E1BEE7"; stroke: "#6A1B9A"; font-color: "#102027"; border-radius: 10}}
+  app: {style: {fill: "#ECEFF1"; stroke: "#455A64"; font-color: "#102027"; border-radius: 10}}
+}
+
+apps: "Applications — speech recognition · text correction · code completion · constrained generation" {
+  class: app
+}
+
+core: "lling-llang core" {
+  class: foundation
+  lattices: "Lattices\n(weighted DAG)" {class: foundation}
+  wfsts: "WFSTs\n(traits · lazy ops)" {class: foundation}
+  corr: "Correction layers\n(pipeline)" {class: algorithms}
+}
+
+f1r3: "F1R3FLY.io integration layers (targets)" {
+  class: nlp
+  mettail: "MeTTaIL\ntype layer (OSLF)" {class: nlp}
+  mork: "MORK\nrule layer" {class: nlp}
+  mettatron: "MeTTaTron\ncompiler layer" {class: dl}
+}
+
+substrate: "Storage & concurrency" {
+  class: foundation
+  pathmap: "PathMap\n(content-addressed\ndistributed storage)" {class: foundation}
+  rholang: "Rholang\n(concurrent · rho-calculus)" {class: dl}
+}
+
+apps -> core: "lattices in / hypotheses out" {style.stroke: "#455A64"}
+core.corr -> f1r3.mettail: "filter by type" {style.stroke: "#F9A825"}
+core.corr -> f1r3.mork: "filter by rules" {style.stroke: "#F9A825"}
+core.corr -> f1r3.mettatron: "compiled transforms" {style.stroke: "#6A1B9A"}
+f1r3.mettatron -> f1r3.mettail: "type-checked by" {style: {stroke: "#6A1B9A"; stroke-dash: 4}}
+f1r3.mettatron -> f1r3.mork: "emits rules to" {style: {stroke: "#6A1B9A"; stroke-dash: 4}}
+core.lattices -> substrate.pathmap: "PathMapBackend\n(intern · persist)" {style.stroke: "#1565C0"}
+f1r3 -> substrate.rholang: "parallel apply" {style.stroke: "#6A1B9A"}
+substrate.rholang -> substrate.pathmap: "content-addressed sharing" {style: {stroke: "#1565C0"; stroke-dash: 4}}

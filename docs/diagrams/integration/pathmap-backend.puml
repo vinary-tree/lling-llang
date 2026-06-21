@@ -1,0 +1,59 @@
+@startuml pathmap-backend
+' lling-llang PathMapBackend — content-addressed distributed storage component view.
+' lling-llang (foundation blue) talks to a local cache, which fronts the PathMap
+' cluster (foundation blue); content addressing + structural sharing live in the
+' cluster. Forward-looking integration target — see docs/integration/f1r3fly/pathmap-backend.md.
+' Palette: docs/diagrams/README.md.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam component {
+  BackgroundColor #BBDEFB
+  BorderColor #1565C0
+  FontColor #102027
+  ArrowColor #607D8B
+}
+skinparam database {
+  BackgroundColor #C8E6C9
+  BorderColor #2E7D32
+  FontColor #102027
+}
+skinparam interface {
+  BackgroundColor #ECEFF1
+  BorderColor #455A64
+  FontColor #102027
+}
+
+title <b>PathMapBackend — content-addressed distributed storage</b>\n<size:11><i>structural sharing · deduplication · persistence (integration target)</i></size>
+
+package "lling-llang process" #ECEFF1 {
+  [LatticeBuilder] as LB
+  interface "LatticeBackend" as IFACE
+  [PathMapBackend] as PMB
+  [Local cache\n(LRU vocab)] as CACHE #FFF59D
+  LB --> IFACE : intern / lookup
+  IFACE -- PMB
+  PMB --> CACHE : hit?
+}
+
+cloud "PathMap cluster" #BBDEFB {
+  [Content addressing\nhash(word) → id] as CA
+  [Structural sharing\n(copy-on-write)] as CoW
+  database "Node 1" as N1
+  database "Node 2" as N2
+  database "Node 3" as N3
+  CA --> N1
+  CA --> N2
+  CA --> N3
+  CoW ..> CA : dedup identical\nsubstructures
+}
+
+CACHE --> CA : miss → fetch / persist
+PMB --> CoW : clone shares structure
+
+note bottom of PMB
+  intern(word) → VocabId      lookup(id) → &str (cached)
+  persist(&lattice) → id      load(id) → Lattice<W,B>
+  supports_sharing() = <b>true</b>
+end note
+@enduml

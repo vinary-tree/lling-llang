@@ -1,23 +1,46 @@
 # ASR Cascade Construction
 
-The ASR cascade is a pre-compiled recognition network that enables real-time speech recognition by combining all knowledge sources (acoustic model, pronunciation dictionary, language model) into a single weighted finite-state transducer.
+The ASR cascade is a pre-compiled recognition network that enables real-time
+speech recognition by combining all knowledge sources (acoustic model,
+pronunciation dictionary, language model) into a single weighted finite-state
+transducer. **ASR** = Automatic Speech Recognition; **WFST** = Weighted
+Finite-State Transducer.
+
+## Terms & symbols
+
+The symbols below are the cascade-local subset of the central
+[`NOTATION.md`](../NOTATION.md); see it for the full glossary.
+
+| Symbol | Name | Meaning |
+|---|---|---|
+| `H` | HMM transducer | Maps HMM-state ids → context-dependent phones (sub-phonetic topology). |
+| `C` | context-dependency | Maps context-dependent (triphone) phones → context-independent phones. |
+| `L` | lexicon | Maps phone strings → word ids (the pronunciation dictionary). |
+| `G` | grammar / LM | Maps word ids → word ids, carrying the n-gram language-model weights. |
+| `∘` | composition | `A ∘ B` chains transducers: `A`'s output tape feeds `B`'s input tape. |
+| `det` | determinization | Powerset construction; one transition per (state, input) pair. |
+| `min` | minimization | Merges equivalent states into the minimal equivalent machine. |
+| `π` | projection / erasing | Erases auxiliary symbols, projecting to the recognition network `N`. |
+| `∣Q∣`, `∣E∣` | cardinality | State / arc counts used in the size bounds below. |
 
 ## The Recognition Network
 
-The full ASR cascade follows Mohri et al.'s formulation:
+The full ASR cascade follows the Mohri–Pereira–Riley formulation
+([Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002)): the recognition network is
+`N = π(min(det(H ∘ det(C ∘ det(L ∘ G)))))`.
 
-```
+```text
 N = π(min(det(H ∘ det(C ∘ det(L ∘ G)))))
 ```
 
 Where:
-- **G** = Grammar (word-level language model)
-- **L** = Lexicon (pronunciation dictionary)
-- **C** = Context-dependency transducer (triphone mapping)
-- **H** = HMM transducer (hidden Markov model structure)
-- **det** = Determinization (powerset construction)
-- **min** = Minimization (state reduction)
-- **π** = Projection/erasing (remove auxiliary symbols)
+- `G` = Grammar (word-level language model)
+- `L` = Lexicon (pronunciation dictionary)
+- `C` = Context-dependency transducer (triphone mapping)
+- `H` = HMM transducer (hidden Markov model structure)
+- `det` = Determinization (powerset construction)
+- `min` = Minimization (state reduction)
+- `π` = Projection/erasing (remove auxiliary symbols)
 
 ### Why Pre-Compilation?
 
@@ -32,9 +55,20 @@ Pre-compiling the cascade offers significant advantages:
 
 ### Grammar (G): Word-Level Language Model
 
-The grammar assigns probabilities to word sequences, typically from n-gram language models:
+The grammar `G : WordId → WordId` is an identity transducer carrying LM weights;
+it assigns probabilities to word sequences, typically from n-gram language models.
+Seen n-grams take a direct word arc weighted by `−log P(wₙ∣h)`; unseen n-grams
+follow an `ε` **back-off** arc (cost `β(h)`) to a shorter-history state and retry
+at the lower order — Katz back-off, encoded structurally so the machine stays
+sparse (`NgramBuilder`, `src/asr/ngram.rs`).
 
-```
+![n-gram grammar transducer G with Katz back-off arcs: bigram history states with direct seen-n-gram word arcs and dashed epsilon back-off arcs to a unigram state](../diagrams/asr/ngram-backoff.svg)
+
+*Solid arcs carry seen-n-gram cost `−log P(wₙ∣h)`; bold green is the live decode path; dashed grey are the `ε` back-off arcs (cost `β(h)`) to the orange unigram state.*
+
+<details><summary>Text view</summary>
+
+```text
 G: WordId → WordId (identity transducer with LM weights)
 
 Structure:
@@ -51,6 +85,8 @@ Structure:
   └────────────────────────────────────────┘
 ```
 
+</details>
+
 The grammar FST encodes:
 - N-gram probabilities as arc weights
 - Backoff structure for unseen n-grams
@@ -58,9 +94,18 @@ The grammar FST encodes:
 
 ### Lexicon (L̃): Pronunciation Dictionary
 
-The lexicon maps phone sequences to words:
+The lexicon maps phone sequences to words: `L : PhoneId → WordId`. For the entry
+`"cat" → [k, æ, t]` with weight `w`, the **first** phone arc emits the word id on
+the output tape, **interior** phones emit `ε` (the word is already emitted), and
+the **last** phone returns to the start state so consecutive words concatenate.
 
-```
+![lexicon transducer for the word "cat": start state emits k:cat, interior arc æ:ε, final arc t:ε returning to the start state](../diagrams/asr/lexicon-fst.svg)
+
+*Bold green `k:cat` emits the word id; dashed grey `æ:ε` / `t:ε` are `ε`-output arcs; the double-ring start state is also final, so word streams loop back through it.*
+
+<details><summary>Text view</summary>
+
+```text
 L: PhoneId (input) → WordId (output)
 
 Entry: "cat" → [k, æ, t] with weight w
@@ -73,6 +118,8 @@ FST Structure:
      └────────────────────────────────────────────────────┘
                     (return for next word)
 ```
+
+</details>
 
 Key features:
 - **First arc**: Emits word ID on output
@@ -120,9 +167,19 @@ Context-dependent phone IDs typically encode:
 
 ### HMM Transducer (H̃): Hidden Markov Model
 
-The HMM transducer models sub-phonetic states:
+The HMM transducer models sub-phonetic states: `H : HMM-state-Id → PhoneId`. The
+standard topology is a 3-state left-to-right HMM per phone — each state carries a
+**self-loop** (duration modelling) and a **forward** arc to the next state, with
+the phone label emitted on the first arc only. This is exactly
+`TransitionMatrix::left_to_right(3, p)` in `src/acoustic/mod.rs`.
 
-```
+![3-state left-to-right HMM transducer: states S0, S1, S2 with forward arcs and self-loops, then an exit state](../diagrams/asr/hmm-3state.svg)
+
+*Solid arcs (`pdfᵢ : …`) advance the sub-phonetic state and carry forward cost `aₒₙ`; dashed grey self-loops carry the stay cost `aₛₗ`; the first forward arc emits the phone id, the rest emit `ε`.*
+
+<details><summary>Text view</summary>
+
+```text
 H: HMM-state-Id (input) → PhoneId (output)
 
 Standard 3-state HMM per phone:
@@ -133,6 +190,8 @@ Standard 3-state HMM per phone:
              └─────────┴─────────┘
               (self-loops for duration modeling)
 ```
+
+</details>
 
 Each state has:
 - Self-loop for extended duration
@@ -178,9 +237,16 @@ Composition L ∘ G:
   Result: Input=PhoneId, Output=WordId
 ```
 
-Visually:
+Visually, `L`'s output tape (`WordId`) feeds `G`'s input tape (`WordId`), and the
+composite `L ∘ G` reads phones and writes word ids:
 
-```
+![L ∘ G label flow: lexicon L (phone to word_id), grammar G (word_id to word_id), composite L ∘ G (phone to word_id), with a match annotation on the WordId tape](../diagrams/asr/cascade-lg-composition.svg)
+
+*Three clustered machines: `L` (phone → word_id), `G` (word_id → word_id), and the green composite `L ∘ G` (phone → word_id); the dotted blue arc marks the matched `word_id` label that makes composition defined, and the composite arc carries the summed weight `1.2`.*
+
+<details><summary>Text view</summary>
+
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                        L ∘ G Composition                         │
 │                                                                  │
@@ -195,6 +261,8 @@ Visually:
 │   (input)                                               (output) │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+</details>
 
 ### Implementation
 
@@ -296,7 +364,7 @@ pub struct CascadeConfig {
     pub lazy: bool,
 
     /// Maximum pronunciations per word (default: 10)
-    pub max_homophony: usize,
+    pub max_homophony: u32,
 
     /// Add word boundary markers (default: true)
     pub word_boundaries: bool,
@@ -479,9 +547,17 @@ let words: Vec<WordId> = best_path
 
 ### Incremental Determinization Strategy
 
-Determinizing after each composition prevents exponential state explosion:
+Determinizing after each composition prevents exponential state explosion. The
+state count `∣Q∣` blows up at every raw composition and is pulled back down by the
+following `det`; the final `min` and `π` yield the minimal decoding graph `N`.
 
-```
+![cascade growth: G to L∘G to det(L∘G) to C∘det(L∘G) to det(C∘L∘G) to H∘det(C∘L∘G) to N, with state counts rising at each composition and falling after each determinization](../diagrams/asr/cascade-growth.svg)
+
+*Each `∘` (darker orange) inflates `∣Q∣`; the following `det` (lighter orange) deflates it; `min · π` (amber) produces the minimal recognition network `N`. Counts are illustrative figures matching `CascadeStats`.*
+
+<details><summary>Text view</summary>
+
+```text
 Without incremental det:
   L: 10K states
   L ∘ G: 10M states (explosion!)
@@ -495,6 +571,8 @@ With incremental det:
   det(C ∘ L ∘ G): 100K states
   Final: Manageable size
 ```
+
+</details>
 
 The determinization removes:
 - Redundant paths to the same state
@@ -551,13 +629,18 @@ let result = beam_search(&cascade, &acoustic_scores, beam_width);
 
 ## Related Documentation
 
-- [ASR Pipeline](asr-pipeline.md) - High-level ASR architecture
+- [ASR Pipeline](../advanced/asr-pipeline.md) - High-level ASR architecture
 - [Determinization](../algorithms/determinization.md) - Powerset construction
 - [Minimization](../algorithms/minimization.md) - State reduction
 - [Composition](../algorithms/composition.md) - WFST composition
+- [Subword Lexicon](subword-lexicon.md) - BPE/word-piece lexicons for open vocabulary
 - [N-gram Models](../integration/external/speech-nlp.md) - Language model integration
 
 ## References
 
-- Mohri, M., Pereira, F., & Riley, M. (2002). "Weighted Finite-State Transducers in Speech Recognition"
-- Mohri, M., & Riley, M. (2001). "A Weight Pushing Algorithm for Large Vocabulary Speech Recognition"
+- [Mohri, Pereira & Riley 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted
+  Finite-State Transducers in Speech Recognition.* The `N = π(min(det(H ∘ C ∘ L ∘ G)))`
+  cascade and incremental optimization.
+- [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms.*
+  The determinization, minimization, and weight-pushing algorithms applied after
+  each composition.

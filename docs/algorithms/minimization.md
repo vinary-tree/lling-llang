@@ -1,14 +1,33 @@
 # Minimization
 
-Minimization produces a WFST with the minimum number of states that accepts the same weighted language. This is the final optimization step in the standard WFST pipeline, reducing both states and transitions.
+Minimization produces a WFST with the minimum number of states that accepts the same weighted language. This is the final optimization step in the standard WFST pipeline, reducing both states and transitions. (WFST = **W**eighted **F**inite-**S**tate **T**ransducer.)
+
+## Terms & symbols
+
+Defined centrally in [`../NOTATION.md`](../NOTATION.md); repeated locally for the terms this doc uses.
+
+| Symbol | Meaning |
+|---|---|
+| `⊕` / `⊗` | semiring *plus* (combine alternatives) / *times* (combine arcs). |
+| `0̄` / `1̄` | `⊕`-identity / `⊗`-identity. |
+| `ρ(q)` | final-weight function `ρ : F → K`. |
+| `≡` | state-equivalence (Myhill-Nerode): same weighted future. |
+| `Σ*` | all finite strings over the input alphabet `Σ`. |
+| `∣Q∣`, `∣E∣` | number of states / transitions (cardinality bar `∣` = U+2223). |
 
 ## Concepts
 
 ### What is Minimization?
 
-Minimization identifies and merges **equivalent states**—states that behave identically for all possible continuations:
+Minimization identifies and merges **equivalent states**—states that behave identically for all possible continuations. In the example below, states 1 and 2 share a future (both read `b` into a final class), as do 3 and 4 (both final with the same weight), so each pair collapses to a single class.
 
-```
+![Minimization before/after: a 5-state acceptor whose equivalent state pairs {1,2} and {3,4} merge into one class each, yielding a 3-state minimal acceptor](../diagrams/algorithms/minimize-before-after.svg)
+
+*Amber states = equivalence class A `{1,2}`; green double-ring states = final class B `{3,4}`. Left panel is the input; right panel is the minimal automaton (one state per class); the green bold arc is the shared `b`-transition.*
+
+<details><summary>Text view</summary>
+
+```text
 Before minimization:              After minimization:
 
     0 ──a──► 1 ──b──► 3 (final)       0 ──a──► 1 ──b──► 2 (final)
@@ -18,6 +37,8 @@ Before minimization:              After minimization:
 States 3 and 4 are equivalent (same outgoing transitions, same final weight)
 States 1 and 2 are also equivalent → merge them
 ```
+
+</details>
 
 ### Why Minimize?
 
@@ -30,7 +51,7 @@ States 1 and 2 are also equivalent → merge them
 
 Minimization combines two steps:
 
-```
+```text
 ┌─────────────────┐    ┌─────────────────────┐    ┌─────────────────┐
 │  Weight Push    │ ─► │ Partition Refinement│ ─► │  Build Minimal  │
 │ (normalize)     │    │   (find equiv.)     │    │     WFST        │
@@ -166,23 +187,54 @@ let min_fst = minimize(&pushed_fst, config)?;
 
 ### Partition Refinement
 
-The algorithm uses **Hopcroft-style partition refinement**:
+The algorithm uses **Hopcroft-style partition refinement** ([Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009)). The invariant is that two states sharing a block could still be equivalent; each refinement round splits a block whenever two of its states are *distinguished* by their signature — their final weight or the block-labelled profile of their outgoing arcs. The partition only ever gets finer, so the fixpoint is the coarsest stable partition: exactly the equivalence classes.
 
-```
+<details><summary>Text view</summary>
+
+```text
 procedure PARTITION_REFINEMENT(fst):
-    // Initial partition: by final weight
-    partition ← separate states by final_weight
-
+    partition ← separate states by final_weight        // initial split
     repeat:
         for each state q:
-            signature[q] ← (final_weight, {(label, weight, partition[target])})
-
+            signature[q] ← (final_weight(q), {(label, weight, partition[target])})
         new_partition ← group states by signature
-
     until partition == new_partition
-
     return partition
 ```
+
+</details>
+
+```text
+⟨ initial partition by final weight ⟩ ≡
+    partition ← { states with the same ρ(q) value go in one block }
+    // non-final states (ρ = 0̄) form one block; each distinct final weight its own
+```
+
+```text
+⟨ compute a state signature ⟩ ≡
+    signature[q] ← ( ρ(q),  multiset{ (in, out, w, partition[target]) : arc q→target } )
+    // two states distinguishable ⟺ different signatures under the CURRENT partition
+```
+
+```text
+⟨ refine until stable ⟩ ≡
+    repeat:
+        for each state q:  ⟨ compute a state signature ⟩
+        new_partition ← group states by equal signature
+        swap(partition, new_partition)
+    until partition unchanged
+```
+
+```text
+⟨ partition refinement ⟩ ≡
+    ⟨ initial partition by final weight ⟩
+    ⟨ refine until stable ⟩
+    return partition
+```
+
+The refinement terminates because each round either splits at least one block (strictly
+increasing the block count, bounded by `` `∣Q∣` ``) or changes nothing and stops. A
+worklist implementation of this scheme attains Hopcroft's `` `O(∣E∣ log ∣Q∣)` `` bound.
 
 ### State Signatures
 
@@ -201,14 +253,14 @@ Two states are equivalent if and only if they have identical signatures.
 
 Once partitions are computed:
 
-```
+```text
 1. Create one state per partition
 2. Choose representative from each partition
 3. Copy transitions from representative to new state
 4. Map target states to their partition numbers
 ```
 
-```
+```text
 Partitions:                    Minimal WFST:
 
   [0]: {0}                        0' (start)
@@ -220,7 +272,7 @@ Partitions:                    Minimal WFST:
 
 Weight pushing ensures a **canonical weight distribution**:
 
-```
+```text
 Before pushing:                    After pushing:
   0 --a/2--> 1 --b/3--> (F)         0 --a/5--> 1 --b/0--> (F)
   0 --a/2--> 2 --b/3--> (F)         0 --a/5--> 2 --b/0--> (F)
@@ -238,18 +290,18 @@ Without pushing, equivalent states might have different weight distributions, pr
 
 | Case | Complexity |
 |------|------------|
-| Acyclic | O(|Q| + |E|) |
-| General | O(|E| log |Q|) |
+| Acyclic | `` `O(∣Q∣ + ∣E∣)` `` |
+| General | `` `O(∣E∣ log ∣Q∣)` `` |
 
-The O(|E| log |Q|) bound comes from Hopcroft's algorithm for partition refinement.
+The `` `O(∣E∣ log ∣Q∣)` `` bound comes from Hopcroft's algorithm for partition refinement.
 
 ### Space Complexity
 
 | Structure | Size |
 |-----------|------|
-| Partition array | O(|Q|) |
-| Signatures | O(|Q| × avg_out_degree) |
-| Output WFST | O(|Q'| + |E'|) where |Q'| ≤ |Q| |
+| Partition array | `` `O(∣Q∣)` `` |
+| Signatures | `` `O(∣Q∣ × avg_out_degree)` `` |
+| Output WFST | `` `O(∣Q'∣ + ∣E'∣)` `` where `` `∣Q'∣ ≤ ∣Q∣` `` |
 
 ## Requirements
 
@@ -326,9 +378,11 @@ if ratio > 0.1 {  // >10% reduction
 
 ## Visualization
 
+The [before/after diagram](#what-is-minimization) above renders this reduction; the ASCII views are kept here for reference.
+
 ### Before Minimization
 
-```
+```text
                  a/1.0         b/1.0
           [0] ─────────► 1 ─────────► (3)
             │
@@ -343,7 +397,7 @@ Equivalent pairs: {1,2}, {3,4}
 
 ### After Minimization
 
-```
+```text
                  a/1.0
           [0] ─────────► 1 ─────────► (2)
             │             ▲
@@ -356,10 +410,10 @@ Transitions: 3
 
 ### Partition Evolution
 
-```
+```text
 Iteration 0: Initial partition by final weight
   P0 = {0, 1, 2}     (non-final)
-  P1 = {3, 4}        (final, weight=0)
+  P1 = {3, 4}        (final, weight=0̄... here ρ=0)
 
 Iteration 1: Refine by transitions
   P0 = {0}           (start, has a/c arcs)
@@ -407,10 +461,10 @@ match minimize(&fst, config) {
 
 ### Myhill-Nerode Theorem
 
-The minimal WFST corresponds to the Myhill-Nerode equivalence relation:
+The minimal WFST corresponds to the Myhill-Nerode equivalence relation, i.e. `` `q₁ ≡ q₂ ⟺ ∀w ∈ Σ*: weight(q₁, w) = weight(q₂, w)` ``:
 
-```
-q₁ ≡ q₂ iff ∀w ∈ Σ*: weight(q₁, w) = weight(q₂, w)
+```text
+q₁ ≡ q₂  iff  ∀ w ∈ Σ*:  weight(q₁, w) = weight(q₂, w)
 ```
 
 Two states are equivalent if they produce identical weights for all continuations.
@@ -421,9 +475,15 @@ The minimal WFST is **unique up to isomorphism**—all minimal WFSTs for the sam
 
 ### States vs Transitions
 
-**Theorem** (Mohri): Minimizing states also minimizes transitions.
+**Theorem** ([Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009)): Minimizing states also minimizes transitions.
 
 This means the minimal WFST is optimal in both metrics simultaneously.
+
+## References
+
+- [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms*: weighted minimization, the push-then-partition-refine pipeline, the Hopcroft `` `O(∣E∣ log ∣Q∣)` `` bound, and the states-also-minimizes-transitions theorem.
+- [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted Finite-State Transducers in Speech Recognition*: minimization as the final stage of the recognition-cascade optimization, with reported state reductions.
+- [Allauzen 2007](../BIBLIOGRAPHY.md#ref-allauzen2007) — *OpenFst*: the `Minimize` operation and equivalence-by-isomorphism testing this implementation mirrors.
 
 ## Next Steps
 

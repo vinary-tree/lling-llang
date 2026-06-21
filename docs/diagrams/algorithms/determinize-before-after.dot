@@ -1,0 +1,48 @@
+// determinize-before-after.dot — weighted determinization by the weighted-subset
+// (powerset) construction. LEFT: non-deterministic input with two a-arcs out of 0.
+// RIGHT: deterministic output whose states are weighted subsets {(s, residual)};
+// the a-arc carries the factored-out minimum weight, residuals ride inside the state.
+//
+// SHARED DOT PREAMBLE (copy into every Graphviz automaton; palette = docs/diagrams/README.md):
+//   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · text #102027 · edge #607D8B
+//   best/Viterbi #2E7D32 bold(penwidth=2) · alternative #B0BEC5 · epsilon #9E9E9E dashed
+//   final = doublecircle fill #C8E6C9 border #2E7D32 · start = arrow from invisible point
+digraph determinize_before_after {
+  rankdir=LR;
+  bgcolor="#FFFFFF";
+  labelloc="t";
+  fontname="Helvetica"; fontsize=13;
+  label=<<b>Determinization</b> — non-deterministic (left) → weighted-subset deterministic (right); arc weight = factored-out min>;
+  node  [shape=circle, style=filled, fillcolor="#BBDEFB", color="#1565C0",
+         fontcolor="#102027", fontname="Helvetica", penwidth=1.4, width=0.5];
+  edge  [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, penwidth=1.3];
+
+  // ── before: non-deterministic ─────────────────────────────────────
+  subgraph cluster_before {
+    label=<<b>before</b> — two 'a' arcs leave state 0 (non-deterministic)>;
+    color="#B71C1C"; fontcolor="#B71C1C"; style="rounded"; bgcolor="#FFEBEE";
+    n0 [label="0"];
+    n1 [label="1"];
+    n2 [label="2"];
+    n3 [label="3", shape=doublecircle, fillcolor="#C8E6C9", color="#2E7D32"];
+    s0 [shape=point, width=0.01, color="#1565C0"]; s0 -> n0;
+    n0 -> n1 [label="a / 1.0"];
+    n0 -> n2 [label="a / 2.0"];   // ← non-determinism on label a
+    n1 -> n3 [label="b / 1.0"];
+    n2 -> n3 [label="b / 1.0"];
+  }
+
+  // ── after: deterministic ──────────────────────────────────────────
+  subgraph cluster_after {
+    label=<<b>after</b> — one 'a' arc to weighted subset {(1,0̄),(2,1.0)}; arc carries min = 1.0>;
+    color="#2E7D32"; fontcolor="#1B5E20"; style="rounded"; bgcolor="#E8F5E9";
+    node [fillcolor="#C8E6C9", color="#2E7D32"];
+    d0 [label="{(0,0̄)}"];
+    d1 [label="{(1,0̄),\n(2,1.0)}"];
+    d3 [label="{(3,0̄)}", shape=doublecircle, color="#2E7D32"];
+    sd [shape=point, width=0.01, color="#2E7D32"]; sd -> d0;
+    d0 -> d1 [label="a / 1.0", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+    // residual 1.0 of state 2 is added back through the shared b-arc:
+    d1 -> d3 [label="b / 1.0", color="#2E7D32", fontcolor="#1B5E20", penwidth=2.0];
+  }
+}

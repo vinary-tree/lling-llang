@@ -1,6 +1,6 @@
 # GPU Acceleration
 
-GPU acceleration provides large speedups for WFST decoding by exploiting parallel computation. This module provides CPU-side data structures and algorithms shaped for GPU execution patterns. The techniques follow Braun et al. (2020), who report up to a **240× speedup** over single-core CPU decoding for their GPU Viterbi exact-lattice decoder; those figures are from the literature, **not** an independent benchmark of this crate.
+GPU acceleration provides large speedups for WFST decoding by exploiting parallel computation. This module provides CPU-side data structures and algorithms shaped for GPU execution patterns. The techniques follow [Braun et al. 2020](../BIBLIOGRAPHY.md#ref-braun2020), who report up to a **240× speedup** over single-core CPU decoding for their GPU Viterbi exact-lattice decoder; those figures are from the literature, **not** an independent benchmark of this crate.
 
 ## Concepts
 
@@ -39,7 +39,9 @@ GPUs excel at this because:
 
 ### 1. CSR Representation
 
-Compressed Sparse Row format provides efficient GPU memory layout:
+Compressed Sparse Row (CSR) format provides an efficient GPU memory layout. Each state's
+`(arc_start, arc_count)` slices contiguous arc and label arrays, so the total footprint is
+`M_fst = 12·∣Q∣ + 8·∣E∣ + 4·∣E∣` bytes:
 
 ```rust
 use lling_llang::gpu::{CsrWfst, CsrBuilder};
@@ -49,11 +51,16 @@ let builder = CsrBuilder::new();
 let csr: CsrWfst<char, TropicalWeight> = builder.from_wfst(&vector_wfst);
 
 // Memory-efficient layout
-// M_fst = 12|Q| + 8|E| + 4|E_E|
+// M_fst = 12·∣Q∣ + 8·∣E∣ + 4·∣E∣
 let memory_bytes = csr.memory_size();
 ```
 
-**Memory Layout**:
+![CSR WFST layout: state row offsets index contiguous arc and label slices, modelled as record nodes](../diagrams/advanced/gpu-csr-layout.svg)
+
+*Purple records = the three parallel arrays. The state array (12 bytes/state: `row_offset` · `final_weight` · `state_flags`) points at the first arc of each state's slice; the arc array (8 bytes/arc: `next_state` · `weight`) and label array (4 bytes/arc: `ilabel`) are indexed in lock-step (dashed = "same index").*
+
+<details><summary>Text view</summary>
+
 ```text
 State Array (12 bytes per state):
 ┌────────────┬────────────┬────────────┐
@@ -73,6 +80,8 @@ Label Array (4 bytes per arc):
 └────────────┘
 ```
 
+</details>
+
 **Benefits**:
 - GPU FST ≈ **1/3 size** of disk FST
 - Contiguous memory for coalesced access
@@ -80,7 +89,9 @@ Label Array (4 bytes per arc):
 
 ### 2. Token Recombination with uint64 Packing
 
-Pack cost and arc ID into a single 64-bit value for atomic operations:
+Pack cost and arc ID into a single 64-bit value for atomic operations — cost in the high
+32 bits, `arc_id` in the low 32 bits, so a single integer `atomicMin` selects the lowest
+cost:
 
 ```rust
 use lling_llang::gpu::{PackedToken, RecombinationBuffer, pack_cost_arc};
@@ -99,7 +110,12 @@ if won {
 let survivors = buffer.collect_survivors();
 ```
 
-**Packing Strategy**:
+![uint64 token recombination: pack (cost, arc_id), order-preserving bit transform, atomicMin per state](../diagrams/advanced/gpu-token-recombination.svg)
+
+*Candidate tokens for a destination state are packed into a 64-bit word (cost in the high bits); an order-preserving float→uint transform makes integer `atomicMin` agree with float ordering; the lowest-cost token wins (green) and its full payload lands in a per-arc buffer (amber) with no write contention.*
+
+<details><summary>Text view</summary>
+
 ```text
 |<------ 32 bits ------>|<------ 32 bits ------>|
 |     cost (f32)        |      arc_id (u32)     |
@@ -108,12 +124,15 @@ let survivors = buffer.collect_survivors();
     High bits (for comparison)   Low bits
 ```
 
-The cost is placed in high bits so `atomicMin` naturally selects lower costs.
+</details>
 
-**Float Ordering Transformation**:
+The cost is placed in the high bits so `atomicMin` naturally selects lower costs.
+
+**Float Ordering Transformation** — `ordered = (cost_bits ≥ 0) ? cost_bits ⊕ 0x80000000 : ¬cost_bits`,
+which makes integer comparison agree with IEEE-754 float comparison:
 ```rust
 // Positive floats: XOR with 0x80000000
-// Negative floats: XOR with 0xFFFFFFFF
+// Negative floats: XOR with 0xFFFFFFFF (bitwise NOT)
 // This preserves ordering under integer comparison
 
 let ordered_bits = if (cost_bits as i32) >= 0 {
@@ -212,7 +231,7 @@ With K-vectors (K=32):
 **Performance**:
 - K=32 provides **10× speedup** for lattice arc accumulation
 - Random distribution balances load across vectors
-- Final merge is O(K) with no contention
+- Final merge is `O(K)` with no contention
 
 ### 5. Channels/Lanes for Batched Streaming
 
@@ -259,7 +278,7 @@ Channels (n_c = 5000)          Lanes (n_l = 500)
 └─────────┘
 ```
 
-**Memory Model**:
+**Memory Model** — `M_state = 64α·n_c + 544α·n_l + 1024·n_l`:
 ```text
 M_state = 64α·n_c + 544α·n_l + 1024·n_l
 
@@ -419,17 +438,23 @@ while decoder.stats().active_channels > 0 {
 ## Memory Formulas
 
 ### WFST Storage (CSR)
-```
-M_fst = 12|Q| + 8|E| + 4|E_E|
+
+The CSR footprint is `M_fst = 12·∣Q∣ + 8·∣E∣ + 4·∣E_E∣` bytes:
+
+```text
+M_fst = 12·∣Q∣ + 8·∣E∣ + 4·∣E_E∣
 
 Where:
-  |Q|   = number of states
-  |E|   = number of arcs
-  |E_E| = number of emitting arcs
+  ∣Q∣   = number of states         (12 bytes each: row_offset · final_wt · flags)
+  ∣E∣   = number of arcs           (8 bytes each: next_state · weight)
+  ∣E_E∣ = number of emitting arcs  (4 bytes each: label)
 ```
 
 ### Decoder State
-```
+
+The per-decode state is `M_state = 64α·n_c + 544α·n_l + 1024·n_l` bytes:
+
+```text
 M_state = 64α·n_c + 544α·n_l + 1024·n_l
 
 Where:
@@ -556,6 +581,17 @@ use lling_llang::gpu::cuda::{CudaRecombinationBuffer, CudaLoadBalancer};
 #[cfg(feature = "wgpu")]
 use lling_llang::gpu::wgpu::{WgpuRecombinationBuffer, WgpuLoadBalancer};
 ```
+
+## References
+
+- [Braun et al. 2020](../BIBLIOGRAPHY.md#ref-braun2020) — Braun, H., Luitjens, J., Leary, R.,
+  Kaldewey, T., & Galvez, D. *GPU-Accelerated Viterbi Exact Lattice Decoder for Batched
+  Online and Offline Speech Recognition.* ICASSP 2020. The source of the CSR layout,
+  uint64 token recombination, K-vector reduction, channels/lanes batching, soft pruning,
+  and all xRTF/WER figures reproduced above.
+- [Mohri et al. 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — Mohri, M., Pereira, F., & Riley, M.
+  *Weighted Finite-State Transducers in Speech Recognition.* The `H ∘ C ∘ L ∘ G` decoding
+  graph these kernels traverse, and the log-semiring pushing that feeds beam pruning.
 
 ## Next Steps
 

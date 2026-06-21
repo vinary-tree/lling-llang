@@ -52,11 +52,14 @@ Fast parsing with basic brace matching:
 let grammar = LatexGrammar::minimal()?;
 ```
 
-Productions:
-- Document → ContentList
-- ContentList → Content ContentList | ε
-- Content → Group | Token
-- Group → { ContentList }
+Productions (`` `ε` `` denotes the empty string; `` `|` `` separates alternatives):
+
+```text
+Document    → ContentList
+ContentList → Content ContentList | ε
+Content     → Group | Token
+Group       → { ContentList }
+```
 
 ## Builder API
 
@@ -260,3 +263,9 @@ match LatexGrammar::standard() {
 - [Overview](./overview.md): Layer architecture
 - [Validator](./validator.md): Structural validation
 - [Repair](./repair.md): Repair strategies
+
+## References
+
+- [Earley 1970](../../BIBLIOGRAPHY.md#ref-earley1970) — the `EarleyParser` that
+  recognizes these productions handles arbitrary context-free grammars, including
+  the ambiguous and left-recursive rules in the standard LaTeX grammar.

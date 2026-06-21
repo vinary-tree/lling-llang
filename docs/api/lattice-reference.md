@@ -401,7 +401,15 @@ if path_exists(&lattice, lattice.start(), lattice.end()) {
 
 ### Pruning
 
-```rust
+The shipped pruning primitive is the path-side `beam_search` in
+`lling_llang::path` (re-exported from the prelude). A dedicated
+`lling_llang::lattice::prune` module with standalone `beam_prune` /
+`posterior_prune` lattice→lattice helpers is *illustrative / not yet shipped*;
+the sketch below shows the intended shape:
+
+```rust,ignore
+// Illustrative API sketch — not yet provided by the crate.
+// The shipped primitive is `lling_llang::path::{beam_search, BeamSearchConfig}`.
 use lling_llang::lattice::prune::{beam_prune, posterior_prune};
 
 // Beam pruning
@@ -413,7 +421,12 @@ let pruned = posterior_prune(&lattice, 0.01)?;
 
 ## Serialization
 
-```rust
+> **Illustrative.** A `lling_llang::io` module with `LatticeWriter` /
+> `LatticeReader` is *not yet shipped*; the sketch below documents the intended
+> serialization surface (gated behind the `serde` feature) rather than a current
+> API.
+
+```rust,ignore
 use lling_llang::io::{LatticeWriter, LatticeReader};
 
 // Write

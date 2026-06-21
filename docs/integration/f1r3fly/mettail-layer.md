@@ -11,6 +11,34 @@ The MeTTaIL Type Layer filters lattice paths based on semantic type constraints 
 - **Soft filtering**: Downweight (rather than reject) type mismatches
 - **Position-specific**: Apply different constraints at different positions
 
+The MeTTaIL type layer is the **first** F1R3FLY filter in the integration flow: it
+narrows a candidate lattice to type-consistent paths before MORK rules, MeTTaTron
+transforms, and Rholang parallelism downstream.
+
+![F1R3FLY layer integration overview: a candidate lattice is type-filtered by the MeTTaIL layer, rule-filtered by MORK, rewritten by MeTTaTron-compiled specs, and parallelized by the Rholang layer, with PathMap as the content-addressed substrate beneath; the output is a pruned, reweighted lattice.](../../diagrams/integration/mettail-mork-rholang.svg)
+
+*Green = the candidate lattice; amber = the MeTTaIL/MORK type-and-rule filters;
+purple = MeTTaTron compilation and Rholang concurrency; blue = the PathMap
+substrate; grey = the final lattice. All four layers are forward-looking
+integration **targets**. Dotted edges are cross-layer dependencies.*
+
+<details><summary>Text view</summary>
+
+```text
+candidate lattice
+      │  all paths
+      ▼
+[ MeTTaIL type layer ]  ── type-consistent paths ──▶ [ MORK rule layer ]
+                                                            │ rule-valid paths
+                                                            ▼
+   pruned + reweighted  ◀── merged regions ── [ Rholang ] ◀── [ MeTTaTron ]
+        lattice                                    │  compiled pass
+                                                   ▼
+                                  PathMap (persist · share by hash)
+```
+
+</details>
+
 ## Type System
 
 ### Type Expressions

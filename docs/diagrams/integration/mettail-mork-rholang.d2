@@ -1,0 +1,46 @@
+# mettail-mork-rholang.d2 — how a lattice threads through the F1R3FLY correction
+# layers (D2 + elk). A candidate lattice is type-filtered by MeTTaIL, rule-filtered
+# by MORK, optionally rewritten by MeTTaTron-compiled MeTTa specs, and parallelized
+# across nodes by Rholang — with PathMap as the content-addressed substrate beneath.
+# All four layers are forward-looking integration targets (see the f1r3fly/ docs).
+# Palette mirrors docs/diagrams/README.md (one intuitive color per tier).
+# NB: D2 reserves `layers`, `steps`, `scenarios` as keywords — shape ids avoid them.
+# Render: d2 --layout elk mettail-mork-rholang.d2 mettail-mork-rholang.svg
+
+direction: right
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    pad: 20
+  }
+}
+
+classes: {
+  foundation: {style: {fill: "#BBDEFB"; stroke: "#1565C0"; font-color: "#102027"; border-radius: 10}}
+  algorithms: {style: {fill: "#C8E6C9"; stroke: "#2E7D32"; font-color: "#102027"; border-radius: 10}}
+  nlp: {style: {fill: "#FFF59D"; stroke: "#F9A825"; font-color: "#102027"; border-radius: 10}}
+  dl: {style: {fill: "#E1BEE7"; stroke: "#6A1B9A"; font-color: "#102027"; border-radius: 10}}
+  app: {style: {fill: "#ECEFF1"; stroke: "#455A64"; font-color: "#102027"; border-radius: 10}}
+}
+
+input: "candidate lattice\n(spelling/grammar edges)" {class: algorithms}
+
+mettail: "MeTTaIL type layer\n(infer type · strict reject /\nsoft downweight)" {class: nlp}
+mork: "MORK rule layer\n(declarative rules ·\npattern match · reweight)" {class: nlp}
+mettatron: "MeTTaTron compiler\n(MeTTa spec → fused\nlattice transforms)" {class: dl}
+rholang: "Rholang layer\n(par · channels · joins ·\ndistributed apply)" {class: dl}
+
+output: "pruned + reweighted lattice\n(best path via Viterbi)" {class: app}
+
+pathmap: "PathMap\n(content-addressed storage · structural sharing)" {class: foundation}
+
+input -> mettail: "all paths" {style.stroke: "#2E7D32"}
+mettail -> mork: "type-consistent paths" {style.stroke: "#F9A825"}
+mork -> mettatron: "rule-valid paths" {style.stroke: "#F9A825"}
+mettatron -> rholang: "compiled pass" {style.stroke: "#6A1B9A"}
+rholang -> output: "merged regions" {style: {stroke: "#455A64"; stroke-width: 2}}
+
+mettatron -> mettail: "uses type judgments" {style: {stroke: "#6A1B9A"; stroke-dash: 4}}
+rholang -> pathmap: "persist · share by hash" {style: {stroke: "#1565C0"; stroke-dash: 4}}
+mork -> pathmap: "incremental facts" {style: {stroke: "#1565C0"; stroke-dash: 4}}

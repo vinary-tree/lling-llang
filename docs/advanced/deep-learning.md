@@ -1,16 +1,40 @@
 # Deep Learning Integration
 
-This module extends the differentiable WFST framework with advanced features for integrating WFSTs into deep learning pipelines, including convolutional WFST layers, token graph variants, marginalized word piece decompositions, and n-gram pruning with back-off.
+This module (`src/differentiable/`) extends the differentiable WFST (**W**eighted **F**inite-**S**tate **T**ransducer) framework with advanced features for integrating WFSTs into deep-learning pipelines, including convolutional WFST layers, token graph variants, marginalized word piece decompositions, and n-gram pruning with back-off. A WFST here is a *differentiable layer*: a forward pass computes a log-sum-exp score over all paths, and the backward pass returns the gradient of that score with respect to the arc weights ([Hannun 2020](../BIBLIOGRAPHY.md#ref-hannun2020)).
+
+## Terms & symbols
+
+Defined centrally in [`../NOTATION.md`](../NOTATION.md); repeated locally for the terms this doc uses.
+
+| Symbol | Meaning |
+|---|---|
+| `⊕` / `⊗` | semiring *plus* (combine alternative paths; Log: `⊕ₗₒg`) / *times* (combine arcs along a path). |
+| `∘` | composition — chains transducers; the output tape of one feeds the input tape of the next. |
+| `*` | Kleene closure of a transducer (`` `(T₁ + … + T_C)*` ``: any number of token graphs in sequence). |
+| `ε` | epsilon — a transition that consumes/emits nothing (the CTC blank/back-off arc). |
+| `E`, `B`, `Tᵢ`, `L`, `Y` | emissions · bigram graph · token graph for token `i` · lexicon transducer · target sequence. |
+| `A`, `Z` | constrained alignment graph `` `A = E ∘ (B ∘ ((T₁+…+T_C)* ∘ (L ∘ Y)))` `` · unconstrained normalizer `` `Z = E ∘ B` ``. |
+| `∣V∣` | vocabulary size (cardinality bar `∣` = U+2223); `` `∣E∣` `` = arc count in complexity bounds. |
+| `k`, `c_i`, `c_o`, `w` | kernel width · input / output channels · receptive-field width. |
+| **CTC** | **C**onnectionist **T**emporal **C**lassification (alignment-free sequence labeling, [Graves 2006](../BIBLIOGRAPHY.md#ref-graves2006)). |
 
 ## Overview
 
 Deep learning integration enables:
-1. **WFST as Neural Layers**: Use WFSTs as convolutional layers with 38x fewer parameters
+1. **WFST as Neural Layers**: Use WFSTs as convolutional layers with `38×` fewer parameters
 2. **Flexible Token Graphs**: Different CTC variants for various training objectives
 3. **Learned Decompositions**: Marginalize over word piece segmentations
-4. **Scalable N-grams**: 87x speedup through pruning and back-off
+4. **Scalable N-grams**: `87×` speedup through pruning and back-off
 
-```
+The data flows neural-network → emissions `E` → a stack of differentiable WFST layers → a scalar loss; the gradient of that loss flows back through the same graph to the network. The structural spine of the stack is the lexicon-marginalization alignment graph `` `A = E ∘ (B ∘ ((T₁ + … + T_C)* ∘ (L ∘ Y)))` ``, scored against the unconstrained normalizer `` `Z` `` to give `` `loss = −log P(Y∣X) = forwardScore(Z) − forwardScore(A)` ``.
+
+![WFST as a differentiable neural-network layer: neural emissions E feed a token graph (CTC variant) with an epsilon blank/repeat self-loop, then the Kleene closure of per-token graphs composed with a lexicon L and the target Y form the alignment graph A; a forward log-sum-exp score over A and over the normalizer Z combine into the loss, whose backward pass sends arc-posterior gradients back to the network](../diagrams/advanced/deep-learning-layers.svg)
+
+*Purple = deep-learning tier; the green-bold spine is the constrained path `` `E → token graph → closure → L → Y` `` and its forward score; grey-dashed `ε` arcs are the CTC blank/repeat self-loop and the unconstrained normalizer branch `` `Z` ``; the amber note marks the lexicon marginalization (sum over every valid word-piece decomposition of `Y`); the red-dashed arc is the gradient `` `∂Loss/∂E` `` returning to the encoder.*
+
+<details><summary>Text view</summary>
+
+```text
 Neural Network → Emissions → WFST Layer → Loss
                      ↓
               ┌──────┴──────┐
@@ -26,20 +50,22 @@ Neural Network → Emissions → WFST Layer → Loss
               └─────────────┘
 ```
 
+</details>
+
 ## WFST Convolutional Layers
 
 WFST kernels can replace traditional convolutions with dramatic parameter reduction.
 
 ### Concept
 
-Traditional convolution: `output[t] = Σ_k W[k] · input[t+k]`
+Traditional convolution: `` `output[t] = Σ_k W[k] · input[t+k]` ``
 
-WFST convolution: `output[t] = logadd_{p ∈ K ∘ R_t} score(p)`
+WFST convolution: `` `output[t] = ⊕ₗₒg { score(p) : p ∈ K ∘ R_t }` `` (a log-sum-exp over every path of the composed kernel-and-receptive-field automaton).
 
 Where:
-- K = WFST kernel (encodes structural patterns)
-- R_t = receptive field (linear graph from hidden units at positions t to t+k)
-- The log-sum-exp aggregates all path scores
+- `K` = WFST kernel (encodes structural patterns)
+- `R_t` = receptive field (linear graph from hidden units at positions `t` to `t+k`)
+- The `` `⊕ₗₒg` `` (log-sum-exp) aggregates all path scores
 
 ### API
 
@@ -49,31 +75,28 @@ use lling_llang::differentiable::{
     wfst_conv_forward, wfst_conv_backward, PaddingMode,
 };
 
-// Create a WFST kernel
-let kernel = WfstKernel::new(
-    3,      // kernel_width
-    256,    // input_dim (vocabulary)
-    64,     // output_dim
-);
+// Create a WFST kernel: (vocabulary size, receptive-field width, initial weight)
+let kernel = WfstKernel::<usize>::new(256, 3, 0.0);
 
 // Configure the convolutional layer
 let config = WfstConvConfig {
-    kernel_width: 3,
+    input_channels: 256,
+    output_channels: 32,
+    kernel_size: 3,
     stride: 1,
     padding: PaddingMode::Same,
-    num_kernels: 32,
 };
 
-// Create layer
-let layer = WfstConvLayer::new(config, 256);
+// Create the layer
+let layer = WfstConvLayer::<usize>::new(config);
 
-// Forward pass
-let input_sequence: Vec<f64> = /* hidden states */;
+// Forward pass — input is [time × channels]
+let input_sequence: Vec<Vec<f64>> = vec![/* hidden states */];
 let output = wfst_conv_forward(&layer, &input_sequence);
 
-// Backward pass
-let output_grad: Vec<f64> = /* gradient from upstream */;
-let (input_grad, kernel_grad) = wfst_conv_backward(&layer, &output_grad);
+// Backward pass — returns (input gradients, per-kernel gradients)
+let output_grad: Vec<Vec<f64>> = vec![/* gradient from upstream */];
+let (input_grad, kernel_grads) = wfst_conv_backward(&layer, &input_sequence, &output_grad);
 ```
 
 ### Receptive Field Construction
@@ -89,14 +112,19 @@ Position:     t      t+1     t+2
 ```
 
 ```rust
-// Build receptive field from hidden states
-let hidden: Vec<Vec<f64>> = /* [time × hidden_dim] */;
-let t = 5;
-let width = 3;
-let receptive_field = ReceptiveField::from_hidden(&hidden, t, width);
+// Build receptive field from hidden states: a window of (label, weight) pairs.
+// Each pair is one position's emitted label and its score; `start_pos` is the
+// window's offset into the input sequence.
+let hidden_states: Vec<(usize, f64)> = vec![
+    (0, 1.2),  // position t   → label 0, weight 1.2
+    (1, 0.7),  // position t+1 → label 1, weight 0.7
+    (0, 0.4),  // position t+2 → label 0, weight 0.4
+];
+let start_pos = 5;
+let receptive_field = ReceptiveField::from_hidden_states(&hidden_states, start_pos);
 
-// Compose with kernel
-let composed = compose(&kernel.as_wfst(), &receptive_field.as_wfst());
+// Compose with kernel, then score the composed graph.
+let composed = compose(&kernel.fst, &receptive_field.fst);
 let output = forward_score(&GradientWfst::from_wfst(&composed));
 ```
 
@@ -104,10 +132,10 @@ let output = forward_score(&GradientWfst::from_wfst(&composed));
 
 | Layer Type | Parameters | Operations |
 |------------|------------|------------|
-| WFST Conv (k=3, c_o=64) | 2,048 | O(k × w × c_o) |
-| Traditional Conv (k=3, c_i=256, c_o=64) | 79,000 | O(k × c_i × c_o) |
+| WFST Conv (`k=3`, `c_o=64`) | 2,048 | `O(k × w × c_o)` |
+| Traditional Conv (`k=3`, `c_i=256`, `c_o=64`) | 79,000 | `O(k × c_i × c_o)` |
 
-**38x fewer parameters** with WFST convolution!
+`38×` **fewer parameters** with WFST convolution!
 
 ### Why It Works
 
@@ -129,10 +157,10 @@ use lling_llang::differentiable::{
 
 // Available types
 pub enum TokenGraphType {
-    Standard,        // Classic CTC with blank and repeats
-    Spike,           // Single emission per token (no repeats)
-    DurationLimited, // Limit token duration to n frames
-    EquallySpaced,   // Fixed spacing between tokens
+    Standard,                              // Classic CTC with blank and repeats
+    Spike,                                 // Single emission per token (no repeats)
+    DurationLimited { max_duration: usize }, // Limit token duration to n frames
+    EquallySpaced { blank_count: usize },    // Fixed blank count between tokens
 }
 ```
 
@@ -150,13 +178,12 @@ blank      a       blank
 ```rust
 let config = TokenGraphConfig {
     graph_type: TokenGraphType::Standard,
-    vocab_size: 256,
-    blank_id: Some(0),
-    max_duration: None,
-    spacing: None,
+    blank_id: 0,
+    ..Default::default()
 };
 
-let token_graph = build_token_graph(&config);
+let token = 1; // the token ID this graph accepts
+let token_graph = build_token_graph(token, &config);
 ```
 
 ### Spike CTC
@@ -176,12 +203,12 @@ Best for:
 ```rust
 let config = TokenGraphConfig {
     graph_type: TokenGraphType::Spike,
-    vocab_size: 256,
-    blank_id: Some(0),
+    blank_id: 0,
     ..Default::default()
 };
 
-let spike_graph = build_token_graph(&config);
+let token = 1;
+let spike_graph = build_token_graph(token, &config);
 ```
 
 ### Duration-Limited CTC
@@ -200,14 +227,13 @@ Use when:
 
 ```rust
 let config = TokenGraphConfig {
-    graph_type: TokenGraphType::DurationLimited,
-    vocab_size: 256,
-    blank_id: Some(0),
-    max_duration: Some(2),  // Max 2 frames per token
+    graph_type: TokenGraphType::DurationLimited { max_duration: 2 }, // Max 2 frames per token
+    blank_id: 0,
     ..Default::default()
 };
 
-let duration_limited = build_token_graph(&config);
+let token = 1;
+let duration_limited = build_token_graph(token, &config);
 ```
 
 ### Equally Spaced CTC
@@ -226,14 +252,13 @@ Use for:
 
 ```rust
 let config = TokenGraphConfig {
-    graph_type: TokenGraphType::EquallySpaced,
-    vocab_size: 256,
-    blank_id: Some(0),
-    spacing: Some(3),  // Exactly 3 frames between tokens
+    graph_type: TokenGraphType::EquallySpaced { blank_count: 3 }, // Exactly 3 blanks between tokens
+    blank_id: 0,
     ..Default::default()
 };
 
-let equally_spaced = build_token_graph(&config);
+let token = 1;
+let equally_spaced = build_token_graph(token, &config);
 ```
 
 ### Vocabulary and Blank Graphs
@@ -250,8 +275,8 @@ let blank_graph = build_blank_graph(0, 3); // blank_id=0, 3 repetitions
 
 | Model Context | Recommended Graph |
 |---------------|-------------------|
-| Short context (Citrinet γ=0.25) | Standard (with self-loops) |
-| Long context (γ=1.0) | Spike or Duration-Limited |
+| Short context (Citrinet `γ=0.25`) | Standard (with self-loops) |
+| Long context (`γ=1.0`) | Spike or Duration-Limited |
 | Unlimited context (Conformer) | Spike |
 | Fixed frame rate output | Equally Spaced |
 | Memory-constrained training | Duration-Limited or Spike |
@@ -268,17 +293,19 @@ Fixed word piece decomposition (from SentencePiece) may not be optimal for the t
 
 ### The Solution
 
-Marginalize over all valid decompositions:
+Marginalize over all valid decompositions — the alignment graph is
+`A = E ∘ (B ∘ ((T₁ + … + T_C)* ∘ (L ∘ Y)))`:
 
-```
-A = E ∘ (B ∘ ((T₁ + ... + T_C)* ∘ (L ∘ Y)))
+```text
+A = E ∘ (B ∘ ((T₁ + … + T_C)* ∘ (L ∘ Y)))
 
 Where:
-  E = emissions from neural network
-  B = bigram transition graph
-  T_i = token graph for token i
-  L = lexicon transducer (word piece → graphemes)
-  Y = target grapheme sequence
+  E   = emissions from neural network
+  B   = bigram transition graph
+  Tᵢ  = token graph for token i
+  *   = Kleene closure (any number of token graphs)
+  L   = lexicon transducer (word piece → graphemes)
+  Y   = target grapheme sequence
 ```
 
 ### API
@@ -353,13 +380,13 @@ ctx.initialize(&entries);
 
 ## N-gram Pruning with Back-off
 
-Scale to large vocabularies with 87x speedup.
+Scale to large vocabularies with `87×` speedup.
 
 ### The Problem
 
 Dense n-gram transitions:
-- Bigram: O(|V|²) transitions for vocabulary size |V|
-- Trigram: O(|V|³) transitions
+- Bigram: `O(∣V∣²)` transitions for vocabulary size `∣V∣`
+- Trigram: `O(∣V∣³)` transitions
 - 1000 word pieces: 1 million bigram arcs!
 
 ### The Solution
@@ -446,7 +473,7 @@ println!("Compression ratio: {:.1}x", stats.compression_ratio);
 | 1000 WP | None | 17,939 s/epoch |
 | 1000 WP | min_count=10 | **204 s/epoch** |
 
-**87x speedup** for 1000 word pieces with no accuracy loss!
+`87×` **speedup** for 1000 word pieces with no accuracy loss!
 
 ### Smoothing Options
 
@@ -499,7 +526,7 @@ let fisher = compute_fisher_information(&first_grads);
 
 ### Hessian-Vector Products
 
-Efficient O(|E|) computation without materializing full Hessian:
+Efficient `O(∣E∣)` computation without materializing the full Hessian:
 
 ```rust
 // Direction vector
@@ -588,11 +615,11 @@ let loss = z_score.value() - a_score.value();
 // Build CTC topology
 let ctc_config = TokenGraphConfig {
     graph_type: TokenGraphType::Standard,
-    vocab_size: vocab_size,
-    blank_id: Some(0),
+    blank_id: 0,
     ..Default::default()
 };
-let ctc_graph = build_token_graph(&ctc_config);
+let token = 1; // token ID this CTC graph accepts
+let ctc_graph = build_token_graph(token, &ctc_config);
 
 // Compose: E ∘ CTC ∘ target
 let constrained = compose(&emissions, &compose(&ctc_graph, &target));
@@ -607,9 +634,9 @@ let loss = z_score.value() - a_score.value();
 
 ## Performance Tips
 
-1. **Use Diagonal Hessian**: Full Hessian is O(|E|²), diagonal is O(|E|)
+1. **Use Diagonal Hessian**: Full Hessian is `` `O(∣E∣²)` ``, diagonal is `` `O(∣E∣)` ``
 
-2. **Prune Aggressively**: min_count=10 gives 87x speedup with no accuracy loss
+2. **Prune Aggressively**: `min_count=10` gives `87×` speedup with no accuracy loss
 
 3. **Choose Right Token Graph**:
    - Wide context models → Spike CTC
@@ -625,3 +652,8 @@ let loss = z_score.value() - a_score.value();
 - [CTC Topologies](ctc-topologies.md): Graph construction details
 - [ASR Pipeline](asr-pipeline.md): Full speech recognition system
 - [Beam Optimization](beam-optimization.md): Efficient decoding
+
+## References
+
+- [Hannun 2020](../BIBLIOGRAPHY.md#ref-hannun2020) — *Differentiable Weighted Finite-State Transducers* (ICML 2020): the autograd-through-WFST framework this module implements — WFSTs as differentiable layers, convolutional WFST kernels, marginalized word-piece decompositions via the alignment graph `` `A = E ∘ (B ∘ ((T₁+…+T_C)* ∘ (L ∘ Y)))` ``, the token-graph (CTC variant) topologies, and pruned n-gram transitions with back-off.
+- [Graves 2006](../BIBLIOGRAPHY.md#ref-graves2006) — *Connectionist Temporal Classification*: the blank-augmented, alignment-free training objective whose WFST realization is the Standard token graph (and whose variants — Spike, Duration-Limited, Equally-Spaced — this module parameterizes); the `` `loss = forwardScore(Z) − forwardScore(A)` `` log-sum-exp marginalization is the CTC forward computation expressed over composed transducers.

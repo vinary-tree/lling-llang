@@ -2,6 +2,36 @@
 
 The repair module provides strategies for generating fix suggestions for LaTeX syntax errors detected during validation.
 
+Repair is the third pass of `LatexSyntaxLayer::apply` — it runs only after
+validation has produced `` `ValidationIssue` ``s, and each strategy turns an
+issue into ranked `` `RepairSuggestion` ``s. The diagram below situates repair
+within the full validate `` `→` `` repair pipeline.
+
+![Activity diagram: the LaTeX validate-then-repair pipeline, where repair generation follows structural validation, sorts suggestions by confidence, and optionally auto-applies high-confidence repairs.](../../diagrams/layers/latex/repair-flow.svg)
+
+*Amber = the validate/repair activities; grey diamonds = `LatexSyntaxConfig`
+gates; green terminal = the output lattice plus its `` `RepairSuggestion` `` list.
+Repair generation is the `generate_repairs` branch.*
+
+<details><summary>Text view</summary>
+
+```text
+input lattice
+  → [prune_ungrammatical?]  Pass 1: Earley grammar filter
+  → [validate_structure?]   Pass 2: LatexValidator → ValidationIssues
+  → [issues found?]
+        no  → valid → output
+        yes → [generate_repairs?]
+                  Pass 3: CompositeRepairStrategy (Brace · Environment · Math)
+                  → sort by confidence (≤ max_repairs_per_issue)
+                  → [auto_repair ∧ confidence ≥ auto_repair_threshold?]
+                        yes → apply repairs into the lattice
+                        no  → stash in last_repairs() for the caller
+  → output lattice + repair suggestions
+```
+
+</details>
+
 ## Repair Suggestion Structure
 
 ```rust
@@ -287,7 +317,7 @@ let layer = LatexSyntaxLayer::with_config(grammar, config);
 ```
 
 When `auto_repair` is enabled:
-1. Repairs with confidence ≥ threshold are applied automatically
+1. Repairs with `` `confidence ≥ threshold` `` are applied automatically
 2. The resulting lattice includes the repairs
 3. Lower-confidence repairs are still available via `last_repairs()`
 
@@ -329,3 +359,10 @@ Typical confidence ranges:
 - [Overview](./overview.md): Layer architecture
 - [Grammar](./grammar.md): CFG rules
 - [Validator](./validator.md): Validation that triggers repairs
+
+## References
+
+- [Earley 1970](../../BIBLIOGRAPHY.md#ref-earley1970) — context-free parsing; a
+  repair is accepted when the patched token sequence parses under the grammar.
+- [Mohri 2002](../../BIBLIOGRAPHY.md#ref-mohri2002) — weighted finite-state
+  transducers; auto-applied repairs are spliced back into the correction lattice.
