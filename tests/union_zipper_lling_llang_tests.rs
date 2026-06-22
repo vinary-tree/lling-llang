@@ -11,8 +11,8 @@
 
 #![cfg(all(feature = "lattice", not(feature = "lattice-persistent")))]
 
-use libdictenstein::double_array_trie::DoubleArrayTrie;
 use libdictenstein::double_array_trie::zipper::DoubleArrayTrieZipper;
+use libdictenstein::double_array_trie::DoubleArrayTrie;
 use libdictenstein::union_zipper::{LatticeJoin, UnionZipper, ValuedUnionIterator};
 use libdictenstein::zipper::{DictZipper, ValuedDictZipper};
 use lling_llang::lattice_bridge::SemiringLatticeWrapper;

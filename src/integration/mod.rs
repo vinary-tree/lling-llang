@@ -76,8 +76,8 @@ pub mod prelude {
     pub use liblevenshtein::prelude::PathMapDictionary;
 
     // Re-export WallBreaker for large error bounds
-    pub use libdictenstein::scdawg::Scdawg;
     pub use libdictenstein::scdawg::char::ScdawgChar;
+    pub use libdictenstein::scdawg::Scdawg;
     pub use liblevenshtein::wallbreaker::{
         PatternPiece, PatternSplitter, WallBreaker, WallBreakerQuery, WallBreakerResult,
     };

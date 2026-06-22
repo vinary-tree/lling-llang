@@ -8,6 +8,47 @@ use super::{PdaAcceptMode, PdaTransition, StackAction, StackSymbol, VectorPda};
 use crate::semiring::Semiring;
 use crate::wfst::StateId;
 
+/// A defect detected by [`PdaBuilder::validate`] / [`PdaBuilder::try_build`].
+///
+/// The unchecked [`PdaBuilder::build`] trusts the caller and never returns these;
+/// [`try_build`](PdaBuilder::try_build) is the validating alternative that
+/// refuses a malformed automaton up front instead of producing one that
+/// misbehaves at decode time. (Implemented without `thiserror` to avoid adding a
+/// dependency.)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BuildError {
+    /// A transition's target — or the start state — is a state index that was
+    /// never allocated.
+    UnknownState(StateId),
+    /// A transition's matched top, or a pushed/replaced symbol, is a stack
+    /// symbol id that was never allocated.
+    UnknownStackSymbol(u32),
+    /// A transition pops while matching the bottom-of-stack marker `Z₀`, which
+    /// would underflow the stack.
+    BottomPop,
+    /// The acceptance mode requires a final state, but none was declared.
+    NoFinalState,
+}
+
+impl std::fmt::Display for BuildError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BuildError::UnknownState(s) => write!(f, "transition references unknown state {s}"),
+            BuildError::UnknownStackSymbol(s) => {
+                write!(f, "transition references unknown stack symbol {s}")
+            }
+            BuildError::BottomPop => {
+                write!(f, "transition pops the bottom-of-stack marker Z₀ (would underflow)")
+            }
+            BuildError::NoFinalState => {
+                write!(f, "acceptance mode requires a final state, but none was declared")
+            }
+        }
+    }
+}
+
+impl std::error::Error for BuildError {}
+
 /// Builder for constructing weighted pushdown automata.
 #[derive(Debug, Clone)]
 pub struct PdaBuilder<L, W: Semiring> {
@@ -173,6 +214,71 @@ impl<L: Clone + Eq + Hash, W: Semiring + Clone> PdaBuilder<L, W> {
     /// Build the PDA.
     pub fn build(self) -> VectorPda<L, W> {
         self.pda
+    }
+
+    /// Validate the automaton *without consuming* the builder: the start state
+    /// must be allocated; every transition must target an allocated state and
+    /// match/push/replace only allocated stack symbols; no transition may pop
+    /// the bottom marker `Z₀`; and — when the acceptance mode is
+    /// [`FinalState`](PdaAcceptMode::FinalState) or [`Both`](PdaAcceptMode::Both)
+    /// — at least one final state must exist.
+    ///
+    /// [`build`](Self::build) skips these checks (it trusts the caller and never
+    /// fails); [`try_build`](Self::try_build) runs them. A transition's *source*
+    /// state is the index it is stored under, so it is allocated by construction
+    /// and is not re-checked here.
+    pub fn validate(&self) -> Result<(), BuildError> {
+        let num_states = self.pda.get_num_states();
+
+        let start = self.pda.get_start();
+        if (start as usize) >= num_states {
+            return Err(BuildError::UnknownState(start));
+        }
+
+        for state in 0..num_states as StateId {
+            for trans in self.pda.get_transitions(state) {
+                if (trans.to as usize) >= num_states {
+                    return Err(BuildError::UnknownState(trans.to));
+                }
+                if trans.stack_top.id() >= self.next_stack_symbol {
+                    return Err(BuildError::UnknownStackSymbol(trans.stack_top.id()));
+                }
+                match &trans.stack_action {
+                    StackAction::Pop => {
+                        if trans.stack_top == StackSymbol::BOTTOM {
+                            return Err(BuildError::BottomPop);
+                        }
+                    }
+                    StackAction::Push(symbols) | StackAction::Replace(symbols) => {
+                        for symbol in symbols {
+                            if symbol.id() >= self.next_stack_symbol {
+                                return Err(BuildError::UnknownStackSymbol(symbol.id()));
+                            }
+                        }
+                    }
+                    StackAction::Noop => {}
+                }
+            }
+        }
+
+        let needs_final = matches!(
+            self.pda.get_accept_mode(),
+            PdaAcceptMode::FinalState | PdaAcceptMode::Both
+        );
+        if needs_final && !(0..num_states as StateId).any(|s| self.pda.get_is_final(s)) {
+            return Err(BuildError::NoFinalState);
+        }
+
+        Ok(())
+    }
+
+    /// [`validate`](Self::validate), then freeze into a [`VectorPda`]. The
+    /// checked alternative to [`build`](Self::build): returns the first
+    /// [`BuildError`] for a malformed automaton instead of producing one that
+    /// would misbehave at decode time.
+    pub fn try_build(self) -> Result<VectorPda<L, W>, BuildError> {
+        self.validate()?;
+        Ok(self.pda)
     }
 
     /// Get the number of states.
@@ -571,5 +677,77 @@ mod tests {
             }
             _ => panic!("Expected Replace action"),
         }
+    }
+
+    #[test]
+    fn try_build_accepts_a_valid_automaton() {
+        let mut builder: PdaBuilder<char, TropicalWeight> = PdaBuilder::new();
+        let s0 = builder.add_state();
+        let s1 = builder.add_final_state(TropicalWeight::one());
+        builder.set_start(s0);
+        let z0 = builder.initial_stack();
+        let marker = builder.add_stack_symbol();
+        builder.add_push_transition(s0, Some('a'), z0, vec![z0, marker], s1, TropicalWeight::one());
+
+        assert!(builder.validate().is_ok());
+        assert!(builder.try_build().is_ok());
+    }
+
+    #[test]
+    fn try_build_rejects_bottom_pop() {
+        let mut builder: PdaBuilder<char, TropicalWeight> = PdaBuilder::new();
+        let s0 = builder.add_state();
+        let s1 = builder.add_final_state(TropicalWeight::one());
+        builder.set_start(s0);
+        let z0 = builder.initial_stack();
+        // Popping while matching Z₀ would underflow the stack.
+        builder.add_pop_transition(s0, Some('a'), z0, s1, TropicalWeight::one());
+
+        assert_eq!(builder.try_build().unwrap_err(), BuildError::BottomPop);
+    }
+
+    #[test]
+    fn try_build_rejects_unknown_target_state() {
+        let mut builder: PdaBuilder<char, TropicalWeight> = PdaBuilder::new();
+        let s0 = builder.add_state();
+        let _s1 = builder.add_final_state(TropicalWeight::one());
+        builder.set_start(s0);
+        let z0 = builder.initial_stack();
+        // State 99 was never allocated.
+        builder.add_read_transition(s0, 'a', z0, 99, TropicalWeight::one());
+
+        assert_eq!(builder.try_build().unwrap_err(), BuildError::UnknownState(99));
+    }
+
+    #[test]
+    fn try_build_rejects_unknown_stack_symbol() {
+        let mut builder: PdaBuilder<char, TropicalWeight> = PdaBuilder::new();
+        let s0 = builder.add_state();
+        let s1 = builder.add_final_state(TropicalWeight::one());
+        builder.set_start(s0);
+        let z0 = builder.initial_stack();
+        // Stack symbol 99 was never allocated.
+        builder.add_push_transition(
+            s0,
+            Some('a'),
+            z0,
+            vec![z0, crate::pushdown::StackSymbol::new(99)],
+            s1,
+            TropicalWeight::one(),
+        );
+
+        assert_eq!(
+            builder.try_build().unwrap_err(),
+            BuildError::UnknownStackSymbol(99)
+        );
+    }
+
+    #[test]
+    fn try_build_rejects_missing_final_state() {
+        let mut builder: PdaBuilder<char, TropicalWeight> = PdaBuilder::new();
+        let s0 = builder.add_state();
+        builder.set_start(s0);
+        // FinalState acceptance (the default) but no final state was declared.
+        assert_eq!(builder.try_build().unwrap_err(), BuildError::NoFinalState);
     }
 }
