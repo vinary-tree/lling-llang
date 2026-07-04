@@ -266,7 +266,8 @@ fn cartesian_product<L: Clone, W: Semiring + Clone>(
     let mut result = vec![(Vec::new(), W::one())];
 
     for item_vec in items {
-        let mut new_result = Vec::new();
+        // The output of this round is exactly `result × item_vec`; preallocate it.
+        let mut new_result = Vec::with_capacity(result.len().saturating_mul(item_vec.len()));
 
         for (prefix, prefix_weight) in &result {
             for (item, item_weight) in &item_vec {

@@ -39,7 +39,7 @@ use std::collections::{BinaryHeap, VecDeque};
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 
 use super::filter::{EpsilonFilter, EpsilonFilterType, FilterState};
@@ -316,12 +316,17 @@ where
         self.access_order
             .retain(|state| self.state_cache.contains_key(state));
 
-        let cached_states: Vec<_> = self.state_cache.keys().copied().collect();
-        for state in cached_states {
-            if !self.access_order.contains(&state) {
-                self.access_order.push_back(state);
-            }
-        }
+        // Append any cached states missing from the access order. Membership is
+        // tested against a set built once (O(cache)) rather than a fresh
+        // `access_order.contains` scan per key, which was O(cache²).
+        let present: FxHashSet<ProductStateId> = self.access_order.iter().copied().collect();
+        let missing: Vec<ProductStateId> = self
+            .state_cache
+            .keys()
+            .copied()
+            .filter(|state| !present.contains(state))
+            .collect();
+        self.access_order.extend(missing);
     }
 
     /// Evict the least-recently used persistent cached state.
