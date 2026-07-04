@@ -14,6 +14,7 @@ use lling_llang::algorithms::{
 };
 use lling_llang::backend::{HashMapBackend, LatticeBackend};
 use lling_llang::cfg::{EarleyParser, GrammarBuilder};
+use lling_llang::composition::{compose, materialize};
 use lling_llang::ctc::{
     compact_ctc, correct_ctc, minimal_ctc, selfless_compact_ctc, selfless_correct_ctc,
 };
@@ -29,7 +30,7 @@ use lling_llang::semiring::{
     ExpectationWeight, LeftStringWeight, LogWeight, ProbabilityWeight, RightStringWeight, Semiring,
     TropicalWeight,
 };
-use lling_llang::wfst::{MutableWfst, StateId, VectorWfst};
+use lling_llang::wfst::{MutableWfst, StateId, VectorWfst, VectorWfstBuilder};
 
 // ============================================================================
 // Helper Functions for Building Test Data
@@ -1853,6 +1854,105 @@ fn optimization_benchmarks(c: &mut Criterion) {
 }
 
 // ============================================================================
+// Composition Benchmarks
+// ============================================================================
+
+/// Build a linear "relabel" transducer chain of `len` arcs, each mapping
+/// `in_label` to `out_label`, for use as a composition operand.
+fn build_relabel_chain(
+    len: usize,
+    in_label: char,
+    out_label: char,
+) -> VectorWfst<char, TropicalWeight> {
+    let mut builder = VectorWfstBuilder::<char, TropicalWeight>::new()
+        .add_states(len + 1)
+        .start(0)
+        .final_state(len as StateId, TropicalWeight::one());
+    for i in 0..len {
+        builder = builder.arc(
+            i as StateId,
+            Some(in_label),
+            Some(out_label),
+            (i + 1) as StateId,
+            TropicalWeight::new(1.0),
+        );
+    }
+    builder.build()
+}
+
+/// Build a two-arc-per-state transducer of `depth` steps mapping `inputs` to
+/// `outputs`; composing a chain of these exercises two matched transitions per
+/// product state.
+fn build_branch_transducer(
+    depth: usize,
+    inputs: (char, char),
+    outputs: (char, char),
+) -> VectorWfst<char, TropicalWeight> {
+    let (i0, i1) = inputs;
+    let (o0, o1) = outputs;
+    let mut builder = VectorWfstBuilder::<char, TropicalWeight>::new()
+        .add_states(depth + 1)
+        .start(0)
+        .final_state(depth as StateId, TropicalWeight::one());
+    for i in 0..depth {
+        builder = builder
+            .arc(
+                i as StateId,
+                Some(i0),
+                Some(o0),
+                (i + 1) as StateId,
+                TropicalWeight::new(1.0),
+            )
+            .arc(
+                i as StateId,
+                Some(i1),
+                Some(o1),
+                (i + 1) as StateId,
+                TropicalWeight::new(1.0),
+            );
+    }
+    builder.build()
+}
+
+fn composition_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("composition");
+
+    // Linear chain composition: fst1 maps a->x, fst2 maps x->b; the product is
+    // a single diagonal chain. Measures the compose+materialize pipeline cost
+    // (the per-decode CTC obs ∘ ctc ∘ lm path shape).
+    for size in [10, 50, 100] {
+        group.bench_with_input(BenchmarkId::new("chain", size), &size, |b, &size| {
+            b.iter_with_setup(
+                || {
+                    (
+                        build_relabel_chain(size, 'a', 'x'),
+                        build_relabel_chain(size, 'x', 'b'),
+                    )
+                },
+                |(fst1, fst2)| black_box(materialize(compose(fst1, fst2))),
+            )
+        });
+    }
+
+    // Branching composition: two matched transitions per product state.
+    for size in [10, 25, 50] {
+        group.bench_with_input(BenchmarkId::new("branching", size), &size, |b, &size| {
+            b.iter_with_setup(
+                || {
+                    (
+                        build_branch_transducer(size, ('a', 'b'), ('x', 'y')),
+                        build_branch_transducer(size, ('x', 'y'), ('p', 'q')),
+                    )
+                },
+                |(fst1, fst2)| black_box(materialize(compose(fst1, fst2))),
+            )
+        });
+    }
+
+    group.finish();
+}
+
+// ============================================================================
 // Main Benchmark Groups
 // ============================================================================
 
@@ -1870,6 +1970,7 @@ criterion_group!(
     minimize_benchmarks,
     ctc_topology_benchmarks,
     differentiable_benchmarks,
-    optimization_benchmarks
+    optimization_benchmarks,
+    composition_benchmarks
 );
 criterion_main!(benches);
