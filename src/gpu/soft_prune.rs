@@ -485,7 +485,14 @@ pub struct AdaptiveBeam {
 
 impl AdaptiveBeam {
     /// Create a new adaptive beam.
+    ///
+    /// A histogram needs at least one bucket, so a degenerate `num_buckets == 0`
+    /// request is clamped up to `1`. Without the clamp,
+    /// [`AdaptiveBeam::add_with_range`] would underflow `num_buckets - 1` and
+    /// index an empty bucket vector, and [`AdaptiveBeam::compute_threshold`]
+    /// would divide by zero.
     pub fn new(num_buckets: usize, target_active: usize) -> Self {
+        let num_buckets = num_buckets.max(1);
         Self {
             num_buckets,
             buckets: (0..num_buckets).map(|_| AtomicUsize::new(0)).collect(),
@@ -792,6 +799,18 @@ mod tests {
         let threshold = beam.compute_threshold();
         // Should be around 50 to keep ~50 tokens
         assert!(threshold > 40.0 && threshold < 60.0);
+    }
+
+    #[test]
+    fn test_adaptive_beam_zero_buckets_is_clamped_and_safe() {
+        // A degenerate zero-bucket request must not underflow `num_buckets - 1`
+        // or index an empty bucket vector; new() clamps it to a single bucket.
+        let beam = AdaptiveBeam::new(0, 4);
+        // Pre-fix, each of these panicked (usize underflow / OOB on empty Vec).
+        beam.add_with_range(1.0, 0.0, 2.0);
+        beam.add_with_range(0.5, 0.0, 2.0);
+        // compute_threshold divides by num_buckets; must not divide by zero.
+        let _ = beam.compute_threshold();
     }
 
     #[test]
