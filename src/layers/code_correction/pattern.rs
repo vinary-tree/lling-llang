@@ -10,7 +10,7 @@ use crate::backend::{LatticeBackend, VocabId};
 use crate::lattice::{EdgeMetadata, Lattice, LatticeBuilder};
 use crate::semiring::{Semiring, TropicalWeight};
 
-use super::super::{CorrectionLayer, LayerResult};
+use super::super::traits::{CorrectionLayer, LayerResult};
 
 /// A pattern boost entry for a token sequence.
 #[derive(Clone, Debug)]

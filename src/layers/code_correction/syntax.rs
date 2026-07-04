@@ -10,7 +10,7 @@ use crate::backend::LatticeBackend;
 use crate::lattice::{EdgeMetadata, Lattice, LatticeBuilder};
 use crate::semiring::{Semiring, TropicalWeight};
 
-use super::super::{CorrectionLayer, LayerResult};
+use super::super::traits::{CorrectionLayer, LayerResult};
 
 /// Strategy for syntax error recovery.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
