@@ -457,8 +457,24 @@ where
         return Some(Vec::new());
     }
 
-    // Build reverse graph adjacency
-    let mut reverse_adj: Vec<Vec<(StateId, W)>> = vec![Vec::new(); n];
+    // Build reverse graph adjacency. Count each state's reverse in-degree first
+    // so every bucket can be preallocated exactly (mirroring
+    // path::adjacency::edge_adjacency), avoiding the doubling reallocations a
+    // `vec![Vec::new(); n]` + push loop incurs on the backward weight-pushing
+    // path.
+    let mut reverse_indegree = vec![0usize; n];
+    for state in 0..n as StateId {
+        for transition in fst.transitions(state) {
+            let to = transition.to as usize;
+            if to < n {
+                reverse_indegree[to] += 1;
+            }
+        }
+    }
+    let mut reverse_adj: Vec<Vec<(StateId, W)>> = reverse_indegree
+        .iter()
+        .map(|&indeg| Vec::with_capacity(indeg))
+        .collect();
     for state in 0..n as StateId {
         for transition in fst.transitions(state) {
             let to = transition.to as usize;

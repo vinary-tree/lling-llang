@@ -100,11 +100,14 @@ where
                 new_id
             };
 
-            // Add the transition
+            // Add the transition. `transitions` is an owned SmallVec (it is
+            // cloned out of the composition cache), so `trans` is owned and
+            // dropped at the end of this iteration — move its labels in rather
+            // than cloning them a second time.
             result.add_arc(
                 current_id,
-                trans.input.clone(),
-                trans.output.clone(),
+                trans.input,
+                trans.output,
                 target_id,
                 trans.weight,
             );
