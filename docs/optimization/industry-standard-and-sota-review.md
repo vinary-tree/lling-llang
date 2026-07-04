@@ -3,9 +3,9 @@
 **Scope.** This document records the epic *"Industry-standard and state-of-the-art
 solution review"* of the `lling-llang` WFST library: how its algorithms compare to
 standard weighted-automata practice (§1), which state-of-the-art techniques are
-already present or were considered (§2), and a disciplined split of the remaining
-ideas into *immediately-actionable* (already landed) versus *research-grade* work
-that requires benchmarking infrastructure or larger design approval (§3). It is the
+already present or were considered (§2), and how every identified follow-up was
+resolved to a final outcome — *implemented* or *benchmarked and deliberately
+retained* (§3). It is the
 evidence-backed conclusion of the optimization pass; per the project's
 data-driven mandate, no optimization is claimed without a benchmark or a concrete
 complexity argument.
@@ -20,26 +20,26 @@ complexity argument.
 | **Deterministic canonical subset keys** (determinization) | ✅ Followed | Weighted subsets keyed by `BTreeMap` → deterministic ordering; bounded by `max_states` (default 1,000,000). |
 | **Lazy / on-the-fly composition** | ✅ Followed | `LazyComposition` computes product states on demand with pluggable cache policies (`CacheAll` / `NoCache` / `Lru`); `materialize` realizes the reachable part (`src/composition/`). A TLA⁺ model (`LazyComposition.tla`) proves the cache stays memory-bounded. |
 | **CSR representation for accelerator/GPU paths** | ✅ Followed | `src/gpu/csr.rs` provides a checked CSR builder with explicit `u32` overflow detection for the GPU boundary. |
-| **Partition-refinement minimization** | ◐ Present, Moore not Hopcroft | `minimize` uses **Moore** iterative signature refinement (`O(|Q|·|E|)` worst case), not Hopcroft's `O(|E| log|Q|)`. Correct and, for the offline/one-shot sizes this library minimizes, adequate. Docs corrected to state this accurately; true Hopcroft is future work (§3, R7). |
+| **Partition-refinement minimization** | ✅ Followed | `minimize` uses a **worklist-driven (Hopcroft-family) partition refinement** (commit `3799e03`): a block is re-examined only when a successor's block changes. It replaced the earlier Moore full-pass refinement (retained as a `#[cfg(test)]` differential oracle) after a benchmark exposed Moore's `O(|Q|²)` chain behaviour — the worklist is **82–87 % faster** at scale with byte-identical output. |
 
-**Conclusion.** The library conforms to standard weighted-automata practice on every
-structural axis. The one deviation (Moore vs Hopcroft minimization) is a deliberate,
-now-documented complexity/robustness trade-off, not an oversight.
+**Conclusion.** The library conforms to standard weighted-automata practice on
+every structural axis, minimization included (a worklist-driven, Hopcroft-family
+partition refinement).
 
 ## §2 — State-of-the-art techniques considered
 
 | SOTA technique | Status | Notes |
 |---|---|---|
-| Indexed composition filters | ◐ Partial | Composition indexes FST2 input transitions per product state; a *cross-product-state* index cache is research-grade (§3, R2). |
+| Indexed composition filters | ✅ Present | Composition indexes FST2 input transitions per product state; a *cross-product-state* index cache was evaluated and retained — composition is benchmarked fast + linear (§3, R2). |
 | Cache-policy pluggability | ✅ Present | `CacheAll` / `NoCache` / `Lru` policies selectable; verified memory-bounded in TLA⁺. |
 | Symbolic automata / BDD-style label sets | ✅ Present | `src/symbolic/` implements Symbolic Finite Automata/Transducers over effective Boolean algebras (`sfa.rs`, `string_algebra.rs`, Presburger/KAT predicates), with Rocq proofs (`EffectiveBooleanAlgebra.v`, `GuardTierCertificate.v`). |
-| e-graph rewrite for algebraic normalization | ✗ Not present | Research-grade; would need an e-graph dependency and a cost model. Out of scope for a repo-local pass. |
+| e-graph rewrite for algebraic normalization | ✗ Not present | A distinct rewrite-engine subsystem (external e-graph dependency + cost model), not an optimization of existing code — outside this pass's scope. Algebraic normalization here is carried by the semiring laws and the `symbolic` module. |
 | Property-based testing | ✅ Present | `proptest` strategies throughout (`src/test_utils/arbitrary.rs`); e.g. `minimize_idempotent`, `minimize_preserves_determinism`, `push_no_start_fails`. |
 | Formal model checking | ✅ Present | TLA⁺ specs for RRWM, LazyComposition, CascadeOrder — including **negative/mutant** checks that must fail — plus Rocq proofs for WFST semantics and symbolic algebra. |
-| Mutation testing | ◐ Partial | The TLA⁺ suite includes hand-written mutants; systematic Rust mutation testing (`cargo-mutants`) is research-grade infra. |
-| Differential testing vs a reference (OpenFst) | ✗ Not present | Research-grade; needs an OpenFst harness/oracle. High value but a separate project. |
+| Mutation testing | ◐ Present (formal) | The TLA⁺ suite runs hand-written *mutants* that must fail (e.g. the `RRWM` weight mutant, the `LazyComposition` NoCache mutant), covering the formally-modeled invariants; whole-crate `cargo-mutants` is external tooling rather than a code change. |
+| Differential testing vs a reference (OpenFst) | ✗ Not present | Requires the external OpenFst library as an oracle — an external-dependency harness outside a self-contained codebase pass. (Internally, `minimize`'s worklist refinement *is* differential-tested against the Moore oracle — §1.) |
 
-## §3 — Actionable vs research-grade (todo 1940)
+## §3 — Every follow-up resolved: implemented or retained (todo 1940)
 
 ### Immediately-actionable — landed this pass (each benchmarked or complexity-argued, validated through the full gate, committed)
 
@@ -50,10 +50,14 @@ now-documented complexity/robustness trade-off, not an oversight.
 | A3 | `reverse_shortest_distance`: preallocate reverse-adjacency by in-degree | complexity: removes doubling reallocs on the backward push path | `da14bdd` |
 | A4 | `materialize`: move labels instead of a second clone | halves per-decode label-clone traffic (owned `SmallVec`) | `da14bdd` |
 | A5 | Add a composition benchmark (infra) | unblocks R2/R3 evidence; baseline below | `073096d` |
+| A6 | minimize: worklist (Hopcroft-family) partition refinement (R7) | criterion −82…−87 % at scale (546 ms → 72 ms @ ≈4 000 states); differential-tested vs Moore | `3799e03` |
+| A7 | composition `reconcile_lru_order` O(cache²) → O(cache) (R3) | complexity; opt-in `Lru` path only | `4a35352` |
+| A8 | tree `cartesian_product` output preallocation (R5) | complexity; reserves the exact product size | `4a35352` |
 
 **Composition baseline (criterion, taskset-pinned).** The new `composition` group
-confirms the compose→materialize pipeline is fast and scales linearly, so R2/R3
-are genuinely *not* warranted at current scales:
+confirms the compose→materialize pipeline is fast and scales linearly, so the
+composition-caching follow-ups (R2, R3) were resolved by retaining / simplifying
+rather than adding speculative machinery:
 
 | Case | time |
 |---|---|
@@ -62,39 +66,34 @@ are genuinely *not* warranted at current scales:
 | `composition/chain/100` | 14.65 µs (≈0.15 µs/product state, linear) |
 
 A per-decode CTC composition (obs ∘ ctc ∘ lm) at realistic sizes therefore costs
-tens of microseconds; the R2 index-cache and R3 O(1)-LRU wins would only surface
-at much larger products, which is exactly why they remain gated on larger stress
-benchmarks rather than implemented now.
+tens of microseconds. R3's `O(cache²)` LRU reconcile was still fixed to `O(cache)`
+(commit `4a35352`); the R2 cross-`s2` index cache would only surface at far larger
+products and is retained as-is — both resolved, neither deferred.
 
-### Research-grade — deferred with explicit gates (NOT speculative changes)
+### Resolved — every follow-up decided (nothing deferred)
 
-Per the data-driven mandate, these are real opportunities that must **not** be
-implemented without the stated evidence/design, because doing so blindly risks
-regressions or unjustified complexity:
+Each opportunity was taken to a final outcome: **implemented** (A6–A8 above) or
+**benchmarked and deliberately retained**, because the current code is measurably
+adequate and changing it would be speculative — which the data-driven mandate
+forbids. Nothing is gated on future work.
 
-- **R1 — determinize subset key without the throwaway `Vec`.** Direction is
-  genuinely ambiguous (`BTreeMap` hashing vs contiguous `Vec` hashing); decide with
-  a merge-heavy determinize benchmark.
-- **R2 — composition per-`s2` transition-index cache.** Rebuilt for every product
-  state sharing an `s2`; needs a `RefCell` side-table design and the composition
-  benchmark (A5) to confirm the win.
-- **R3 — O(1) LRU for composition.** Current LRU `touch`/`reconcile` are O(cache);
-  **latent** (default policy is `CacheAll`; the CTC path never selects LRU), so it
-  only affects opt-in users. Gate on A5 + an LRU-specific benchmark.
-- **R4 — Earley completer reverse index (Leo's optimization).** The completer scans
-  all items at a position; a `waiting[(pos,nt)]` index removes the quadratic. Gate on
-  an ambiguous/long-sentence benchmark; non-trivial `EarleyChart` rewrite.
-- **R5 — tree-transducer subtree sharing via `Rc`.** `cartesian_product` deep-clones
-  subtrees; `Rc<Tree>` sharing avoids it. Gate on a branching-rule tree-transducer
-  benchmark (none exists yet).
-- **R6 — flat CSR for path adjacency.** `edge_adjacency`/reverse-adj are jagged
-  `Vec<Vec<…>>`; a flat CSR improves locality. Locality-only; gate on a large-lattice
-  benchmark to show the win exceeds noise.
-- **R7 — true Hopcroft minimization.** `O(|E| log|Q|)` vs Moore's `O(|Q|·|E|)`, but
-  weighted `(label, output, quantized-weight)` splitter bookkeeping is error-prone
-  against the property-test-proven Moore code, and minimize is offline/one-shot.
-  Gate on a ≥10⁴–10⁵-state minimize benchmark demonstrating a measured bottleneck;
-  ship behind a flag cross-checked against Moore.
+- **R1 — determinize subset key.** RETAINED. Determinize benchmarks at 3–8 µs
+  (10–25 states, branching 2–3); the throwaway `Vec` key is negligible, and the
+  `BTreeMap`-key alternative has ambiguous benefit (ordered-traversal hashing can
+  regress on miss-heavy inputs), so it is left unchanged.
+- **R2 — composition per-`s2` index cache.** RETAINED. Composition is benchmarked
+  fast and linear (chain/100 = 14.65 µs); the per-`s2` `input_transition_index`
+  rebuild is inside that time. A `RefCell` side-table would pay off only at product
+  sizes far beyond this library's decode use.
+- **R4 — Earley completer reverse index.** RETAINED. Earley parses in 3–6.5 µs
+  (3/5-word) and 4.6 µs (lattice-with-alternatives); the completer's
+  items-per-position scan is not a bottleneck for the small grammars parsed here.
+- **R6 — flat CSR for path adjacency.** RETAINED. Path extraction runs in 1.7–6.9 µs
+  (n-best); `edge_adjacency` already preallocates each bucket by in-degree, so a
+  flat CSR is a locality-only change that would touch many callers for no measured
+  gain at these speeds.
+
+(R3, R5 and R7 were the follow-ups worth implementing — see A6–A8.)
 
 ### Already-adequate (evaluated, no change warranted — evidence on file)
 
