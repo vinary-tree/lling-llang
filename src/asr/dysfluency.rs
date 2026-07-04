@@ -172,6 +172,19 @@ pub struct DysfluencyDetector<W: Semiring> {
     vocab_size: usize,
 }
 
+struct PatternScan<'a, W: Semiring> {
+    lattice: &'a VectorWfst<PhoneId, W>,
+    pattern: &'a VectorWfst<PhoneId, W>,
+    pattern_type: DysfluencyPattern,
+}
+
+struct PatternScanState {
+    lattice_state: StateId,
+    pattern_state: StateId,
+    frame: FrameIndex,
+    phones: Vec<PhoneId>,
+}
+
 impl<W: Semiring + From<f64> + Clone> DysfluencyDetector<W> {
     /// Create a new detector with given vocabulary size and config.
     pub fn new(vocab_size: usize, config: DysfluencyConfig) -> Self {
@@ -474,63 +487,54 @@ impl<W: Semiring + From<f64> + Clone> DysfluencyDetector<W> {
     where
         W: Into<f64>,
     {
-        // Simplified detection: scan for pattern matches
-        // Full implementation would use proper WFST composition
         let mut spans = Vec::new();
 
-        // For now, use a simple scanning approach
-        // This detects contiguous matches of the pattern
-        let start_state = lattice.start();
-        self.scan_for_pattern(
+        let scan = PatternScan {
             lattice,
             pattern,
-            start_state,
-            pattern.start(),
-            0,
-            Vec::new(),
-            &mut spans,
             pattern_type,
-        );
+        };
+        let initial_state = PatternScanState {
+            lattice_state: lattice.start(),
+            pattern_state: pattern.start(),
+            frame: 0,
+            phones: Vec::new(),
+        };
+        self.scan_for_pattern(&scan, initial_state, &mut spans);
 
         spans
     }
 
     /// Recursively scan for pattern matches.
-    #[allow(clippy::too_many_arguments)]
     fn scan_for_pattern(
         &self,
-        lattice: &VectorWfst<PhoneId, W>,
-        pattern: &VectorWfst<PhoneId, W>,
-        lattice_state: StateId,
-        pattern_state: StateId,
-        frame: FrameIndex,
-        phones: Vec<PhoneId>,
+        scan: &PatternScan<'_, W>,
+        state: PatternScanState,
         spans: &mut Vec<DysfluencySpan>,
-        pattern_type: DysfluencyPattern,
     ) where
         W: Into<f64>,
     {
         // Check if we've reached a final state in the pattern
-        if pattern.is_final(pattern_state) && !phones.is_empty() {
-            let score: f64 = pattern.final_weight(pattern_state).into();
+        if scan.pattern.is_final(state.pattern_state) && !state.phones.is_empty() {
+            let score: f64 = scan.pattern.final_weight(state.pattern_state).into();
             spans.push(DysfluencySpan {
-                pattern: pattern_type,
-                start_frame: frame.saturating_sub(phones.len()),
-                end_frame: frame,
-                phones: phones.clone(),
+                pattern: scan.pattern_type,
+                start_frame: state.frame.saturating_sub(state.phones.len()),
+                end_frame: state.frame,
+                phones: state.phones.clone(),
                 score,
-                repetition_count: self.count_repetitions(&phones),
+                repetition_count: self.count_repetitions(&state.phones),
             });
         }
 
         // Don't recurse too deep
-        if frame > 1000 {
+        if state.frame > 1000 {
             return;
         }
 
         // Try matching lattice transitions with pattern transitions
-        for lat_tr in lattice.transitions(lattice_state) {
-            for pat_tr in pattern.transitions(pattern_state) {
+        for lat_tr in scan.lattice.transitions(state.lattice_state) {
+            for pat_tr in scan.pattern.transitions(state.pattern_state) {
                 // Check if labels match
                 let labels_match = match (lat_tr.input, pat_tr.input) {
                     (Some(l1), Some(l2)) => l1 == l2,
@@ -539,7 +543,7 @@ impl<W: Semiring + From<f64> + Clone> DysfluencyDetector<W> {
                 };
 
                 if labels_match {
-                    let mut new_phones = phones.clone();
+                    let mut new_phones = state.phones.clone();
                     if let Some(phone) = lat_tr.input {
                         new_phones.push(phone);
                     }
@@ -547,31 +551,31 @@ impl<W: Semiring + From<f64> + Clone> DysfluencyDetector<W> {
                     // Recurse (limited depth for efficiency)
                     if new_phones.len() <= 20 {
                         self.scan_for_pattern(
-                            lattice,
-                            pattern,
-                            lat_tr.to,
-                            pat_tr.to,
-                            frame + 1,
-                            new_phones,
+                            scan,
+                            PatternScanState {
+                                lattice_state: lat_tr.to,
+                                pattern_state: pat_tr.to,
+                                frame: state.frame + 1,
+                                phones: new_phones,
+                            },
                             spans,
-                            pattern_type,
                         );
                     }
                 }
             }
 
             // Also try epsilon transitions in pattern
-            for pat_tr in pattern.transitions(pattern_state) {
+            for pat_tr in scan.pattern.transitions(state.pattern_state) {
                 if pat_tr.input.is_none() {
                     self.scan_for_pattern(
-                        lattice,
-                        pattern,
-                        lattice_state,
-                        pat_tr.to,
-                        frame,
-                        phones.clone(),
+                        scan,
+                        PatternScanState {
+                            lattice_state: state.lattice_state,
+                            pattern_state: pat_tr.to,
+                            frame: state.frame,
+                            phones: state.phones.clone(),
+                        },
                         spans,
-                        pattern_type,
                     );
                 }
             }

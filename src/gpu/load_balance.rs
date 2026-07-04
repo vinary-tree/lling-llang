@@ -36,6 +36,7 @@
 //! - **Dynamic adaptation**: Automatically balances varying workloads
 //! - **Minimal synchronization**: Only atomic add and warp shuffle
 
+use std::ops::Range;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -86,8 +87,11 @@ pub struct WorkQueue<T> {
 
 impl<T> WorkQueue<T> {
     /// Create a new work queue.
-    pub fn new(items: Vec<WorkItem<T>>) -> Self {
-        let total_subtasks = items.iter().map(|i| i.num_subtasks).sum();
+    pub fn new(mut items: Vec<WorkItem<T>>) -> Self {
+        items.sort_by(|a, b| priority_order(a.priority).total_cmp(&priority_order(b.priority)));
+        let total_subtasks = items.iter().fold(0usize, |total, item| {
+            total.saturating_add(item.num_subtasks)
+        });
         Self {
             items,
             dispatch_index: AtomicUsize::new(0),
@@ -114,11 +118,33 @@ impl<T> WorkQueue<T> {
     ///
     /// Returns `None` if all items have been dispatched.
     pub fn request_next(&self) -> Option<usize> {
-        let index = self.dispatch_index.fetch_add(1, Ordering::AcqRel);
-        if index < self.items.len() {
-            Some(index)
-        } else {
-            None
+        let batch = self.request_batch(1);
+        (batch.start < batch.end).then_some(batch.start)
+    }
+
+    /// Atomically request a contiguous batch of work item indices.
+    ///
+    /// `max_items == 0` is treated as one item so a caller cannot accidentally
+    /// livelock on empty claims. The returned range is empty when all items have
+    /// already been dispatched.
+    pub fn request_batch(&self, max_items: usize) -> Range<usize> {
+        let len = self.items.len();
+        let max_items = max_items.max(1);
+
+        loop {
+            let start = self.dispatch_index.load(Ordering::Acquire);
+            if start >= len {
+                return len..len;
+            }
+
+            let end = start.saturating_add(max_items).min(len);
+            if self
+                .dispatch_index
+                .compare_exchange_weak(start, end, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                return start..end;
+            }
         }
     }
 
@@ -153,10 +179,11 @@ pub struct WorkGroup {
 impl WorkGroup {
     /// Create a new work group.
     pub fn new(size: usize, id: usize, thread_rank: usize) -> Self {
+        let size = size.max(1);
         Self {
             size,
             id,
-            thread_rank,
+            thread_rank: thread_rank % size,
         }
     }
 
@@ -196,6 +223,14 @@ impl WorkGroup {
     }
 }
 
+fn priority_order(priority: f32) -> f32 {
+    if priority.is_nan() {
+        f32::INFINITY
+    } else {
+        priority
+    }
+}
+
 /// Work dispatcher for dynamic load balancing.
 ///
 /// Coordinates multiple work groups processing a shared work queue.
@@ -215,7 +250,7 @@ impl<T> WorkDispatcher<T> {
         Self {
             queue: Arc::new(WorkQueue::new(items)),
             num_groups,
-            group_size,
+            group_size: group_size.max(1),
         }
     }
 
@@ -262,7 +297,7 @@ impl<T> WorkDispatcher<T> {
     }
 }
 
-impl<T: Clone> WorkDispatcher<T> {
+impl<T> WorkDispatcher<T> {
     /// Get a clone of the queue for sharing with threads.
     pub fn queue_handle(&self) -> Arc<WorkQueue<T>> {
         Arc::clone(&self.queue)
@@ -290,13 +325,13 @@ impl DispatchStats {
         if self.total_items == 0 {
             1.0
         } else {
-            self.dispatched_items as f64 / self.total_items as f64
+            self.dispatched_items.min(self.total_items) as f64 / self.total_items as f64
         }
     }
 
     /// Get the total number of worker threads.
     pub fn total_workers(&self) -> usize {
-        self.num_groups * self.group_size
+        self.num_groups.saturating_mul(self.group_size)
     }
 
     /// Estimate average subtasks per worker.
@@ -323,7 +358,11 @@ pub struct LoadBalancer {
 impl LoadBalancer {
     /// Create a new load balancer.
     pub fn new(num_workers: usize) -> Self {
-        let group_size = WORK_GROUP_SIZE.min(num_workers);
+        let group_size = if num_workers == 0 {
+            1
+        } else {
+            WORK_GROUP_SIZE.min(num_workers).max(1)
+        };
         Self {
             num_workers,
             group_size,
@@ -334,7 +373,7 @@ impl LoadBalancer {
     pub fn with_group_size(num_workers: usize, group_size: usize) -> Self {
         Self {
             num_workers,
-            group_size,
+            group_size: group_size.max(1),
         }
     }
 
@@ -345,7 +384,11 @@ impl LoadBalancer {
 
     /// Get the number of work groups.
     pub fn num_groups(&self) -> usize {
-        self.num_workers.div_ceil(self.group_size)
+        if self.num_workers == 0 {
+            0
+        } else {
+            self.num_workers.div_ceil(self.group_size)
+        }
     }
 
     /// Create a dispatcher for a set of work items.
@@ -364,11 +407,18 @@ impl LoadBalancer {
     ///
     /// Recommended number of workers.
     pub fn estimate_workers(num_items: usize, avg_subtasks: usize) -> usize {
-        let total_work = num_items * avg_subtasks;
+        if num_items == 0 || avg_subtasks == 0 {
+            return 0;
+        }
+
+        let total_work = num_items.saturating_mul(avg_subtasks);
         // Aim for at least 4 items per group for amortization
         let min_groups = num_items.div_ceil(4);
         let max_groups = total_work.div_ceil(WORK_GROUP_SIZE);
-        min_groups.max(1).min(max_groups) * WORK_GROUP_SIZE
+        min_groups
+            .max(1)
+            .min(max_groups.max(1))
+            .saturating_mul(WORK_GROUP_SIZE)
     }
 }
 
@@ -407,6 +457,35 @@ mod tests {
     }
 
     #[test]
+    fn test_work_queue_dispatches_priority_order() {
+        let items = vec![
+            WorkItem::with_priority("late", 1, 10.0),
+            WorkItem::new("default", 1),
+            WorkItem::with_priority("first", 1, -1.0),
+            WorkItem::with_priority("nan", 1, f32::NAN),
+        ];
+        let queue = WorkQueue::new(items);
+
+        let mut dispatched = Vec::new();
+        while let Some(index) = queue.request_next() {
+            dispatched.push(queue.get(index).map(|item| item.data));
+        }
+
+        assert_eq!(
+            dispatched,
+            vec![Some("first"), Some("default"), Some("late"), Some("nan")]
+        );
+    }
+
+    #[test]
+    fn test_work_queue_total_subtasks_saturates() {
+        let items = vec![WorkItem::new(1, usize::MAX), WorkItem::new(2, 1)];
+        let queue = WorkQueue::new(items);
+
+        assert_eq!(queue.total_subtasks(), usize::MAX);
+    }
+
+    #[test]
     fn test_work_queue_dispatch() {
         let items = vec![WorkItem::new(1, 10), WorkItem::new(2, 20)];
         let queue = WorkQueue::new(items);
@@ -414,6 +493,48 @@ mod tests {
         assert_eq!(queue.request_next(), Some(0));
         assert_eq!(queue.request_next(), Some(1));
         assert_eq!(queue.request_next(), None);
+    }
+
+    #[test]
+    fn test_work_queue_dispatch_index_stops_at_length() {
+        let items = vec![WorkItem::new(1, 10), WorkItem::new(2, 20)];
+        let queue = WorkQueue::new(items);
+
+        assert_eq!(queue.request_next(), Some(0));
+        assert_eq!(queue.request_next(), Some(1));
+        for _ in 0..8 {
+            assert_eq!(queue.request_next(), None);
+        }
+
+        assert_eq!(
+            queue
+                .dispatch_index
+                .load(std::sync::atomic::Ordering::Acquire),
+            queue.len()
+        );
+        assert_eq!(queue.progress(), (queue.len(), queue.len()));
+    }
+
+    #[test]
+    fn test_work_queue_batch_dispatch_clamps_to_remaining_items() {
+        let items: Vec<_> = (0..5).map(|i| WorkItem::new(i, 1)).collect();
+        let queue = WorkQueue::new(items);
+
+        assert_eq!(queue.request_batch(2), 0..2);
+        assert_eq!(queue.progress(), (2, 5));
+        assert_eq!(queue.request_batch(16), 2..5);
+        assert_eq!(queue.progress(), (5, 5));
+        assert_eq!(queue.request_batch(1), 5..5);
+    }
+
+    #[test]
+    fn test_work_queue_zero_sized_batch_claims_one_item() {
+        let items = vec![WorkItem::new(1, 10), WorkItem::new(2, 20)];
+        let queue = WorkQueue::new(items);
+
+        assert_eq!(queue.request_batch(0), 0..1);
+        assert_eq!(queue.request_next(), Some(1));
+        assert_eq!(queue.request_batch(0), 2..2);
     }
 
     #[test]
@@ -449,12 +570,46 @@ mod tests {
     }
 
     #[test]
+    fn test_zero_sized_work_group_is_normalized() {
+        let group = WorkGroup::new(0, 0, 0);
+
+        assert_eq!(group.size(), 1);
+        assert_eq!(group.subtask_range(3).collect::<Vec<_>>(), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_out_of_range_work_group_rank_is_normalized() {
+        let group = WorkGroup::new(4, 0, 5);
+
+        assert_eq!(group.thread_rank(), 1);
+        assert_eq!(group.subtask_range(10).collect::<Vec<_>>(), vec![1, 5, 9]);
+    }
+
+    #[test]
     fn test_work_dispatcher() {
         let items = vec![WorkItem::new(1, 10), WorkItem::new(2, 20)];
         let dispatcher = WorkDispatcher::with_default_group_size(items, 4);
 
         assert_eq!(dispatcher.num_groups(), 4);
         assert_eq!(dispatcher.group_size(), 32);
+    }
+
+    #[test]
+    fn test_work_dispatcher_normalizes_zero_group_size() {
+        let dispatcher = WorkDispatcher::new(vec![WorkItem::new(1, 1)], 1, 0);
+
+        assert_eq!(dispatcher.group_size(), 1);
+    }
+
+    #[test]
+    fn test_work_dispatcher_queue_handle_does_not_require_clone_items() {
+        #[derive(Debug)]
+        struct NonClone(usize);
+
+        let dispatcher = WorkDispatcher::new(vec![WorkItem::new(NonClone(7), 1)], 1, 1);
+        let queue = dispatcher.queue_handle();
+
+        assert_eq!(queue.get(0).map(|item| item.data.0), Some(7));
     }
 
     #[test]
@@ -478,6 +633,22 @@ mod tests {
     }
 
     #[test]
+    fn test_load_balancer_zero_workers_is_total() {
+        let balancer = LoadBalancer::new(0);
+
+        assert_eq!(balancer.num_workers(), 0);
+        assert_eq!(balancer.group_size, 1);
+        assert_eq!(balancer.num_groups(), 0);
+    }
+
+    #[test]
+    fn test_load_balancer_zero_custom_group_size_is_normalized() {
+        let balancer = LoadBalancer::with_group_size(8, 0);
+
+        assert_eq!(balancer.num_groups(), 8);
+    }
+
+    #[test]
     fn test_load_balancer_create_dispatcher() {
         let balancer = LoadBalancer::new(64);
         let items = vec![WorkItem::new(1, 10)];
@@ -495,6 +666,29 @@ mod tests {
         // Large workload
         let workers = LoadBalancer::estimate_workers(1000, 100);
         assert!(workers >= 32);
+    }
+
+    #[test]
+    fn test_estimate_workers_zero_work_and_overflow_are_total() {
+        assert_eq!(LoadBalancer::estimate_workers(0, 100), 0);
+        assert_eq!(LoadBalancer::estimate_workers(100, 0), 0);
+
+        let workers = LoadBalancer::estimate_workers(usize::MAX, usize::MAX);
+        assert_eq!(workers, usize::MAX);
+    }
+
+    #[test]
+    fn test_dispatch_stats_saturates_total_workers_and_clamps_completion() {
+        let stats = DispatchStats {
+            total_items: 10,
+            dispatched_items: 20,
+            total_subtasks: 100,
+            num_groups: usize::MAX,
+            group_size: 2,
+        };
+
+        assert_eq!(stats.total_workers(), usize::MAX);
+        assert_eq!(stats.completion_ratio(), 1.0);
     }
 
     #[test]
@@ -526,6 +720,58 @@ mod tests {
             })
             .sum();
         assert_eq!(total, 100);
+    }
+
+    #[test]
+    fn test_concurrent_batch_dispatch() {
+        use std::sync::Mutex;
+        use std::thread;
+
+        let item_count = 257;
+        let items: Vec<_> = (0..item_count).map(|i| WorkItem::new(i, 1)).collect();
+        let queue = Arc::new(WorkQueue::new(items));
+        let seen = Arc::new(Mutex::new(vec![false; item_count]));
+
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let q = Arc::clone(&queue);
+                let seen = Arc::clone(&seen);
+                thread::spawn(move || {
+                    let mut count = 0;
+                    loop {
+                        let batch = q.request_batch(7);
+                        if batch.start == batch.end {
+                            break;
+                        }
+
+                        let mut seen = seen
+                            .lock()
+                            .expect("gpu/load_balance.rs: seen mutex was poisoned");
+                        for index in batch {
+                            assert!(!seen[index], "work item {index} dispatched twice");
+                            seen[index] = true;
+                            count += 1;
+                        }
+                    }
+                    count
+                })
+            })
+            .collect();
+
+        let total: usize = handles
+            .into_iter()
+            .map(|h| {
+                h.join()
+                    .expect("gpu/load_balance.rs: batch worker thread panicked")
+            })
+            .sum();
+
+        assert_eq!(total, item_count);
+        assert!(seen
+            .lock()
+            .expect("gpu/load_balance.rs: seen mutex was poisoned")
+            .iter()
+            .all(|dispatched| *dispatched));
     }
 }
 
@@ -595,6 +841,28 @@ mod property_tests {
             dispatched.sort();
             let expected: Vec<_> = (0..num_items).collect();
             prop_assert_eq!(dispatched, expected);
+        }
+
+        /// WorkQueue batch dispatches all items exactly once.
+        #[test]
+        fn work_queue_batch_dispatch_all(num_items in 1usize..50, batch_size in 0usize..16) {
+            let items: Vec<_> = (0..num_items).map(|i| WorkItem::new(i, 1)).collect();
+            let queue = WorkQueue::new(items);
+
+            let mut dispatched = Vec::new();
+            loop {
+                let batch = queue.request_batch(batch_size);
+                if batch.start == batch.end {
+                    break;
+                }
+                dispatched.extend(batch);
+            }
+
+            prop_assert_eq!(dispatched.len(), num_items);
+            dispatched.sort();
+            let expected: Vec<_> = (0..num_items).collect();
+            prop_assert_eq!(dispatched, expected);
+            prop_assert_eq!(queue.request_batch(batch_size), num_items..num_items);
         }
 
         /// WorkQueue reset allows re-dispatch.
@@ -747,9 +1015,10 @@ mod property_tests {
         #[test]
         fn load_balancer_estimate_reasonable(num_items in 1usize..1000, avg_subtasks in 1usize..100) {
             let workers = LoadBalancer::estimate_workers(num_items, avg_subtasks);
+            let total_work = num_items.saturating_mul(avg_subtasks);
 
             // Should be at least one warp
-            prop_assert!(workers >= WORK_GROUP_SIZE.min(num_items * avg_subtasks));
+            prop_assert!(workers >= WORK_GROUP_SIZE.min(total_work));
 
             // Should be a multiple of group size or at least 1
             prop_assert!(workers >= 1);

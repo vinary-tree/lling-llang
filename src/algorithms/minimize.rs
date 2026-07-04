@@ -35,6 +35,10 @@ use std::hash::Hash;
 use crate::semiring::{DivisibleSemiring, QuantizableSemiring, Semiring};
 use crate::wfst::{MutableWfst, StateId, WeightedTransition, Wfst, NO_STATE};
 
+use super::connect::{connect, ConnectConfig};
+use super::push::{push_weights, PushConfig, PushDirection};
+use super::shortest_distance::ShortestDistanceConfig;
+
 /// Default epsilon for floating-point weight comparison during minimization.
 /// Weights within this tolerance are considered equal for partition refinement.
 /// This addresses floating-point artifacts introduced by weight pushing's division operations.
@@ -71,7 +75,7 @@ pub struct MinimizeConfig {
     /// Push weights before minimizing (recommended).
     pub push_weights: bool,
     /// Direction for weight pushing.
-    pub push_direction: crate::algorithms::PushDirection,
+    pub push_direction: PushDirection,
     /// Whether to connect (trim) before minimization.
     pub connect_first: bool,
     /// Epsilon for weight comparison during partition refinement.
@@ -84,7 +88,7 @@ impl Default for MinimizeConfig {
     fn default() -> Self {
         Self {
             push_weights: true,
-            push_direction: crate::algorithms::PushDirection::Forward,
+            push_direction: PushDirection::Forward,
             connect_first: true,
             weight_epsilon: MINIMIZE_EPSILON,
         }
@@ -101,7 +105,7 @@ impl MinimizeConfig {
     pub fn no_push() -> Self {
         Self {
             push_weights: false,
-            push_direction: crate::algorithms::PushDirection::Forward,
+            push_direction: PushDirection::Forward,
             connect_first: true,
             weight_epsilon: MINIMIZE_EPSILON,
         }
@@ -123,6 +127,11 @@ pub enum MinimizeError {
     NoStartState,
     /// Input WFST is not deterministic.
     NotDeterministic,
+    /// Weight quantization epsilon must be finite and positive.
+    InvalidWeightEpsilon {
+        /// The invalid epsilon value supplied in [`MinimizeConfig`].
+        epsilon: f64,
+    },
     /// Weight pushing failed.
     PushError(String),
 }
@@ -134,6 +143,11 @@ impl std::fmt::Display for MinimizeError {
             MinimizeError::NotDeterministic => {
                 write!(f, "WFST must be deterministic before minimization")
             }
+            MinimizeError::InvalidWeightEpsilon { epsilon } => write!(
+                f,
+                "weight epsilon must be finite and positive, got {}",
+                epsilon
+            ),
             MinimizeError::PushError(msg) => write!(f, "Weight pushing failed: {}", msg),
         }
     }
@@ -159,6 +173,14 @@ impl<L: Ord + Hash + Clone> StateSignature<L> {
             final_weight: None,
             transitions: Vec::new(),
         }
+    }
+}
+
+fn validate_weight_epsilon(epsilon: f64) -> Result<(), MinimizeError> {
+    if epsilon.is_finite() && epsilon > 0.0 {
+        Ok(())
+    } else {
+        Err(MinimizeError::InvalidWeightEpsilon { epsilon })
     }
 }
 
@@ -197,6 +219,8 @@ where
         return Ok(F::default());
     }
 
+    validate_weight_epsilon(config.weight_epsilon)?;
+
     let start = fst.start();
     if start == NO_STATE {
         return Err(MinimizeError::NoStartState);
@@ -212,15 +236,13 @@ where
 
     // Optionally connect first
     if config.connect_first {
-        use crate::algorithms::{connect, ConnectConfig};
         connect(&mut working, ConnectConfig::trim());
     }
 
     // Optionally push weights
     if config.push_weights {
-        use crate::algorithms::{push_weights, PushConfig, ShortestDistanceConfig};
         let push_config = PushConfig {
-            direction: config.push_direction.clone(),
+            direction: config.push_direction,
             remove_non_coaccessible: false, // We already connected if needed
             distance_config: ShortestDistanceConfig::default(),
         };
@@ -249,6 +271,8 @@ where
     if n == 0 {
         return Ok(Vec::new());
     }
+
+    validate_weight_epsilon(epsilon)?;
 
     // Initial partition: separate by quantized final weight
     let mut partition: Vec<usize> = vec![0; n];
@@ -303,7 +327,10 @@ where
 
             let mut trans_sigs: Vec<(Option<L>, Option<L>, QuantizedWeight, usize)> = Vec::new();
             for trans in fst.transitions(state_id) {
-                let target_partition = partition[trans.to as usize];
+                let Some(&target_partition) = partition.get(trans.to as usize) else {
+                    continue;
+                };
+
                 trans_sigs.push((
                     trans.input.clone(),
                     trans.output.clone(),
@@ -331,11 +358,11 @@ where
             }
         }
 
-        // Check if partitions changed
-        if new_num_partitions > num_partitions {
+        // Check if the relation changed, not only whether the number of
+        // partitions grew. Same-cardinality refinements can still move states.
+        if new_partition != partition {
             changed = true;
             partition = new_partition;
-            num_partitions = new_num_partitions;
         }
     }
 
@@ -373,7 +400,10 @@ where
     // Set start state
     let old_start = fst.start();
     if old_start != NO_STATE {
-        let new_start = partitions[old_start as usize];
+        let Some(&new_start) = partitions.get(old_start as usize) else {
+            return Err(MinimizeError::NoStartState);
+        };
+
         result.set_start(new_start as StateId);
     }
 
@@ -390,7 +420,10 @@ where
 
         // Add transitions (avoiding duplicates)
         for trans in fst.transitions(rep) {
-            let target_partition = partitions[trans.to as usize];
+            let Some(&target_partition) = partitions.get(trans.to as usize) else {
+                continue;
+            };
+
             let key = (
                 *partition,
                 trans.input.clone(),
@@ -453,6 +486,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::super::determinize::is_deterministic;
     use super::*;
     use crate::semiring::TropicalWeight;
     use crate::wfst::{VectorWfst, VectorWfstBuilder};
@@ -528,7 +562,7 @@ mod tests {
                 let result = minimize(&fst, MinimizeConfig::standard());
                 if let Ok(min_fst) = result {
                     prop_assert!(
-                        super::super::super::determinize::is_deterministic(&min_fst),
+                        is_deterministic(&min_fst),
                         "Minimized FST should be deterministic"
                     );
                 }
@@ -689,11 +723,11 @@ mod tests {
     #[test]
     fn test_minimize_preserves_determinism() {
         let fst = build_redundant_fst();
-        assert!(super::super::determinize::is_deterministic(&fst));
+        assert!(is_deterministic(&fst));
 
         let result = minimize(&fst, MinimizeConfig::standard())
             .expect("algorithms/minimize.rs: required value was None/Err");
-        assert!(super::super::determinize::is_deterministic(&result));
+        assert!(is_deterministic(&result));
     }
 
     #[test]
@@ -704,5 +738,46 @@ mod tests {
         let result = minimize(&fst, MinimizeConfig::no_push())
             .expect("algorithms/minimize.rs: required value was None/Err");
         assert!(result.num_states() <= fst.num_states());
+    }
+
+    #[test]
+    fn test_minimize_rejects_invalid_weight_epsilon() {
+        let fst = build_minimal_fst();
+
+        for epsilon in [0.0, -1.0, f64::INFINITY, f64::NAN] {
+            let result = minimize(&fst, MinimizeConfig::with_epsilon(epsilon));
+
+            assert!(matches!(
+                result,
+                Err(MinimizeError::InvalidWeightEpsilon { epsilon: invalid })
+                    if (epsilon.is_nan() && invalid.is_nan()) || invalid == epsilon
+            ));
+            assert_eq!(estimate_reduction_with_epsilon(&fst, epsilon), 0);
+        }
+    }
+
+    #[test]
+    fn test_minimize_skips_malformed_transition_targets() {
+        let mut fst = VectorWfst::new();
+        fst.add_states(2);
+        fst.set_start(0);
+        fst.add_arc(0, Some('a'), Some('a'), 1, TropicalWeight::new(1.0));
+        fst.add_arc(0, Some('x'), Some('x'), 99, TropicalWeight::new(1.0));
+        fst.set_final(1, TropicalWeight::one());
+
+        let config = MinimizeConfig {
+            push_weights: false,
+            connect_first: false,
+            ..MinimizeConfig::default()
+        };
+        let minimized = minimize(&fst, config).expect("malformed targets should be skipped");
+
+        assert!(estimate_reduction(&fst) <= fst.num_states());
+        assert!((0..minimized.num_states()).all(|state| {
+            minimized
+                .transitions(state as StateId)
+                .iter()
+                .all(|transition| (transition.to as usize) < minimized.num_states())
+        }));
     }
 }

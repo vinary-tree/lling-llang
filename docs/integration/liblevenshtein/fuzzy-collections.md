@@ -428,7 +428,7 @@ fn adaptive_evict<D: MappedDictionary>(
 }
 ```
 
-## Next Steps
+## Related Topics
 
 - [Overview](overview.md): Architecture overview
 - [Dictionaries](dictionaries.md): Dictionary implementations

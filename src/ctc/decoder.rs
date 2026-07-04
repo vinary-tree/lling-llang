@@ -45,14 +45,16 @@
 //! - Graves et al., "Connectionist Temporal Classification" (ICML 2006)
 //! - Miao et al., "EESEN: End-to-end speech recognition using deep RNN" (ASRU 2015)
 
-use std::collections::HashMap;
+use std::cmp::Ordering;
+use std::collections::{HashMap, VecDeque};
+use std::fmt;
 use std::sync::Arc;
 
 use crate::composition::{compose, materialize};
 use crate::semiring::{LogWeight, Semiring};
-use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst, NO_STATE};
 
-use super::{CtcLabel, CtcTopology, BLANK};
+use super::topologies::{CtcLabel, CtcTopology, BLANK};
 
 /// Configuration for CTC decoding.
 #[derive(Clone, Debug)]
@@ -173,6 +175,92 @@ pub struct ObservationFst<W: Semiring> {
     pub vocab_size: usize,
 }
 
+/// Error returned by fallible [`ObservationFst`] constructors.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ObservationFstError {
+    /// No posterior frames were provided.
+    EmptyInput,
+    /// Posterior frames exist, but they contain no labels.
+    EmptyVocabulary,
+    /// The number of frames cannot be represented as concrete WFST states.
+    FrameCountExceedsStateSpace {
+        /// Requested number of posterior frames.
+        num_frames: usize,
+        /// Maximum number of frames representable by concrete WFST state IDs.
+        max_frames: usize,
+    },
+    /// The vocabulary cannot be represented by the CTC label type.
+    VocabSizeExceedsLabelSpace {
+        /// Requested vocabulary size.
+        vocab_size: usize,
+        /// Maximum vocabulary size representable by CTC labels.
+        max_vocab_size: usize,
+    },
+    /// A posterior frame has a different vocabulary width from the first frame.
+    InconsistentFrameSize {
+        /// Zero-based frame index.
+        frame: usize,
+        /// Number of labels in this frame.
+        actual: usize,
+        /// Expected number of labels.
+        expected: usize,
+    },
+    /// Scaling a posterior produced a value outside the verified log-weight domain.
+    InvalidLogWeight {
+        /// Zero-based frame index.
+        frame: usize,
+        /// Zero-based label index.
+        label: usize,
+        /// Raw weight value that failed validation.
+        value: f64,
+    },
+}
+
+impl fmt::Display for ObservationFstError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EmptyInput => write!(f, "Posteriors cannot be empty"),
+            Self::EmptyVocabulary => write!(f, "Posteriors must contain at least one label"),
+            Self::FrameCountExceedsStateSpace {
+                num_frames,
+                max_frames,
+            } => write!(
+                f,
+                "Posterior frame count {} exceeds maximum concrete WFST frames {}",
+                num_frames, max_frames
+            ),
+            Self::VocabSizeExceedsLabelSpace {
+                vocab_size,
+                max_vocab_size,
+            } => write!(
+                f,
+                "Posterior vocabulary size {} exceeds maximum CTC labels {}",
+                vocab_size, max_vocab_size
+            ),
+            Self::InconsistentFrameSize {
+                frame,
+                actual,
+                expected,
+            } => write!(
+                f,
+                "Frame {} has {} labels, expected {}",
+                frame, actual, expected
+            ),
+            Self::InvalidLogWeight {
+                frame,
+                label,
+                value,
+            } => write!(
+                f,
+                "Posterior frame {} label {} produced invalid log weight {}",
+                frame, label, value
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ObservationFstError {}
+
 impl ObservationFst<LogWeight> {
     /// Create observation FST from log posteriors.
     ///
@@ -183,12 +271,69 @@ impl ObservationFst<LogWeight> {
     ///
     /// # Panics
     ///
-    /// Panics if posteriors is empty or frames have inconsistent sizes.
+    /// Panics if posteriors cannot form a rectangular, non-empty observation
+    /// tensor. Use [`Self::try_from_posteriors`] when invalid input should be
+    /// handled without panicking.
     pub fn from_posteriors(posteriors: &[Vec<f32>]) -> Self {
-        assert!(!posteriors.is_empty(), "Posteriors cannot be empty");
+        Self::try_from_posteriors(posteriors).unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Try to create an observation FST from log posteriors.
+    ///
+    /// The posterior tensor must be rectangular with shape
+    /// `[num_frames][vocab_size]`, `num_frames >= 1`, and `vocab_size >= 1`.
+    pub fn try_from_posteriors(posteriors: &[Vec<f32>]) -> Result<Self, ObservationFstError> {
+        Self::try_from_posteriors_scaled(posteriors, 1.0)
+    }
+
+    /// Create observation FST with acoustic scaling.
+    ///
+    /// Applies `weight = acoustic_scale * (-log_prob)` to all arcs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if posteriors cannot form a rectangular, non-empty observation
+    /// tensor or scaling produces an invalid [`LogWeight`]. Use
+    /// [`Self::try_from_posteriors_scaled`] when invalid input should be handled
+    /// without panicking.
+    pub fn from_posteriors_scaled(posteriors: &[Vec<f32>], acoustic_scale: f64) -> Self {
+        Self::try_from_posteriors_scaled(posteriors, acoustic_scale)
+            .unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Try to create an observation FST with acoustic scaling.
+    ///
+    /// Applies `weight = acoustic_scale * (-log_prob)` to every frame-label arc
+    /// after validating tensor shape and log-weight domain membership.
+    pub fn try_from_posteriors_scaled(
+        posteriors: &[Vec<f32>],
+        acoustic_scale: f64,
+    ) -> Result<Self, ObservationFstError> {
+        let Some(first_frame) = posteriors.first() else {
+            return Err(ObservationFstError::EmptyInput);
+        };
 
         let num_frames = posteriors.len();
-        let vocab_size = posteriors[0].len();
+        let max_frames = (NO_STATE as usize).saturating_sub(1);
+        if num_frames > max_frames {
+            return Err(ObservationFstError::FrameCountExceedsStateSpace {
+                num_frames,
+                max_frames,
+            });
+        }
+
+        let vocab_size = first_frame.len();
+        if vocab_size == 0 {
+            return Err(ObservationFstError::EmptyVocabulary);
+        }
+
+        let max_vocab_size = NO_STATE as usize;
+        if vocab_size > max_vocab_size {
+            return Err(ObservationFstError::VocabSizeExceedsLabelSpace {
+                vocab_size,
+                max_vocab_size,
+            });
+        }
 
         // Create FST with linear chain structure: s0 -> s1 -> ... -> sN
         let mut fst: VectorWfst<CtcLabel, LogWeight> = VectorWfst::with_capacity(num_frames + 1);
@@ -203,14 +348,13 @@ impl ObservationFst<LogWeight> {
 
         // Add arcs for each frame
         for (frame_idx, frame_posteriors) in posteriors.iter().enumerate() {
-            assert_eq!(
-                frame_posteriors.len(),
-                vocab_size,
-                "Frame {} has {} labels, expected {}",
-                frame_idx,
-                frame_posteriors.len(),
-                vocab_size
-            );
+            if frame_posteriors.len() != vocab_size {
+                return Err(ObservationFstError::InconsistentFrameSize {
+                    frame: frame_idx,
+                    actual: frame_posteriors.len(),
+                    expected: vocab_size,
+                });
+            }
 
             let from_state = frame_idx as StateId;
             let to_state = (frame_idx + 1) as StateId;
@@ -224,56 +368,23 @@ impl ObservationFst<LogWeight> {
                 // Output epsilon for blank, otherwise output the label
                 let output = if label == BLANK { None } else { Some(label) };
                 // Weight is negative log probability (higher prob = lower weight)
-                let weight = LogWeight::new(-log_prob as f64);
+                let raw_weight = acoustic_scale * (-(log_prob as f64));
+                let weight = LogWeight::try_new(raw_weight).ok_or(
+                    ObservationFstError::InvalidLogWeight {
+                        frame: frame_idx,
+                        label: label as usize,
+                        value: raw_weight,
+                    },
+                )?;
                 fst.add_arc(from_state, Some(label), output, to_state, weight);
             }
         }
 
-        Self {
+        Ok(Self {
             fst,
             num_frames,
             vocab_size,
-        }
-    }
-
-    /// Create observation FST with acoustic scaling.
-    ///
-    /// Applies `weight = acoustic_scale * (-log_prob)` to all arcs.
-    pub fn from_posteriors_scaled(posteriors: &[Vec<f32>], acoustic_scale: f64) -> Self {
-        assert!(!posteriors.is_empty(), "Posteriors cannot be empty");
-
-        let num_frames = posteriors.len();
-        let vocab_size = posteriors[0].len();
-
-        let mut fst: VectorWfst<CtcLabel, LogWeight> = VectorWfst::with_capacity(num_frames + 1);
-
-        for _ in 0..=num_frames {
-            fst.add_state();
-        }
-
-        fst.set_start(0);
-        fst.set_final(num_frames as StateId, LogWeight::one());
-
-        for (frame_idx, frame_posteriors) in posteriors.iter().enumerate() {
-            let from_state = frame_idx as StateId;
-            let to_state = (frame_idx + 1) as StateId;
-
-            fst.reserve_transitions(from_state, vocab_size);
-
-            for (label, &log_prob) in frame_posteriors.iter().enumerate() {
-                let label = label as CtcLabel;
-                let output = if label == BLANK { None } else { Some(label) };
-                // Apply acoustic scale
-                let weight = LogWeight::new(acoustic_scale * (-log_prob as f64));
-                fst.add_arc(from_state, Some(label), output, to_state, weight);
-            }
-        }
-
-        Self {
-            fst,
-            num_frames,
-            vocab_size,
-        }
+        })
     }
 }
 
@@ -410,7 +521,8 @@ impl CtcDecoder<LogWeight> {
 
         // Build observation FST from posteriors
         let obs_fst =
-            ObservationFst::from_posteriors_scaled(posteriors, self.config.acoustic_scale);
+            ObservationFst::try_from_posteriors_scaled(posteriors, self.config.acoustic_scale)
+                .map_err(DecodingError::InvalidPosteriors)?;
 
         // Check vocabulary size compatibility
         if obs_fst.vocab_size != self.ctc_topology.vocab_size() {
@@ -475,6 +587,9 @@ impl CtcDecoder<LogWeight> {
 
         let start = fst.start();
         let num_states = fst.num_states();
+        if !fst.is_valid_state(start) {
+            return Err(DecodingError::NoPath);
+        }
 
         // Forward pass: compute best score to each state
         // (best_score, backpointer_state, backpointer_arc)
@@ -486,10 +601,16 @@ impl CtcDecoder<LogWeight> {
             if best[state as usize].is_none() {
                 continue;
             }
-            let (current_score, _, _) = best[state as usize].clone().expect("checked above");
+            let Some((current_score, _, _)) = best[state as usize] else {
+                continue;
+            };
 
             let transitions = fst.transitions(state);
             for (arc_idx, arc) in transitions.iter().enumerate() {
+                if !fst.is_valid_state(arc.to) {
+                    continue;
+                }
+
                 let new_score = current_score.times(&arc.weight);
                 let target = arc.to as usize;
 
@@ -530,19 +651,33 @@ impl CtcDecoder<LogWeight> {
         };
 
         // Backward pass: reconstruct path
-        let mut labels = Vec::new();
+        let mut labels = Vec::with_capacity(num_states);
         let mut current = end_state;
+        let mut visited_backtrace = vec![false; num_states];
 
         while current != start {
-            if let Some((_, prev_state, arc_idx)) = &best[current as usize] {
-                let arc = &fst.transitions(*prev_state)[*arc_idx];
-                if let Some(output) = arc.output {
-                    labels.push(output);
-                }
-                current = *prev_state;
-            } else {
-                break;
+            let current_idx = current as usize;
+            let Some(visited) = visited_backtrace.get_mut(current_idx) else {
+                return Err(DecodingError::NoPath);
+            };
+            if *visited {
+                return Err(DecodingError::NoPath);
             }
+            *visited = true;
+
+            let Some((_, prev_state, arc_idx)) =
+                best.get(current_idx).and_then(|entry| entry.as_ref())
+            else {
+                return Err(DecodingError::NoPath);
+            };
+
+            let Some(arc) = fst.transitions(*prev_state).get(*arc_idx) else {
+                return Err(DecodingError::NoPath);
+            };
+            if let Some(output) = arc.output {
+                labels.push(output);
+            }
+            current = *prev_state;
         }
 
         // Reverse since we traced backward
@@ -570,7 +705,10 @@ impl CtcDecoder<LogWeight> {
         }
 
         let start = fst.start();
-        let _num_states = fst.num_states();
+        if !fst.is_valid_state(start) {
+            return Err(DecodingError::NoPath);
+        }
+
         let beam_width = self.config.beam_width;
         let max_active = self.config.max_active;
 
@@ -594,13 +732,19 @@ impl CtcDecoder<LogWeight> {
 
         // Process until no more active tokens
         while !active.is_empty() {
-            let mut next_active: Vec<Token> = Vec::new();
-            let mut state_best: HashMap<StateId, (LogWeight, usize)> = HashMap::new();
+            let capacity_hint = active.len().saturating_mul(2).min(max_active).max(1);
+            let mut next_active: Vec<Token> = Vec::with_capacity(capacity_hint);
+            let mut state_best: HashMap<StateId, (LogWeight, usize)> =
+                HashMap::with_capacity(capacity_hint);
 
             for token in &active {
                 let transitions = fst.transitions(token.state);
 
                 for arc in transitions.iter() {
+                    if !fst.is_valid_state(arc.to) {
+                        continue;
+                    }
+
                     let new_score = token.score.times(&arc.weight);
 
                     let mut new_labels = token.labels.clone();
@@ -708,7 +852,7 @@ impl CtcDecoder<LogWeight> {
         let mut result = self.decode(posteriors)?;
 
         // Collapse consecutive duplicates
-        let mut collapsed = Vec::new();
+        let mut collapsed = Vec::with_capacity(result.labels.len());
         let mut prev_label: Option<CtcLabel> = None;
 
         for label in &result.labels {
@@ -735,6 +879,8 @@ pub enum DecodingError {
         /// Vocabulary size in CTC topology.
         ctc_vocab: usize,
     },
+    /// Posterior tensor shape or values are invalid.
+    InvalidPosteriors(ObservationFstError),
     /// No valid path found.
     NoPath,
     /// Composition failed.
@@ -755,6 +901,7 @@ impl std::fmt::Display for DecodingError {
                     posterior_vocab, ctc_vocab
                 )
             }
+            Self::InvalidPosteriors(err) => write!(f, "Invalid posteriors: {}", err),
             Self::NoPath => write!(f, "No valid path found during decoding"),
             Self::CompositionError(msg) => write!(f, "Composition error: {}", msg),
         }
@@ -778,6 +925,19 @@ pub struct DecoderToken<W: Semiring> {
     pub label: Option<CtcLabel>,
     /// Word sequence (for LM integration).
     pub words: Vec<u32>,
+}
+
+/// Backtrace node for streaming CTC hypotheses.
+#[derive(Clone, Debug)]
+struct TraceNode {
+    /// Previous node in the hypothesis trace.
+    prev: Option<usize>,
+    /// Raw CTC output symbol emitted by this step.
+    ///
+    /// `None` means the transition consumed no frame and emitted no symbol.
+    /// `Some(None)` means a blank frame was consumed. `Some(Some(label))`
+    /// means a non-blank label was emitted.
+    emitted: Option<Option<CtcLabel>>,
 }
 
 impl<W: Semiring + Clone> DecoderToken<W> {
@@ -821,19 +981,28 @@ pub struct StreamingCtcDecoder<W: Semiring> {
     active_tokens: Vec<DecoderToken<W>>,
     /// Token history for traceback.
     token_history: Vec<Vec<DecoderToken<W>>>,
+    /// Compact traceback arena for active hypotheses.
+    trace_nodes: Vec<TraceNode>,
+    /// Accumulated decoding statistics.
+    stats: DecodingStats,
     /// Current frame index.
     current_frame: usize,
     /// State to token index mapping for recombination.
     state_map: HashMap<StateId, usize>,
 }
 
-impl<W: Semiring + Clone + PartialOrd> StreamingCtcDecoder<W> {
+impl<W> StreamingCtcDecoder<W>
+where
+    W: Semiring + Clone + PartialOrd + From<f64> + Into<f64>,
+{
     /// Create a new streaming decoder.
     pub fn new(decoder: CtcDecoder<W>) -> Self {
         Self {
             decoder,
             active_tokens: Vec::new(),
             token_history: Vec::new(),
+            trace_nodes: Vec::new(),
+            stats: DecodingStats::default(),
             current_frame: 0,
             state_map: HashMap::new(),
         }
@@ -843,12 +1012,19 @@ impl<W: Semiring + Clone + PartialOrd> StreamingCtcDecoder<W> {
     pub fn reset(&mut self) {
         self.active_tokens.clear();
         self.token_history.clear();
+        self.trace_nodes.clear();
+        self.stats = DecodingStats::default();
         self.current_frame = 0;
         self.state_map.clear();
 
         // Initialize with start token
         let start = self.decoder.ctc_topology.fst().start();
-        let initial_token = DecoderToken::initial(start);
+        self.trace_nodes.push(TraceNode {
+            prev: None,
+            emitted: None,
+        });
+        let mut initial_token = DecoderToken::initial(start);
+        initial_token.backpointer = Some(0);
         self.active_tokens.push(initial_token);
         self.state_map.insert(start, 0);
     }
@@ -863,116 +1039,322 @@ impl<W: Semiring + Clone + PartialOrd> StreamingCtcDecoder<W> {
             return;
         }
 
-        // Save current tokens to history
-        self.token_history.push(self.active_tokens.clone());
-
         let vocab_size = posteriors.len();
-        let mut new_tokens: Vec<DecoderToken<W>> = Vec::new();
-        let mut new_state_map: HashMap<StateId, usize> = HashMap::new();
+        let capacity_hint = self
+            .active_tokens
+            .len()
+            .saturating_mul(2)
+            .min(self.decoder.config.max_active)
+            .max(1);
+        let mut new_tokens: Vec<DecoderToken<W>> = Vec::with_capacity(capacity_hint);
+        let mut new_state_map: HashMap<StateId, usize> = HashMap::with_capacity(capacity_hint);
+        let mut tokens_created = 0usize;
+
+        let active = self.epsilon_closure(self.active_tokens.clone(), &mut tokens_created);
 
         // Extend each active token
-        for (token_idx, token) in self.active_tokens.iter().enumerate() {
+        for token in &active {
             let state = token.state;
+            let transitions = self.decoder.ctc_topology.fst().transitions(state).to_vec();
 
             // Get transitions from this state
-            for trans in self.decoder.ctc_topology.fst().transitions(state) {
+            for trans in transitions {
                 if let Some(input_label) = trans.input {
                     if (input_label as usize) < vocab_size {
-                        // Get posterior weight for this label
-                        let _posterior_weight = posteriors[input_label as usize];
-                        let arc_weight = trans.weight.clone();
+                        let acoustic_weight =
+                            self.posterior_weight(posteriors[input_label as usize]);
+                        let arc_weight = trans.weight.times(&acoustic_weight);
+                        let score = token.score.times(&arc_weight);
+                        let trace_idx = self.push_trace(token.backpointer, Some(trans.output));
+                        let new_token = DecoderToken {
+                            state: trans.to,
+                            score,
+                            backpointer: Some(trace_idx),
+                            label: trans.output,
+                            words: token.words.clone(),
+                        };
 
-                        // Create new token
-                        let new_token = token.extend(trans.to, arc_weight, trans.output, token_idx);
-
-                        // Token recombination: keep best token per state
-                        if let Some(&existing_idx) = new_state_map.get(&trans.to) {
-                            // Compare scores (lower is better for log weights)
-                            // For now, just replace - proper comparison needs PartialOrd
-                            // This is a simplification
-                            new_tokens[existing_idx] = new_token;
-                        } else {
-                            new_state_map.insert(trans.to, new_tokens.len());
-                            new_tokens.push(new_token);
+                        if Self::insert_or_update_token(
+                            &mut new_tokens,
+                            &mut new_state_map,
+                            new_token,
+                        )
+                        .is_some()
+                        {
+                            tokens_created += 1;
                         }
                     }
                 }
             }
         }
 
-        // Apply beam pruning
-        // (Simplified - full implementation would sort and prune by score)
-        let max_active = self.decoder.config.max_active;
-        if new_tokens.len() > max_active {
-            new_tokens.truncate(max_active);
-        }
+        let mut new_tokens = self.epsilon_closure(new_tokens, &mut tokens_created);
+        self.prune_active_tokens(&mut new_tokens);
+        self.rebuild_state_map(&new_tokens);
 
         self.active_tokens = new_tokens;
-        self.state_map = new_state_map;
+        self.token_history.push(self.active_tokens.clone());
+        self.stats.tokens_created += tokens_created;
+        self.stats.max_active_reached = self.stats.max_active_reached.max(self.active_tokens.len());
         self.current_frame += 1;
     }
 
     /// Get the current best hypothesis.
     pub fn best_hypothesis(&self) -> Vec<CtcLabel> {
-        if self.active_tokens.is_empty() {
-            return Vec::new();
-        }
-
-        // Find best final token
-        // (Simplified - just take first one)
-        let mut labels = Vec::new();
-        let mut prev_label: Option<CtcLabel> = None;
-
-        // Traceback would go through token_history
-        // For now, just return current labels
-        for token in &self.active_tokens {
-            if let Some(label) = token.label {
-                if Some(label) != prev_label && label != BLANK {
-                    labels.push(label);
-                }
-                prev_label = Some(label);
-            }
-        }
-
-        labels
+        self.best_token_index()
+            .map(|idx| self.labels_for_token(&self.active_tokens[idx]))
+            .unwrap_or_default()
     }
 
     /// Finalize decoding and get the best result.
     pub fn finalize(&self) -> DecodingResult {
-        let labels = self.best_hypothesis();
-
-        // Get best score
-        let score = if let Some(_token) = self.active_tokens.first() {
-            // Would extract actual score value
-            0.0
-        } else {
-            f64::INFINITY
-        };
+        let best = self
+            .best_token_index()
+            .map(|idx| {
+                let token = &self.active_tokens[idx];
+                let score = self.token_score_with_final(token);
+                (self.labels_for_token(token), score.into())
+            })
+            .unwrap_or_else(|| (Vec::new(), f64::INFINITY));
 
         DecodingResult {
-            labels,
-            score,
-            am_score: score,
+            labels: best.0,
+            score: best.1,
+            am_score: best.1,
             lm_score: 0.0,
             num_frames: self.current_frame,
-            stats: DecodingStats {
-                tokens_created: self.token_history.iter().map(|t| t.len()).sum(),
-                max_active_reached: self
-                    .token_history
-                    .iter()
-                    .map(|t| t.len())
-                    .max()
-                    .unwrap_or(0),
-                ..Default::default()
-            },
+            stats: self.stats.clone(),
         }
     }
+
+    fn posterior_weight(&self, log_posterior: f32) -> W {
+        W::from(self.decoder.config.acoustic_scale * (-(log_posterior as f64)))
+    }
+
+    fn push_trace(&mut self, prev: Option<usize>, emitted: Option<Option<CtcLabel>>) -> usize {
+        let idx = self.trace_nodes.len();
+        self.trace_nodes.push(TraceNode { prev, emitted });
+        idx
+    }
+
+    fn epsilon_closure(
+        &mut self,
+        seeds: Vec<DecoderToken<W>>,
+        tokens_created: &mut usize,
+    ) -> Vec<DecoderToken<W>> {
+        let mut tokens = Vec::with_capacity(seeds.len().max(1));
+        let mut state_map = HashMap::with_capacity(seeds.len().max(1));
+        let mut queue = VecDeque::with_capacity(seeds.len().max(1));
+
+        for token in seeds {
+            if let Some(idx) = Self::insert_or_update_token(&mut tokens, &mut state_map, token) {
+                queue.push_back(idx);
+            }
+        }
+
+        while let Some(idx) = queue.pop_front() {
+            if idx >= tokens.len() {
+                continue;
+            }
+            let token = tokens[idx].clone();
+            let transitions = self
+                .decoder
+                .ctc_topology
+                .fst()
+                .transitions(token.state)
+                .to_vec();
+
+            for trans in transitions {
+                if trans.input.is_some() {
+                    continue;
+                }
+
+                let score = token.score.times(&trans.weight);
+                let backpointer = if trans.output.is_some() {
+                    Some(self.push_trace(token.backpointer, Some(trans.output)))
+                } else {
+                    token.backpointer
+                };
+                let epsilon_token = DecoderToken {
+                    state: trans.to,
+                    score,
+                    backpointer,
+                    label: trans.output,
+                    words: token.words.clone(),
+                };
+
+                if let Some(updated_idx) =
+                    Self::insert_or_update_token(&mut tokens, &mut state_map, epsilon_token)
+                {
+                    *tokens_created += 1;
+                    queue.push_back(updated_idx);
+                }
+            }
+        }
+
+        tokens
+    }
+
+    fn insert_or_update_token(
+        tokens: &mut Vec<DecoderToken<W>>,
+        state_map: &mut HashMap<StateId, usize>,
+        token: DecoderToken<W>,
+    ) -> Option<usize> {
+        if let Some(&existing_idx) = state_map.get(&token.state) {
+            if Self::is_better_score(&token.score, &tokens[existing_idx].score) {
+                tokens[existing_idx] = token;
+                return Some(existing_idx);
+            }
+            None
+        } else {
+            let idx = tokens.len();
+            state_map.insert(token.state, idx);
+            tokens.push(token);
+            Some(idx)
+        }
+    }
+
+    fn is_better_score(candidate: &W, incumbent: &W) -> bool {
+        candidate
+            .natural_less(incumbent)
+            .unwrap_or_else(|| matches!(candidate.partial_cmp(incumbent), Some(Ordering::Less)))
+    }
+
+    fn compare_scores(left: &W, right: &W) -> Ordering {
+        if Self::is_better_score(left, right) {
+            Ordering::Less
+        } else if Self::is_better_score(right, left) {
+            Ordering::Greater
+        } else {
+            Ordering::Equal
+        }
+    }
+
+    fn prune_active_tokens(&mut self, tokens: &mut Vec<DecoderToken<W>>) {
+        if tokens.is_empty() {
+            return;
+        }
+
+        tokens.sort_by(|a, b| Self::compare_scores(&a.score, &b.score));
+
+        let max_active = self.decoder.config.max_active.max(1);
+        let min_active = self.decoder.config.min_active.min(max_active);
+
+        let before_max = tokens.len();
+        if tokens.len() > max_active {
+            tokens.truncate(max_active);
+        }
+        self.stats.tokens_pruned += before_max - tokens.len();
+
+        let best_score: f64 = tokens[0].score.into();
+        let beam_cutoff = best_score + self.decoder.config.beam_width;
+        let before_beam = tokens.len();
+        let mut kept = Vec::with_capacity(tokens.len());
+        for (idx, token) in tokens.drain(..).enumerate() {
+            let score: f64 = token.score.into();
+            if idx < min_active || score <= beam_cutoff {
+                kept.push(token);
+            }
+        }
+        self.stats.tokens_pruned += before_beam - kept.len();
+        *tokens = kept;
+    }
+
+    fn rebuild_state_map(&mut self, tokens: &[DecoderToken<W>]) {
+        self.state_map.clear();
+        self.state_map.reserve(tokens.len());
+        for (idx, token) in tokens.iter().enumerate() {
+            self.state_map.insert(token.state, idx);
+        }
+    }
+
+    fn best_token_index(&self) -> Option<usize> {
+        let mut best_final: Option<(usize, W)> = None;
+        let mut best_any: Option<(usize, W)> = None;
+
+        for (idx, token) in self.active_tokens.iter().enumerate() {
+            let raw_score = token.score;
+            if best_any
+                .as_ref()
+                .map(|(_, best)| Self::is_better_score(&raw_score, best))
+                .unwrap_or(true)
+            {
+                best_any = Some((idx, raw_score));
+            }
+
+            if self.decoder.ctc_topology.fst().is_final(token.state) {
+                let final_score = self.token_score_with_final(token);
+                if best_final
+                    .as_ref()
+                    .map(|(_, best)| Self::is_better_score(&final_score, best))
+                    .unwrap_or(true)
+                {
+                    best_final = Some((idx, final_score));
+                }
+            }
+        }
+
+        best_final.or(best_any).map(|(idx, _)| idx)
+    }
+
+    fn token_score_with_final(&self, token: &DecoderToken<W>) -> W {
+        if self.decoder.ctc_topology.fst().is_final(token.state) {
+            token
+                .score
+                .times(&self.decoder.ctc_topology.fst().final_weight(token.state))
+        } else {
+            token.score
+        }
+    }
+
+    fn labels_for_token(&self, token: &DecoderToken<W>) -> Vec<CtcLabel> {
+        let mut raw = Vec::new();
+        let mut current = token.backpointer;
+
+        while let Some(idx) = current {
+            if let Some(node) = self.trace_nodes.get(idx) {
+                if let Some(emitted) = node.emitted {
+                    raw.push(emitted);
+                }
+                current = node.prev;
+            } else {
+                break;
+            }
+        }
+
+        raw.reverse();
+        collapse_ctc_symbols(raw)
+    }
+}
+
+fn collapse_ctc_symbols<I>(symbols: I) -> Vec<CtcLabel>
+where
+    I: IntoIterator<Item = Option<CtcLabel>>,
+{
+    let mut labels = Vec::new();
+    let mut previous_raw: Option<CtcLabel> = None;
+
+    for symbol in symbols {
+        match symbol {
+            Some(label) => {
+                if label != BLANK && Some(label) != previous_raw {
+                    labels.push(label);
+                }
+                previous_raw = Some(label);
+            }
+            None => {
+                previous_raw = None;
+            }
+        }
+    }
+
+    labels
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::topologies::{compact_ctc, minimal_ctc};
     use super::*;
-    use crate::ctc::{compact_ctc, minimal_ctc};
 
     #[test]
     fn test_decoder_config_default() {
@@ -1050,6 +1432,59 @@ mod tests {
         let unscaled_weight = unscaled.fst.transitions(0)[0].weight.value();
 
         assert!((scaled_weight - unscaled_weight * scale).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_observation_fst_try_rejects_empty_input() {
+        let result = ObservationFst::try_from_posteriors(&[]);
+
+        assert!(matches!(result, Err(ObservationFstError::EmptyInput)));
+    }
+
+    #[test]
+    fn test_observation_fst_try_rejects_empty_vocabulary() {
+        let posteriors = vec![Vec::new()];
+        let result = ObservationFst::try_from_posteriors(&posteriors);
+
+        assert!(matches!(result, Err(ObservationFstError::EmptyVocabulary)));
+    }
+
+    #[test]
+    fn test_observation_fst_try_rejects_inconsistent_frame_sizes() {
+        let posteriors = vec![vec![-0.1, -1.0], vec![-0.2]];
+        let result = ObservationFst::try_from_posteriors(&posteriors);
+
+        assert!(matches!(
+            result,
+            Err(ObservationFstError::InconsistentFrameSize {
+                frame: 1,
+                actual: 1,
+                expected: 2
+            })
+        ));
+    }
+
+    #[test]
+    fn test_observation_fst_try_rejects_invalid_log_weight() {
+        let posteriors = vec![vec![f32::INFINITY]];
+        let result = ObservationFst::try_from_posteriors(&posteriors);
+
+        assert!(matches!(
+            result,
+            Err(ObservationFstError::InvalidLogWeight {
+                frame: 0,
+                label: 0,
+                value
+            }) if value.is_infinite() && value.is_sign_negative()
+        ));
+    }
+
+    #[test]
+    #[should_panic(expected = "Frame 1 has 1 labels, expected 2")]
+    fn test_observation_fst_infallible_constructor_preserves_panic_contract() {
+        let posteriors = vec![vec![-0.1, -1.0], vec![-0.2]];
+
+        let _ = ObservationFst::from_posteriors(&posteriors);
     }
 
     #[test]
@@ -1161,6 +1596,26 @@ mod tests {
     }
 
     #[test]
+    fn test_decode_inconsistent_posteriors_returns_error() {
+        let ctc = compact_ctc::<LogWeight>(2);
+        let decoder = CtcDecoder::new(ctc);
+        let posteriors = vec![vec![-0.1, -1.0], vec![-0.2]];
+
+        let result = decoder.decode(&posteriors);
+
+        assert!(matches!(
+            result,
+            Err(DecodingError::InvalidPosteriors(
+                ObservationFstError::InconsistentFrameSize {
+                    frame: 1,
+                    actual: 1,
+                    expected: 2
+                }
+            ))
+        ));
+    }
+
+    #[test]
     fn test_greedy_decode_simple() {
         let ctc = minimal_ctc::<LogWeight>(4);
         let decoder = CtcDecoder::new(ctc).with_config(CtcDecoderConfig::greedy());
@@ -1180,6 +1635,76 @@ mod tests {
 
         let decoded = result.expect("ctc/decoder.rs: required value was None/Err");
         assert_eq!(decoded.num_frames, 3);
+    }
+
+    #[test]
+    fn test_decode_rejects_missing_start_state() {
+        let ctc = minimal_ctc::<LogWeight>(2);
+        let decoder = CtcDecoder::new(ctc);
+
+        let mut fst: VectorWfst<CtcLabel, LogWeight> = VectorWfst::new();
+        let state = fst.add_state();
+        fst.set_final(state, LogWeight::one());
+
+        assert!(matches!(
+            decoder.greedy_decode(&fst),
+            Err(DecodingError::NoPath)
+        ));
+        assert!(matches!(
+            decoder.beam_decode(&fst),
+            Err(DecodingError::NoPath)
+        ));
+    }
+
+    #[test]
+    fn test_decode_skips_invalid_arc_targets() {
+        let ctc = minimal_ctc::<LogWeight>(2);
+        let decoder = CtcDecoder::new(ctc);
+
+        let mut fst: VectorWfst<CtcLabel, LogWeight> = VectorWfst::new();
+        let start = fst.add_state();
+        let final_state = fst.add_state();
+        fst.set_start(start);
+        fst.set_final(final_state, LogWeight::one());
+        fst.add_arc(start, Some(9), Some(9), 99, LogWeight::new(0.0));
+        fst.add_arc(start, Some(1), Some(1), final_state, LogWeight::new(1.0));
+
+        let greedy = decoder
+            .greedy_decode(&fst)
+            .expect("valid arc should remain decodable");
+        assert_eq!(greedy.labels, vec![1]);
+        assert_eq!(greedy.score, 1.0);
+
+        let beam = decoder
+            .beam_decode(&fst)
+            .expect("valid arc should remain decodable");
+        assert_eq!(beam.labels, vec![1]);
+        assert_eq!(beam.score, 1.0);
+    }
+
+    #[test]
+    fn test_greedy_decode_rejects_cyclic_backtrace() {
+        let ctc = minimal_ctc::<LogWeight>(2);
+        let decoder = CtcDecoder::new(ctc);
+
+        let mut fst: VectorWfst<CtcLabel, LogWeight> = VectorWfst::new();
+        let start = fst.add_state();
+        let final_state = fst.add_state();
+        fst.set_start(start);
+        fst.set_final(final_state, LogWeight::one());
+        fst.add_arc(start, Some(1), Some(1), final_state, LogWeight::new(1.0));
+        fst.add_arc(
+            final_state,
+            Some(2),
+            Some(2),
+            final_state,
+            LogWeight::new(-2.0),
+        );
+
+        assert!(matches!(
+            decoder.greedy_decode(&fst),
+            Err(DecodingError::NoPath)
+        ));
     }
 
     #[test]
@@ -1238,6 +1763,63 @@ mod tests {
     }
 
     #[test]
+    fn test_streaming_decoder_uses_posterior_scores_for_recombination() {
+        let ctc = minimal_ctc::<LogWeight>(3);
+        let decoder = CtcDecoder::new(ctc);
+        let mut streaming = StreamingCtcDecoder::new(decoder);
+
+        streaming.reset();
+        streaming.process_frame(&[-5.0, -0.1, -4.0]);
+
+        let result = streaming.finalize();
+        assert_eq!(result.labels, vec![1]);
+    }
+
+    #[test]
+    fn test_streaming_decoder_blank_separates_repeated_labels() {
+        let ctc = minimal_ctc::<LogWeight>(2);
+        let decoder = CtcDecoder::new(ctc);
+        let mut streaming = StreamingCtcDecoder::new(decoder);
+
+        streaming.reset();
+        streaming.process_frame(&[-2.0, -0.1]);
+        streaming.process_frame(&[-0.1, -2.0]);
+        streaming.process_frame(&[-2.0, -0.1]);
+
+        let result = streaming.finalize();
+        assert_eq!(result.labels, vec![1, 1]);
+    }
+
+    #[test]
+    fn test_streaming_decoder_score_accumulates_posteriors() {
+        let ctc = minimal_ctc::<LogWeight>(3);
+        let decoder = CtcDecoder::new(ctc);
+        let mut streaming = StreamingCtcDecoder::new(decoder);
+
+        streaming.reset();
+        streaming.process_frame(&[-3.0, -0.1, -3.0]);
+        streaming.process_frame(&[-3.0, -3.0, -0.1]);
+
+        let result = streaming.finalize();
+        assert_eq!(result.labels, vec![1, 2]);
+        assert!((result.score - 0.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_streaming_decoder_compact_ctc_uses_epsilon_closure() {
+        let ctc = compact_ctc::<LogWeight>(3);
+        let decoder = CtcDecoder::new(ctc);
+        let mut streaming = StreamingCtcDecoder::new(decoder);
+
+        streaming.reset();
+        streaming.process_frame(&[-3.0, -0.1, -3.0]);
+        streaming.process_frame(&[-3.0, -3.0, -0.1]);
+
+        let result = streaming.finalize();
+        assert_eq!(result.labels, vec![1, 2]);
+    }
+
+    #[test]
     fn test_decoding_error_display() {
         let err = DecodingError::EmptyInput;
         assert_eq!(format!("{}", err), "Empty input posteriors");
@@ -1247,6 +1829,9 @@ mod tests {
             ctc_vocab: 5,
         };
         assert!(format!("{}", err).contains("mismatch"));
+
+        let err = DecodingError::InvalidPosteriors(ObservationFstError::EmptyVocabulary);
+        assert!(format!("{}", err).contains("Invalid posteriors"));
 
         let err = DecodingError::NoPath;
         assert!(format!("{}", err).contains("No valid path"));
@@ -1259,8 +1844,8 @@ mod tests {
 
 #[cfg(test)]
 mod property_tests {
+    use super::super::topologies::{compact_ctc, minimal_ctc};
     use super::*;
-    use crate::ctc::{compact_ctc, minimal_ctc};
     use proptest::prelude::*;
 
     // -------------------------------------------------------------------------

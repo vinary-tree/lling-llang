@@ -193,7 +193,7 @@ impl<T> Channel<T> {
 
     /// Advance to next frame.
     pub fn advance_frame(&mut self, token_count: usize) {
-        self.frame_index += 1;
+        self.frame_index = self.frame_index.saturating_add(1);
         self.token_count = token_count;
     }
 
@@ -367,13 +367,29 @@ impl DecoderConfig {
 
     /// Estimate memory usage in bytes.
     pub fn estimate_memory(&self) -> usize {
-        // M_state = 64α·n_c + 544α·n_l + 1024·n_l
-        let alpha = self.max_tokens;
-        let n_c = self.max_channels;
-        let n_l = self.max_lanes;
-
-        64 * alpha * n_c + 544 * alpha * n_l + 1024 * n_l
+        self.checked_estimate_memory().unwrap_or(usize::MAX)
     }
+
+    /// Checked memory usage estimate in bytes.
+    pub fn checked_estimate_memory(&self) -> Option<usize> {
+        checked_decoder_memory_size(self.max_channels, self.max_lanes, self.max_tokens)
+    }
+}
+
+/// Checked memory usage estimate for the channel/lane decoder state.
+pub fn checked_decoder_memory_size(
+    max_channels: usize,
+    max_lanes: usize,
+    max_tokens: usize,
+) -> Option<usize> {
+    // M_state = 64α*n_c + 544α*n_l + 1024*n_l
+    let channel_bytes = 64usize.checked_mul(max_tokens)?.checked_mul(max_channels)?;
+    let lane_state_bytes = 544usize.checked_mul(max_tokens)?.checked_mul(max_lanes)?;
+    let lane_scratch_bytes = 1024usize.checked_mul(max_lanes)?;
+
+    channel_bytes
+        .checked_add(lane_state_bytes)?
+        .checked_add(lane_scratch_bytes)
 }
 
 /// Batched decoder managing channels and lanes.
@@ -384,6 +400,8 @@ pub struct BatchedDecoder<T> {
     lanes: Vec<Lane>,
     /// Queue of channels ready to be scheduled.
     ready_queue: VecDeque<usize>,
+    /// Queue of lanes believed to be available.
+    available_lanes: VecDeque<usize>,
     /// Configuration.
     config: DecoderConfig,
 }
@@ -395,11 +413,13 @@ impl<T> BatchedDecoder<T> {
         let lanes = (0..config.max_lanes)
             .map(|id| Lane::new(id, config.max_tokens))
             .collect();
+        let available_lanes = (0..config.max_lanes).collect();
 
         Self {
             channels,
             lanes,
             ready_queue: VecDeque::new(),
+            available_lanes,
             config,
         }
     }
@@ -439,6 +459,16 @@ impl<T> BatchedDecoder<T> {
         self.lanes.iter().position(|l| l.is_available())
     }
 
+    fn next_available_lane(&mut self) -> Option<usize> {
+        while let Some(lane_id) = self.available_lanes.pop_front() {
+            if self.lanes.get(lane_id).is_some_and(Lane::is_available) {
+                return Some(lane_id);
+            }
+        }
+
+        self.find_available_lane()
+    }
+
     /// Start a new utterance on an available channel.
     pub fn start_utterance(&mut self, user_data: T, total_frames: Option<usize>) -> Option<usize> {
         let channel_id = self.find_idle_channel()?;
@@ -449,13 +479,22 @@ impl<T> BatchedDecoder<T> {
 
     /// Schedule ready channels to available lanes.
     pub fn schedule(&mut self) -> Vec<(usize, usize)> {
-        let mut assignments = Vec::new();
+        let mut assignments = Vec::with_capacity(self.ready_queue.len().min(self.lanes.len()));
 
         while let Some(channel_id) = self.ready_queue.pop_front() {
-            if let Some(lane_id) = self.find_available_lane() {
-                self.channels[channel_id].assign_lane(lane_id);
-                self.lanes[lane_id].assign_channel(channel_id);
-                assignments.push((channel_id, lane_id));
+            if !self.channels.get(channel_id).is_some_and(Channel::is_ready) {
+                continue;
+            }
+
+            if let Some(lane_id) = self.next_available_lane() {
+                if let (Some(channel), Some(lane)) = (
+                    self.channels.get_mut(channel_id),
+                    self.lanes.get_mut(lane_id),
+                ) {
+                    channel.assign_lane(lane_id);
+                    lane.assign_channel(channel_id);
+                    assignments.push((channel_id, lane_id));
+                }
             } else {
                 // No available lanes, put back in queue
                 self.ready_queue.push_front(channel_id);
@@ -468,11 +507,9 @@ impl<T> BatchedDecoder<T> {
 
     /// Get all active lane IDs.
     pub fn active_lanes(&self) -> Vec<usize> {
-        self.lanes
-            .iter()
-            .filter(|l| l.is_active())
-            .map(|l| l.id())
-            .collect()
+        let mut active = Vec::with_capacity(self.lanes.len());
+        active.extend(self.lanes.iter().filter(|l| l.is_active()).map(|l| l.id()));
+        active
     }
 
     /// Process a frame for all active lanes.
@@ -482,7 +519,7 @@ impl<T> BatchedDecoder<T> {
     where
         F: FnMut(usize, usize) -> (usize, bool), // (lane_id, channel_id) -> (token_count, is_complete)
     {
-        let mut completed_lanes = Vec::new();
+        let mut completed_lanes = Vec::with_capacity(self.lanes.len());
 
         for lane in &mut self.lanes {
             if !lane.is_active() {
@@ -496,6 +533,10 @@ impl<T> BatchedDecoder<T> {
 
             let (token_count, is_complete) = process_fn(lane.id(), channel_id);
             lane.update_tokens(token_count);
+            let token_count = lane.token_count();
+            if let Some(channel) = self.channels.get_mut(channel_id) {
+                channel.advance_frame(token_count);
+            }
 
             if is_complete {
                 lane.utterance_complete();
@@ -517,11 +558,16 @@ impl<T> BatchedDecoder<T> {
 
     /// Complete utterances for lanes that finished.
     pub fn complete_utterances(&mut self, lane_ids: &[usize]) -> Vec<(usize, Option<T>)> {
-        let mut results = Vec::new();
+        let mut results = Vec::with_capacity(lane_ids.len());
 
         for &lane_id in lane_ids {
             if let Some(lane) = self.lanes.get_mut(lane_id) {
+                if lane.state() != LaneState::UtteranceComplete {
+                    continue;
+                }
+
                 if let Some(channel_id) = lane.release_channel() {
+                    self.available_lanes.push_back(lane_id);
                     if let Some(channel) = self.channels.get_mut(channel_id) {
                         let user_data = channel.complete();
                         results.push((channel_id, user_data));
@@ -538,7 +584,14 @@ impl<T> BatchedDecoder<T> {
         let active_channels = self.channels.iter().filter(|c| c.is_active()).count();
         let ready_channels = self.ready_queue.len();
         let active_lanes = self.lanes.iter().filter(|l| l.is_active()).count();
-        let total_tokens: usize = self.lanes.iter().map(|l| l.token_count()).sum();
+        let total_tokens = self.lanes.iter().fold(0usize, |total, lane| {
+            total.saturating_add(lane.token_count())
+        });
+        let lane_utilization = if self.config.max_lanes == 0 {
+            0.0
+        } else {
+            active_lanes as f64 / self.config.max_lanes as f64
+        };
 
         DecoderStats {
             max_channels: self.config.max_channels,
@@ -547,7 +600,7 @@ impl<T> BatchedDecoder<T> {
             ready_channels,
             active_lanes,
             total_tokens,
-            lane_utilization: active_lanes as f64 / self.config.max_lanes as f64,
+            lane_utilization,
         }
     }
 }
@@ -651,6 +704,20 @@ mod tests {
     }
 
     #[test]
+    fn test_decoder_config_checked_memory_overflow() {
+        let config = DecoderConfig {
+            max_channels: usize::MAX,
+            max_lanes: usize::MAX,
+            max_tokens: usize::MAX,
+            beam_width: 10.0,
+        };
+
+        assert_eq!(config.checked_estimate_memory(), None);
+        assert_eq!(config.estimate_memory(), usize::MAX);
+        assert_eq!(checked_decoder_memory_size(1, 1, 10_000), Some(6_081_024));
+    }
+
+    #[test]
     fn test_batched_decoder_basic() {
         let config = DecoderConfig {
             max_channels: 10,
@@ -740,6 +807,32 @@ mod tests {
     }
 
     #[test]
+    fn test_process_frame_advances_channel_state() {
+        let config = DecoderConfig {
+            max_channels: 4,
+            max_lanes: 1,
+            max_tokens: 100,
+            beam_width: 10.0,
+        };
+        let mut decoder: BatchedDecoder<i32> = BatchedDecoder::new(config);
+
+        let channel_id = decoder.start_utterance(7, Some(2)).unwrap();
+        let assignments = decoder.schedule();
+        assert_eq!(assignments, vec![(channel_id, 0)]);
+
+        let completed = decoder.process_frame(|_, channel| {
+            assert_eq!(channel, channel_id);
+            (150, false)
+        });
+
+        assert!(completed.is_empty());
+        let channel = decoder.channel(channel_id).unwrap();
+        assert_eq!(channel.frame_index(), 1);
+        assert_eq!(channel.token_count(), 100);
+        assert_eq!(decoder.lane(0).unwrap().state(), LaneState::FrameComplete);
+    }
+
+    #[test]
     fn test_batched_decoder_complete() {
         let config = DecoderConfig {
             max_channels: 10,
@@ -759,6 +852,82 @@ mod tests {
         let results = decoder.complete_utterances(&completed);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].1, Some("test".to_string()));
+    }
+
+    #[test]
+    fn test_complete_utterances_ignores_active_lanes() {
+        let config = DecoderConfig {
+            max_channels: 2,
+            max_lanes: 1,
+            max_tokens: 100,
+            beam_width: 10.0,
+        };
+        let mut decoder: BatchedDecoder<i32> = BatchedDecoder::new(config);
+
+        let channel_id = decoder.start_utterance(1, None).unwrap();
+        decoder.schedule();
+
+        let results = decoder.complete_utterances(&[0]);
+        assert!(results.is_empty());
+        assert!(decoder.channel(channel_id).unwrap().is_active());
+        assert!(decoder.lane(0).unwrap().is_active());
+    }
+
+    #[test]
+    fn test_released_lane_is_reused_by_scheduler() {
+        let config = DecoderConfig {
+            max_channels: 3,
+            max_lanes: 1,
+            max_tokens: 100,
+            beam_width: 10.0,
+        };
+        let mut decoder: BatchedDecoder<&str> = BatchedDecoder::new(config);
+
+        let first_channel = decoder.start_utterance("first", None).unwrap();
+        assert_eq!(decoder.schedule(), vec![(first_channel, 0)]);
+        let completed = decoder.process_frame(|_, _| (10, true));
+        assert_eq!(
+            decoder.complete_utterances(&completed),
+            vec![(first_channel, Some("first"))]
+        );
+
+        let second_channel = decoder.start_utterance("second", None).unwrap();
+        assert_eq!(decoder.schedule(), vec![(second_channel, 0)]);
+    }
+
+    #[test]
+    fn test_stats_zero_lanes_have_finite_utilization() {
+        let config = DecoderConfig {
+            max_channels: 1,
+            max_lanes: 0,
+            max_tokens: 100,
+            beam_width: 10.0,
+        };
+        let decoder: BatchedDecoder<i32> = BatchedDecoder::new(config);
+        let stats = decoder.stats();
+
+        assert_eq!(stats.lane_utilization, 0.0);
+        assert!(stats.lane_utilization.is_finite());
+    }
+
+    #[test]
+    fn test_stats_total_tokens_saturates() {
+        let config = DecoderConfig {
+            max_channels: 2,
+            max_lanes: 2,
+            max_tokens: usize::MAX,
+            beam_width: 10.0,
+        };
+        let mut decoder: BatchedDecoder<i32> = BatchedDecoder::new(config);
+
+        decoder.start_utterance(1, None);
+        decoder.start_utterance(2, None);
+        assert_eq!(decoder.schedule().len(), 2);
+
+        let completed = decoder.process_frame(|_, _| (usize::MAX, false));
+        assert!(completed.is_empty());
+
+        assert_eq!(decoder.stats().total_tokens, usize::MAX);
     }
 }
 

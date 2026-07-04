@@ -7,10 +7,8 @@
 //!
 //! This module is only available when the `f1r3fly` feature is enabled.
 //!
-//! # Note
-//!
-//! This is currently a stub implementation. Full PathMap integration
-//! will be implemented in Phase 10.
+//! Vocabulary entries are stored both in compact ID maps for fast lookup and
+//! in PathMap trie storage for prefix sharing and metadata access.
 
 use std::sync::Arc;
 
@@ -65,6 +63,8 @@ pub struct PathMapBackend {
 /// Metadata stored with vocabulary entries in PathMap.
 #[derive(Clone, Debug, Default)]
 pub struct VocabMetadata {
+    /// Vocabulary ID assigned by this backend.
+    pub id: VocabId,
     /// Frequency count (for statistical models)
     pub frequency: u64,
     /// POS tags associated with this word
@@ -85,6 +85,45 @@ impl PathMapBackend {
     pub fn storage(&self) -> &Arc<PathMap<VocabMetadata>> {
         &self.storage
     }
+
+    /// Get PathMap metadata for a word.
+    pub fn metadata(&self, word: &str) -> Option<&VocabMetadata> {
+        let path = Self::metadata_path(word);
+        self.storage.get(path)
+    }
+
+    /// Get PathMap metadata by vocabulary ID.
+    pub fn metadata_by_id(&self, id: VocabId) -> Option<&VocabMetadata> {
+        self.lookup(id).and_then(|word| self.metadata(word))
+    }
+
+    /// Update metadata for an interned word.
+    ///
+    /// Returns `false` if the word has not been interned.
+    pub fn update_metadata<F>(&mut self, word: &str, update: F) -> bool
+    where
+        F: FnOnce(&mut VocabMetadata),
+    {
+        if !self.vocab.contains_key(word) {
+            return false;
+        }
+
+        let path = Self::metadata_path(word);
+        let storage = Arc::make_mut(&mut self.storage);
+        if let Some(metadata) = storage.get_val_mut_at(path) {
+            update(metadata);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn metadata_path(word: &str) -> Vec<u8> {
+        let mut path = Vec::with_capacity(word.len() + 1);
+        path.push(0);
+        path.extend_from_slice(word.as_bytes());
+        path
+    }
 }
 
 impl Default for PathMapBackend {
@@ -96,6 +135,11 @@ impl Default for PathMapBackend {
 impl LatticeBackend for PathMapBackend {
     fn intern(&mut self, word: &str) -> VocabId {
         if let Some(&id) = self.vocab.get(word) {
+            let path = Self::metadata_path(word);
+            let storage = Arc::make_mut(&mut self.storage);
+            if let Some(metadata) = storage.get_val_mut_at(path) {
+                metadata.frequency = metadata.frequency.saturating_add(1);
+            }
             return id;
         }
 
@@ -103,6 +147,14 @@ impl LatticeBackend for PathMapBackend {
         let word_arc: Arc<str> = word.into();
         self.vocab.insert(word_arc.clone(), id);
         self.vocab_reverse.push(word_arc);
+        Arc::make_mut(&mut self.storage).set_val_at(
+            Self::metadata_path(word),
+            VocabMetadata {
+                id,
+                frequency: 1,
+                pos_tags: Vec::new(),
+            },
+        );
         id
     }
 
@@ -215,6 +267,68 @@ mod tests {
         let id = backend.intern("test");
         assert_eq!(backend.lookup(id), Some("test"));
         assert_eq!(backend.lookup(999), None);
+    }
+
+    #[test]
+    fn test_pathmap_backend_stores_metadata_in_pathmap() {
+        let mut backend = PathMapBackend::new();
+
+        let id = backend.intern("test");
+        let metadata = backend
+            .metadata("test")
+            .expect("interned word should have PathMap metadata");
+
+        assert_eq!(metadata.id, id);
+        assert_eq!(metadata.frequency, 1);
+        assert_eq!(backend.metadata_by_id(id).map(|m| m.id), Some(id));
+    }
+
+    #[test]
+    fn test_pathmap_backend_reintern_updates_frequency() {
+        let mut backend = PathMapBackend::new();
+
+        let id1 = backend.intern("test");
+        let id2 = backend.intern("test");
+
+        assert_eq!(id1, id2);
+        assert_eq!(backend.metadata("test").map(|m| m.frequency), Some(2));
+    }
+
+    #[test]
+    fn test_pathmap_backend_update_metadata_uses_cow_storage() {
+        let mut backend = PathMapBackend::new();
+        backend.intern("test");
+        let shared = backend
+            .share_prefix(b"te")
+            .expect("prefix should match interned word");
+
+        assert!(backend.shares_structure_with(&shared));
+        assert!(backend.update_metadata("test", |metadata| {
+            metadata.pos_tags.push("NOUN".to_string());
+        }));
+
+        assert!(!backend.shares_structure_with(&shared));
+        assert_eq!(
+            backend
+                .metadata("test")
+                .and_then(|metadata| metadata.pos_tags.first())
+                .map(String::as_str),
+            Some("NOUN")
+        );
+        assert!(shared
+            .metadata("test")
+            .map(|metadata| metadata.pos_tags.is_empty())
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn test_pathmap_backend_empty_word_metadata() {
+        let mut backend = PathMapBackend::new();
+
+        let id = backend.intern("");
+
+        assert_eq!(backend.lookup(id), Some(""));
+        assert_eq!(backend.metadata("").map(|metadata| metadata.id), Some(id));
     }
 
     #[test]

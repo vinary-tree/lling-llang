@@ -65,8 +65,8 @@ mod rescoring;
 mod subword_lexicon;
 
 pub use context::{
-    ContextDependencyBuilder, ContextDependencyConfig, ContextState, PhoneId, TetraploneBuilder,
-    TriphoneBuilder, EPSILON,
+    ContextDependencyBuilder, ContextDependencyConfig, ContextDependencyError, ContextState,
+    PhoneId, TetraploneBuilder, TriphoneBuilder, EPSILON,
 };
 
 pub use ngram::{
@@ -76,7 +76,9 @@ pub use ngram::{
 
 pub use cascade::{AsrCascade, AuxiliarySymbol, CascadeBuilder, CascadeConfig, LexiconEntry};
 
-pub use factoring::{chain_factor, Chain, ChainFactorConfig, ChainFactorResult, ChainId};
+pub use factoring::{
+    chain_factor, find_chains, Chain, ChainFactorConfig, ChainFactorResult, ChainId,
+};
 
 pub use rescoring::{
     multi_pass_rescore, rescore_lattice, LatticeGrammar, RescoreConfig, RescorePass, RescoreResult,

@@ -349,7 +349,7 @@ let config = SyntaxRecoveryConfig::new(vec![RecoveryStrategy::Insertion]);
 
 Use when:
 - Code is being typed (IDE completion)
-- Input is mostly correct but incomplete
+- Input is mostly correct but missing a suffix
 - You want to preserve all original tokens
 
 ### Deletion-Only

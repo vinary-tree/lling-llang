@@ -27,14 +27,14 @@ use std::collections::HashMap;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 
-use crate::symbolic::collection_algebra::{BagAlgebra, BagPred, MapAlgebra, MapPred, Singleton};
-use crate::symbolic::kat_algebra::BooleanTest;
-use crate::symbolic::ordered_field::{OrderedF64, OrderedFieldAlgebra, OrderedFieldPred};
-use crate::symbolic::product_nary::{NaryProductAlgebra, NaryProductPred, SumAlgebra, SumPred, SumValue};
-use crate::symbolic::regex_sfa::{RegexAlgebra, RegexPred};
-use crate::symbolic::string_algebra::{StrPred, StringAlgebra};
-use crate::symbolic::sym_tree::{SymTerm, TreeAlgebra, TreePred};
-use crate::symbolic::{
+use super::collection_algebra::{BagAlgebra, BagPred, MapAlgebra, MapPred, Singleton};
+use super::kat_algebra::BooleanTest;
+use super::ordered_field::{OrderedF64, OrderedFieldAlgebra, OrderedFieldPred};
+use super::product_nary::{NaryProductAlgebra, NaryProductPred, SumAlgebra, SumPred, SumValue};
+use super::regex_sfa::{RegexAlgebra, RegexPred};
+use super::string_algebra::{StrPred, StringAlgebra};
+use super::sym_tree::{SymTerm, TreeAlgebra, TreePred};
+use super::{
     BooleanAlgebra, CharClassAlgebra, CharClassPred, IntervalAlgebra, IntervalPred,
     KatBooleanAlgebra,
 };
@@ -412,41 +412,41 @@ impl BooleanAlgebra for AnyAlgebra {
                 (AnyAlgebra::Int(g), AnyPred::Int(x), AnyPred::Int(y)) => AnyPred::Int(g.and(x, y)),
                 (AnyAlgebra::Char(g), AnyPred::Char(x), AnyPred::Char(y)) => {
                     AnyPred::Char(g.and(x, y))
-                },
+                }
                 (AnyAlgebra::Bool(g), AnyPred::Bool(x), AnyPred::Bool(y)) => {
                     AnyPred::Bool(g.and(x, y))
-                },
+                }
                 (AnyAlgebra::BigInt(g), AnyPred::BigInt(x), AnyPred::BigInt(y)) => {
                     AnyPred::BigInt(g.and(x, y))
-                },
+                }
                 (AnyAlgebra::BigRat(g), AnyPred::BigRat(x), AnyPred::BigRat(y)) => {
                     AnyPred::BigRat(g.and(x, y))
-                },
+                }
                 (AnyAlgebra::Fixed(g), AnyPred::Fixed(x), AnyPred::Fixed(y)) => {
                     AnyPred::Fixed(g.and(x, y))
-                },
+                }
                 (AnyAlgebra::Float(g), AnyPred::Float(x), AnyPred::Float(y)) => {
                     AnyPred::Float(g.and(x, y))
-                },
+                }
                 (AnyAlgebra::Str(g), AnyPred::Str(x), AnyPred::Str(y)) => AnyPred::Str(g.and(x, y)),
                 (AnyAlgebra::Product(g), AnyPred::Product(x), AnyPred::Product(y)) => {
                     AnyPred::Product(Box::new(g.and(x, y)))
-                },
+                }
                 (AnyAlgebra::Sum(g), AnyPred::Sum(x), AnyPred::Sum(y)) => {
                     AnyPred::Sum(Box::new(g.and(x, y)))
-                },
+                }
                 (AnyAlgebra::List(g), AnyPred::List(x), AnyPred::List(y)) => {
                     AnyPred::List(Box::new(g.and(x, y)))
-                },
+                }
                 (AnyAlgebra::Bag(g), AnyPred::Bag(x), AnyPred::Bag(y)) => {
                     AnyPred::Bag(Box::new(g.and(x, y)))
-                },
+                }
                 (AnyAlgebra::Tree(g), AnyPred::Tree(x), AnyPred::Tree(y)) => {
                     AnyPred::Tree(Box::new(g.and(x, y)))
-                },
+                }
                 (AnyAlgebra::Map(g), AnyPred::Map(x), AnyPred::Map(y)) => {
                     AnyPred::Map(Box::new(g.and(x, y)))
-                },
+                }
                 _ => AnyPred::And(Box::new(a.clone()), Box::new(b.clone())),
             },
         }
@@ -460,41 +460,41 @@ impl BooleanAlgebra for AnyAlgebra {
                 (AnyAlgebra::Int(g), AnyPred::Int(x), AnyPred::Int(y)) => AnyPred::Int(g.or(x, y)),
                 (AnyAlgebra::Char(g), AnyPred::Char(x), AnyPred::Char(y)) => {
                     AnyPred::Char(g.or(x, y))
-                },
+                }
                 (AnyAlgebra::Bool(g), AnyPred::Bool(x), AnyPred::Bool(y)) => {
                     AnyPred::Bool(g.or(x, y))
-                },
+                }
                 (AnyAlgebra::BigInt(g), AnyPred::BigInt(x), AnyPred::BigInt(y)) => {
                     AnyPred::BigInt(g.or(x, y))
-                },
+                }
                 (AnyAlgebra::BigRat(g), AnyPred::BigRat(x), AnyPred::BigRat(y)) => {
                     AnyPred::BigRat(g.or(x, y))
-                },
+                }
                 (AnyAlgebra::Fixed(g), AnyPred::Fixed(x), AnyPred::Fixed(y)) => {
                     AnyPred::Fixed(g.or(x, y))
-                },
+                }
                 (AnyAlgebra::Float(g), AnyPred::Float(x), AnyPred::Float(y)) => {
                     AnyPred::Float(g.or(x, y))
-                },
+                }
                 (AnyAlgebra::Str(g), AnyPred::Str(x), AnyPred::Str(y)) => AnyPred::Str(g.or(x, y)),
                 (AnyAlgebra::Product(g), AnyPred::Product(x), AnyPred::Product(y)) => {
                     AnyPred::Product(Box::new(g.or(x, y)))
-                },
+                }
                 (AnyAlgebra::Sum(g), AnyPred::Sum(x), AnyPred::Sum(y)) => {
                     AnyPred::Sum(Box::new(g.or(x, y)))
-                },
+                }
                 (AnyAlgebra::List(g), AnyPred::List(x), AnyPred::List(y)) => {
                     AnyPred::List(Box::new(g.or(x, y)))
-                },
+                }
                 (AnyAlgebra::Bag(g), AnyPred::Bag(x), AnyPred::Bag(y)) => {
                     AnyPred::Bag(Box::new(g.or(x, y)))
-                },
+                }
                 (AnyAlgebra::Tree(g), AnyPred::Tree(x), AnyPred::Tree(y)) => {
                     AnyPred::Tree(Box::new(g.or(x, y)))
-                },
+                }
                 (AnyAlgebra::Map(g), AnyPred::Map(x), AnyPred::Map(y)) => {
                     AnyPred::Map(Box::new(g.or(x, y)))
-                },
+                }
                 _ => AnyPred::Or(Box::new(a.clone()), Box::new(b.clone())),
             },
         }
@@ -585,46 +585,46 @@ impl BooleanAlgebra for AnyAlgebra {
         match (self, elem) {
             (AnyAlgebra::Int(g), AnyDomain::Int(v)) => {
                 g.evaluate(&fold_pred(g, pred, &int_leaf), v)
-            },
+            }
             (AnyAlgebra::Char(g), AnyDomain::Char(v)) => {
                 g.evaluate(&fold_pred(g, pred, &char_leaf), v)
-            },
+            }
             (AnyAlgebra::Bool(g), AnyDomain::Bool(v)) => {
                 g.evaluate(&fold_pred(g, pred, &bool_leaf), v)
-            },
+            }
             (AnyAlgebra::BigInt(g), AnyDomain::BigInt(v)) => {
                 g.evaluate(&fold_pred(g, pred, &bigint_leaf), v)
-            },
+            }
             (AnyAlgebra::BigRat(g), AnyDomain::BigRat(v)) => {
                 g.evaluate(&fold_pred(g, pred, &bigrat_leaf), v)
-            },
+            }
             (AnyAlgebra::Fixed(g), AnyDomain::Fixed(v)) => {
                 g.evaluate(&fold_pred(g, pred, &fixed_leaf), v)
-            },
+            }
             (AnyAlgebra::Float(g), AnyDomain::Float(v)) => {
                 g.evaluate(&fold_pred(g, pred, &float_leaf), v)
-            },
+            }
             (AnyAlgebra::Str(g), AnyDomain::Str(v)) => {
                 g.evaluate(&fold_pred(g, pred, &str_leaf), v)
-            },
+            }
             (AnyAlgebra::Product(g), AnyDomain::Product(v)) => {
                 g.evaluate(&fold_pred(g.as_ref(), pred, &product_leaf), v)
-            },
+            }
             (AnyAlgebra::Sum(g), AnyDomain::Sum(v)) => {
                 g.evaluate(&fold_pred(g.as_ref(), pred, &sum_leaf), v)
-            },
+            }
             (AnyAlgebra::List(g), AnyDomain::List(v)) => {
                 g.evaluate(&fold_pred(g.as_ref(), pred, &list_leaf), v)
-            },
+            }
             (AnyAlgebra::Bag(g), AnyDomain::Bag(v)) => {
                 g.evaluate(&fold_pred(g.as_ref(), pred, &bag_leaf), v)
-            },
+            }
             (AnyAlgebra::Tree(g), AnyDomain::Tree(v)) => {
                 g.evaluate(&fold_pred(g.as_ref(), pred, &tree_leaf), v)
-            },
+            }
             (AnyAlgebra::Map(g), AnyDomain::Map(v)) => {
                 g.evaluate(&fold_pred(g.as_ref(), pred, &map_leaf), v)
-            },
+            }
             // Element not of this algebra's sort.
             _ => false,
         }
@@ -661,10 +661,13 @@ impl Singleton for AnyAlgebra {
                     };
                 }
                 AnyPred::Product(Box::new(acc))
-            },
-            (AnyAlgebra::Sum(g), AnyDomain::Sum(v)) if v.tag < g.variants.len() => AnyPred::Sum(
-                Box::new(SumPred::InVariant(v.tag, g.variants[v.tag].point(&v.payload))),
-            ),
+            }
+            (AnyAlgebra::Sum(g), AnyDomain::Sum(v)) if v.tag < g.variants.len() => {
+                AnyPred::Sum(Box::new(SumPred::InVariant(
+                    v.tag,
+                    g.variants[v.tag].point(&v.payload),
+                )))
+            }
             (AnyAlgebra::List(g), AnyDomain::List(vals)) => {
                 let mut acc = RegexPred::Epsilon;
                 for v in vals {
@@ -674,10 +677,10 @@ impl Singleton for AnyAlgebra {
                     );
                 }
                 AnyPred::List(Box::new(acc))
-            },
+            }
             (AnyAlgebra::Tree(g), AnyDomain::Tree(term)) => {
                 AnyPred::Tree(Box::new(point_tree(&g.elem, term)))
-            },
+            }
             (AnyAlgebra::Bag(g), AnyDomain::Bag(vals)) => {
                 // Group distinct elements (AnyDomain: Eq) with their multiplicities.
                 let mut groups: Vec<(&AnyDomain, u64)> = Vec::new();
@@ -702,7 +705,7 @@ impl Singleton for AnyAlgebra {
                     acc = BagPred::And(Box::new(acc), Box::new(atom));
                 }
                 AnyPred::Bag(Box::new(acc))
-            },
+            }
             (AnyAlgebra::Map(g), AnyDomain::Map(entries)) => {
                 let mut acc = MapPred::CountEntries {
                     key_class: g.key.true_pred(),
@@ -720,7 +723,7 @@ impl Singleton for AnyAlgebra {
                     acc = MapPred::And(Box::new(acc), Box::new(atom));
                 }
                 AnyPred::Map(Box::new(acc))
-            },
+            }
             // Foreign-sort value (or malformed): no element of this sort equals it.
             _ => AnyPred::False,
         }
@@ -741,7 +744,9 @@ pub struct SortRegistry {
 impl SortRegistry {
     /// An empty registry.
     pub fn new() -> Self {
-        SortRegistry { algebras: HashMap::new() }
+        SortRegistry {
+            algebras: HashMap::new(),
+        }
     }
     /// Register the algebra for `sort`.
     pub fn insert(&mut self, sort: Sort, algebra: AnyAlgebra) {
@@ -770,9 +775,15 @@ impl SortRegistry {
     /// The default scalar registry (all seven scalar sorts).
     pub fn scalars(int_lo: i64, int_hi: i64, bool_atoms: Vec<String>) -> Self {
         let mut r = SortRegistry::new();
-        r.insert(Sort::Int, AnyAlgebra::Int(IntervalAlgebra::new(int_lo, int_hi)));
+        r.insert(
+            Sort::Int,
+            AnyAlgebra::Int(IntervalAlgebra::new(int_lo, int_hi)),
+        );
         r.insert(Sort::Char, AnyAlgebra::Char(CharClassAlgebra::new()));
-        r.insert(Sort::Bool, AnyAlgebra::Bool(KatBooleanAlgebra::new(bool_atoms)));
+        r.insert(
+            Sort::Bool,
+            AnyAlgebra::Bool(KatBooleanAlgebra::new(bool_atoms)),
+        );
         r.insert(Sort::BigInt, AnyAlgebra::BigInt(OrderedFieldAlgebra::new()));
         r.insert(Sort::BigRat, AnyAlgebra::BigRat(OrderedFieldAlgebra::new()));
         r.insert(Sort::Fixed, AnyAlgebra::Fixed(OrderedFieldAlgebra::new()));
@@ -784,12 +795,12 @@ impl SortRegistry {
 
 #[cfg(test)]
 mod tests {
+    use super::super::collection_algebra::{BagAlgebra, MapAlgebra, Singleton};
+    use super::super::product_nary::{NaryProductAlgebra, NaryProductPred, SumAlgebra, SumPred};
+    use super::super::regex_sfa::RegexAlgebra;
+    use super::super::string_algebra::StrPred;
+    use super::super::sym_tree::{SymTerm, TreeAlgebra, TreePred};
     use super::*;
-    use crate::symbolic::collection_algebra::{BagAlgebra, MapAlgebra, Singleton};
-    use crate::symbolic::product_nary::{NaryProductAlgebra, NaryProductPred, SumAlgebra, SumPred};
-    use crate::symbolic::regex_sfa::RegexAlgebra;
-    use crate::symbolic::string_algebra::StrPred;
-    use crate::symbolic::sym_tree::{SymTerm, TreeAlgebra, TreePred};
 
     fn bi(n: i64) -> BigInt {
         BigInt::from(n)
@@ -825,8 +836,14 @@ mod tests {
         let any = AnyAlgebra::Product(Box::new(prod));
         // field 0 (Int) in [10,20) AND field 1 (Str) = "x"
         let p = AnyPred::Product(Box::new(NaryProductPred::And(
-            Box::new(NaryProductPred::Field(0, AnyPred::Int(IntervalPred::Range(10, 20)))),
-            Box::new(NaryProductPred::Field(1, AnyPred::Str(StrPred::Literal("x".to_string())))),
+            Box::new(NaryProductPred::Field(
+                0,
+                AnyPred::Int(IntervalPred::Range(10, 20)),
+            )),
+            Box::new(NaryProductPred::Field(
+                1,
+                AnyPred::Str(StrPred::Literal("x".to_string())),
+            )),
         )));
         let good = AnyDomain::Product(vec![AnyDomain::Int(15), AnyDomain::Str("x".to_string())]);
         let bad = AnyDomain::Product(vec![AnyDomain::Int(15), AnyDomain::Str("y".to_string())]);
@@ -845,15 +862,23 @@ mod tests {
             AnyAlgebra::Str(StringAlgebra::new()),
         ]);
         let any = AnyAlgebra::Sum(Box::new(sum));
-        let p =
-            AnyPred::Sum(Box::new(SumPred::InVariant(0, AnyPred::Int(IntervalPred::Range(0, 10)))));
+        let p = AnyPred::Sum(Box::new(SumPred::InVariant(
+            0,
+            AnyPred::Int(IntervalPred::Range(0, 10)),
+        )));
         assert!(any.evaluate(
             &p,
-            &AnyDomain::Sum(Box::new(SumValue { tag: 0, payload: AnyDomain::Int(5) }))
+            &AnyDomain::Sum(Box::new(SumValue {
+                tag: 0,
+                payload: AnyDomain::Int(5)
+            }))
         ));
         assert!(!any.evaluate(
             &p,
-            &AnyDomain::Sum(Box::new(SumValue { tag: 0, payload: AnyDomain::Int(50) }))
+            &AnyDomain::Sum(Box::new(SumValue {
+                tag: 0,
+                payload: AnyDomain::Int(50)
+            }))
         ));
         assert!(!any.evaluate(
             &p,
@@ -890,8 +915,14 @@ mod tests {
         let some_big = bag.any_elem(AnyPred::Int(IntervalPred::Range(50, 100)));
         let any = AnyAlgebra::Bag(Box::new(bag));
         let p = AnyPred::Bag(Box::new(some_big));
-        assert!(any.evaluate(&p, &AnyDomain::Bag(vec![AnyDomain::Int(1), AnyDomain::Int(60)])));
-        assert!(!any.evaluate(&p, &AnyDomain::Bag(vec![AnyDomain::Int(1), AnyDomain::Int(2)])));
+        assert!(any.evaluate(
+            &p,
+            &AnyDomain::Bag(vec![AnyDomain::Int(1), AnyDomain::Int(60)])
+        ));
+        assert!(!any.evaluate(
+            &p,
+            &AnyDomain::Bag(vec![AnyDomain::Int(1), AnyDomain::Int(2)])
+        ));
         assert!(any.is_satisfiable(&p));
     }
 
@@ -904,8 +935,11 @@ mod tests {
                 .collect();
         let payloaded: std::collections::HashSet<String> =
             ["Lit".to_string()].into_iter().collect();
-        let tree =
-            TreeAlgebra::new(AnyAlgebra::Int(IntervalAlgebra::new(0, 100)), arities, payloaded);
+        let tree = TreeAlgebra::new(
+            AnyAlgebra::Int(IntervalAlgebra::new(0, 100)),
+            arities,
+            payloaded,
+        );
         let any = AnyAlgebra::Tree(Box::new(tree));
         // Pattern: Lit with payload in [0,10)
         let p = AnyPred::Tree(Box::new(TreePred::Node {
@@ -924,8 +958,10 @@ mod tests {
     #[test]
     fn cross_sort_and_is_unsat() {
         let any_int = AnyAlgebra::Int(IntervalAlgebra::new(0, 100));
-        let pred =
-            any_int.and(&AnyPred::Int(IntervalPred::True), &AnyPred::Char(CharClassPred::True));
+        let pred = any_int.and(
+            &AnyPred::Int(IntervalPred::True),
+            &AnyPred::Char(CharClassPred::True),
+        );
         assert!(!any_int.is_satisfiable(&pred));
     }
 

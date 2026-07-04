@@ -646,7 +646,7 @@ let loss = z_score.value() - a_score.value();
 
 5. **WFST Conv Position**: Best as first layer where input dimension is large
 
-## Next Steps
+## Related Topics
 
 - [Differentiable WFSTs](differentiable.md): Core gradient infrastructure
 - [CTC Topologies](ctc-topologies.md): Graph construction details

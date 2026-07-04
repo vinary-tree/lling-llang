@@ -83,7 +83,9 @@ pub struct TokenGroup {
     pub best_forward_prob: LogWeight,
     /// Whether this group has been expanded (tokens materialized).
     pub expanded: bool,
-    /// Actual tokens (only populated after expansion).
+    /// Token payloads retained for exact reconstruction. Lazy groups defer
+    /// successor expansion, but they still keep compact token records so
+    /// back-tracing does not lose hypotheses.
     tokens: SmallVec<[Token; 4]>,
     /// Links to preceding token groups.
     preceding_links: SmallVec<[GroupLink; 4]>,
@@ -141,12 +143,12 @@ impl TokenGroup {
         self.succeeding_links.push(link);
     }
 
-    /// Get the number of tokens (only valid after expansion).
+    /// Get the number of retained token payloads.
     pub fn num_tokens(&self) -> usize {
         self.tokens.len()
     }
 
-    /// Get tokens (only valid after expansion).
+    /// Get retained token payloads.
     pub fn tokens(&self) -> &[Token] {
         &self.tokens
     }
@@ -531,14 +533,11 @@ impl TokenGroupManager {
 
         self.stats.tokens_processed += 1;
 
-        // If arriving via word arc or group is already expanded, expand now
+        // If arriving via word arc or group is already expanded, evaluate successors eagerly.
         if is_word_arc || group.expanded || !self.config.lazy_evaluation {
             group.expanded = true;
-            group.add_token(token);
-        } else {
-            // Lazy: just update forward prob, don't add token yet
-            group.best_forward_prob = group.best_forward_prob.plus(&token.forward_prob);
         }
+        group.add_token(token);
 
         // Update queue
         let weight = group.best_forward_prob.value();
@@ -579,26 +578,35 @@ impl TokenGroupManager {
         self.stats.ops_saved += 1;
     }
 
-    /// Expand a token group (materialize tokens from links).
+    /// Expand a token group and its predecessor chain.
     ///
-    /// This is called when we need actual tokens, typically at word
-    /// boundaries or during back-tracing.
+    /// This is called at word boundaries or during back-tracing when successor
+    /// evaluation for a lazy group must become explicit.
     pub fn expand_group(&mut self, group_id: TokenGroupId) {
-        let group = match self.pool.get_mut(group_id) {
-            Some(g) => g,
-            None => return,
-        };
+        let mut stack = vec![group_id];
 
-        if group.expanded {
-            return;
+        while let Some(current) = stack.pop() {
+            let predecessors = {
+                let group = match self.pool.get_mut(current) {
+                    Some(group) => group,
+                    None => continue,
+                };
+
+                if group.expanded {
+                    continue;
+                }
+
+                group.expanded = true;
+                self.stats.expansions += 1;
+                group
+                    .preceding_links
+                    .iter()
+                    .map(|link| link.source_group)
+                    .collect::<Vec<_>>()
+            };
+
+            stack.extend(predecessors);
         }
-
-        group.expanded = true;
-        self.stats.expansions += 1;
-
-        // Expansion would trace back through preceding links
-        // and materialize tokens. For now, mark as expanded.
-        // Full implementation would recursively expand predecessors.
     }
 
     /// Advance to the next frame.
@@ -881,6 +889,7 @@ mod tests {
         let id1 = manager.process_token(token1, false);
         let group1 = manager.group(id1).expect("lazy group exists");
         assert!(!group1.expanded, "non-word arc should be lazy");
+        assert_eq!(group1.tokens().len(), 1, "lazy group retains token payload");
 
         // Word arc - should force expansion
         let token2 = Token {
@@ -964,5 +973,9 @@ mod tests {
         assert_eq!(group2.preceding_links().len(), 1);
 
         assert_eq!(manager.stats().ops_saved, 1);
+
+        manager.expand_group(id2);
+        assert!(manager.group(id1).expect("source group exists").expanded);
+        assert!(manager.group(id2).expect("target group exists").expanded);
     }
 }

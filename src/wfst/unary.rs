@@ -38,8 +38,16 @@
 use smallvec::SmallVec;
 
 use super::lazy::{LazyState, LazyWfstWrapper, StateSource};
-use super::{MutableWfst, StateId, VectorWfst, WeightedTransition, Wfst, NO_STATE};
+use super::traits::{MutableWfst, Wfst};
+use super::transition::WeightedTransition;
+use super::types::{StateId, NO_STATE};
+use super::vector::VectorWfst;
 use crate::semiring::Semiring;
+
+#[cfg(test)]
+use super::traits::LazyWfst;
+#[cfg(test)]
+use super::vector::VectorWfstBuilder;
 
 // =============================================================================
 // Inversion: T⁻¹
@@ -311,11 +319,16 @@ where
     if n == 0 {
         return VectorWfst::new();
     }
+    let orig_start = fst.start();
+    if orig_start == NO_STATE || !fst.is_valid_state(orig_start) || n >= NO_STATE as usize {
+        return VectorWfst::new();
+    }
+    let reversed_state_count = n + 1;
 
     // State mapping:
     // State 0 in reversed FST = super-start
     // State i+1 in reversed FST = state i in original FST
-    let mut result: VectorWfst<L, W> = VectorWfst::with_capacity(n + 1);
+    let mut result: VectorWfst<L, W> = VectorWfst::with_capacity(reversed_state_count);
 
     // Add super-start state (state 0)
     result.add_state();
@@ -324,6 +337,26 @@ where
     // Add states for each original state
     for _ in 0..n {
         result.add_state();
+    }
+
+    let mut reversed_transition_counts = vec![0; reversed_state_count];
+    for orig_state in 0..n as StateId {
+        if fst.is_final(orig_state) {
+            reversed_transition_counts[0] += 1;
+        }
+
+        for transition in fst.transitions(orig_state) {
+            let target = transition.to as usize;
+            if target < n {
+                reversed_transition_counts[target + 1] += 1;
+            }
+        }
+    }
+
+    for (state, count) in reversed_transition_counts.into_iter().enumerate() {
+        if count > 0 {
+            result.reserve_transitions(state as StateId, count);
+        }
     }
 
     // Collect reversed transitions
@@ -338,6 +371,11 @@ where
 
         // Reverse all transitions
         for t in fst.transitions(orig_state) {
+            let target = t.to as usize;
+            if target >= n {
+                continue;
+            }
+
             let reversed_from = t.to + 1;
             let reversed_to = orig_state + 1;
 
@@ -352,10 +390,7 @@ where
     }
 
     // Original start state becomes final
-    let orig_start = fst.start();
-    if orig_start != NO_STATE {
-        result.set_final(orig_start + 1, W::one());
-    }
+    result.set_final(orig_start + 1, W::one());
 
     result
 }
@@ -368,7 +403,6 @@ where
 mod tests {
     use super::*;
     use crate::semiring::TropicalWeight;
-    use crate::wfst::{LazyWfst, VectorWfstBuilder};
 
     fn make_transducer() -> VectorWfst<char, TropicalWeight> {
         // a:x -> b:y
@@ -523,11 +557,11 @@ mod tests {
         // Double reversal preserves the original transition count
         // (state IDs may differ due to super-start nodes added by reverse).
         let original_arcs: usize = (0..fst.num_states())
-            .map(|s| fst.transitions(s as crate::wfst::StateId).len())
+            .map(|s| fst.transitions(s as StateId).len())
             .sum();
         let _ = rev1;
         let final_arcs: usize = (0..rev2.num_states())
-            .map(|s| rev2.transitions(s as crate::wfst::StateId).len())
+            .map(|s| rev2.transitions(s as StateId).len())
             .sum();
         // The first reverse adds a super-start, the second restores the original,
         // so total arc count should be at least the original.
@@ -545,6 +579,80 @@ mod tests {
         let rev = reverse(&fst);
 
         assert!(rev.is_empty());
+    }
+
+    #[test]
+    fn test_reverse_no_start_is_empty() {
+        let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::with_capacity(2);
+        fst.add_state();
+        fst.add_state();
+        fst.add_arc(0, Some('a'), Some('x'), 1, TropicalWeight::one());
+        fst.set_final(1, TropicalWeight::one());
+
+        let rev = reverse(&fst);
+
+        assert!(rev.is_empty());
+        assert_eq!(rev.start(), NO_STATE);
+    }
+
+    #[derive(Clone)]
+    struct HugeStateCountWfst;
+
+    impl Wfst<char, TropicalWeight> for HugeStateCountWfst {
+        fn start(&self) -> StateId {
+            0
+        }
+
+        fn is_final(&self, _state: StateId) -> bool {
+            false
+        }
+
+        fn final_weight(&self, _state: StateId) -> TropicalWeight {
+            TropicalWeight::zero()
+        }
+
+        fn transitions(&self, _state: StateId) -> &[WeightedTransition<char, TropicalWeight>] {
+            &[]
+        }
+
+        fn num_states(&self) -> usize {
+            NO_STATE as usize
+        }
+    }
+
+    #[test]
+    fn test_reverse_rejects_unrepresentable_super_start_space() {
+        let rev = reverse(&HugeStateCountWfst);
+
+        assert!(rev.is_empty());
+        assert_eq!(rev.start(), NO_STATE);
+    }
+
+    #[test]
+    fn test_reverse_skips_malformed_transition_targets() {
+        let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::with_capacity(2);
+        fst.add_state();
+        fst.add_state();
+        fst.set_start(0);
+        fst.add_transition(WeightedTransition::new(
+            0,
+            Some('a'),
+            Some('x'),
+            NO_STATE,
+            TropicalWeight::one(),
+        ));
+        fst.add_arc(0, Some('b'), Some('y'), 1, TropicalWeight::new(2.0));
+        fst.set_final(1, TropicalWeight::one());
+
+        let rev = reverse(&fst);
+
+        assert_eq!(rev.num_states(), 3);
+        assert_eq!(rev.transitions(0).len(), 1);
+        let reversed_valid = rev.transitions(2);
+        assert_eq!(reversed_valid.len(), 1);
+        assert_eq!(reversed_valid[0].input, Some('b'));
+        assert_eq!(reversed_valid[0].output, Some('y'));
+        assert_eq!(reversed_valid[0].to, 1);
     }
 
     #[test]

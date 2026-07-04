@@ -7,6 +7,11 @@ use super::types::{EdgeId, NodeId};
 use crate::backend::{LatticeBackend, VocabId};
 use crate::semiring::Semiring;
 
+#[cfg(test)]
+use super::builder::LatticeBuilder;
+#[cfg(test)]
+use super::types::EdgeMetadata;
+
 /// A path through a lattice.
 ///
 /// Represents a sequence of edges from start to end, with the accumulated weight.
@@ -112,20 +117,26 @@ pub struct PathIterator<'a, W: Semiring, B: LatticeBackend> {
     lattice: &'a Lattice<W, B>,
     /// Stack of (current_node, edge_index, partial_path)
     stack: Vec<(NodeId, usize, LatticePath<W>)>,
+    /// Maximum number of edges to explore in one path.
+    max_depth: usize,
 }
 
 impl<'a, W: Semiring, B: LatticeBackend> PathIterator<'a, W, B> {
     /// Create a new path iterator for the lattice.
     pub fn new(lattice: &'a Lattice<W, B>) -> Self {
         let start = lattice.start();
-        let mut stack = Vec::new();
+        let mut stack = Vec::with_capacity(lattice.num_nodes().max(1));
 
         // Initialize with start node
         if lattice.num_nodes() > 0 {
             stack.push((start, 0, LatticePath::new()));
         }
 
-        Self { lattice, stack }
+        Self {
+            lattice,
+            stack,
+            max_depth: lattice.num_nodes().saturating_sub(1),
+        }
     }
 
     /// Create a path iterator with a maximum number of paths.
@@ -142,6 +153,10 @@ impl<'a, W: Semiring, B: LatticeBackend> Iterator for PathIterator<'a, W, B> {
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some((node, edge_idx, path)) = self.stack.pop() {
+            if path.len() >= self.max_depth {
+                continue;
+            }
+
             // Get outgoing edges
             let outgoing: SmallVec<[_; 8]> = self
                 .lattice
@@ -217,8 +232,6 @@ impl<W: Semiring, B: LatticeBackend> LatticePathExt<W, B> for Lattice<W, B> {
 mod tests {
     use super::*;
     use crate::backend::HashMapBackend;
-    use crate::lattice::builder::LatticeBuilder;
-    use crate::lattice::types::EdgeMetadata;
     use crate::semiring::TropicalWeight;
 
     fn sample_lattice() -> Lattice<TropicalWeight, HashMapBackend> {
@@ -339,6 +352,36 @@ mod tests {
 
         let paths: Vec<_> = lattice.paths().collect();
         assert!(paths.is_empty()); // No edges means no paths (empty path not yielded)
+    }
+
+    #[test]
+    fn test_path_iterator_cycle_before_end_is_bounded() {
+        let backend = HashMapBackend::new();
+        let mut builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
+
+        builder.add_correction(0, 1, "a", TropicalWeight::new(1.0), EdgeMetadata::default());
+        builder.add_correction(
+            1,
+            0,
+            "loop",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            1,
+            2,
+            "done",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
+
+        let lattice = builder.build(2);
+        assert!(!lattice.is_acyclic());
+
+        let paths: Vec<_> = lattice.paths().collect();
+
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0].to_words(&lattice), vec!["a", "done"]);
     }
 
     #[test]

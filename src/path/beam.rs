@@ -2,9 +2,20 @@
 
 use smallvec::SmallVec;
 
-use crate::backend::LatticeBackend;
+use rustc_hash::FxHashMap;
+
+use super::adjacency::{
+    best_suffix_distances, compare_weights, edge_adjacency, node_index, path_priority,
+};
+use crate::backend::{LatticeBackend, VocabId};
 use crate::lattice::{EdgeId, Lattice, LatticePath, NodeId};
 use crate::semiring::Semiring;
+
+type WordSignature = SmallVec<[VocabId; 16]>;
+
+fn bounded_capacity(requested: usize, available_items: usize) -> usize {
+    requested.min(available_items.max(1)).max(1)
+}
 
 /// Configuration for beam search.
 #[derive(Clone, Debug)]
@@ -58,32 +69,37 @@ struct Hypothesis<W: Semiring> {
     edges: SmallVec<[EdgeId; 16]>,
     /// Accumulated weight.
     weight: W,
+    /// Best possible complete-path priority through this node.
+    priority: W,
 }
 
 impl<W: Semiring> Hypothesis<W> {
-    fn new(start: NodeId) -> Self {
+    fn new(start: NodeId, priority: W) -> Self {
         Self {
             node: start,
             edges: SmallVec::new(),
             weight: W::one(),
+            priority,
         }
     }
 
-    fn extend(&self, edge_id: EdgeId, target: NodeId, edge_weight: W) -> Self {
+    fn extend(&self, edge_id: EdgeId, target: NodeId, weight: W, priority: W) -> Self {
         let mut new_edges = self.edges.clone();
         new_edges.push(edge_id);
         Self {
             node: target,
             edges: new_edges,
-            weight: self.weight.times(&edge_weight),
+            weight,
+            priority,
         }
     }
 
     /// Extend by taking ownership (avoids clone for the last extension).
-    fn extend_move(mut self, edge_id: EdgeId, target: NodeId, edge_weight: W) -> Self {
+    fn extend_move(mut self, edge_id: EdgeId, target: NodeId, weight: W, priority: W) -> Self {
         self.edges.push(edge_id);
         self.node = target;
-        self.weight = self.weight.times(&edge_weight);
+        self.weight = weight;
+        self.priority = priority;
         self
     }
 
@@ -95,6 +111,79 @@ impl<W: Semiring> Hypothesis<W> {
     }
 }
 
+fn compare_hypotheses<W: Semiring>(a: &Hypothesis<W>, b: &Hypothesis<W>) -> std::cmp::Ordering {
+    compare_weights(&a.priority, &b.priority)
+        .then_with(|| compare_weights(&a.weight, &b.weight))
+        .then_with(|| a.edges.cmp(&b.edges))
+        .then_with(|| a.node.cmp(&b.node))
+}
+
+fn compare_paths<W: Semiring>(a: &LatticePath<W>, b: &LatticePath<W>) -> std::cmp::Ordering {
+    compare_weights(&a.weight, &b.weight).then_with(|| a.edges.cmp(&b.edges))
+}
+
+fn retain_best_hypotheses<W: Semiring>(hypotheses: &mut Vec<Hypothesis<W>>, beam_width: usize) {
+    if hypotheses.len() <= beam_width {
+        return;
+    }
+
+    hypotheses.select_nth_unstable_by(beam_width, compare_hypotheses);
+    hypotheses.truncate(beam_width);
+}
+
+fn truncate_best_paths<W: Semiring>(paths: &mut Vec<LatticePath<W>>, max_results: usize) {
+    if paths.len() > max_results {
+        paths.select_nth_unstable_by(max_results, compare_paths);
+        paths.truncate(max_results);
+    }
+}
+
+fn retain_best_paths<W: Semiring>(paths: &mut Vec<LatticePath<W>>, max_results: usize) {
+    truncate_best_paths(paths, max_results);
+    paths.sort_by(compare_paths);
+}
+
+fn word_signature<W: Semiring, B: LatticeBackend>(
+    lattice: &Lattice<W, B>,
+    edge_ids: &[EdgeId],
+) -> WordSignature {
+    let mut signature = SmallVec::with_capacity(edge_ids.len());
+    for &edge_id in edge_ids {
+        if let Some(edge) = lattice.edge(edge_id) {
+            signature.push(edge.label);
+        }
+    }
+    signature
+}
+
+fn rebuild_completed_signatures<W: Semiring, B: LatticeBackend>(
+    lattice: &Lattice<W, B>,
+    completed: &[LatticePath<W>],
+    signatures: &mut FxHashMap<WordSignature, usize>,
+) {
+    signatures.clear();
+    signatures.reserve(completed.len());
+    for (index, path) in completed.iter().enumerate() {
+        signatures.insert(word_signature(lattice, &path.edges), index);
+    }
+}
+
+fn retain_best_completed<W: Semiring, B: LatticeBackend>(
+    lattice: &Lattice<W, B>,
+    completed: &mut Vec<LatticePath<W>>,
+    completed_signatures: &mut FxHashMap<WordSignature, usize>,
+    config: &BeamSearchConfig,
+) {
+    if completed.len() <= config.max_results {
+        return;
+    }
+
+    truncate_best_paths(completed, config.max_results);
+    if !config.allow_duplicates {
+        rebuild_completed_signatures(lattice, completed, completed_signatures);
+    }
+}
+
 /// Perform beam search on a lattice.
 ///
 /// Beam search is an approximate algorithm that keeps only the top
@@ -103,11 +192,16 @@ impl<W: Semiring> Hypothesis<W> {
 ///
 /// # Time Complexity
 ///
-/// O(V × beam_width × avg_out_degree) where V is the number of nodes.
+/// O(V + E + P) where P is the number of generated partial hypotheses.
+/// Each beam-pruning step uses linear-time top-k selection rather than sorting
+/// the full frontier. Acyclic lattices rank partial hypotheses by exact best
+/// suffix cost, so pruning uses the best possible complete-path cost through
+/// each hypothesis rather than only its prefix cost.
 ///
 /// # Space Complexity
 ///
-/// O(beam_width × path_length) for storing hypotheses.
+/// O(V + E + (beam_width + max_results) × path_length) for suffix costs,
+/// adjacency, active hypotheses, and retained completed hypotheses.
 ///
 /// # Example
 ///
@@ -142,8 +236,18 @@ pub fn beam_search_with_config<W: Semiring, B: LatticeBackend>(
     lattice: &mut Lattice<W, B>,
     config: BeamSearchConfig,
 ) -> Vec<LatticePath<W>> {
+    if config.beam_width == 0 || config.max_results == 0 {
+        return Vec::new();
+    }
+
     let start = lattice.start();
     let end = lattice.end();
+    let lattice_work_bound = lattice.num_edges().saturating_add(1);
+    if node_index(start, lattice.num_nodes()).is_none()
+        || node_index(end, lattice.num_nodes()).is_none()
+    {
+        return Vec::new();
+    }
 
     // Handle empty lattice
     if lattice.is_empty() {
@@ -155,79 +259,127 @@ pub fn beam_search_with_config<W: Semiring, B: LatticeBackend>(
         return Vec::new();
     }
 
-    // Get topological order
-    let _topo_order = match lattice.topological_order() {
-        Some(order) => order.to_vec(),
-        None => return Vec::new(), // Cycle detected
+    let Some(adjacency) = edge_adjacency(lattice) else {
+        return Vec::new();
+    };
+    let Some(suffix_best) = best_suffix_distances(lattice, &adjacency) else {
+        return Vec::new(); // Cycle detected
+    };
+    let Some(start_priority) = path_priority(Some(&suffix_best), adjacency.len(), start, W::one())
+    else {
+        return Vec::new();
     };
 
     // Initialize beam with start node
-    let mut current_beam: Vec<Hypothesis<W>> = vec![Hypothesis::new(start)];
-    let mut completed: Vec<LatticePath<W>> = Vec::new();
+    let beam_capacity = bounded_capacity(config.beam_width, lattice_work_bound);
+    let result_capacity = bounded_capacity(config.max_results, lattice_work_bound);
+    let mut current_beam: Vec<Hypothesis<W>> = Vec::with_capacity(1);
+    current_beam.push(Hypothesis::new(start, start_priority));
+    let mut completed: Vec<LatticePath<W>> = Vec::with_capacity(result_capacity);
+    let mut completed_signatures: FxHashMap<WordSignature, usize> = FxHashMap::default();
+    if !config.allow_duplicates {
+        completed_signatures.reserve(result_capacity);
+    }
 
-    // Process until all hypotheses complete or beam is empty
-    while !current_beam.is_empty() && completed.len() < config.max_results {
-        let mut next_beam: Vec<Hypothesis<W>> = Vec::new();
+    // Process until all hypotheses complete or the bounded beam is empty.  Do
+    // not stop at max_results: a cheaper partial hypothesis can complete later.
+    while !current_beam.is_empty() {
+        let mut next_beam: Vec<Hypothesis<W>> = Vec::with_capacity(
+            beam_capacity
+                .saturating_mul(2)
+                .min(lattice_work_bound.max(1)),
+        );
 
         // Expand each hypothesis
         for hyp in current_beam.drain(..) {
             // Check if hypothesis reached the end
             if hyp.node == end {
-                completed.push(hyp.into_lattice_path());
+                let path = hyp.into_lattice_path();
+                if config.allow_duplicates {
+                    completed.push(path);
+                } else {
+                    let signature = word_signature(lattice, &path.edges);
+                    if let Some(&existing_index) = completed_signatures.get(&signature) {
+                        if compare_weights(&path.weight, &completed[existing_index].weight).is_lt()
+                        {
+                            completed[existing_index] = path;
+                        }
+                    } else {
+                        completed_signatures.insert(signature, completed.len());
+                        completed.push(path);
+                    }
+                }
+                retain_best_completed(lattice, &mut completed, &mut completed_signatures, &config);
                 continue;
             }
 
             // Expand outgoing edges - use move for the last edge to avoid one clone
-            let mut edges_iter = lattice.outgoing_edges(hyp.node);
+            let Some(edge_ids) =
+                node_index(hyp.node, adjacency.len()).and_then(|node_idx| adjacency.get(node_idx))
+            else {
+                continue;
+            };
+            let mut edges_iter = edge_ids.iter().filter_map(|&edge_id| lattice.edge(edge_id));
             if let Some(first_edge) = edges_iter.next() {
                 let mut last_edge = (first_edge.id, first_edge.target, first_edge.weight);
 
                 for edge in edges_iter {
                     // Process the previous edge with clone (more edges follow)
-                    let extended = hyp.extend(last_edge.0, last_edge.1, last_edge.2);
-                    next_beam.push(extended);
+                    let weight = hyp.weight.times(&last_edge.2);
+                    if let Some(priority) =
+                        path_priority(Some(&suffix_best), adjacency.len(), last_edge.1, weight)
+                    {
+                        let extended = hyp.extend(last_edge.0, last_edge.1, weight, priority);
+                        next_beam.push(extended);
+                    }
                     last_edge = (edge.id, edge.target, edge.weight);
                 }
 
                 // Process the last edge with move (no more edges)
-                let extended = hyp.extend_move(last_edge.0, last_edge.1, last_edge.2);
-                next_beam.push(extended);
+                let weight = hyp.weight.times(&last_edge.2);
+                if let Some(priority) =
+                    path_priority(Some(&suffix_best), adjacency.len(), last_edge.1, weight)
+                {
+                    let extended = hyp.extend_move(last_edge.0, last_edge.1, weight, priority);
+                    next_beam.push(extended);
+                }
             }
         }
 
         // Prune beam to top beam_width hypotheses
         if next_beam.len() > config.beam_width {
-            // Sort by weight (ascending for TropicalWeight)
-            next_beam.sort_by(|a, b| match a.weight.natural_less(&b.weight) {
-                Some(true) => std::cmp::Ordering::Less,
-                Some(false) => std::cmp::Ordering::Greater,
-                None => std::cmp::Ordering::Equal,
-            });
-            next_beam.truncate(config.beam_width);
+            retain_best_hypotheses(&mut next_beam, config.beam_width);
         }
 
         current_beam = next_beam;
     }
 
-    // Sort by weight
-    completed.sort_by(|a, b| match a.weight.natural_less(&b.weight) {
-        Some(true) => std::cmp::Ordering::Less,
-        Some(false) => std::cmp::Ordering::Greater,
-        None => std::cmp::Ordering::Equal,
-    });
-
-    // Limit results
-    completed.truncate(config.max_results);
+    retain_best_paths(&mut completed, config.max_results);
 
     completed
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::adjacency::test_support::{
+        lattice_with_invalid_start, lattice_with_malformed_target, lattice_with_stale_outgoing,
+    };
     use super::*;
     use crate::backend::HashMapBackend;
     use crate::lattice::{EdgeMetadata, LatticeBuilder};
     use crate::semiring::TropicalWeight;
+
+    fn duplicate_word_lattice() -> Lattice<TropicalWeight, HashMapBackend> {
+        let backend = HashMapBackend::new();
+        let mut builder = LatticeBuilder::new(backend);
+
+        builder.add_correction(0, 1, "a", TropicalWeight::new(2.0), EdgeMetadata::default());
+        builder.add_correction(1, 3, "b", TropicalWeight::new(1.0), EdgeMetadata::default());
+        builder.add_correction(0, 2, "a", TropicalWeight::new(0.5), EdgeMetadata::default());
+        builder.add_correction(2, 3, "b", TropicalWeight::new(1.5), EdgeMetadata::default());
+
+        builder.build(3)
+    }
 
     #[test]
     fn test_beam_search_simple() {
@@ -301,6 +453,32 @@ mod tests {
     }
 
     #[test]
+    fn test_beam_search_rejects_invalid_start_or_end() {
+        let mut lattice = lattice_with_invalid_start();
+        let paths = beam_search(&mut lattice, 10);
+
+        assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn test_beam_search_rejects_malformed_target() {
+        let mut lattice = lattice_with_malformed_target();
+        let paths = beam_search(&mut lattice, 10);
+
+        assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn test_beam_search_uses_edges_when_outgoing_cache_is_stale() {
+        let mut lattice = lattice_with_stale_outgoing();
+        let paths = beam_search(&mut lattice, 10);
+
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0].weight.value(), 1.0);
+        assert_eq!(paths[0].to_words(&lattice), vec!["a"]);
+    }
+
+    #[test]
     fn test_beam_search_config() {
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
@@ -321,6 +499,194 @@ mod tests {
         let paths = beam_search_with_config(&mut lattice, config);
 
         assert_eq!(paths.len(), 3);
+    }
+
+    #[test]
+    fn test_beam_search_exhausts_frontier_before_max_results_truncation() {
+        let backend = HashMapBackend::new();
+        let mut builder = LatticeBuilder::new(backend);
+
+        builder.add_correction(
+            0,
+            2,
+            "expensive",
+            TropicalWeight::new(10.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            0,
+            1,
+            "cheap",
+            TropicalWeight::new(0.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            1,
+            2,
+            "finish",
+            TropicalWeight::new(0.0),
+            EdgeMetadata::default(),
+        );
+
+        let mut lattice = builder.build(2);
+        let config = BeamSearchConfig::new(2).with_max_results(1);
+        let paths = beam_search_with_config(&mut lattice, config);
+
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0].to_words(&lattice), vec!["cheap", "finish"]);
+        assert_eq!(paths[0].weight.value(), 0.0);
+    }
+
+    #[test]
+    fn test_beam_search_completed_pruning_keeps_late_best_path() {
+        let backend = HashMapBackend::new();
+        let mut builder = LatticeBuilder::new(backend);
+
+        for index in 0..8 {
+            builder.add_correction(
+                0,
+                2,
+                &format!("early{index}"),
+                TropicalWeight::new(10.0 + index as f64),
+                EdgeMetadata::default(),
+            );
+        }
+        builder.add_correction(
+            0,
+            1,
+            "late",
+            TropicalWeight::new(0.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            1,
+            2,
+            "best",
+            TropicalWeight::new(0.0),
+            EdgeMetadata::default(),
+        );
+
+        let mut lattice = builder.build(2);
+        let config = BeamSearchConfig::new(16).with_max_results(1);
+        let paths = beam_search_with_config(&mut lattice, config);
+
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0].to_words(&lattice), vec!["late", "best"]);
+        assert_eq!(paths[0].weight.value(), 0.0);
+    }
+
+    #[test]
+    fn test_beam_search_uses_suffix_priority_for_negative_dag_edges() {
+        let backend = HashMapBackend::new();
+        let mut builder = LatticeBuilder::new(backend);
+
+        builder.add_correction(
+            0,
+            1,
+            "expensive-prefix",
+            TropicalWeight::new(10.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            1,
+            3,
+            "large-credit",
+            TropicalWeight::new(-20.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            0,
+            2,
+            "cheap-prefix",
+            TropicalWeight::new(0.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            2,
+            3,
+            "neutral-suffix",
+            TropicalWeight::new(0.0),
+            EdgeMetadata::default(),
+        );
+
+        let mut lattice = builder.build(3);
+        let config = BeamSearchConfig::new(1).with_max_results(1);
+        let paths = beam_search_with_config(&mut lattice, config);
+
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0].weight.value(), -10.0);
+        assert_eq!(
+            paths[0].to_words(&lattice),
+            vec!["expensive-prefix", "large-credit"]
+        );
+    }
+
+    #[test]
+    fn test_beam_search_zero_limits_return_empty() {
+        let backend = HashMapBackend::new();
+        let builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
+        let mut empty_lattice = builder.build(0);
+
+        let no_results = BeamSearchConfig::new(10).with_max_results(0);
+        assert!(beam_search_with_config(&mut empty_lattice, no_results).is_empty());
+
+        let backend = HashMapBackend::new();
+        let mut builder = LatticeBuilder::new(backend);
+        builder.add_correction(
+            0,
+            1,
+            "hello",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
+        let mut lattice = builder.build(1);
+
+        assert!(beam_search(&mut lattice, 0).is_empty());
+    }
+
+    #[test]
+    fn test_beam_search_large_config_does_not_overallocate() {
+        let backend = HashMapBackend::new();
+        let mut builder = LatticeBuilder::new(backend);
+        builder.add_correction(
+            0,
+            1,
+            "hello",
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        );
+        let mut lattice = builder.build(1);
+        let config = BeamSearchConfig::new(usize::MAX).with_max_results(usize::MAX);
+
+        let paths = beam_search_with_config(&mut lattice, config);
+
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0].to_words(&lattice), vec!["hello"]);
+    }
+
+    #[test]
+    fn test_beam_search_deduplicates_word_sequences_by_default() {
+        let mut lattice = duplicate_word_lattice();
+
+        let paths = beam_search(&mut lattice, 10);
+
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0].to_words(&lattice), vec!["a", "b"]);
+        assert_eq!(paths[0].weight.value(), 2.0);
+    }
+
+    #[test]
+    fn test_beam_search_allows_duplicate_word_sequences_when_configured() {
+        let mut lattice = duplicate_word_lattice();
+        let config = BeamSearchConfig::new(10).with_duplicates(true);
+
+        let paths = beam_search_with_config(&mut lattice, config);
+
+        assert_eq!(paths.len(), 2);
+        assert_eq!(paths[0].to_words(&lattice), vec!["a", "b"]);
+        assert_eq!(paths[1].to_words(&lattice), vec!["a", "b"]);
+        assert_eq!(paths[0].weight.value(), 2.0);
+        assert_eq!(paths[1].weight.value(), 3.0);
     }
 
     #[test]
@@ -452,24 +818,24 @@ mod property_tests {
             prop_assert!(!paths.is_empty());
         }
 
-        /// Wide beam search finds optimal path.
         #[test]
-        fn beam_wide_finds_optimal(
+        fn beam_wide_matches_viterbi(
             mut lattice in arb_diamond_lattice(3)
         ) {
-            use crate::path::viterbi;
-
-            let viterbi_result = viterbi(&mut lattice);
-            // Use very wide beam to ensure optimal is found
-            let beam_paths = beam_search(&mut lattice, 100);
+            let viterbi_result = super::super::viterbi::viterbi(&mut lattice);
+            let config = BeamSearchConfig::new(100).with_duplicates(true);
+            let beam_paths = beam_search_with_config(&mut lattice, config);
 
             prop_assert!(viterbi_result.success);
             prop_assert!(!beam_paths.is_empty());
 
-            // First beam path should match Viterbi
             let diff = (viterbi_result.path.weight.value() - beam_paths[0].weight.value()).abs();
-            prop_assert!(diff < 1e-9, "Beam first {} != Viterbi {}",
-                         beam_paths[0].weight.value(), viterbi_result.path.weight.value());
+            prop_assert!(
+                diff < 1e-9,
+                "Beam first {} != Viterbi {}",
+                beam_paths[0].weight.value(),
+                viterbi_result.path.weight.value()
+            );
         }
 
         /// Beam search respects max_results config.

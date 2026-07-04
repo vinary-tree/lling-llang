@@ -136,7 +136,7 @@ where
             single_source_shortest_distance_impl(fst, queue, &config)
         }
         QueueType::ShortestFirst => {
-            let mut queue = ShortestFirstQueue::with_capacity(num_states);
+            let mut queue = ShortestFirstQueue::<W>::with_capacity(num_states);
             queue.init_distances(num_states);
             single_source_shortest_distance_impl(fst, queue, &config)
         }
@@ -192,6 +192,12 @@ where
 {
     let num_states = fst.num_states();
     let start = fst.start();
+    if num_states == 0 {
+        return Some(Vec::new());
+    }
+    if start == NO_STATE || start as usize >= num_states {
+        return Some(vec![W::zero(); num_states]);
+    }
 
     // Initialize distances: all states start at ⊕-identity (zero)
     let mut distance: Vec<W> = vec![W::zero(); num_states];
@@ -233,6 +239,9 @@ where
         for transition in fst.transitions(state) {
             let next_state = transition.to;
             let next_idx = next_state as usize;
+            if next_idx >= num_states {
+                continue;
+            }
 
             // Compute contribution: remainder ⊗ edge_weight
             let contribution = r.times(&transition.weight);
@@ -290,20 +299,22 @@ where
         return Some(Vec::new());
     }
 
-    // Initialize distance matrix
-    // d[i][j] = weight of direct edge from i to j, or zero if no edge
+    // Initialize distance matrix with direct edges only.
+    // d[i][j] = weight of direct non-empty edges from i to j, or zero if no edge.
+    //
+    // The empty path is added to the diagonal after closure. Seeding the
+    // diagonal with one before applying star would ask for 1*, which diverges
+    // in probability-like semirings even for acyclic graphs.
     let mut d: Vec<Vec<W>> = vec![vec![W::zero(); n]; n];
-
-    // Self-loops have distance one (identity for ⊗)
-    for i in 0..n {
-        d[i][i] = W::one();
-    }
 
     // Add edge weights
     for state in 0..n as StateId {
         for transition in fst.transitions(state) {
             let from = state as usize;
             let to = transition.to as usize;
+            if to >= n {
+                continue;
+            }
             // Combine parallel edges with ⊕
             d[from][to] = d[from][to].plus(&transition.weight);
         }
@@ -330,6 +341,12 @@ where
                 d[i][j] = d[i][j].plus(&through_k);
             }
         }
+    }
+
+    // Add empty paths after closure so each state reaches itself with 1̄
+    // without turning that empty path into a repeated cycle.
+    for (i, row) in d.iter_mut().enumerate() {
+        row[i] = row[i].plus(&W::one());
     }
 
     Some(d)
@@ -464,8 +481,15 @@ where
 
     // Propagate backwards
     let mut remainder: Vec<W> = distance.clone();
+    let max_iterations = config.max_iterations.unwrap_or(usize::MAX);
+    let mut iterations = 0;
 
     while let Some(state) = queue.pop() {
+        iterations += 1;
+        if iterations > max_iterations {
+            return None;
+        }
+
         let state_idx = state as usize;
         let r = remainder[state_idx];
         remainder[state_idx] = W::zero();
@@ -766,6 +790,28 @@ mod tests {
     }
 
     #[test]
+    fn test_all_pairs_log_semiring_acyclic_graph_converges() {
+        let fst: VectorWfst<char, LogWeight> = VectorWfstBuilder::new()
+            .add_states(3)
+            .start(0)
+            .final_state(2, LogWeight::one())
+            .arc(0, Some('a'), Some('a'), 1, LogWeight::new(1.0))
+            .arc(1, Some('b'), Some('b'), 2, LogWeight::new(2.0))
+            .build();
+
+        let distances =
+            all_pairs_shortest_distance(&fst).expect("acyclic log graph should converge");
+
+        assert!(distances[0][0].approx_eq(&LogWeight::one(), 1e-10));
+        assert!(distances[1][1].approx_eq(&LogWeight::one(), 1e-10));
+        assert!(distances[2][2].approx_eq(&LogWeight::one(), 1e-10));
+        assert!(distances[0][1].approx_eq(&LogWeight::new(1.0), 1e-10));
+        assert!(distances[1][2].approx_eq(&LogWeight::new(2.0), 1e-10));
+        assert!(distances[0][2].approx_eq(&LogWeight::new(3.0), 1e-10));
+        assert!(distances[2][0].is_zero());
+    }
+
+    #[test]
     fn test_reverse_shortest_distance() {
         let fst = build_linear_fst(3);
         let distances = reverse_shortest_distance(&fst, ShortestDistanceConfig::default())
@@ -783,6 +829,27 @@ mod tests {
     }
 
     #[test]
+    fn test_reverse_shortest_distance_respects_iteration_limit() {
+        let fst: VectorWfst<char, TropicalWeight> = VectorWfstBuilder::new()
+            .add_states(2)
+            .start(0)
+            .final_state(1, TropicalWeight::one())
+            .arc(0, Some('a'), Some('a'), 1, TropicalWeight::one())
+            .arc(1, Some('b'), Some('b'), 0, TropicalWeight::new(-1.0))
+            .build();
+
+        let result = reverse_shortest_distance(
+            &fst,
+            ShortestDistanceConfig {
+                max_iterations: Some(2),
+                ..ShortestDistanceConfig::default()
+            },
+        );
+
+        assert!(result.is_none());
+    }
+
+    #[test]
     fn test_empty_fst() {
         let builder: VectorWfstBuilder<char, TropicalWeight> = VectorWfstBuilder::new();
         let fst = builder.build();
@@ -794,6 +861,33 @@ mod tests {
         let all_pairs = all_pairs_shortest_distance(&fst)
             .expect("algorithms/shortest_distance.rs: required value was None/Err");
         assert!(all_pairs.is_empty());
+    }
+
+    #[test]
+    fn test_single_source_with_queue_handles_empty_fst() {
+        let fst: VectorWfst<char, TropicalWeight> = VectorWfstBuilder::new().build();
+        let distances = single_source_shortest_distance_with_queue(&fst, FifoQueue::new())
+            .expect("explicit queue should handle an empty FST");
+
+        assert!(distances.is_empty());
+    }
+
+    #[test]
+    fn test_single_source_with_queue_rejects_invalid_start() {
+        let fst: VectorWfst<char, TropicalWeight> = VectorWfstBuilder::new()
+            .add_states(2)
+            .start(99)
+            .final_state(1, TropicalWeight::one())
+            .arc(0, Some('a'), Some('a'), 1, TropicalWeight::one())
+            .build();
+
+        assert_eq!(fst.start(), NO_STATE);
+
+        let distances = single_source_shortest_distance_with_queue(&fst, FifoQueue::new())
+            .expect("explicit queue should return zero distances for an invalid start");
+
+        assert_eq!(distances.len(), 2);
+        assert!(distances.iter().all(Semiring::is_zero));
     }
 
     #[test]

@@ -45,25 +45,27 @@ pub fn forward_score<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>) -> LogW
     let num_states = grad_fst.num_states();
 
     if num_states == 0 {
+        grad_fst.set_forward_computed(true);
+        grad_fst.set_total_score(LogWeight::zero());
         return LogWeight::zero();
     }
 
     let start = grad_fst.start();
-
-    // Initialize forward scores
-    // All states start at zero (log semiring zero = -∞)
-    // Start state gets one (log semiring one = 0.0)
-    for s in 0..num_states as StateId {
-        grad_fst.set_forward_score(s, LogWeight::zero());
+    if !grad_fst.is_valid_state(start) {
+        grad_fst.set_forward_computed(true);
+        grad_fst.set_total_score(LogWeight::zero());
+        return LogWeight::zero();
     }
-    grad_fst.set_forward_score(start, LogWeight::one());
+
+    let mut forward_scores = vec![LogWeight::zero(); num_states];
+    forward_scores[start as usize] = LogWeight::one();
 
     // Compute topological order
     let topo_order = compute_topological_order(grad_fst);
 
     // Forward pass: compute α values
     for &state in &topo_order {
-        let alpha_state = grad_fst.forward_score(state);
+        let alpha_state = forward_scores[state as usize];
 
         // Skip if this state is unreachable
         if alpha_state.is_zero() {
@@ -73,12 +75,15 @@ pub fn forward_score<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>) -> LogW
         // Propagate to successors
         for trans in grad_fst.transitions(state) {
             let to_state = trans.to;
+            if !grad_fst.is_valid_state(to_state) {
+                continue;
+            }
             let arc_weight = trans.weight;
 
             // α[to] = α[to] ⊕ (α[from] ⊗ arc_weight)
             let contribution = alpha_state.times(&arc_weight);
-            let current = grad_fst.forward_score(to_state);
-            grad_fst.set_forward_score(to_state, current.plus(&contribution));
+            let to_score = &mut forward_scores[to_state as usize];
+            *to_score = to_score.plus(&contribution);
         }
     }
 
@@ -86,11 +91,18 @@ pub fn forward_score<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>) -> LogW
     let mut total = LogWeight::zero();
     for s in 0..num_states as StateId {
         if grad_fst.is_final(s) {
-            let alpha_s = grad_fst.forward_score(s);
+            let alpha_s = forward_scores[s as usize];
+            if alpha_s.is_zero() {
+                continue;
+            }
             let final_weight = grad_fst.final_weight(s);
             let contribution = alpha_s.times(&final_weight);
             total = total.plus(&contribution);
         }
+    }
+
+    for (state, score) in forward_scores.into_iter().enumerate() {
+        grad_fst.set_forward_score(state as StateId, score);
     }
 
     // Mark forward pass as complete and cache total score
@@ -117,6 +129,9 @@ fn compute_topological_order<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>)
     // Count in-degrees
     for s in 0..num_states as StateId {
         for trans in grad_fst.transitions(s) {
+            if !grad_fst.is_valid_state(trans.to) {
+                continue;
+            }
             in_degree[trans.to as usize] += 1;
         }
     }
@@ -129,6 +144,9 @@ fn compute_topological_order<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>)
     while let Some(state) = queue.pop() {
         order.push(state);
         for trans in grad_fst.transitions(state) {
+            if !grad_fst.is_valid_state(trans.to) {
+                continue;
+            }
             let to = trans.to as usize;
             in_degree[to] -= 1;
             if in_degree[to] == 0 {
@@ -354,6 +372,8 @@ mod tests {
         let grad_fst = GradientWfst::from_wfst(&fst);
         let score = forward_score(&grad_fst);
         assert!(score.is_zero());
+        assert!(grad_fst.is_forward_computed());
+        assert_eq!(grad_fst.total_score(), Some(LogWeight::zero()));
     }
 
     #[test]
@@ -404,6 +424,26 @@ mod tests {
 
         // Path weight = 0 + (-1) + (-2) + (-0.5) = -3.5
         assert!((score.value() - (-3.5)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_forward_score_persists_intermediate_scores() {
+        let mut fst = VectorWfst::<char, LogWeight>::new();
+        let s0 = fst.add_state();
+        let s1 = fst.add_state();
+        let s2 = fst.add_state();
+        fst.set_start(s0);
+        fst.set_final(s2, LogWeight::one());
+        fst.add_arc(s0, Some('a'), Some('a'), s1, LogWeight::new(1.25));
+        fst.add_arc(s1, Some('b'), Some('b'), s2, LogWeight::new(2.5));
+
+        let grad_fst = GradientWfst::from_wfst(&fst);
+        let score = forward_score(&grad_fst);
+
+        assert_eq!(grad_fst.forward_score(s0), LogWeight::one());
+        assert!((grad_fst.forward_score(s1).value() - 1.25).abs() < 1e-6);
+        assert!((grad_fst.forward_score(s2).value() - 3.75).abs() < 1e-6);
+        assert!((score.value() - 3.75).abs() < 1e-6);
     }
 
     #[test]
@@ -487,5 +527,35 @@ mod tests {
 
         let _ = forward_score(&grad_fst);
         assert!(grad_fst.is_forward_computed());
+    }
+
+    #[test]
+    fn test_forward_score_ignores_invalid_transition_targets() {
+        let mut fst = VectorWfst::<char, LogWeight>::new();
+        let s0 = fst.add_state();
+        let s1 = fst.add_state();
+        fst.set_start(s0);
+        fst.set_final(s1, LogWeight::one());
+        fst.add_arc(s0, Some('a'), Some('a'), s1, LogWeight::new(1.0));
+        fst.add_arc(s0, Some('x'), Some('x'), 99, LogWeight::new(0.1));
+
+        let grad_fst = GradientWfst::from_wfst(&fst);
+        let score = forward_score(&grad_fst);
+
+        assert!((score.value() - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_forward_score_invalid_start_returns_zero() {
+        let mut fst = VectorWfst::<char, LogWeight>::new();
+        fst.add_state();
+        fst.set_start(99);
+
+        let grad_fst = GradientWfst::from_wfst(&fst);
+        let score = forward_score(&grad_fst);
+
+        assert!(score.is_zero());
+        assert!(grad_fst.is_forward_computed());
+        assert_eq!(grad_fst.total_score(), Some(LogWeight::zero()));
     }
 }

@@ -36,6 +36,8 @@ use crate::cfg::{EarleyParser, ForestNodeId, Grammar, ParseError, ParseForest, P
 use crate::lattice::{Edge, EdgeId, Lattice, LatticePath, NodeId};
 use crate::semiring::Semiring;
 
+type PathPrefix = SmallVec<[EdgeId; 8]>;
+
 /// State of parsing at a lattice position.
 #[derive(Clone, Debug)]
 pub enum ParseState {
@@ -162,12 +164,15 @@ where
             .as_ref()
             .map(|f| f.collect_used_edges())
             .unwrap_or_default();
+        let iterator_capacity = valid_edges.len().saturating_add(1);
+        let mut frontier = Vec::with_capacity(iterator_capacity);
+        frontier.push((self.lattice.start(), SmallVec::new(), W::one()));
 
         ValidPathIterator {
             composition: self,
             valid_edges,
-            frontier: vec![(self.lattice.start(), SmallVec::new(), W::one())],
-            visited: FxHashSet::default(),
+            frontier,
+            visited: FxHashSet::with_capacity_and_hasher(iterator_capacity, Default::default()),
         }
     }
 
@@ -321,9 +326,9 @@ where
     /// Valid edge IDs.
     valid_edges: FxHashSet<EdgeId>,
     /// Frontier of (current_node, path_edges, path_weight).
-    frontier: Vec<(NodeId, SmallVec<[EdgeId; 8]>, W)>,
+    frontier: Vec<(NodeId, PathPrefix, W)>,
     /// Visited states to avoid duplicates.
-    visited: FxHashSet<(NodeId, Vec<EdgeId>)>,
+    visited: FxHashSet<(NodeId, PathPrefix)>,
 }
 
 impl<'c, 'g, 'l, W, B> Iterator for ValidPathIterator<'c, 'g, 'l, W, B>
@@ -342,10 +347,8 @@ where
             if node == end {
                 // Build the path
                 let mut result = LatticePath::with_weight(weight);
-                for &edge_id in &path {
-                    // The edge weight was already accumulated, so use W::one() here
-                    result.edges.push(edge_id);
-                }
+                result.edges.reserve(path.len());
+                result.edges.extend(path.iter().copied());
                 result.mark_complete();
                 return Some(result);
             }
@@ -357,9 +360,8 @@ where
                     new_path.push(edge.id);
 
                     // Check if we've visited this state
-                    let state = (edge.target, new_path.to_vec());
-                    if !self.visited.contains(&state) {
-                        self.visited.insert(state);
+                    let state = (edge.target, new_path.clone());
+                    if self.visited.insert(state) {
                         let new_weight = weight.times(&edge.weight);
                         self.frontier.push((edge.target, new_path, new_weight));
                     }
@@ -552,6 +554,36 @@ mod tests {
 
         let paths: Vec<_> = composition.valid_paths().collect();
         assert!(!paths.is_empty());
+    }
+
+    #[test]
+    fn test_valid_paths_preserve_valid_branches() {
+        let grammar = simple_grammar();
+        let mut backend = HashMapBackend::new();
+        let _the = backend.intern("the");
+        let _a = backend.intern("a");
+        let _dog = backend.intern("dog");
+        let _saw = backend.intern("saw");
+
+        let the_id = grammar.terminal_by_name("the").expect("the").vocab_id();
+        let a_id = grammar.terminal_by_name("a").expect("a").vocab_id();
+        let dog_id = grammar.terminal_by_name("dog").expect("dog").vocab_id();
+        let saw_id = grammar.terminal_by_name("saw").expect("saw").vocab_id();
+
+        let mut builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
+        builder.add_correction_by_id(0, 1, the_id, TropicalWeight::one(), EdgeMetadata::default());
+        builder.add_correction_by_id(0, 1, a_id, TropicalWeight::one(), EdgeMetadata::default());
+        builder.add_correction_by_id(1, 2, dog_id, TropicalWeight::one(), EdgeMetadata::default());
+        builder.add_correction_by_id(2, 3, saw_id, TropicalWeight::one(), EdgeMetadata::default());
+
+        let lattice = builder.build(3);
+        let mut composition = LazyCfgComposition::new(&grammar, &lattice);
+
+        let paths: Vec<_> = composition.valid_paths().collect();
+
+        assert_eq!(paths.len(), 2);
+        assert!(paths.iter().all(|path| path.is_complete));
+        assert!(paths.iter().all(|path| path.edges.len() == 3));
     }
 
     #[test]

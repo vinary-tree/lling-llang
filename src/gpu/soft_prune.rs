@@ -513,8 +513,7 @@ impl AdaptiveBeam {
             self.max_cost = cost;
         }
 
-        // We'll compute the bucket index after all costs are added
-        // For now, just track min/max
+        // Bucket assignment is the second pass; this pass establishes the range.
     }
 
     /// Set the cost range for threshold computation.

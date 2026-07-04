@@ -125,6 +125,7 @@ impl Default for PackedToken {
 /// - Positive floats: flip sign bit (0x80000000 XOR)
 /// - Negative floats: flip all bits (NOT)
 pub fn pack_cost_arc(cost: f32, arc_id: u32) -> u64 {
+    let cost = if cost.is_nan() { f32::INFINITY } else { cost };
     let cost_bits = cost.to_bits();
 
     // Transform to preserve ordering under integer comparison
@@ -228,7 +229,9 @@ impl RecombinationBuffer {
         for token in &self.state_tokens {
             token.store(u64::MAX, Ordering::Relaxed);
         }
-        // Per-arc tokens don't need reset (overwritten when used)
+        for token in &self.per_arc_tokens {
+            token.store(u64::MAX, Ordering::Relaxed);
+        }
     }
 
     /// Attempt to recombine a token at a state.
@@ -243,12 +246,23 @@ impl RecombinationBuffer {
     ///
     /// `true` if this token won (was better than existing), `false` otherwise.
     pub fn recombine(&self, state: usize, cost: f32, arc_id: u32) -> bool {
+        if cost.is_nan() {
+            return false;
+        }
+
+        let Some(state_token) = self.state_tokens.get(state) else {
+            return false;
+        };
+        let Some(arc_token) = self.per_arc_tokens.get(arc_id as usize) else {
+            return false;
+        };
+
         let packed = pack_cost_arc(cost, arc_id);
-        let old = self.state_tokens[state].fetch_min(packed, Ordering::AcqRel);
+        let old = state_token.fetch_min(packed, Ordering::AcqRel);
 
         if old > packed {
             // This token won, store in per-arc buffer
-            self.per_arc_tokens[arc_id as usize].store(packed, Ordering::Release);
+            arc_token.store(packed, Ordering::Release);
             true
         } else {
             false
@@ -257,7 +271,7 @@ impl RecombinationBuffer {
 
     /// Get the best token for a state.
     pub fn get_token(&self, state: usize) -> Option<PackedToken> {
-        let packed = self.state_tokens[state].load(Ordering::Acquire);
+        let packed = self.state_tokens.get(state)?.load(Ordering::Acquire);
         if packed == u64::MAX {
             None
         } else {
@@ -267,7 +281,10 @@ impl RecombinationBuffer {
 
     /// Get the token stored for an arc (if it won).
     pub fn get_arc_token(&self, arc_id: u32) -> Option<PackedToken> {
-        let packed = self.per_arc_tokens[arc_id as usize].load(Ordering::Acquire);
+        let packed = self
+            .per_arc_tokens
+            .get(arc_id as usize)?
+            .load(Ordering::Acquire);
         if packed == u64::MAX {
             None
         } else {
@@ -369,6 +386,17 @@ mod tests {
     }
 
     #[test]
+    fn test_pack_nan_canonicalizes_to_infinity() {
+        let packed = pack_cost_arc(f32::NAN, 7);
+        let (cost, arc_id) = unpack_cost_arc(packed);
+
+        assert!(cost.is_infinite());
+        assert!(cost.is_sign_positive());
+        assert_eq!(arc_id, 7);
+        assert_ne!(packed, PackedToken::EMPTY.raw());
+    }
+
+    #[test]
     fn test_ordering_positive_costs() {
         // Lower costs should have lower packed values
         let packed1 = pack_cost_arc(1.0, 0);
@@ -460,9 +488,36 @@ mod tests {
         buffer.recombine(0, 1.0, 0);
         buffer.recombine(1, 1.0, 1);
         assert_eq!(buffer.num_active(), 2);
+        assert!(buffer.get_arc_token(0).is_some());
 
         buffer.reset();
         assert_eq!(buffer.num_active(), 0);
+        assert!(buffer.get_arc_token(0).is_none());
+    }
+
+    #[test]
+    fn test_recombine_rejects_invalid_indices() {
+        let buffer = RecombinationBuffer::new(1, 1);
+
+        assert!(!buffer.recombine(1, 1.0, 0));
+        assert!(!buffer.recombine(0, 1.0, 1));
+        assert!(buffer.get_token(1).is_none());
+        assert!(buffer.get_arc_token(1).is_none());
+        assert_eq!(buffer.num_active(), 0);
+    }
+
+    #[test]
+    fn test_recombine_rejects_nan_costs() {
+        let buffer = RecombinationBuffer::new(1, 2);
+
+        assert!(!buffer.recombine(0, f32::NAN, 0));
+        assert!(buffer.get_token(0).is_none());
+        assert!(buffer.recombine(0, 1.0, 1));
+        assert!(!buffer.recombine(0, f32::NAN, 0));
+
+        let token = buffer.get_token(0).expect("finite token should remain");
+        assert_eq!(token.arc_id(), 1);
+        assert_eq!(token.cost(), 1.0);
     }
 
     #[test]

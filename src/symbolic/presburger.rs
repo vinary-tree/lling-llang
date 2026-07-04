@@ -53,7 +53,8 @@
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt;
 
-use crate::symbolic::logict::{ConstraintTheory, LogicStream};
+use super::logict::{ConstraintTheory, LogicStream};
+use super::BooleanAlgebra;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Types — Sprint 4
@@ -115,7 +116,10 @@ impl LinearConstraint {
     /// `a > b` ↔ `-(a) ≤ -(b+1)` ↔ `-(a) ≤ -b - 1`
     pub fn from_gt(terms: Vec<(usize, i64)>, rhs: i64) -> Self {
         let negated_terms: Vec<(usize, i64)> = terms.into_iter().map(|(v, c)| (v, -c)).collect();
-        LinearConstraint { terms: negated_terms, rhs: -rhs - 1 }
+        LinearConstraint {
+            terms: negated_terms,
+            rhs: -rhs - 1,
+        }
     }
 
     /// Convert `Σ aᵢ·xᵢ ≥ b` to normal form: `Σ (-aᵢ)·xᵢ ≤ -b`.
@@ -123,21 +127,30 @@ impl LinearConstraint {
     /// `a ≥ b` ↔ `-(a) ≤ -(b)` ↔ `Σ (-aᵢ)·xᵢ ≤ -b`
     pub fn from_gte(terms: Vec<(usize, i64)>, rhs: i64) -> Self {
         let negated_terms: Vec<(usize, i64)> = terms.into_iter().map(|(v, c)| (v, -c)).collect();
-        LinearConstraint { terms: negated_terms, rhs: -rhs }
+        LinearConstraint {
+            terms: negated_terms,
+            rhs: -rhs,
+        }
     }
 
     /// Convert `Σ aᵢ·xᵢ < b` to normal form: `Σ aᵢ·xᵢ ≤ b - 1`.
     ///
     /// `a < b` ↔ `a ≤ b - 1` (for integers)
     pub fn from_lt(terms: Vec<(usize, i64)>, rhs: i64) -> Self {
-        LinearConstraint { terms, rhs: rhs - 1 }
+        LinearConstraint {
+            terms,
+            rhs: rhs - 1,
+        }
     }
 
     /// Convert `Σ aᵢ·xᵢ = b` to a conjunction of two ≤ constraints.
     ///
     /// `a = b` ↔ `a ≤ b ∧ a ≥ b` ↔ `a ≤ b ∧ -a ≤ -b`
     pub fn from_eq(terms: Vec<(usize, i64)>, rhs: i64) -> (Self, Self) {
-        let leq = LinearConstraint { terms: terms.clone(), rhs };
+        let leq = LinearConstraint {
+            terms: terms.clone(),
+            rhs,
+        };
         let geq = LinearConstraint::from_gte(terms, rhs);
         (leq, geq)
     }
@@ -199,7 +212,10 @@ pub enum PresburgerPred {
     /// Existential quantification: `∃ xᵥ. φ`.
     ///
     /// Implemented via NFA projection (drop the bit dimension for variable `var`).
-    Exists { var: usize, body: Box<PresburgerPred> },
+    Exists {
+        var: usize,
+        body: Box<PresburgerPred>,
+    },
 }
 
 impl PresburgerPred {
@@ -235,7 +251,10 @@ impl PresburgerPred {
     /// Convenience: `a ≠ b` (disjunction of < and >).
     pub fn neq(terms: Vec<(usize, i64)>, rhs: i64) -> Self {
         let (lt, gt) = LinearConstraint::from_neq(terms, rhs);
-        PresburgerPred::Or(Box::new(PresburgerPred::Atom(lt)), Box::new(PresburgerPred::Atom(gt)))
+        PresburgerPred::Or(
+            Box::new(PresburgerPred::Atom(lt)),
+            Box::new(PresburgerPred::Atom(gt)),
+        )
     }
 
     /// Number of distinct variables referenced in the entire formula.
@@ -312,11 +331,11 @@ pub fn evaluate_presburger(
         PresburgerPred::And(a, b) => {
             evaluate_presburger(a, assignment, bit_width)
                 && evaluate_presburger(b, assignment, bit_width)
-        },
+        }
         PresburgerPred::Or(a, b) => {
             evaluate_presburger(a, assignment, bit_width)
                 || evaluate_presburger(b, assignment, bit_width)
-        },
+        }
         PresburgerPred::Not(inner) => !evaluate_presburger(inner, assignment, bit_width),
         PresburgerPred::Exists { var, body } => {
             // Bounded search: try all values in the bit-width range.
@@ -333,7 +352,7 @@ pub fn evaluate_presburger(
                 ext.0[*var] = val;
                 evaluate_presburger(body, &ext, bit_width)
             })
-        },
+        }
     }
 }
 
@@ -374,9 +393,10 @@ fn push_negation_inward(pred: &PresburgerPred) -> PresburgerPred {
             Box::new(push_negation_inward(a)),
             Box::new(push_negation_inward(b)),
         ),
-        PresburgerPred::Or(a, b) => {
-            PresburgerPred::Or(Box::new(push_negation_inward(a)), Box::new(push_negation_inward(b)))
-        },
+        PresburgerPred::Or(a, b) => PresburgerPred::Or(
+            Box::new(push_negation_inward(a)),
+            Box::new(push_negation_inward(b)),
+        ),
         PresburgerPred::Not(inner) => negate_pred(inner),
         PresburgerPred::Exists { var, body } => PresburgerPred::Exists {
             var: *var,
@@ -393,19 +413,19 @@ fn negate_pred(pred: &PresburgerPred) -> PresburgerPred {
         PresburgerPred::Atom(c) => {
             // NOT(Σ aᵢxᵢ ≤ b) = Σ aᵢxᵢ > b = Σ (-aᵢ)xᵢ ≤ -(b+1)
             PresburgerPred::Atom(LinearConstraint::from_gt(c.terms.clone(), c.rhs))
-        },
+        }
         PresburgerPred::And(a, b) => {
             // De Morgan: NOT(A AND B) = NOT(A) OR NOT(B)
             PresburgerPred::Or(Box::new(negate_pred(a)), Box::new(negate_pred(b)))
-        },
+        }
         PresburgerPred::Or(a, b) => {
             // De Morgan: NOT(A OR B) = NOT(A) AND NOT(B)
             PresburgerPred::And(Box::new(negate_pred(a)), Box::new(negate_pred(b)))
-        },
+        }
         PresburgerPred::Not(inner) => {
             // Double negation: NOT(NOT(A)) = A
             push_negation_inward(inner)
-        },
+        }
         PresburgerPred::Exists { var, body } => {
             // NOT(EXISTS x. A) = FORALL x. NOT(A)
             // For bounded integers: FORALL x. P(x) = NOT(EXISTS x. NOT(P(x)))
@@ -420,7 +440,7 @@ fn negate_pred(pred: &PresburgerPred) -> PresburgerPred {
                 var: *var,
                 body: Box::new(push_negation_inward(body)),
             }))
-        },
+        }
     }
 }
 
@@ -605,23 +625,23 @@ impl PresburgerNfa {
                 let nfa_a = Self::compile_nnf(a, num_vars, bit_width);
                 let nfa_b = Self::compile_nnf(b, num_vars, bit_width);
                 intersect_nfa(&nfa_a, &nfa_b)
-            },
+            }
             PresburgerPred::Or(a, b) => {
                 let nfa_a = Self::compile_nnf(a, num_vars, bit_width);
                 let nfa_b = Self::compile_nnf(b, num_vars, bit_width);
                 union_nfa(&nfa_a, &nfa_b)
-            },
+            }
             PresburgerPred::Not(inner) => {
                 // After NNF conversion, Not only appears wrapping Exists
                 // (representing FORALL = NOT EXISTS). Handle by building the
                 // inner NFA and complementing using the fixed-length complement.
                 let nfa_inner = Self::compile_nnf(inner, num_vars, bit_width);
                 complement_fixed_length(&nfa_inner)
-            },
+            }
             PresburgerPred::Exists { var, body } => {
                 let nfa_body = Self::compile_nnf(body, num_vars, bit_width);
                 project_nfa(&nfa_body, *var)
-            },
+            }
         }
     }
 
@@ -839,7 +859,10 @@ impl PresburgerNfa {
 /// A state `(s1, s2)` in the product is accepting iff both `s1` and `s2` are
 /// accepting in their respective NFAs.
 pub fn intersect_nfa(a: &PresburgerNfa, b: &PresburgerNfa) -> PresburgerNfa {
-    assert_eq!(a.num_vars, b.num_vars, "NFAs must have same number of variables");
+    assert_eq!(
+        a.num_vars, b.num_vars,
+        "NFAs must have same number of variables"
+    );
     let num_vars = a.num_vars;
     let bit_width = a.bit_width.max(b.bit_width);
     let alpha_size = 1u32 << num_vars;
@@ -908,7 +931,10 @@ pub fn intersect_nfa(a: &PresburgerNfa, b: &PresburgerNfa) -> PresburgerNfa {
 /// The resulting NFA accepts the union of the languages of `a` and `b`.
 /// A state in the product is accepting iff either component state is accepting.
 pub fn union_nfa(a: &PresburgerNfa, b: &PresburgerNfa) -> PresburgerNfa {
-    assert_eq!(a.num_vars, b.num_vars, "NFAs must have same number of variables");
+    assert_eq!(
+        a.num_vars, b.num_vars,
+        "NFAs must have same number of variables"
+    );
     let num_vars = a.num_vars;
     let bit_width = a.bit_width.max(b.bit_width);
     let alpha_size = 1u32 << num_vars;
@@ -1176,11 +1202,13 @@ impl PresburgerAlgebra {
 
     /// Create a new `PresburgerAlgebra` with the default bit width (16).
     pub fn default_width() -> Self {
-        PresburgerAlgebra { bit_width: DEFAULT_BIT_WIDTH }
+        PresburgerAlgebra {
+            bit_width: DEFAULT_BIT_WIDTH,
+        }
     }
 }
 
-impl crate::symbolic::BooleanAlgebra for PresburgerAlgebra {
+impl BooleanAlgebra for PresburgerAlgebra {
     type Predicate = PresburgerPred;
     type Domain = IntAssignment;
 
@@ -1224,7 +1252,7 @@ impl crate::symbolic::BooleanAlgebra for PresburgerAlgebra {
         match pred {
             PresburgerPred::True => return true,
             PresburgerPred::False => return false,
-            _ => {},
+            _ => {}
         }
 
         let nfa = PresburgerNfa::from_pred(pred, self.bit_width);
@@ -1235,7 +1263,7 @@ impl crate::symbolic::BooleanAlgebra for PresburgerAlgebra {
         match pred {
             PresburgerPred::True => return Some(IntAssignment(vec![0])),
             PresburgerPred::False => return None,
-            _ => {},
+            _ => {}
         }
 
         let nfa = PresburgerNfa::from_pred(pred, self.bit_width);
@@ -1281,7 +1309,10 @@ impl PresburgerStore {
 
     fn rebuild_nfa(&mut self) {
         if self.constraints.is_empty() {
-            self.nfa = Some(PresburgerNfa::universal(self.num_vars.max(1), self.bit_width));
+            self.nfa = Some(PresburgerNfa::universal(
+                self.num_vars.max(1),
+                self.bit_width,
+            ));
             return;
         }
 
@@ -1325,7 +1356,9 @@ impl PresburgerTheory {
 
     /// Create a new `PresburgerTheory` with the default bit width (16).
     pub fn default_width() -> Self {
-        PresburgerTheory { bit_width: DEFAULT_BIT_WIDTH }
+        PresburgerTheory {
+            bit_width: DEFAULT_BIT_WIDTH,
+        }
     }
 }
 
@@ -1399,7 +1432,6 @@ pub fn is_satisfiable_nfa(pred: &PresburgerPred, bit_width: usize) -> bool {
         _ => {
             let nfa = PresburgerNfa::from_pred(pred, bit_width);
             nfa.is_nonempty()
-        },
+        }
     }
 }
-

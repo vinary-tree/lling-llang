@@ -50,8 +50,10 @@
 //!     fn num_units(&self) -> usize { 4096 }  // senone outputs
 //!
 //!     fn forward(&self, frames: &[Vec<f32>]) -> Vec<Vec<f32>> {
-//!         // Run neural network inference
-//!         unimplemented!()
+//!         frames
+//!             .iter()
+//!             .map(|_| vec![0.0; self.num_units()])
+//!             .collect()
 //!     }
 //! }
 //! ```
@@ -689,8 +691,8 @@ mod tests {
             num_units: 100,
         });
 
-        // Use a placeholder for LM (we don't need actual scoring for this test)
-        let language: Arc<()> = Arc::new(());
+        struct UnitLanguageModel;
+        let language = Arc::new(UnitLanguageModel);
 
         let config = FusionConfig {
             acoustic_weight: 1.0,

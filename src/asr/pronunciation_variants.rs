@@ -181,10 +181,9 @@ impl<W: Semiring> PronunciationVariantTransducer<W> {
 
     /// Add a pronunciation entry.
     pub fn add_entry(&mut self, entry: PronunciationEntry) {
-        self.entries
-            .entry(entry.word.clone())
-            .or_insert_with(Vec::new)
-            .push(entry);
+        let word = entry.word.clone();
+        self.get_or_create_word(&word);
+        self.entries.entry(word).or_default().push(entry);
     }
 
     /// Add a reduced form mapping.
@@ -273,11 +272,8 @@ impl<W: Semiring> PronunciationVariantTransducer<W> {
             // Parse the line
             if let Some((word_part, phones_part)) = line.split_once("  ") {
                 let (word, variant_tag) = Self::parse_word_with_variant(word_part);
-                let phones: Vec<&str> = phones_part.split_whitespace().collect();
-
-                // Convert phones to IDs
-                let phone_ids: Vec<PhoneId> = phones
-                    .iter()
+                let phone_ids: Vec<PhoneId> = phones_part
+                    .split_whitespace()
                     .map(|p| transducer.get_or_create_phone(p))
                     .collect();
 
@@ -322,6 +318,83 @@ impl<W: Semiring> PronunciationVariantTransducer<W> {
             }
         }
     }
+
+    fn pronunciation_state_count(&self) -> usize {
+        self.entries
+            .values()
+            .flat_map(|variants| variants.iter())
+            .map(|entry| entry.phonemes.len())
+            .sum()
+    }
+
+    fn pronunciation_start_transition_count(&self) -> usize {
+        self.entries
+            .values()
+            .flat_map(|variants| variants.iter())
+            .filter(|entry| !entry.phonemes.is_empty())
+            .count()
+    }
+
+    fn nonempty_pronunciation_count(entries: Option<&[PronunciationEntry]>) -> usize {
+        entries
+            .into_iter()
+            .flatten()
+            .filter(|entry| !entry.phonemes.is_empty())
+            .count()
+    }
+
+    fn pronunciation_phone_count(entries: Option<&[PronunciationEntry]>) -> usize {
+        entries
+            .into_iter()
+            .flatten()
+            .map(|entry| entry.phonemes.len())
+            .sum()
+    }
+
+    fn reduced_form_state_count(&self) -> usize {
+        if !self.config.include_reduced_forms {
+            return 0;
+        }
+
+        self.reduced_forms
+            .iter()
+            .map(|reduced_form| {
+                let full_variant_count =
+                    Self::nonempty_pronunciation_count(self.get_pronunciations(&reduced_form.full));
+                let reduced_phone_count =
+                    Self::pronunciation_phone_count(self.get_pronunciations(&reduced_form.reduced));
+
+                full_variant_count * reduced_phone_count
+            })
+            .sum()
+    }
+
+    fn reduced_form_start_transition_count(&self) -> usize {
+        if !self.config.include_reduced_forms {
+            return 0;
+        }
+
+        self.reduced_forms
+            .iter()
+            .map(|reduced_form| {
+                let full_variant_count =
+                    Self::nonempty_pronunciation_count(self.get_pronunciations(&reduced_form.full));
+                let reduced_variant_count = Self::nonempty_pronunciation_count(
+                    self.get_pronunciations(&reduced_form.reduced),
+                );
+
+                full_variant_count * reduced_variant_count
+            })
+            .sum()
+    }
+
+    fn lexicon_state_capacity(&self) -> usize {
+        1 + self.pronunciation_state_count() + self.reduced_form_state_count()
+    }
+
+    fn lexicon_start_transition_count(&self) -> usize {
+        self.pronunciation_start_transition_count() + self.reduced_form_start_transition_count()
+    }
 }
 
 impl<W: Semiring + From<f64> + Clone> PronunciationVariantTransducer<W> {
@@ -330,11 +403,13 @@ impl<W: Semiring + From<f64> + Clone> PronunciationVariantTransducer<W> {
     /// The transducer maps word IDs (input) to phone sequences (output).
     /// Each word can have multiple paths for its pronunciation variants.
     pub fn build(&self) -> VectorWfst<PhoneId, W> {
-        let mut fst: VectorWfst<PhoneId, W> = VectorWfst::new();
+        let mut fst: VectorWfst<PhoneId, W> =
+            VectorWfst::with_capacity(self.lexicon_state_capacity());
 
         // Start state
         fst.add_state();
         fst.set_start(0);
+        fst.reserve_transitions(0, self.lexicon_start_transition_count());
 
         // Also make start state final (for empty input)
         fst.set_final(0, W::one());
@@ -361,6 +436,7 @@ impl<W: Semiring + From<f64> + Clone> PronunciationVariantTransducer<W> {
                     if is_last {
                         // Last phone goes back to start (or to a final state)
                         fst.add_state();
+                        fst.reserve_transitions(next_state, 1);
                         fst.add_transition(WeightedTransition {
                             from: current_state,
                             input: Some(phone),
@@ -385,6 +461,7 @@ impl<W: Semiring + From<f64> + Clone> PronunciationVariantTransducer<W> {
                     } else {
                         // Intermediate phone
                         fst.add_state();
+                        fst.reserve_transitions(next_state, 1);
                         fst.add_transition(WeightedTransition {
                             from: current_state,
                             input: Some(phone),
@@ -423,6 +500,7 @@ impl<W: Semiring + From<f64> + Clone> PronunciationVariantTransducer<W> {
                                         let is_last = i == reduced_entry.phonemes.len() - 1;
 
                                         fst.add_state();
+                                        fst.reserve_transitions(next_state, 1);
                                         fst.add_transition(WeightedTransition {
                                             from: current_state,
                                             input: Some(phone),
@@ -460,11 +538,13 @@ impl<W: Semiring + From<f64> + Clone> PronunciationVariantTransducer<W> {
     ///
     /// Useful for decoding: given a phone sequence, find matching words.
     pub fn build_inverse(&self) -> VectorWfst<PhoneId, W> {
-        let mut fst: VectorWfst<PhoneId, W> = VectorWfst::new();
+        let mut fst: VectorWfst<PhoneId, W> =
+            VectorWfst::with_capacity(1 + self.pronunciation_state_count());
 
         fst.add_state();
         fst.set_start(0);
         fst.set_final(0, W::one());
+        fst.reserve_transitions(0, self.pronunciation_start_transition_count());
 
         let mut next_state: StateId = 1;
 
@@ -483,6 +563,7 @@ impl<W: Semiring + From<f64> + Clone> PronunciationVariantTransducer<W> {
                     let is_last = i == variant.phonemes.len() - 1;
 
                     fst.add_state();
+                    fst.reserve_transitions(next_state, 1);
                     fst.add_transition(WeightedTransition {
                         from: current_state,
                         // Inverse: input is word, output is phone
@@ -617,6 +698,24 @@ mod tests {
         assert!(transducer.get_pronunciations("hello").is_some());
         assert!(transducer.get_pronunciations("world").is_some());
         assert!(transducer.get_pronunciations("unknown").is_none());
+    }
+
+    #[test]
+    fn test_add_entry_registers_word_ids_for_build() {
+        let mut transducer = PronunciationVariantTransducer::<TropicalWeight>::new();
+
+        transducer.add_entry(PronunciationEntry::new("hello", vec![1], 1.0));
+        transducer.add_entry(PronunciationEntry::new("world", vec![2], 1.0));
+
+        assert_eq!(transducer.word_table.get("hello"), Some(&0));
+        assert_eq!(transducer.word_table.get("world"), Some(&1));
+
+        let fst = transducer.build();
+        let mut outputs: Vec<_> = fst.transitions(0).iter().filter_map(|t| t.output).collect();
+        outputs.sort_unstable();
+        outputs.dedup();
+
+        assert_eq!(outputs, vec![0, 1]);
     }
 
     #[test]

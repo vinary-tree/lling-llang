@@ -29,7 +29,7 @@ The figure below shows a backward push: each arc is reweighted by the potentials
 
 ![Weight pushing before/after: a 0→1→2 chain reweighted by backward potentials V(q) so arc weights move toward the start while every path total stays 3.5 and the final weight ρ becomes 1̄](../diagrams/algorithms/weight-pushing.svg)
 
-*Left = original tropical weights with each state's potential `` `V(q)` `` annotated; right = pushed — `` `w'(e) = V(t) ⊗ w(e) ⊗ V(s)⁻¹` ``, mass pulled toward the start, `` `ρ → 1̄` `` (green dashed final-weight stub).*
+*Left = original tropical weights with each state's potential `` `V(q)` `` annotated; right = pushed — `` `w'(e) = V(t) ⊗ w(e) ⊗ V(s)⁻¹` ``, mass pulled toward the start, `` `ρ → 1̄` `` (green dashed final-weight indicator).*
 
 <details><summary>Text view</summary>
 
@@ -370,7 +370,7 @@ match prepare_for_beam_search(&mut fst, config) {
 - [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted Finite-State Transducers in Speech Recognition*: weight pushing via potentials, the log-vs-tropical pruning distinction, and the reported up-to-18× beam-search speedup.
 - [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms*: the general potential-function formulation of pushing over a divisible semiring and its role in minimization.
 
-## Next Steps
+## Related Topics
 
 - [Shortest-Distance](shortest-distance.md): Foundation for potential computation
 - [Minimization](minimization.md): Uses weight pushing as prerequisite

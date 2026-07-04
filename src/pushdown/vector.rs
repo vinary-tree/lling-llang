@@ -239,6 +239,20 @@ impl<L: Clone + Eq + Hash, W: Semiring + Clone> VectorPda<L, W> {
         self.states.reserve(additional);
     }
 
+    fn configuration_capacity(&self, input_len: usize) -> usize {
+        self.states
+            .len()
+            .saturating_mul(input_len.saturating_add(1))
+            .max(1)
+    }
+
+    fn state_frontier_capacity(&self) -> usize {
+        self.states
+            .len()
+            .saturating_add(self.num_transitions)
+            .max(1)
+    }
+
     /// Check if the PDA accepts the given input using breadth-first search.
     ///
     /// This is a simple recognition algorithm that may not terminate
@@ -250,10 +264,13 @@ impl<L: Clone + Eq + Hash, W: Semiring + Clone> VectorPda<L, W> {
         L: PartialEq,
     {
         let input_vec: Vec<L> = input.into_iter().collect();
+        let configuration_capacity = self.configuration_capacity(input_vec.len());
         let initial = PdaConfiguration::initial(self.start, input_vec, self.initial_stack);
 
-        let mut visited: HashSet<(StateId, usize, Vec<StackSymbol>)> = HashSet::new();
-        let mut queue: VecDeque<PdaConfiguration<L>> = VecDeque::new();
+        let mut visited: HashSet<(StateId, usize, Vec<StackSymbol>)> =
+            HashSet::with_capacity(configuration_capacity);
+        let mut queue: VecDeque<PdaConfiguration<L>> =
+            VecDeque::with_capacity(configuration_capacity);
         queue.push_back(initial);
 
         while let Some(config) = queue.pop_front() {
@@ -263,10 +280,9 @@ impl<L: Clone + Eq + Hash, W: Semiring + Clone> VectorPda<L, W> {
                 config.remaining_input.len(),
                 config.stack.clone(),
             );
-            if visited.contains(&key) {
+            if !visited.insert(key) {
                 continue;
             }
-            visited.insert(key);
 
             // Check if we're in an accepting configuration
             if self.is_config_accepting(&config) {
@@ -317,34 +333,32 @@ impl<L: Clone + Eq + Hash, W: Semiring + Clone> VectorPda<L, W> {
     }
 
     /// Get epsilon transitions from a state with a given stack top (inherent method).
-    fn get_epsilon_transitions(
-        &self,
+    fn get_epsilon_transitions<'a>(
+        &'a self,
         state: StateId,
         stack_top: StackSymbol,
-    ) -> Vec<&PdaTransition<L, W>>
+    ) -> impl Iterator<Item = &'a PdaTransition<L, W>> + 'a
     where
         L: PartialEq,
     {
         self.get_transitions(state)
             .iter()
-            .filter(|t| t.is_epsilon() && t.stack_top == stack_top)
-            .collect()
+            .filter(move |t| t.is_epsilon() && t.stack_top == stack_top)
     }
 
     /// Get transitions matching a specific input and stack top (inherent method).
-    fn get_matching_transitions(
-        &self,
+    fn get_matching_transitions<'a>(
+        &'a self,
         state: StateId,
-        input: Option<&L>,
+        input: Option<&'a L>,
         stack_top: StackSymbol,
-    ) -> Vec<&PdaTransition<L, W>>
+    ) -> impl Iterator<Item = &'a PdaTransition<L, W>> + 'a
     where
         L: PartialEq,
     {
         self.get_transitions(state)
             .iter()
-            .filter(|t| t.matches(input, stack_top))
-            .collect()
+            .filter(move |t| t.matches(input, stack_top))
     }
 
     /// Get the accepting weight for a configuration (inherent method).
@@ -389,11 +403,14 @@ impl<L: Clone + Eq + Hash, W: Semiring + Clone> VectorPda<L, W> {
         L: PartialEq,
     {
         let input_vec: Vec<L> = input.into_iter().collect();
+        let configuration_capacity = self.configuration_capacity(input_vec.len());
         let initial = PdaConfiguration::initial(self.start, input_vec, self.initial_stack);
 
         // Map from configurations to accumulated weights
-        let mut weights: HashMap<(StateId, usize, Vec<StackSymbol>), W> = HashMap::new();
-        let mut queue: VecDeque<(PdaConfiguration<L>, W)> = VecDeque::new();
+        let mut weights: HashMap<(StateId, usize, Vec<StackSymbol>), W> =
+            HashMap::with_capacity(configuration_capacity);
+        let mut queue: VecDeque<(PdaConfiguration<L>, W)> =
+            VecDeque::with_capacity(configuration_capacity);
         queue.push_back((initial, W::one()));
 
         let mut total = W::zero();
@@ -406,7 +423,7 @@ impl<L: Clone + Eq + Hash, W: Semiring + Clone> VectorPda<L, W> {
             );
 
             // Update weight for this configuration
-            let current_weight = weights.entry(key.clone()).or_insert_with(W::zero);
+            let current_weight = weights.entry(key).or_insert_with(W::zero);
             *current_weight = current_weight.clone().plus(&path_weight);
 
             // Check if we're in an accepting configuration
@@ -463,8 +480,11 @@ impl<L: Clone + Eq + Hash, W: Semiring + Clone> VectorPda<L, W> {
         let mut fst: VectorWfst<L, W> = VectorWfst::new();
 
         // Map from (state, stack) to FST state
-        let mut state_map: HashMap<(StateId, Vec<StackSymbol>), StateId> = HashMap::new();
-        let mut queue: VecDeque<(StateId, Vec<StackSymbol>)> = VecDeque::new();
+        let state_frontier_capacity = self.state_frontier_capacity();
+        let mut state_map: HashMap<(StateId, Vec<StackSymbol>), StateId> =
+            HashMap::with_capacity(state_frontier_capacity);
+        let mut queue: VecDeque<(StateId, Vec<StackSymbol>)> =
+            VecDeque::with_capacity(state_frontier_capacity);
 
         // Initial FST state
         let initial_stack = vec![self.initial_stack];

@@ -35,16 +35,16 @@
 //! ```
 
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, VecDeque};
 use std::hash::Hash;
 use std::marker::PhantomData;
 
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
-use super::{EpsilonFilter, EpsilonFilterType, FilterState};
+use super::filter::{EpsilonFilter, EpsilonFilterType, FilterState};
 use crate::semiring::Semiring;
-use crate::wfst::{CachePolicy, StateId, Wfst};
+use crate::wfst::{CachePolicy, StateId, WeightedTransition, Wfst};
 
 /// A product state in the composed FST.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -139,6 +139,10 @@ where
     fst2: F2,
     /// Cache of computed product states.
     state_cache: FxHashMap<ProductStateId, CachedState<L, W>>,
+    /// Most recently computed state when persistent caching is disabled.
+    transient_state: Option<(ProductStateId, CachedState<L, W>)>,
+    /// Access order for LRU eviction.
+    access_order: VecDeque<ProductStateId>,
     /// Epsilon filter.
     filter: EpsilonFilter,
     /// Cache policy.
@@ -164,6 +168,8 @@ where
             fst1,
             fst2,
             state_cache: FxHashMap::default(),
+            transient_state: None,
+            access_order: VecDeque::new(),
             filter: EpsilonFilter::default(),
             policy: CachePolicy::CacheAll,
             start,
@@ -179,6 +185,8 @@ where
             fst1,
             fst2,
             state_cache: FxHashMap::default(),
+            transient_state: None,
+            access_order: VecDeque::new(),
             filter: EpsilonFilter::new(filter_type),
             policy: CachePolicy::CacheAll,
             start,
@@ -189,6 +197,7 @@ where
     /// Set cache policy.
     pub fn with_cache_policy(mut self, policy: CachePolicy) -> Self {
         self.policy = policy;
+        self.enforce_cache_policy();
         self
     }
 
@@ -197,7 +206,7 @@ where
         self.start
     }
 
-    /// Get the number of states computed so far.
+    /// Get the number of product states retained in the persistent cache.
     pub fn computed_states(&self) -> usize {
         self.state_cache.len()
     }
@@ -205,17 +214,13 @@ where
     /// Check if a product state is final.
     pub fn is_final(&mut self, state: ProductStateId) -> bool {
         self.ensure_computed(state);
-        self.state_cache
-            .get(&state)
-            .map(|s| s.is_final)
-            .unwrap_or(false)
+        self.state_entry(state).map(|s| s.is_final).unwrap_or(false)
     }
 
     /// Get the final weight of a product state.
     pub fn final_weight(&mut self, state: ProductStateId) -> W {
         self.ensure_computed(state);
-        self.state_cache
-            .get(&state)
+        self.state_entry(state)
             .map(|s| s.final_weight)
             .unwrap_or_else(W::zero)
     }
@@ -226,38 +231,119 @@ where
         state: ProductStateId,
     ) -> SmallVec<[ComposedTransition<L, W>; 4]> {
         self.ensure_computed(state);
-        self.state_cache
-            .get(&state)
+        self.state_entry(state)
             .map(|s| s.transitions.clone())
             .unwrap_or_default()
     }
 
     /// Ensure a product state is computed and cached.
     fn ensure_computed(&mut self, state: ProductStateId) {
-        if self.state_cache.contains_key(&state) {
+        if self.state_entry(state).is_some() {
+            if matches!(self.policy, CachePolicy::Lru { max_states } if max_states > 0) {
+                self.touch_lru(state);
+            }
             return;
         }
 
         let cached = self.compute_state(state);
+        self.insert_computed(state, cached);
+    }
 
+    /// Return a computed state from the persistent cache or transient no-cache slot.
+    fn state_entry(&self, state: ProductStateId) -> Option<&CachedState<L, W>> {
+        self.state_cache.get(&state).or_else(|| {
+            self.transient_state
+                .as_ref()
+                .filter(|(transient_state, _)| *transient_state == state)
+                .map(|(_, cached)| cached)
+        })
+    }
+
+    /// Insert a newly computed state according to the active cache policy.
+    fn insert_computed(&mut self, state: ProductStateId, cached: CachedState<L, W>) {
         match self.policy {
             CachePolicy::CacheAll => {
+                self.transient_state = None;
                 self.state_cache.insert(state, cached);
             }
             CachePolicy::Lru { max_states } => {
-                if self.state_cache.len() >= max_states {
-                    // Simple eviction: remove oldest entry
-                    // For a proper LRU, we'd need access timestamps
-                    if let Some(key) = self.state_cache.keys().next().cloned() {
-                        self.state_cache.remove(&key);
-                    }
+                self.transient_state = None;
+                if max_states == 0 {
+                    self.state_cache.clear();
+                    self.access_order.clear();
+                    self.transient_state = Some((state, cached));
+                    return;
                 }
+
+                while self.state_cache.len() >= max_states {
+                    self.evict_lru();
+                }
+
                 self.state_cache.insert(state, cached);
+                self.access_order.push_back(state);
             }
             CachePolicy::NoCache => {
-                // Don't cache - state will be recomputed each time
-                self.state_cache.insert(state, cached);
+                self.state_cache.clear();
+                self.access_order.clear();
+                self.transient_state = Some((state, cached));
             }
+        }
+    }
+
+    /// Apply the active cache policy to states retained before a policy change.
+    fn enforce_cache_policy(&mut self) {
+        match self.policy {
+            CachePolicy::CacheAll => {
+                self.transient_state = None;
+            }
+            CachePolicy::NoCache | CachePolicy::Lru { max_states: 0 } => {
+                self.state_cache.clear();
+                self.access_order.clear();
+                self.transient_state = None;
+            }
+            CachePolicy::Lru { max_states } => {
+                self.transient_state = None;
+                self.reconcile_lru_order();
+                while self.state_cache.len() > max_states {
+                    self.evict_lru();
+                }
+            }
+        }
+    }
+
+    /// Keep LRU bookkeeping aligned with the current persistent cache contents.
+    fn reconcile_lru_order(&mut self) {
+        self.access_order
+            .retain(|state| self.state_cache.contains_key(state));
+
+        let cached_states: Vec<_> = self.state_cache.keys().copied().collect();
+        for state in cached_states {
+            if !self.access_order.contains(&state) {
+                self.access_order.push_back(state);
+            }
+        }
+    }
+
+    /// Evict the least-recently used persistent cached state.
+    fn evict_lru(&mut self) {
+        while let Some(evict) = self.access_order.pop_front() {
+            if self.state_cache.remove(&evict).is_some() {
+                return;
+            }
+        }
+
+        if let Some((&evict, _)) = self.state_cache.iter().next() {
+            self.state_cache.remove(&evict);
+        }
+    }
+
+    /// Mark a persistent cached state as recently used.
+    fn touch_lru(&mut self, state: ProductStateId) {
+        if let Some(pos) = self.access_order.iter().position(|&cached| cached == state) {
+            self.access_order.remove(pos);
+            self.access_order.push_back(state);
+        } else if self.state_cache.contains_key(&state) {
+            self.access_order.push_back(state);
         }
     }
 
@@ -281,7 +367,10 @@ where
 
         let (can_eps1, can_eps2, can_match) = self.filter.allowed_moves(filter);
 
-        let mut transitions = SmallVec::new();
+        let epsilon_capacity = usize::from(can_eps1)
+            * trans1.iter().filter(|t1| t1.output.is_none()).count()
+            + usize::from(can_eps2) * trans2.iter().filter(|t2| t2.input.is_none()).count();
+        let mut transitions = SmallVec::with_capacity(epsilon_capacity);
 
         // Case 1: FST1 epsilon output (advance FST1 only)
         if can_eps1 {
@@ -315,19 +404,19 @@ where
 
         // Case 3: Matching labels (advance both)
         if can_match {
+            let trans2_by_input = Self::input_transition_index(trans2);
             for t1 in trans1 {
                 if let Some(ref out1) = t1.output {
-                    for t2 in trans2 {
-                        if let Some(ref in2) = t2.input {
-                            if out1 == in2 {
-                                let new_filter = self.filter.next_state(filter, false, false);
-                                transitions.push(ComposedTransition {
-                                    input: t1.input.clone(),
-                                    output: t2.output.clone(),
-                                    target: ProductStateId::new(t1.to, t2.to, new_filter),
-                                    weight: t1.weight.times(&t2.weight),
-                                });
-                            }
+                    if let Some(matching_trans2) = trans2_by_input.get(out1) {
+                        transitions.reserve(matching_trans2.len());
+                        for &t2 in matching_trans2 {
+                            let new_filter = self.filter.next_state(filter, false, false);
+                            transitions.push(ComposedTransition {
+                                input: t1.input.clone(),
+                                output: t2.output.clone(),
+                                target: ProductStateId::new(t1.to, t2.to, new_filter),
+                                weight: t1.weight.times(&t2.weight),
+                            });
                         }
                     }
                 }
@@ -341,6 +430,22 @@ where
         }
     }
 
+    /// Index FST2 transitions by non-epsilon input label for O(outdegree) matching.
+    fn input_transition_index<'a>(
+        transitions: &'a [WeightedTransition<L, W>],
+    ) -> FxHashMap<&'a L, SmallVec<[&'a WeightedTransition<L, W>; 4]>> {
+        let mut by_input: FxHashMap<&'a L, SmallVec<[&'a WeightedTransition<L, W>; 4]>> =
+            FxHashMap::default();
+
+        for transition in transitions {
+            if let Some(ref input) = transition.input {
+                by_input.entry(input).or_default().push(transition);
+            }
+        }
+
+        by_input
+    }
+
     /// Iterate over accepting paths lazily.
     pub fn accepting_paths(&mut self) -> AcceptingPathIterator<'_, F1, F2, L, W> {
         AcceptingPathIterator::new(self)
@@ -349,6 +454,8 @@ where
     /// Clear the state cache.
     pub fn clear_cache(&mut self) {
         self.state_cache.clear();
+        self.transient_state = None;
+        self.access_order.clear();
     }
 }
 
@@ -582,12 +689,7 @@ mod tests {
         let mut paths: Vec<_> = composed.accepting_paths().collect();
 
         // Sort by weight for deterministic testing
-        paths.sort_by(|a, b| {
-            a.weight
-                .value()
-                .partial_cmp(&b.weight.value())
-                .expect("composition/fst_fst.rs: required value was None/Err")
-        });
+        paths.sort_by(|a, b| a.weight.value().total_cmp(&b.weight.value()));
 
         assert_eq!(paths.len(), 2);
 
@@ -679,6 +781,102 @@ mod tests {
     }
 
     #[test]
+    fn test_no_cache_policy_does_not_retain_persistent_states() {
+        let fst1 = build_simple_fst();
+        let fst2 = build_identity_fst();
+
+        let mut composed = compose(fst1, fst2).with_cache_policy(CachePolicy::NoCache);
+        let transitions = composed.transitions(composed.start());
+
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(composed.computed_states(), 0);
+        assert!(composed.state_cache.is_empty());
+        assert!(composed.transient_state.is_some());
+    }
+
+    #[test]
+    fn test_zero_capacity_lru_uses_transient_storage() {
+        let fst1 = build_simple_fst();
+        let fst2 = build_identity_fst();
+
+        let mut composed =
+            compose(fst1, fst2).with_cache_policy(CachePolicy::Lru { max_states: 0 });
+        let transitions = composed.transitions(composed.start());
+
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(composed.computed_states(), 0);
+        assert!(composed.state_cache.is_empty());
+        assert!(composed.transient_state.is_some());
+    }
+
+    #[test]
+    fn test_lru_policy_enforces_capacity() {
+        let fst1 = VectorWfstBuilder::new()
+            .add_states(3)
+            .start(0)
+            .final_state(2, TropicalWeight::one())
+            .arc(0, Some('a'), Some('x'), 1, TropicalWeight::new(1.0))
+            .arc(1, Some('b'), Some('y'), 2, TropicalWeight::new(1.0))
+            .build();
+
+        let fst2 = VectorWfstBuilder::new()
+            .add_states(3)
+            .start(0)
+            .final_state(2, TropicalWeight::one())
+            .arc(0, Some('x'), Some('p'), 1, TropicalWeight::new(0.5))
+            .arc(1, Some('y'), Some('q'), 2, TropicalWeight::new(0.5))
+            .build();
+
+        let mut composed =
+            compose(fst1, fst2).with_cache_policy(CachePolicy::Lru { max_states: 1 });
+        let first_transition = composed.transitions(composed.start())[0].target;
+        assert_eq!(composed.computed_states(), 1);
+
+        let _ = composed.transitions(first_transition);
+
+        assert_eq!(composed.computed_states(), 1);
+        assert!(composed.state_cache.contains_key(&first_transition));
+    }
+
+    #[test]
+    fn test_lru_policy_reconciles_existing_cache_on_policy_change() {
+        let fst1 = VectorWfstBuilder::new()
+            .add_states(4)
+            .start(0)
+            .final_state(3, TropicalWeight::one())
+            .arc(0, Some('a'), Some('x'), 1, TropicalWeight::new(1.0))
+            .arc(1, Some('b'), Some('y'), 2, TropicalWeight::new(1.0))
+            .arc(2, Some('c'), Some('z'), 3, TropicalWeight::new(1.0))
+            .build();
+
+        let fst2 = VectorWfstBuilder::new()
+            .add_states(4)
+            .start(0)
+            .final_state(3, TropicalWeight::one())
+            .arc(0, Some('x'), Some('p'), 1, TropicalWeight::new(0.5))
+            .arc(1, Some('y'), Some('q'), 2, TropicalWeight::new(0.5))
+            .arc(2, Some('z'), Some('r'), 3, TropicalWeight::new(0.5))
+            .build();
+
+        let mut composed = compose(fst1, fst2);
+        let start = composed.start();
+        let first_transition = composed.transitions(start)[0].target;
+        let second_transition = composed.transitions(first_transition)[0].target;
+
+        composed = composed.with_cache_policy(CachePolicy::Lru { max_states: 2 });
+        assert_eq!(composed.computed_states(), 2);
+        assert_eq!(composed.access_order.len(), 2);
+
+        let _ = composed.transitions(start);
+        let _ = composed.transitions(second_transition);
+
+        assert_eq!(composed.computed_states(), 2);
+        assert!(composed.state_cache.contains_key(&start));
+        assert!(composed.state_cache.contains_key(&second_transition));
+        assert!(!composed.state_cache.contains_key(&first_transition));
+    }
+
+    #[test]
     fn test_clear_cache() {
         let fst1 = build_simple_fst();
         let fst2 = build_identity_fst();
@@ -702,6 +900,36 @@ mod tests {
         let composed = LazyComposition::with_filter(fst1, fst2, EpsilonFilterType::Matching);
 
         assert_eq!(composed.filter.filter_type(), EpsilonFilterType::Matching);
+    }
+
+    #[test]
+    fn test_matching_index_preserves_multiple_same_label_arcs() {
+        let fst1 = VectorWfstBuilder::new()
+            .add_states(2)
+            .start(0)
+            .final_state(1, TropicalWeight::one())
+            .arc(0, Some('a'), Some('x'), 1, TropicalWeight::new(1.0))
+            .build();
+
+        let fst2 = VectorWfstBuilder::new()
+            .add_states(4)
+            .start(0)
+            .final_state(1, TropicalWeight::one())
+            .final_state(2, TropicalWeight::one())
+            .arc(0, Some('x'), Some('y'), 1, TropicalWeight::new(0.5))
+            .arc(0, Some('q'), Some('z'), 3, TropicalWeight::new(9.0))
+            .arc(0, Some('x'), Some('z'), 2, TropicalWeight::new(0.75))
+            .build();
+
+        let mut composed = compose(fst1, fst2);
+        let transitions = composed.transitions(composed.start());
+        let outputs: Vec<_> = transitions
+            .iter()
+            .map(|transition| transition.output)
+            .collect();
+
+        assert_eq!(transitions.len(), 2);
+        assert_eq!(outputs, vec![Some('y'), Some('z')]);
     }
 
     #[test]

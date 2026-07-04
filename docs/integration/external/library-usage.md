@@ -580,7 +580,7 @@ impl InstrumentedCorrector {
 }
 ```
 
-## Next Steps
+## Related Topics
 
 - [Speech/NLP](speech-nlp.md): Speech recognition integration
 - [Text Correction](text-correction.md): Grammar and spelling

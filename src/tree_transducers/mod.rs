@@ -59,17 +59,17 @@ mod builder;
 mod rule;
 mod transducer;
 mod tree;
+mod types;
 
 pub use alphabet::{RankedAlphabet, SimpleAlphabet, Symbol};
 pub use builder::{leaf, pattern, TreePatternBuilder, TreeTransducerBuilder};
 pub use rule::{TreeChild, TreePattern, TreeRule};
 pub use transducer::{
-    TransducerState, TreeTransducerOps, VectorTreeTransducer, WeightedTreeTransducer,
+    TransducerState, TreeTransducerError, TreeTransducerOps, VectorTreeTransducer,
+    WeightedTreeTransducer,
 };
 pub use tree::{Tree, TreeNode};
-
-/// State identifier for tree transducers.
-pub type StateId = u32;
+pub use types::StateId;
 
 #[cfg(test)]
 mod tests {

@@ -44,7 +44,7 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use crate::symbolic::BooleanAlgebra;
+use super::BooleanAlgebra;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Sat3 — three-valued satisfiability
@@ -299,7 +299,10 @@ pub struct RejectSafeProduct<S, B> {
 impl<S, B> RejectSafeProduct<S, B> {
     /// Build a mixed structural × behavioral guard algebra.
     pub fn new(structural: S, behavioral: B) -> Self {
-        Self { structural, behavioral }
+        Self {
+            structural,
+            behavioral,
+        }
     }
 }
 
@@ -312,7 +315,10 @@ where
     type Domain = (S::Domain, B::Domain);
 
     fn true_pred(&self) -> Self::Predicate {
-        MixedPred(vec![(self.structural.true_pred(), self.behavioral.true_pred())])
+        MixedPred(vec![(
+            self.structural.true_pred(),
+            self.behavioral.true_pred(),
+        )])
     }
 
     fn false_pred(&self) -> Self::Predicate {
@@ -343,8 +349,14 @@ where
         let mut acc = self.true_pred();
         for (sa, ba) in &a.0 {
             let neg_rect = MixedPred(vec![
-                (self.structural.pseudo_complement(sa), self.behavioral.true_pred()),
-                (self.structural.true_pred(), self.behavioral.pseudo_complement(ba)),
+                (
+                    self.structural.pseudo_complement(sa),
+                    self.behavioral.true_pred(),
+                ),
+                (
+                    self.structural.true_pred(),
+                    self.behavioral.pseudo_complement(ba),
+                ),
             ]);
             acc = self.and(&acc, &neg_rect);
         }
@@ -384,8 +396,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::super::{IntervalAlgebra, IntervalPred};
     use super::*;
-    use crate::symbolic::{IntervalAlgebra, IntervalPred};
 
     #[test]
     fn sat3_kleene() {

@@ -51,10 +51,12 @@ impl Default for MathTypeChecker {
 }
 
 impl MathTypeChecker {
+    const STANDARD_SIGNATURE_CAPACITY: usize = 96;
+
     /// Create a new type checker with standard signatures.
     pub fn new() -> Self {
         let mut checker = Self {
-            signatures: HashMap::new(),
+            signatures: HashMap::with_capacity(Self::STANDARD_SIGNATURE_CAPACITY),
             next_type_var: 0,
             config: TypeCheckerConfig::default(),
         };
@@ -65,7 +67,7 @@ impl MathTypeChecker {
     /// Create with custom configuration.
     pub fn with_config(config: TypeCheckerConfig) -> Self {
         let mut checker = Self {
-            signatures: HashMap::new(),
+            signatures: HashMap::with_capacity(Self::STANDARD_SIGNATURE_CAPACITY),
             next_type_var: 0,
             config,
         };
@@ -332,12 +334,12 @@ impl MathTypeChecker {
 
     /// Register a type signature.
     pub fn register_signature(&mut self, sig: TypeSignature) {
-        // Register main name
-        self.signatures.insert(sig.name.clone(), sig.clone());
         // Register aliases
         for alias in &sig.aliases {
             self.signatures.insert(alias.clone(), sig.clone());
         }
+        // Register main name with the owned signature to avoid one extra clone.
+        self.signatures.insert(sig.name.clone(), sig);
     }
 
     /// Look up a signature by name.
@@ -498,7 +500,7 @@ impl MathTypeChecker {
                     codomain: c2,
                 },
             ) if a1 == a2 && d1.len() == d2.len() => {
-                let mut unified_domain = Vec::new();
+                let mut unified_domain = Vec::with_capacity(d1.len());
                 for (t1, t2) in d1.iter().zip(d2.iter()) {
                     unified_domain.push(self.unify(t1, t2)?);
                 }
@@ -646,6 +648,9 @@ fn count_brace_groups(tokens: &[&str]) -> usize {
                 }
             }
             "}" => {
+                if depth == 0 {
+                    break;
+                }
                 depth -= 1;
                 if depth == 0 && in_group {
                     count += 1;
@@ -804,5 +809,14 @@ mod tests {
         );
         assert_eq!(count_brace_groups(&["\\sqrt", "{", "x", "}"]), 1);
         assert_eq!(count_brace_groups(&["\\sin", "x"]), 0);
+    }
+
+    #[test]
+    fn test_count_brace_groups_stops_at_unmatched_closing_brace() {
+        assert_eq!(count_brace_groups(&["\\sqrt", "}", "{", "x", "}"]), 0);
+        assert_eq!(
+            count_brace_groups(&["\\frac", "{", "a", "}", "}", "{", "b", "}"]),
+            1
+        );
     }
 }

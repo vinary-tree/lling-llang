@@ -554,7 +554,7 @@ println!("Found {} paths, computed {} states",
 - [Earley 1970](../BIBLIOGRAPHY.md#ref-earley1970) — *An Efficient Context-Free Parsing Algorithm*: the `` `O(∣V∣³)` `` parser underlying `` `CFG × Lattice` `` composition (see [parsing.md](parsing.md)).
 - [Allauzen 2007](../BIBLIOGRAPHY.md#ref-allauzen2007) — *OpenFst*: the reference `Compose` operation and lazy/on-the-fly composition model this implementation follows.
 
-## Next Steps
+## Related Topics
 
 - [Parsing](parsing.md): Earley parser for lattice input
 - [Path Extraction](path-extraction.md): Find paths through composed structures

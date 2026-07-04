@@ -1,5 +1,9 @@
 //! Tests for known bugs that have been fixed and edge cases.
 
+use lling_llang::algorithms::{
+    all_pairs_shortest_distance, compute_accessible, compute_coaccessible, connect,
+    single_source_shortest_distance, ConnectConfig, ShortestDistanceConfig,
+};
 use lling_llang::semiring::{LogWeight, Semiring, TropicalWeight};
 use lling_llang::wfst::{MutableWfst, VectorWfst, Wfst, NO_STATE};
 
@@ -63,4 +67,41 @@ fn log_weight_edge_cases() {
     // Times with zero gives zero
     let z_result = a.times(&zero);
     assert!(z_result.value().is_infinite() && z_result.value() > 0.0);
+}
+
+/// Public graph algorithms should tolerate malformed target IDs.
+#[test]
+fn malformed_transition_targets_are_ignored() {
+    let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::new();
+    fst.add_states(2);
+    fst.set_start(0);
+    fst.set_final(1, TropicalWeight::one());
+    fst.add_arc(0, Some('a'), Some('a'), 1, TropicalWeight::new(1.0));
+    fst.add_arc(0, Some('x'), Some('x'), 99, TropicalWeight::new(1.0));
+
+    let accessible = compute_accessible(&fst);
+    assert!(accessible.contains(&0));
+    assert!(accessible.contains(&1));
+    assert!(!accessible.contains(&99));
+
+    let coaccessible = compute_coaccessible(&fst);
+    assert!(coaccessible.contains(&0));
+    assert!(coaccessible.contains(&1));
+    assert!(!coaccessible.contains(&99));
+
+    let distances = single_source_shortest_distance(&fst, ShortestDistanceConfig::default())
+        .expect("malformed targets should be skipped");
+    assert_eq!(distances.len(), 2);
+    assert_eq!(distances[1].value(), 1.0);
+
+    let all_pairs = all_pairs_shortest_distance(&fst).expect("malformed targets should be skipped");
+    assert_eq!(all_pairs.len(), 2);
+    assert_eq!(all_pairs[0][1].value(), 1.0);
+
+    let removed = connect(&mut fst, ConnectConfig::trim());
+    assert_eq!(removed, 0);
+    assert!(fst
+        .transitions(0)
+        .iter()
+        .all(|transition| transition.to < 2));
 }

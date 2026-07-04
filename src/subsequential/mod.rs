@@ -45,7 +45,7 @@
 //! - Roche & Schabes (1997): "Deterministic Part-of-Speech Tagging with FSTs"
 //! - Mohri (2000): "Minimization Algorithms for Sequential Transducers"
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 
 use crate::semiring::Semiring;
@@ -195,8 +195,15 @@ pub struct DecompositionStats {
     pub total_states: usize,
     /// Total number of transitions across all pieces.
     pub total_transitions: usize,
-    /// Whether the decomposition is exact (no overlap).
+    /// Whether every accepted source path is represented by a materialized piece.
     pub is_exact: bool,
+}
+
+#[derive(Debug, Clone)]
+struct AmbiguitySite<L> {
+    state: StateId,
+    input: Option<L>,
+    alternatives: usize,
 }
 
 impl<L, W> PiecewiseSubsequential<L, W>
@@ -206,6 +213,13 @@ where
 {
     /// Create a new piecewise subsequential transducer from pieces.
     pub fn new(pieces: Vec<SubsequentialTransducer<L, W>>) -> Self {
+        Self::from_pieces_with_exactness(pieces, true)
+    }
+
+    fn from_pieces_with_exactness(
+        pieces: Vec<SubsequentialTransducer<L, W>>,
+        is_exact: bool,
+    ) -> Self {
         let stats = DecompositionStats {
             num_pieces: pieces.len(),
             total_states: pieces.iter().map(|p| p.wfst.num_states()).sum(),
@@ -217,7 +231,7 @@ where
                         .sum::<usize>()
                 })
                 .sum(),
-            is_exact: true, // Assume exact until proven otherwise
+            is_exact,
         };
 
         Self { pieces, stats }
@@ -241,120 +255,54 @@ where
             return Self::new(vec![piece]);
         }
 
-        // Build determinization state map
-        let pieces = Self::build_pieces(wfst);
-
-        let stats = DecompositionStats {
-            num_pieces: pieces.len(),
-            total_states: pieces.iter().map(|p| p.wfst.num_states()).sum(),
-            total_transitions: pieces
-                .iter()
-                .map(|p| {
-                    (0..p.wfst.num_states() as StateId)
-                        .map(|s| p.wfst.transitions(s).len())
-                        .sum::<usize>()
-                })
-                .sum(),
-            is_exact: true,
-        };
-
-        Self { pieces, stats }
+        let (pieces, is_exact) = Self::build_pieces(wfst);
+        Self::from_pieces_with_exactness(pieces, is_exact)
     }
 
     /// Build subsequential pieces using subset construction with output disambiguation.
-    fn build_pieces(wfst: &VectorWfst<L, W>) -> Vec<SubsequentialTransducer<L, W>>
+    fn build_pieces(wfst: &VectorWfst<L, W>) -> (Vec<SubsequentialTransducer<L, W>>, bool)
     where
         W: Clone,
     {
         let start = wfst.start();
         if start == NO_STATE {
-            return vec![];
+            return (vec![], true);
         }
 
-        // Find ambiguous paths (states reachable with different outputs for same input)
-        let ambiguity_points = Self::find_ambiguity_points(wfst);
+        let ambiguity_sites = Self::find_ambiguity_sites(wfst);
 
-        if ambiguity_points.is_empty() {
-            // No ambiguity - single piece
+        if ambiguity_sites.is_empty() {
             let piece = SubsequentialTransducer {
                 wfst: wfst.clone(),
                 final_outputs: HashMap::new(),
                 piece_id: 0,
             };
-            return vec![piece];
+            return (vec![piece], true);
         }
 
-        // Split at ambiguity points
-        let mut pieces = Vec::new();
-        let mut visited_paths: HashMap<Vec<(StateId, Option<L>)>, bool> = HashMap::new();
-
-        // BFS to enumerate distinct paths
-        let mut queue = VecDeque::new();
-        queue.push_back((start, Vec::new(), 0usize));
-
-        while let Some((state, path, piece_idx)) = queue.pop_front() {
-            if visited_paths.contains_key(&path) {
-                continue;
+        let is_exact = !Self::has_repeating_ambiguity(wfst, &ambiguity_sites);
+        let piece_count = match Self::piece_count(&ambiguity_sites) {
+            Some(count) => count,
+            None => {
+                let choice_map = Self::choice_map_for_piece(&ambiguity_sites, 0);
+                let mut piece_wfst = VectorWfst::new();
+                Self::copy_with_disambiguation(wfst, &mut piece_wfst, &choice_map);
+                return (
+                    vec![SubsequentialTransducer {
+                        wfst: piece_wfst,
+                        final_outputs: HashMap::new(),
+                        piece_id: 0,
+                    }],
+                    false,
+                );
             }
-            visited_paths.insert(path.clone(), true);
+        };
 
-            // Get transitions from this state
-            let transitions: Vec<_> = wfst.transitions(state).iter().collect();
-
-            // Group by input symbol
-            let mut by_input: HashMap<Option<&L>, Vec<&WeightedTransition<L, W>>> = HashMap::new();
-            for trans in &transitions {
-                by_input
-                    .entry(trans.input.as_ref())
-                    .or_default()
-                    .push(trans);
-            }
-
-            // For each input with multiple outputs, create separate pieces
-            for (input, trans_list) in by_input {
-                if trans_list.len() > 1 {
-                    // Ambiguous - need multiple pieces
-                    for (i, trans) in trans_list.iter().enumerate() {
-                        let new_piece_idx = if i == 0 { piece_idx } else { pieces.len() + i };
-                        let mut new_path = path.clone();
-                        new_path.push((state, input.cloned()));
-                        queue.push_back((trans.to, new_path, new_piece_idx));
-                    }
-                } else if let Some(trans) = trans_list.first() {
-                    let mut new_path = path.clone();
-                    new_path.push((state, input.cloned()));
-                    queue.push_back((trans.to, new_path, piece_idx));
-                }
-            }
-        }
-
-        // Build actual pieces (simplified - just clone the original for now)
-        // A full implementation would partition the transitions
-        if pieces.is_empty() {
-            let piece = SubsequentialTransducer {
-                wfst: wfst.clone(),
-                final_outputs: HashMap::new(),
-                piece_id: 0,
-            };
-            pieces.push(piece);
-        }
-
-        // For the simple case, return multiple copies with different piece IDs
-        // representing different disambiguation choices
-        let max_ambiguity = ambiguity_points
-            .iter()
-            .map(|(_, count)| *count)
-            .max()
-            .unwrap_or(1);
-
-        let mut result = Vec::new();
-        for i in 0..max_ambiguity {
+        let mut result = Vec::with_capacity(piece_count);
+        for i in 0..piece_count {
+            let choice_map = Self::choice_map_for_piece(&ambiguity_sites, i);
             let mut piece_wfst = VectorWfst::new();
-            let piece_start = piece_wfst.add_state();
-            piece_wfst.set_start(piece_start);
-
-            // Copy structure but determinize by picking the i-th alternative at ambiguous points
-            Self::copy_with_disambiguation(wfst, &mut piece_wfst, &ambiguity_points, i);
+            Self::copy_with_disambiguation(wfst, &mut piece_wfst, &choice_map);
 
             result.push(SubsequentialTransducer {
                 wfst: piece_wfst,
@@ -363,45 +311,178 @@ where
             });
         }
 
-        if result.is_empty() {
-            // Fallback: return original as single piece
-            let piece = SubsequentialTransducer {
-                wfst: wfst.clone(),
-                final_outputs: HashMap::new(),
-                piece_id: 0,
-            };
-            result.push(piece);
+        (result, is_exact)
+    }
+
+    fn piece_count(ambiguity_sites: &[AmbiguitySite<L>]) -> Option<usize> {
+        let mut count = 1usize;
+        for site in ambiguity_sites {
+            count = count.checked_mul(site.alternatives)?;
+        }
+        Some(count)
+    }
+
+    fn choice_map_for_piece(
+        ambiguity_sites: &[AmbiguitySite<L>],
+        piece_idx: usize,
+    ) -> HashMap<(StateId, Option<L>), usize> {
+        let mut residue = piece_idx;
+        let mut choices = HashMap::with_capacity(ambiguity_sites.len());
+
+        for site in ambiguity_sites {
+            let choice = residue % site.alternatives;
+            residue /= site.alternatives;
+            choices.insert((site.state, site.input.clone()), choice);
         }
 
-        result
+        choices
     }
 
     /// Find states where the transducer is ambiguous (multiple transitions with same input).
+    #[cfg(test)]
     fn find_ambiguity_points(wfst: &VectorWfst<L, W>) -> Vec<(StateId, usize)> {
+        let mut by_state: HashMap<StateId, usize> = HashMap::new();
+
+        for site in Self::find_ambiguity_sites(wfst) {
+            by_state
+                .entry(site.state)
+                .and_modify(|count| *count = (*count).max(site.alternatives))
+                .or_insert(site.alternatives);
+        }
+
+        let mut ambiguous: Vec<_> = by_state.into_iter().collect();
+        ambiguous.sort_by_key(|(state, _)| *state);
+        ambiguous
+    }
+
+    fn find_ambiguity_sites(wfst: &VectorWfst<L, W>) -> Vec<AmbiguitySite<L>> {
         let mut ambiguous = Vec::new();
 
-        for state_id in 0..wfst.num_states() as StateId {
-            let mut input_counts: HashMap<Option<&L>, usize> = HashMap::new();
-
-            for trans in wfst.transitions(state_id) {
-                *input_counts.entry(trans.input.as_ref()).or_insert(0) += 1;
-            }
-
-            let max_count = input_counts.values().max().copied().unwrap_or(1);
-            if max_count > 1 {
-                ambiguous.push((state_id, max_count));
+        for state_id in Self::reachable_states(wfst) {
+            for (input, count) in Self::input_group_counts(wfst, state_id) {
+                if count > 1 {
+                    ambiguous.push(AmbiguitySite {
+                        state: state_id,
+                        input,
+                        alternatives: count,
+                    });
+                }
             }
         }
 
         ambiguous
     }
 
-    /// Copy WFST structure with disambiguation (picking the i-th alternative at ambiguous points).
+    fn input_group_counts(wfst: &VectorWfst<L, W>, state_id: StateId) -> Vec<(Option<L>, usize)> {
+        let mut group_indices: HashMap<Option<L>, usize> = HashMap::new();
+        let mut groups: Vec<(Option<L>, usize)> = Vec::new();
+
+        for trans in wfst.transitions(state_id) {
+            let key = trans.input.clone();
+            if let Some(idx) = group_indices.get(&key).copied() {
+                groups[idx].1 += 1;
+            } else {
+                let idx = groups.len();
+                group_indices.insert(key.clone(), idx);
+                groups.push((key, 1));
+            }
+        }
+
+        groups
+    }
+
+    fn transition_groups<'a>(
+        wfst: &'a VectorWfst<L, W>,
+        state_id: StateId,
+    ) -> Vec<(Option<L>, Vec<&'a WeightedTransition<L, W>>)> {
+        let mut group_indices: HashMap<Option<L>, usize> = HashMap::new();
+        let mut groups: Vec<(Option<L>, Vec<&'a WeightedTransition<L, W>>)> = Vec::new();
+
+        for trans in wfst.transitions(state_id) {
+            let key = trans.input.clone();
+            if let Some(idx) = group_indices.get(&key).copied() {
+                groups[idx].1.push(trans);
+            } else {
+                let idx = groups.len();
+                group_indices.insert(key.clone(), idx);
+                groups.push((key, vec![trans]));
+            }
+        }
+
+        groups
+    }
+
+    fn reachable_states(wfst: &VectorWfst<L, W>) -> Vec<StateId> {
+        let start = wfst.start();
+        if start == NO_STATE {
+            return Vec::new();
+        }
+
+        let mut seen = HashSet::new();
+        let mut queue = VecDeque::new();
+        seen.insert(start);
+        queue.push_back(start);
+
+        while let Some(state) = queue.pop_front() {
+            for trans in wfst.transitions(state) {
+                if seen.insert(trans.to) {
+                    queue.push_back(trans.to);
+                }
+            }
+        }
+
+        let mut states: Vec<_> = seen.into_iter().collect();
+        states.sort_unstable();
+        states
+    }
+
+    fn has_repeating_ambiguity(
+        wfst: &VectorWfst<L, W>,
+        ambiguity_sites: &[AmbiguitySite<L>],
+    ) -> bool {
+        let mut checked = HashSet::new();
+
+        for site in ambiguity_sites {
+            if checked.insert(site.state) && Self::state_has_cycle(wfst, site.state) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn state_has_cycle(wfst: &VectorWfst<L, W>, state: StateId) -> bool {
+        let mut seen = HashSet::new();
+        let mut queue = VecDeque::new();
+
+        for trans in wfst.transitions(state) {
+            if trans.to == state {
+                return true;
+            }
+            if seen.insert(trans.to) {
+                queue.push_back(trans.to);
+            }
+        }
+
+        while let Some(current) = queue.pop_front() {
+            for trans in wfst.transitions(current) {
+                if trans.to == state {
+                    return true;
+                }
+                if seen.insert(trans.to) {
+                    queue.push_back(trans.to);
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Copy WFST structure with one selected alternative per ambiguous input group.
     fn copy_with_disambiguation(
         source: &VectorWfst<L, W>,
         target: &mut VectorWfst<L, W>,
-        ambiguity_points: &[(StateId, usize)],
-        alternative_idx: usize,
+        choices: &HashMap<(StateId, Option<L>), usize>,
     ) where
         W: Clone,
     {
@@ -425,30 +506,25 @@ where
         let mut queue = VecDeque::new();
         queue.push_back(start);
 
-        let ambiguous_states: HashMap<StateId, usize> = ambiguity_points.iter().copied().collect();
-
         while let Some(src_state) = queue.pop_front() {
-            let tgt_state = *state_map.get(&src_state).expect("State should be mapped");
+            let Some(tgt_state) = state_map.get(&src_state).copied() else {
+                continue;
+            };
 
             // Copy final weight
             if source.is_final(src_state) {
                 target.set_final(tgt_state, source.final_weight(src_state));
             }
 
-            // Group transitions by input
-            let mut by_input: HashMap<Option<&L>, Vec<&WeightedTransition<L, W>>> = HashMap::new();
-            for trans in source.transitions(src_state) {
-                by_input
-                    .entry(trans.input.as_ref())
-                    .or_default()
-                    .push(trans);
-            }
-
             // Copy transitions, disambiguating at ambiguous points
-            for (_, trans_list) in by_input {
-                // Pick the appropriate alternative if ambiguous
-                let trans = if trans_list.len() > 1 && ambiguous_states.contains_key(&src_state) {
-                    trans_list.get(alternative_idx % trans_list.len())
+            for (input, trans_list) in Self::transition_groups(source, src_state) {
+                let trans = if trans_list.len() > 1 {
+                    let choice = choices
+                        .get(&(src_state, input.clone()))
+                        .copied()
+                        .unwrap_or(0)
+                        % trans_list.len();
+                    trans_list.get(choice)
                 } else {
                     trans_list.first()
                 };
@@ -663,6 +739,72 @@ mod tests {
         fst
     }
 
+    fn make_independent_ambiguities_fst() -> VectorWfst<char, TropicalWeight> {
+        let mut fst = VectorWfst::new();
+        let s0 = fst.add_state();
+        let s1 = fst.add_state();
+        let s2 = fst.add_state();
+
+        fst.set_start(s0);
+        fst.set_final(s2, TropicalWeight::one());
+
+        fst.add_transition(WeightedTransition::new(
+            s0,
+            Some('a'),
+            Some('X'),
+            s1,
+            TropicalWeight::one(),
+        ));
+        fst.add_transition(WeightedTransition::new(
+            s0,
+            Some('a'),
+            Some('Y'),
+            s1,
+            TropicalWeight::one(),
+        ));
+        fst.add_transition(WeightedTransition::new(
+            s1,
+            Some('b'),
+            Some('M'),
+            s2,
+            TropicalWeight::one(),
+        ));
+        fst.add_transition(WeightedTransition::new(
+            s1,
+            Some('b'),
+            Some('N'),
+            s2,
+            TropicalWeight::one(),
+        ));
+
+        fst
+    }
+
+    fn make_repeating_ambiguity_fst() -> VectorWfst<char, TropicalWeight> {
+        let mut fst = VectorWfst::new();
+        let s0 = fst.add_state();
+
+        fst.set_start(s0);
+        fst.set_final(s0, TropicalWeight::one());
+
+        fst.add_transition(WeightedTransition::new(
+            s0,
+            Some('a'),
+            Some('X'),
+            s0,
+            TropicalWeight::one(),
+        ));
+        fst.add_transition(WeightedTransition::new(
+            s0,
+            Some('a'),
+            Some('Y'),
+            s0,
+            TropicalWeight::one(),
+        ));
+
+        fst
+    }
+
     #[test]
     fn test_subsequential_check() {
         let simple = make_simple_fst();
@@ -723,8 +865,70 @@ mod tests {
         let fst = make_ambiguous_fst();
         let piecewise = PiecewiseSubsequential::decompose(&fst);
 
-        // Should have multiple pieces for ambiguous FST
-        assert!(piecewise.num_pieces() >= 1);
+        assert_eq!(piecewise.num_pieces(), 2);
+        assert!(piecewise.stats().is_exact);
+
+        for piece in piecewise.pieces() {
+            assert!(
+                SubsequentialTransducer::<char, TropicalWeight>::is_subsequential(piece.wfst())
+            );
+        }
+    }
+
+    #[test]
+    fn test_decompose_ambiguous_outputs_all_choices() {
+        let fst = make_ambiguous_fst();
+        let piecewise = PiecewiseSubsequential::decompose(&fst);
+
+        let mut outputs: Vec<_> = piecewise
+            .apply(&['a', 'b'])
+            .into_iter()
+            .map(|(output, _)| output)
+            .collect();
+        outputs.sort();
+
+        assert_eq!(outputs, vec![vec!['X', 'B'], vec!['Y', 'B']]);
+    }
+
+    #[test]
+    fn test_decompose_independent_ambiguities_uses_cartesian_product() {
+        let fst = make_independent_ambiguities_fst();
+        let piecewise = PiecewiseSubsequential::decompose(&fst);
+
+        assert_eq!(piecewise.num_pieces(), 4);
+        assert!(piecewise.stats().is_exact);
+
+        let mut outputs: Vec<_> = piecewise
+            .apply(&['a', 'b'])
+            .into_iter()
+            .map(|(output, _)| output)
+            .collect();
+        outputs.sort();
+
+        assert_eq!(
+            outputs,
+            vec![
+                vec!['X', 'M'],
+                vec!['X', 'N'],
+                vec!['Y', 'M'],
+                vec!['Y', 'N'],
+            ]
+        );
+    }
+
+    #[test]
+    fn test_repeating_ambiguity_reports_non_exact_materialization() {
+        let fst = make_repeating_ambiguity_fst();
+        let piecewise = PiecewiseSubsequential::decompose(&fst);
+
+        assert_eq!(piecewise.num_pieces(), 2);
+        assert!(!piecewise.stats().is_exact);
+
+        for piece in piecewise.pieces() {
+            assert!(
+                SubsequentialTransducer::<char, TropicalWeight>::is_subsequential(piece.wfst())
+            );
+        }
     }
 
     #[test]

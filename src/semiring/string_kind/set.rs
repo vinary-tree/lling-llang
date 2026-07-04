@@ -67,7 +67,9 @@
 use std::collections::BTreeSet;
 use std::fmt;
 use std::hash::Hash;
+use std::hash::Hasher;
 
+use rustc_hash::FxHasher;
 use smallvec::SmallVec;
 
 /// Maximum number of elements stored inline (before spilling to heap).
@@ -78,7 +80,7 @@ const INLINE_CAPACITY: usize = 8;
 /// Stores a finite set of elements or a special "universe" marker.
 /// Uses `SmallVec` for inline storage of small sets.
 #[derive(Clone)]
-pub struct SetWeight<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> {
+pub struct SetWeight<T> {
     /// The set elements, stored in sorted order for deterministic behavior.
     /// If `is_universe` is true, this field is ignored.
     elements: SmallVec<[T; INLINE_CAPACITY]>,
@@ -86,7 +88,7 @@ pub struct SetWeight<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> {
     is_universe: bool,
 }
 
-impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> SetWeight<T> {
+impl<T> SetWeight<T> {
     /// Create an empty set (the additive identity, zero).
     #[inline]
     pub fn empty() -> Self {
@@ -117,7 +119,10 @@ impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> SetWeight<T> {
     }
 
     /// Create a set from an iterator of elements.
-    pub fn from_iter(iter: impl IntoIterator<Item = T>) -> Self {
+    pub fn from_iter(iter: impl IntoIterator<Item = T>) -> Self
+    where
+        T: Ord,
+    {
         let mut elements: SmallVec<[T; INLINE_CAPACITY]> = iter.into_iter().collect();
         elements.sort();
         elements.dedup();
@@ -158,13 +163,38 @@ impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> SetWeight<T> {
         }
     }
 
+    /// Get the finite-set cardinality, or `None` for the universe.
+    #[inline]
+    pub fn finite_len(&self) -> Option<usize> {
+        if self.is_universe {
+            None
+        } else {
+            Some(self.elements.len())
+        }
+    }
+
     /// Check if the set contains an element.
     #[inline]
-    pub fn contains(&self, element: &T) -> bool {
+    pub fn contains(&self, element: &T) -> bool
+    where
+        T: Ord,
+    {
         if self.is_universe {
             true // Universe contains everything
         } else {
             self.elements.binary_search(element).is_ok()
+        }
+    }
+
+    /// Borrow the finite elements in sorted order.
+    ///
+    /// Returns `None` for the universe because it cannot be enumerated.
+    #[inline]
+    pub fn as_finite_slice(&self) -> Option<&[T]> {
+        if self.is_universe {
+            None
+        } else {
+            Some(self.elements.as_slice())
         }
     }
 
@@ -175,21 +205,48 @@ impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> SetWeight<T> {
         self.elements.iter()
     }
 
-    /// Convert to a BTreeSet.
+    /// Convert to a finite `BTreeSet`.
     ///
-    /// Panics if this is the universe (cannot enumerate infinite set).
-    pub fn to_set(&self) -> BTreeSet<T> {
+    /// Returns `None` for the universe because the universe cannot be
+    /// represented as a finite set.
+    pub fn to_set(&self) -> Option<BTreeSet<T>>
+    where
+        T: Clone + Ord,
+    {
         if self.is_universe {
-            panic!("Cannot convert universe to finite set");
+            return None;
         }
-        self.elements.iter().cloned().collect()
+        Some(self.elements.iter().cloned().collect())
+    }
+
+    /// Move finite elements into a `BTreeSet` without cloning.
+    ///
+    /// Returns `None` for the universe because the universe cannot be
+    /// represented as a finite set.
+    pub fn into_set(self) -> Option<BTreeSet<T>>
+    where
+        T: Ord,
+    {
+        if self.is_universe {
+            return None;
+        }
+        Some(self.elements.into_iter().collect())
     }
 
     /// Union of two sets (⊕ operation).
-    fn set_union(&self, other: &Self) -> Self {
+    fn set_union(&self, other: &Self) -> Self
+    where
+        T: Clone + Ord,
+    {
         // Universe absorbs everything in union
         if self.is_universe || other.is_universe {
             return SetWeight::universe();
+        }
+        if self.elements.is_empty() {
+            return other.clone();
+        }
+        if other.elements.is_empty() || self.elements == other.elements {
+            return self.clone();
         }
 
         // Merge sorted arrays
@@ -232,7 +289,10 @@ impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> SetWeight<T> {
     }
 
     /// Intersection of two sets (⊗ operation).
-    fn set_intersection(&self, other: &Self) -> Self {
+    fn set_intersection(&self, other: &Self) -> Self
+    where
+        T: Clone + Ord,
+    {
         // Empty set annihilates in intersection
         if self.is_empty() || other.is_empty() {
             return SetWeight::empty();
@@ -245,9 +305,12 @@ impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> SetWeight<T> {
         if other.is_universe {
             return self.clone();
         }
+        if self.elements == other.elements {
+            return self.clone();
+        }
 
         // Intersect sorted arrays
-        let mut result = SmallVec::new();
+        let mut result = SmallVec::with_capacity(self.elements.len().min(other.elements.len()));
         let mut i = 0;
         let mut j = 0;
 
@@ -268,9 +331,173 @@ impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> SetWeight<T> {
             is_universe: false,
         }
     }
+
+    fn set_union_owned(self, other: Self) -> Self
+    where
+        T: Ord,
+    {
+        let SetWeight {
+            elements: left_elements,
+            is_universe: left_is_universe,
+        } = self;
+        let SetWeight {
+            elements: right_elements,
+            is_universe: right_is_universe,
+        } = other;
+
+        if left_is_universe || right_is_universe {
+            return SetWeight::universe();
+        }
+        if left_elements.is_empty() {
+            return SetWeight {
+                elements: right_elements,
+                is_universe: false,
+            };
+        }
+        if right_elements.is_empty() || left_elements == right_elements {
+            return SetWeight {
+                elements: left_elements,
+                is_universe: false,
+            };
+        }
+
+        let mut result = SmallVec::with_capacity(left_elements.len() + right_elements.len());
+        let mut left = left_elements.into_iter().peekable();
+        let mut right = right_elements.into_iter().peekable();
+
+        loop {
+            match (left.peek(), right.peek()) {
+                (Some(left_element), Some(right_element)) => {
+                    match left_element.cmp(right_element) {
+                        std::cmp::Ordering::Less => {
+                            if let Some(element) = left.next() {
+                                result.push(element);
+                            }
+                        }
+                        std::cmp::Ordering::Greater => {
+                            if let Some(element) = right.next() {
+                                result.push(element);
+                            }
+                        }
+                        std::cmp::Ordering::Equal => {
+                            if let Some(element) = left.next() {
+                                result.push(element);
+                            }
+                            let _ = right.next();
+                        }
+                    }
+                }
+                (Some(_), None) => {
+                    result.extend(left);
+                    break;
+                }
+                (None, Some(_)) => {
+                    result.extend(right);
+                    break;
+                }
+                (None, None) => break,
+            }
+        }
+
+        SetWeight {
+            elements: result,
+            is_universe: false,
+        }
+    }
+
+    fn set_intersection_owned(self, other: Self) -> Self
+    where
+        T: Ord,
+    {
+        let SetWeight {
+            elements: left_elements,
+            is_universe: left_is_universe,
+        } = self;
+        let SetWeight {
+            elements: right_elements,
+            is_universe: right_is_universe,
+        } = other;
+
+        if (!left_is_universe && left_elements.is_empty())
+            || (!right_is_universe && right_elements.is_empty())
+        {
+            return SetWeight::empty();
+        }
+        if left_is_universe {
+            return SetWeight {
+                elements: right_elements,
+                is_universe: right_is_universe,
+            };
+        }
+        if right_is_universe {
+            return SetWeight {
+                elements: left_elements,
+                is_universe: left_is_universe,
+            };
+        }
+        if left_elements == right_elements {
+            return SetWeight {
+                elements: left_elements,
+                is_universe: false,
+            };
+        }
+
+        let mut result = SmallVec::with_capacity(left_elements.len().min(right_elements.len()));
+        let mut left = left_elements.into_iter().peekable();
+        let mut right = right_elements.into_iter().peekable();
+
+        while let (Some(left_element), Some(right_element)) = (left.peek(), right.peek()) {
+            match left_element.cmp(right_element) {
+                std::cmp::Ordering::Less => {
+                    let _ = left.next();
+                }
+                std::cmp::Ordering::Greater => {
+                    let _ = right.next();
+                }
+                std::cmp::Ordering::Equal => {
+                    if let Some(element) = left.next() {
+                        result.push(element);
+                    }
+                    let _ = right.next();
+                }
+            }
+        }
+
+        SetWeight {
+            elements: result,
+            is_universe: false,
+        }
+    }
+
+    fn sorted_is_subset(subset: &[T], superset: &[T]) -> bool
+    where
+        T: Ord,
+    {
+        if subset.len() > superset.len() {
+            return false;
+        }
+
+        let mut subset_index = 0;
+        let mut superset_index = 0;
+
+        while subset_index < subset.len() && superset_index < superset.len() {
+            match subset[subset_index].cmp(&superset[superset_index]) {
+                std::cmp::Ordering::Equal => {
+                    subset_index += 1;
+                    superset_index += 1;
+                }
+                std::cmp::Ordering::Greater => {
+                    superset_index += 1;
+                }
+                std::cmp::Ordering::Less => return false,
+            }
+        }
+
+        subset_index == subset.len()
+    }
 }
 
-impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> PartialEq for SetWeight<T> {
+impl<T: PartialEq> PartialEq for SetWeight<T> {
     fn eq(&self, other: &Self) -> bool {
         if self.is_universe != other.is_universe {
             return false;
@@ -282,12 +509,13 @@ impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> PartialEq for SetWeight
     }
 }
 
-impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> Eq for SetWeight<T> {}
+impl<T: Eq> Eq for SetWeight<T> {}
 
-impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> Hash for SetWeight<T> {
+impl<T: Hash> Hash for SetWeight<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.is_universe.hash(state);
         if !self.is_universe {
+            self.elements.len().hash(state);
             for elem in &self.elements {
                 elem.hash(state);
             }
@@ -295,7 +523,7 @@ impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> Hash for SetWeight<T> {
     }
 }
 
-impl<T: Clone + Eq + Ord + Hash + fmt::Debug + Send + Sync + 'static> fmt::Debug for SetWeight<T> {
+impl<T: fmt::Debug> fmt::Debug for SetWeight<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.is_universe {
             write!(f, "SetWeight(Universe)")
@@ -305,10 +533,10 @@ impl<T: Clone + Eq + Ord + Hash + fmt::Debug + Send + Sync + 'static> fmt::Debug
     }
 }
 
-impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> Default for SetWeight<T> {
+impl<T> Default for SetWeight<T> {
     /// Default is the multiplicative identity (universe).
     fn default() -> Self {
-        Self::one()
+        Self::universe()
     }
 }
 
@@ -320,7 +548,7 @@ impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> Default for SetWeight<T
 // Copy, and SetWeight contains a SmallVec which is not Copy.
 // Instead, we provide the same API via inherent methods.
 
-impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> SetWeight<T> {
+impl<T> SetWeight<T> {
     /// Additive identity: empty set
     ///
     /// This is the identity for `plus()` (union).
@@ -340,14 +568,20 @@ impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> SetWeight<T> {
     /// Addition (⊕): set union
     ///
     /// Combines elements from both sets.
-    pub fn plus(&self, other: &Self) -> Self {
+    pub fn plus(&self, other: &Self) -> Self
+    where
+        T: Clone + Ord,
+    {
         self.set_union(other)
     }
 
     /// Multiplication (⊗): set intersection
     ///
     /// Returns elements present in both sets.
-    pub fn times(&self, other: &Self) -> Self {
+    pub fn times(&self, other: &Self) -> Self
+    where
+        T: Clone + Ord,
+    {
         self.set_intersection(other)
     }
 
@@ -364,30 +598,51 @@ impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> SetWeight<T> {
     }
 
     /// Sets are exactly equal (no floating point concerns).
-    pub fn approx_eq(&self, other: &Self, _epsilon: f64) -> bool {
+    pub fn approx_eq(&self, other: &Self, _epsilon: f64) -> bool
+    where
+        T: PartialEq,
+    {
         self == other
     }
 
-    /// Natural ordering: smaller sets are "better" (more specific).
-    pub fn natural_less(&self, other: &Self) -> Option<bool> {
+    /// Natural ordering: proper subsets are "better" (more specific).
+    pub fn natural_less(&self, other: &Self) -> Option<bool>
+    where
+        T: Ord,
+    {
         // Universe is the "worst" (least specific)
         match (self.is_universe, other.is_universe) {
             (true, true) => Some(false),
             (true, false) => Some(false), // Universe is worse
             (false, true) => Some(true),  // Finite is better than universe
-            (false, false) => Some(self.elements.len() < other.elements.len()),
+            (false, false) if self.elements == other.elements => Some(false),
+            (false, false) if Self::sorted_is_subset(&self.elements, &other.elements) => Some(true),
+            (false, false) if Self::sorted_is_subset(&other.elements, &self.elements) => {
+                Some(false)
+            }
+            (false, false) => None,
         }
     }
 
-    /// Serialize to bytes (simple encoding).
-    pub fn to_bytes(&self) -> Vec<u8> {
-        // Simple encoding: 1 byte for universe flag, then length-prefixed elements
-        // This is a placeholder - real implementation would need proper serialization
-        let mut bytes = Vec::new();
+    /// Serialize to deterministic bytes for hashing/merkleization.
+    pub fn to_bytes(&self) -> Vec<u8>
+    where
+        T: Hash,
+    {
+        let mut bytes = Vec::with_capacity(1 + 8 + self.elements.len() * 8);
         bytes.push(if self.is_universe { 1 } else { 0 });
-        if !self.is_universe {
-            bytes.extend((self.elements.len() as u64).to_le_bytes());
+        bytes.extend((self.elements.len() as u64).to_le_bytes());
+
+        if self.is_universe {
+            return bytes;
         }
+
+        for element in &self.elements {
+            let mut hasher = FxHasher::default();
+            element.hash(&mut hasher);
+            bytes.extend(hasher.finish().to_le_bytes());
+        }
+
         bytes
     }
 }
@@ -402,32 +657,32 @@ impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> SetWeight<T> {
 // - Zero-sum-free: A ∪ B = ∅ only when both A = ∅ and B = ∅
 // - K-closed with k = 1: Star operation converges immediately (A* = A ∪ U = U)
 
-impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> std::ops::Add for SetWeight<T> {
+impl<T: Ord> std::ops::Add for SetWeight<T> {
     type Output = Self;
 
     #[inline]
     fn add(self, other: Self) -> Self {
-        self.plus(&other)
+        self.set_union_owned(other)
     }
 }
 
-impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> std::ops::Mul for SetWeight<T> {
+impl<T: Ord> std::ops::Mul for SetWeight<T> {
     type Output = Self;
 
     #[inline]
     fn mul(self, other: Self) -> Self {
-        self.times(&other)
+        self.set_intersection_owned(other)
     }
 }
 
-impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> std::ops::AddAssign for SetWeight<T> {
+impl<T: Clone + Ord> std::ops::AddAssign for SetWeight<T> {
     #[inline]
     fn add_assign(&mut self, other: Self) {
         *self = self.plus(&other);
     }
 }
 
-impl<T: Clone + Eq + Ord + Hash + Send + Sync + 'static> std::ops::MulAssign for SetWeight<T> {
+impl<T: Clone + Ord> std::ops::MulAssign for SetWeight<T> {
     #[inline]
     fn mul_assign(&mut self, other: Self) {
         *self = self.times(&other);
@@ -557,22 +812,107 @@ mod tests {
         set.insert(3);
 
         let a = SetWeight::from_set(set.clone());
-        assert_eq!(a.to_set(), set);
+        assert_eq!(a.to_set(), Some(set));
+    }
+
+    #[test]
+    fn test_to_set_universe_returns_none() {
+        let universe: SetWeight<i32> = SetWeight::universe();
+
+        assert_eq!(universe.to_set(), None);
+    }
+
+    #[test]
+    fn test_finite_accessors_distinguish_universe() {
+        let finite = SetWeight::from_iter(vec![3, 1, 3, 2]);
+        let universe: SetWeight<i32> = SetWeight::universe();
+
+        assert_eq!(finite.finite_len(), Some(3));
+        assert_eq!(finite.as_finite_slice(), Some([1, 2, 3].as_slice()));
+        assert_eq!(universe.finite_len(), None);
+        assert_eq!(universe.as_finite_slice(), None);
+    }
+
+    #[test]
+    fn test_into_set_accepts_non_clone_elements() {
+        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+        struct NonClone(i32);
+
+        let finite = SetWeight::from_iter([NonClone(2), NonClone(1), NonClone(2)]);
+        let set = finite.into_set();
+
+        assert_eq!(set.as_ref().map(BTreeSet::len), Some(2));
+        assert!(set
+            .as_ref()
+            .is_some_and(|set| set.contains(&NonClone(1)) && set.contains(&NonClone(2))));
+    }
+
+    #[test]
+    fn test_owned_operators_accept_non_clone_elements() {
+        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+        struct NonClone(i32);
+
+        let union = SetWeight::from_iter([NonClone(2), NonClone(1)])
+            + SetWeight::from_iter([NonClone(2), NonClone(3)]);
+        assert_eq!(
+            union.as_finite_slice(),
+            Some([NonClone(1), NonClone(2), NonClone(3)].as_slice())
+        );
+
+        let intersection = SetWeight::from_iter([NonClone(1), NonClone(2)])
+            * SetWeight::from_iter([NonClone(2), NonClone(3)]);
+        assert_eq!(
+            intersection.as_finite_slice(),
+            Some([NonClone(2)].as_slice())
+        );
+    }
+
+    #[test]
+    fn test_basic_constructors_do_not_require_ordered_elements() {
+        struct Marker;
+
+        let empty = SetWeight::<Marker>::empty();
+        let universe = SetWeight::<Marker>::universe();
+
+        assert!(empty.is_empty());
+        assert!(universe.is_universal());
     }
 
     #[test]
     fn test_natural_ordering() {
         let small = SetWeight::from_iter(vec![1]);
         let medium = SetWeight::from_iter(vec![1, 2, 3]);
+        let other_small = SetWeight::from_iter(vec![2]);
+        let overlapping = SetWeight::from_iter(vec![1, 4]);
         let universe: SetWeight<i32> = SetWeight::universe();
 
-        // Smaller sets are "better"
+        // Proper subsets are more specific.
         assert_eq!(small.natural_less(&medium), Some(true));
         assert_eq!(medium.natural_less(&small), Some(false));
+        assert_eq!(small.natural_less(&small), Some(false));
+
+        // Equal-cardinality finite sets are incomparable unless one contains
+        // the other.
+        assert_eq!(small.natural_less(&other_small), None);
+        assert_eq!(overlapping.natural_less(&medium), None);
+        assert_eq!(medium.natural_less(&overlapping), None);
 
         // Finite sets are better than universe
         assert_eq!(small.natural_less(&universe), Some(true));
         assert_eq!(universe.natural_less(&small), Some(false));
+    }
+
+    #[test]
+    fn test_natural_ordering_matches_subset_containment() {
+        let subset = SetWeight::from_iter(vec![1, 3]);
+        let superset = SetWeight::from_iter(vec![1, 2, 3]);
+        let disjoint = SetWeight::from_iter(vec![4, 5]);
+
+        assert!(subset.iter().all(|element| superset.contains(element)));
+        assert_eq!(subset.natural_less(&superset), Some(true));
+        assert_eq!(superset.natural_less(&subset), Some(false));
+        assert_eq!(subset.natural_less(&disjoint), None);
+        assert_eq!(disjoint.natural_less(&subset), None);
     }
 
     #[test]
@@ -586,6 +926,40 @@ mod tests {
         let intersection = a.times(&b);
         assert_eq!(intersection.len(), 1);
         assert!(intersection.contains(&"verb".to_string()));
+    }
+
+    #[test]
+    fn test_to_bytes_includes_elements() {
+        let a = SetWeight::from_iter(vec![1u32]);
+        let b = SetWeight::from_iter(vec![2u32]);
+        let c = SetWeight::from_iter(vec![2u32, 1u32]);
+        let d = SetWeight::from_iter(vec![1u32, 2u32]);
+        let universe: SetWeight<u32> = SetWeight::universe();
+
+        assert_ne!(a.to_bytes(), b.to_bytes());
+        assert_ne!(a.to_bytes(), universe.to_bytes());
+        assert_eq!(c.to_bytes(), d.to_bytes());
+    }
+
+    #[test]
+    fn test_hash_includes_finite_cardinality() {
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+        struct SilentHash(u8);
+
+        impl std::hash::Hash for SilentHash {
+            fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {}
+        }
+
+        fn hash_value<T: std::hash::Hash>(value: &T) -> u64 {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            value.hash(&mut hasher);
+            hasher.finish()
+        }
+
+        let empty = SetWeight::<SilentHash>::empty();
+        let singleton = SetWeight::singleton(SilentHash(1));
+
+        assert_ne!(hash_value(&empty), hash_value(&singleton));
     }
 
     proptest! {

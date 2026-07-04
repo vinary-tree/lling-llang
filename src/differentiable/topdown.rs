@@ -74,8 +74,14 @@ impl SparseGradient {
     /// Set gradient for an arc.
     #[inline]
     pub fn set(&mut self, arc_id: usize, value: f64) {
+        if arc_id >= self.num_arcs {
+            return;
+        }
+
         if value.abs() > 1e-10 {
             self.gradients.insert(arc_id, value);
+        } else {
+            self.gradients.remove(&arc_id);
         }
     }
 
@@ -88,8 +94,15 @@ impl SparseGradient {
     /// Add to gradient for an arc.
     #[inline]
     pub fn add(&mut self, arc_id: usize, value: f64) {
+        if arc_id >= self.num_arcs || value.abs() <= 1e-10 {
+            return;
+        }
+
         let entry = self.gradients.entry(arc_id).or_insert(0.0);
         *entry += value;
+        if entry.abs() <= 1e-10 {
+            self.gradients.remove(&arc_id);
+        }
     }
 
     /// Number of non-zero gradients.
@@ -129,9 +142,15 @@ impl SparseGradient {
 
     /// Scale all gradients by a factor.
     pub fn scale(&mut self, factor: f64) {
+        if factor.abs() <= 1e-10 {
+            self.gradients.clear();
+            return;
+        }
+
         for value in self.gradients.values_mut() {
             *value *= factor;
         }
+        self.gradients.retain(|_, value| value.abs() > 1e-10);
     }
 
     /// Add another sparse gradient.
@@ -223,15 +242,22 @@ where
         return scores;
     }
 
+    let start = fst.start();
+    if !fst.is_valid_state(start) {
+        return scores;
+    }
+
     // Forward pass: compute α[s] using BFS-style single pass
     // Each arc is processed exactly once
-    let start = fst.start();
     scores.alpha[start as usize] = 0.0;
 
     // Track which states have been processed (all incoming arcs handled)
     let mut in_degree = vec![0usize; num_states];
     for state in 0..num_states as StateId {
         for tr in fst.transitions(state) {
+            if !fst.is_valid_state(tr.to) {
+                continue;
+            }
             in_degree[tr.to as usize] += 1;
         }
     }
@@ -258,8 +284,12 @@ where
         if scores.alpha[state as usize] <= f64::NEG_INFINITY {
             // State not reachable from start
             for tr in fst.transitions(state) {
-                remaining_in[tr.to as usize] = remaining_in[tr.to as usize].saturating_sub(1);
-                if remaining_in[tr.to as usize] == 0 && !processed[tr.to as usize] {
+                let Some(to_remaining) = remaining_in.get_mut(tr.to as usize) else {
+                    continue;
+                };
+
+                *to_remaining = to_remaining.saturating_sub(1);
+                if *to_remaining == 0 && !processed[tr.to as usize] {
                     queue.push_back(tr.to);
                     processed[tr.to as usize] = true;
                 }
@@ -268,14 +298,19 @@ where
         }
 
         for tr in fst.transitions(state) {
+            let to_idx = tr.to as usize;
+            if to_idx >= num_states {
+                continue;
+            }
+
             let arc_weight: f64 = tr.weight.clone().into();
             let new_alpha = scores.alpha[state as usize] + arc_weight;
-            scores.alpha[tr.to as usize] = log_add(scores.alpha[tr.to as usize], new_alpha);
+            scores.alpha[to_idx] = log_add(scores.alpha[to_idx], new_alpha);
 
-            remaining_in[tr.to as usize] = remaining_in[tr.to as usize].saturating_sub(1);
-            if remaining_in[tr.to as usize] == 0 && !processed[tr.to as usize] {
+            remaining_in[to_idx] = remaining_in[to_idx].saturating_sub(1);
+            if remaining_in[to_idx] == 0 && !processed[to_idx] {
                 queue.push_back(tr.to);
-                processed[tr.to as usize] = true;
+                processed[to_idx] = true;
             }
         }
     }
@@ -292,7 +327,11 @@ where
     // Compute out-degree for reverse traversal
     let mut out_degree = vec![0usize; num_states];
     for state in 0..num_states as StateId {
-        out_degree[state as usize] = fst.transitions(state).len();
+        out_degree[state as usize] = fst
+            .transitions(state)
+            .iter()
+            .filter(|tr| fst.is_valid_state(tr.to))
+            .count();
     }
 
     // Process in reverse topological order
@@ -312,6 +351,10 @@ where
     let mut reverse_adj: Vec<Vec<(StateId, f64)>> = vec![Vec::new(); num_states];
     for state in 0..num_states as StateId {
         for tr in fst.transitions(state) {
+            if !fst.is_valid_state(tr.to) {
+                continue;
+            }
+
             let arc_weight: f64 = tr.weight.clone().into();
             reverse_adj[tr.to as usize].push((state, arc_weight));
         }
@@ -371,14 +414,26 @@ where
     let mut arc_id = 0;
 
     for state in 0..num_states as StateId {
-        let alpha_s = fb_scores.alpha[state as usize];
+        let alpha_s = fb_scores
+            .alpha
+            .get(state as usize)
+            .copied()
+            .unwrap_or(f64::NEG_INFINITY);
         if alpha_s <= f64::NEG_INFINITY {
             arc_id += fst.transitions(state).len();
             continue;
         }
 
         for tr in fst.transitions(state) {
-            let beta_t = fb_scores.beta[tr.to as usize];
+            let beta_t = if fst.is_valid_state(tr.to) {
+                fb_scores
+                    .beta
+                    .get(tr.to as usize)
+                    .copied()
+                    .unwrap_or(f64::NEG_INFINITY)
+            } else {
+                f64::NEG_INFINITY
+            };
             if beta_t <= f64::NEG_INFINITY {
                 arc_id += 1;
                 continue;
@@ -510,9 +565,11 @@ where
 
     // Initialize final states
     for (&orig_state, &pruned_id) in &search_result.surviving_states {
-        if fst.is_final(orig_state) {
+        if fst.is_valid_state(orig_state) && fst.is_final(orig_state) {
             let final_weight: f64 = fst.final_weight(orig_state).into();
-            beta[pruned_id as usize] = final_weight;
+            if let Some(slot) = beta.get_mut(pruned_id as usize) {
+                *slot = final_weight;
+            }
         }
     }
 
@@ -532,19 +589,31 @@ where
                     continue;
                 }
             };
+            let Some(pruned_from_idx) =
+                ((pruned_from as usize) < beta.len()).then_some(pruned_from as usize)
+            else {
+                arc_id += fst.transitions(state).len();
+                continue;
+            };
 
             for tr in fst.transitions(state) {
                 if search_result.arc_survived(arc_id) {
-                    if let Some(&pruned_to) = search_result.surviving_states.get(&tr.to) {
-                        if beta[pruned_to as usize] > f64::NEG_INFINITY {
-                            let arc_weight: f64 = tr.weight.clone().into();
-                            let new_beta = arc_weight + beta[pruned_to as usize];
-                            let old_beta = beta[pruned_from as usize];
-                            let updated = log_add(old_beta, new_beta);
+                    if fst.is_valid_state(tr.to) {
+                        if let Some(&pruned_to) = search_result.surviving_states.get(&tr.to) {
+                            let Some(beta_to) = beta.get(pruned_to as usize).copied() else {
+                                continue;
+                            };
 
-                            if (updated - old_beta).abs() > 1e-10 {
-                                beta[pruned_from as usize] = updated;
-                                changed = true;
+                            if beta_to > f64::NEG_INFINITY {
+                                let old_beta = beta[pruned_from_idx];
+                                let arc_weight: f64 = tr.weight.clone().into();
+                                let new_beta = arc_weight + beta_to;
+                                let updated = log_add(old_beta, new_beta);
+
+                                if (updated - old_beta).abs() > 1e-10 {
+                                    beta[pruned_from_idx] = updated;
+                                    changed = true;
+                                }
                             }
                         }
                     }
@@ -561,12 +630,17 @@ where
     // Compute total log-prob in pruned graph
     let start = fst.start();
     let total_log_prob = if let Some(&pruned_start) = search_result.surviving_states.get(&start) {
+        let pruned_start_idx = pruned_start as usize;
         let alpha = search_result
             .forward_scores
-            .get(pruned_start as usize)
+            .get(pruned_start_idx)
             .copied()
             .unwrap_or(f64::NEG_INFINITY);
-        alpha + beta[pruned_start as usize]
+        let beta_start = beta
+            .get(pruned_start_idx)
+            .copied()
+            .unwrap_or(f64::NEG_INFINITY);
+        alpha + beta_start
     } else {
         f64::NEG_INFINITY
     };
@@ -590,20 +664,27 @@ where
 
         for tr in fst.transitions(state) {
             if let Some(&pruned_arc_id) = search_result.surviving_arcs.get(&arc_id) {
-                if let Some(&pruned_to) = search_result.surviving_states.get(&tr.to) {
-                    let beta_t = beta[pruned_to as usize];
-                    let arc_weight: f64 = tr.weight.clone().into();
+                if pruned_arc_id >= num_surviving {
+                    arc_id += 1;
+                    continue;
+                }
 
-                    let log_posterior = alpha_s + arc_weight + beta_t - total_log_prob;
-                    let posterior = if log_posterior > f64::NEG_INFINITY {
-                        log_posterior.exp()
-                    } else {
-                        0.0
-                    };
+                if fst.is_valid_state(tr.to) {
+                    if let Some(&pruned_to) = search_result.surviving_states.get(&tr.to) {
+                        if let Some(beta_t) = beta.get(pruned_to as usize).copied() {
+                            let arc_weight: f64 = tr.weight.clone().into();
+                            let log_posterior = alpha_s + arc_weight + beta_t - total_log_prob;
+                            let posterior = if log_posterior > f64::NEG_INFINITY {
+                                log_posterior.exp()
+                            } else {
+                                0.0
+                            };
 
-                    if posterior > config.min_gradient {
-                        // Gradient is posterior * output_grad (chain rule)
-                        gradients.set(pruned_arc_id, -posterior * output_grad);
+                            if posterior > config.min_gradient {
+                                // Gradient is posterior * output_grad (chain rule)
+                                gradients.set(pruned_arc_id, -posterior * output_grad);
+                            }
+                        }
                     }
                 }
             }
@@ -784,17 +865,26 @@ where
             // Gradient is proportional to posterior
             // For log-likelihood loss, grad = -posterior * output_grad
             let grad_value = -posterior * output_grad;
+            let mut emitted = false;
 
             if let Some(arc1) = arc_info.arc1 {
-                grad1.add(arc1, grad_value);
-                stats.nonzero_arcs += 1;
+                if arc1 < num_arcs1 {
+                    grad1.add(arc1, grad_value);
+                    stats.nonzero_arcs += 1;
+                    emitted = true;
+                }
             }
             if let Some(arc2) = arc_info.arc2 {
-                grad2.add(arc2, grad_value);
-                stats.nonzero_arcs += 1;
+                if arc2 < num_arcs2 {
+                    grad2.add(arc2, grad_value);
+                    stats.nonzero_arcs += 1;
+                    emitted = true;
+                }
             }
 
-            stats.total_gradient_mass += grad_value.abs();
+            if emitted {
+                stats.total_gradient_mass += grad_value.abs();
+            }
         }
     } else {
         // Legacy fallback: uniform contribution when arc info not available
@@ -808,17 +898,26 @@ where
 
         for &(arc1_opt, arc2_opt) in arc_map.arc_origins.values() {
             let grad_value = -output_grad * uniform_weight;
+            let mut emitted = false;
 
             if let Some(arc1) = arc1_opt {
-                grad1.add(arc1, grad_value);
-                stats.nonzero_arcs += 1;
+                if arc1 < num_arcs1 {
+                    grad1.add(arc1, grad_value);
+                    stats.nonzero_arcs += 1;
+                    emitted = true;
+                }
             }
             if let Some(arc2) = arc2_opt {
-                grad2.add(arc2, grad_value);
-                stats.nonzero_arcs += 1;
+                if arc2 < num_arcs2 {
+                    grad2.add(arc2, grad_value);
+                    stats.nonzero_arcs += 1;
+                    emitted = true;
+                }
             }
 
-            stats.total_gradient_mass += grad_value.abs();
+            if emitted {
+                stats.total_gradient_mass += grad_value.abs();
+            }
         }
     }
 
@@ -886,6 +985,47 @@ mod tests {
     }
 
     #[test]
+    fn test_sparse_gradient_ignores_out_of_range_arcs() {
+        let mut grad = SparseGradient::new(2);
+        grad.set(5, 1.0);
+        grad.add(6, 1.0);
+
+        assert_eq!(grad.nnz(), 0);
+        assert_eq!(grad.to_dense(), vec![0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_sparse_gradient_add_removes_zero_entries() {
+        let mut grad = SparseGradient::new(2);
+        grad.add(0, 0.5);
+        grad.add(0, -0.5);
+
+        assert_eq!(grad.nnz(), 0);
+        assert_eq!(grad.get(0), 0.0);
+    }
+
+    #[test]
+    fn test_sparse_gradient_set_zero_clears_entry() {
+        let mut grad = SparseGradient::new(2);
+        grad.set(0, 0.5);
+        grad.set(0, 0.0);
+
+        assert_eq!(grad.nnz(), 0);
+        assert_eq!(grad.get(0), 0.0);
+    }
+
+    #[test]
+    fn test_sparse_gradient_scale_zero_clears_entries() {
+        let mut grad = SparseGradient::new(3);
+        grad.set(0, 0.5);
+        grad.set(2, -0.5);
+        grad.scale(0.0);
+
+        assert_eq!(grad.nnz(), 0);
+        assert_eq!(grad.to_dense(), vec![0.0, 0.0, 0.0]);
+    }
+
+    #[test]
     fn test_sparse_gradient_sparsity() {
         let mut grad = SparseGradient::new(100);
         grad.set(0, 0.5);
@@ -931,6 +1071,38 @@ mod tests {
     }
 
     #[test]
+    fn test_forward_backward_no_start_returns_unreachable_scores() {
+        let mut fst = VectorWfst::<char, LogWeight>::new();
+        fst.add_states(2);
+        fst.set_final(1, LogWeight::one());
+
+        let fb = forward_backward(&fst);
+
+        assert_eq!(fb.alpha, vec![f64::NEG_INFINITY; 2]);
+        assert_eq!(fb.beta, vec![f64::NEG_INFINITY; 2]);
+        assert_eq!(fb.total_log_prob, f64::NEG_INFINITY);
+    }
+
+    #[test]
+    fn test_forward_backward_skips_malformed_transition_targets() {
+        let mut fst = VectorWfst::<char, LogWeight>::new();
+        let s0 = fst.add_state();
+        let s1 = fst.add_state();
+        fst.set_start(s0);
+        fst.set_final(s1, LogWeight::one());
+        fst.add_arc(s0, Some('a'), Some('a'), s1, LogWeight::new(1.0));
+        fst.add_arc(s0, Some('x'), Some('x'), 99, LogWeight::new(0.5));
+
+        let fb = forward_backward(&fst);
+
+        assert!((fb.alpha[0] - 0.0).abs() < 1e-6);
+        assert!((fb.alpha[1] - 1.0).abs() < 1e-6);
+        assert!((fb.beta[0] - 1.0).abs() < 1e-6);
+        assert!((fb.beta[1] - 0.0).abs() < 1e-6);
+        assert!((fb.total_log_prob - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
     fn test_forward_backward_two_paths() {
         let mut fst = VectorWfst::<char, LogWeight>::new();
         let s0 = fst.add_state();
@@ -966,6 +1138,41 @@ mod tests {
     }
 
     #[test]
+    fn test_topdown_backward_skips_malformed_targets() {
+        let mut fst = VectorWfst::<char, LogWeight>::new();
+        let s0 = fst.add_state();
+        let s1 = fst.add_state();
+        fst.set_start(s0);
+        fst.set_final(s1, LogWeight::one());
+        fst.add_arc(s0, Some('a'), Some('a'), s1, LogWeight::new(1.0));
+        fst.add_arc(s0, Some('x'), Some('x'), 99, LogWeight::new(0.5));
+
+        let fb = forward_backward(&fst);
+        let grads = topdown_backward(&fst, &fb);
+
+        assert_eq!(grads.num_arcs(), 2);
+        assert_eq!(grads.nnz(), 1);
+        assert!((grads.get(0) - (-1.0)).abs() < 1e-6);
+        assert_eq!(grads.get(1), 0.0);
+    }
+
+    #[test]
+    fn test_topdown_backward_tolerates_short_score_vectors() {
+        let mut fst = VectorWfst::<char, LogWeight>::new();
+        let s0 = fst.add_state();
+        let s1 = fst.add_state();
+        fst.set_start(s0);
+        fst.set_final(s1, LogWeight::one());
+        fst.add_arc(s0, Some('a'), Some('a'), s1, LogWeight::new(1.0));
+
+        let fb = ForwardBackwardScores::new(1);
+        let grads = topdown_backward(&fst, &fb);
+
+        assert_eq!(grads.num_arcs(), 1);
+        assert_eq!(grads.nnz(), 0);
+    }
+
+    #[test]
     fn test_pruned_search_result() {
         let mut result = PrunedSearchResult::<LogWeight>::new(10.0);
         result.add_state(0, -5.0);
@@ -978,6 +1185,27 @@ mod tests {
         assert!(result.arc_survived(0));
         assert!(!result.arc_survived(1));
         assert!((result.best_score - (-3.0)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_pruned_search_backward_tolerates_inconsistent_maps() {
+        let mut fst = VectorWfst::<char, LogWeight>::new();
+        let s0 = fst.add_state();
+        fst.add_state();
+        fst.set_start(s0);
+        fst.add_arc(s0, Some('x'), Some('x'), 99, LogWeight::new(0.5));
+
+        let mut result = PrunedSearchResult::<LogWeight>::new(10.0);
+        result.add_state(s0, 0.0);
+        result.add_state(99, 0.5);
+        result.forward_scores.truncate(1);
+        result.add_arc(0);
+        result.surviving_arcs.insert(0, 99);
+
+        let grads = pruned_search_backward(&fst, &result, 1.0, &PrunedBackwardConfig::default());
+
+        assert_eq!(grads.num_arcs(), 1);
+        assert_eq!(grads.nnz(), 0);
     }
 
     #[test]
@@ -1149,6 +1377,38 @@ mod tests {
     }
 
     #[test]
+    fn test_composed_backward_skips_out_of_range_origin_arcs() {
+        let mut fst1 = VectorWfst::<char, LogWeight>::new();
+        let s0 = fst1.add_state();
+        let s1 = fst1.add_state();
+        fst1.set_start(s0);
+        fst1.set_final(s1, LogWeight::one());
+        fst1.add_arc(s0, Some('a'), Some('a'), s1, LogWeight::new(1.0));
+
+        let mut fst2 = VectorWfst::<char, LogWeight>::new();
+        let t0 = fst2.add_state();
+        let t1 = fst2.add_state();
+        fst2.set_start(t0);
+        fst2.set_final(t1, LogWeight::one());
+        fst2.add_arc(t0, Some('a'), Some('a'), t1, LogWeight::new(0.5));
+
+        let mut fb = ForwardBackwardScores::new(2);
+        fb.alpha[0] = 0.0;
+        fb.beta[1] = 0.0;
+        fb.total_log_prob = 1.5;
+
+        let mut arc_map = ComposedArcMap::new();
+        arc_map.add_with_info(0, 1, 1.5, Some(99), Some(99));
+
+        let result = composed_backward(&fst1, &fst2, &fb, &arc_map, 1.0);
+
+        assert_eq!(result.grad1.nnz(), 0);
+        assert_eq!(result.grad2.nnz(), 0);
+        assert_eq!(result.stats.nonzero_arcs, 0);
+        assert_eq!(result.stats.total_gradient_mass, 0.0);
+    }
+
+    #[test]
     fn test_composed_backward_legacy_fallback() {
         // Test that legacy mode works when no arc info is provided
         let mut fst1 = VectorWfst::<char, LogWeight>::new();
@@ -1211,8 +1471,8 @@ mod tests {
                 prop_assert_eq!(grad.to_dense().len(), num_arcs);
             }
 
-            /// `scale(0.0)` reduces all stored gradients to zero (which the
-            /// sparse representation realises by leaving the stored f64 at 0.0).
+            /// `scale(0.0)` reduces all stored gradients to zero and keeps the
+            /// sparse representation empty rather than storing explicit zeros.
             #[test]
             fn sparse_gradient_scale_zero_zeros(
                 writes in proptest::collection::vec(
@@ -1228,6 +1488,7 @@ mod tests {
                 for (idx, _) in &writes {
                     prop_assert!(grad.get(*idx).abs() < 1e-12);
                 }
+                prop_assert_eq!(grad.nnz(), 0);
             }
         }
     }

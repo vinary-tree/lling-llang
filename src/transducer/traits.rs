@@ -2,7 +2,7 @@
 
 use crate::semiring::Semiring;
 use crate::wfst::{StateId, VectorWfst};
-use std::fmt::Debug;
+use std::fmt::{self, Debug};
 
 /// Label type for transducer output vocabulary.
 pub type Label = u32;
@@ -12,6 +12,309 @@ pub type FrameIndex = usize;
 
 /// Blank token constant (typically 0).
 pub const BLANK: Label = 0;
+
+/// Output tensor kind used in [`TransducerOutputError`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransducerOutputKind {
+    /// Acoustic encoder output tensor.
+    Encoder,
+    /// Autoregressive predictor output tensor.
+    Predictor,
+}
+
+impl TransducerOutputKind {
+    #[inline]
+    fn name(self) -> &'static str {
+        match self {
+            Self::Encoder => "encoder output",
+            Self::Predictor => "predictor output",
+        }
+    }
+
+    #[inline]
+    fn row_name(self) -> &'static str {
+        match self {
+            Self::Encoder => "frames",
+            Self::Predictor => "positions",
+        }
+    }
+}
+
+/// Error returned by checked transducer output tensor constructors and accessors.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TransducerOutputError {
+    /// `rows * dim` overflowed `usize`.
+    ShapeSizeOverflow {
+        /// Tensor kind.
+        kind: TransducerOutputKind,
+        /// Number of rows: frames for encoder output, positions for predictor output.
+        rows: usize,
+        /// Width of each row.
+        dim: usize,
+    },
+    /// The flat data buffer does not match the declared tensor shape.
+    DataLengthMismatch {
+        /// Tensor kind.
+        kind: TransducerOutputKind,
+        /// Number of rows: frames for encoder output, positions for predictor output.
+        rows: usize,
+        /// Width of each row.
+        dim: usize,
+        /// Required flattened value count.
+        expected: usize,
+        /// Actual flattened value count.
+        actual: usize,
+    },
+    /// Requested encoder frame is outside the tensor.
+    FrameOutOfBounds {
+        /// Requested frame index.
+        frame: FrameIndex,
+        /// Number of available frames.
+        num_frames: usize,
+    },
+    /// Requested predictor position is outside the tensor.
+    PositionOutOfBounds {
+        /// Requested predictor position.
+        position: usize,
+        /// Number of available positions.
+        num_positions: usize,
+    },
+}
+
+impl fmt::Display for TransducerOutputError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ShapeSizeOverflow { kind, rows, dim } => write!(
+                f,
+                "{} shape overflows usize: {} {} x {} dimensions",
+                kind.name(),
+                rows,
+                kind.row_name(),
+                dim
+            ),
+            Self::DataLengthMismatch {
+                kind,
+                rows,
+                dim,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "{} data length {} does not match shape {} {} x {} dimensions = {}",
+                kind.name(),
+                actual,
+                rows,
+                kind.row_name(),
+                dim,
+                expected
+            ),
+            Self::FrameOutOfBounds { frame, num_frames } => write!(
+                f,
+                "encoder frame {} is out of bounds for {} frames",
+                frame, num_frames
+            ),
+            Self::PositionOutOfBounds {
+                position,
+                num_positions,
+            } => write!(
+                f,
+                "predictor position {} is out of bounds for {} positions",
+                position, num_positions
+            ),
+        }
+    }
+}
+
+impl std::error::Error for TransducerOutputError {}
+
+/// Error returned by checked transducer lattice constructors and accessors.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TransducerLatticeError {
+    /// `num_frames * num_positions * vocab_size` overflowed `usize`.
+    ShapeSizeOverflow {
+        /// Number of time frames.
+        num_frames: usize,
+        /// Number of label positions.
+        num_positions: usize,
+        /// Vocabulary size including blank.
+        vocab_size: usize,
+    },
+    /// The vocabulary cannot be represented by the [`Label`] type.
+    VocabularyTooLarge {
+        /// Supplied vocabulary size.
+        vocab_size: usize,
+        /// Largest supported vocabulary size.
+        maximum: usize,
+    },
+    /// The flat log-probability buffer does not match the lattice shape.
+    LogProbLengthMismatch {
+        /// Required flattened value count.
+        expected: usize,
+        /// Actual flattened value count.
+        actual: usize,
+    },
+    /// Requested time frame is outside the lattice.
+    FrameOutOfBounds {
+        /// Requested frame index.
+        frame: usize,
+        /// Number of available frames.
+        num_frames: usize,
+    },
+    /// Requested label position is outside the lattice.
+    PositionOutOfBounds {
+        /// Requested label position.
+        position: usize,
+        /// Number of available label positions.
+        num_positions: usize,
+    },
+    /// Requested label is outside the lattice vocabulary.
+    LabelOutOfBounds {
+        /// Requested label.
+        label: Label,
+        /// Vocabulary size including blank.
+        vocab_size: usize,
+    },
+    /// A WFST conversion needs at least one label position.
+    EmptyPositionAxis,
+    /// WFST conversion would exceed the representable [`StateId`] range.
+    StateCountOverflow {
+        /// Number of time frames.
+        num_frames: usize,
+        /// Number of label positions.
+        num_positions: usize,
+    },
+}
+
+impl fmt::Display for TransducerLatticeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ShapeSizeOverflow {
+                num_frames,
+                num_positions,
+                vocab_size,
+            } => write!(
+                f,
+                "transducer lattice shape overflows usize: {} frames x {} positions x {} labels",
+                num_frames, num_positions, vocab_size
+            ),
+            Self::VocabularyTooLarge {
+                vocab_size,
+                maximum,
+            } => write!(
+                f,
+                "transducer lattice vocabulary size {} exceeds maximum {}",
+                vocab_size, maximum
+            ),
+            Self::LogProbLengthMismatch { expected, actual } => write!(
+                f,
+                "transducer lattice log-probability length {} does not match expected {}",
+                actual, expected
+            ),
+            Self::FrameOutOfBounds { frame, num_frames } => write!(
+                f,
+                "transducer lattice frame {} is out of bounds for {} frames",
+                frame, num_frames
+            ),
+            Self::PositionOutOfBounds {
+                position,
+                num_positions,
+            } => write!(
+                f,
+                "transducer lattice position {} is out of bounds for {} positions",
+                position, num_positions
+            ),
+            Self::LabelOutOfBounds { label, vocab_size } => write!(
+                f,
+                "transducer lattice label {} is out of bounds for vocabulary size {}",
+                label, vocab_size
+            ),
+            Self::EmptyPositionAxis => {
+                write!(
+                    f,
+                    "transducer lattice cannot convert zero positions to WFST"
+                )
+            }
+            Self::StateCountOverflow {
+                num_frames,
+                num_positions,
+            } => write!(
+                f,
+                "transducer lattice state count exceeds StateId range: {} frames x {} positions",
+                num_frames, num_positions
+            ),
+        }
+    }
+}
+
+impl std::error::Error for TransducerLatticeError {}
+
+#[inline]
+fn max_label_count() -> usize {
+    Label::MAX as usize + 1
+}
+
+#[inline]
+fn validate_vocab_size(vocab_size: usize) -> Result<(), TransducerLatticeError> {
+    let maximum = max_label_count();
+    if vocab_size > maximum {
+        return Err(TransducerLatticeError::VocabularyTooLarge {
+            vocab_size,
+            maximum,
+        });
+    }
+
+    Ok(())
+}
+
+#[inline]
+fn checked_lattice_len(
+    num_frames: usize,
+    num_positions: usize,
+    vocab_size: usize,
+) -> Result<usize, TransducerLatticeError> {
+    validate_vocab_size(vocab_size)?;
+
+    let frame_positions =
+        num_frames
+            .checked_mul(num_positions)
+            .ok_or(TransducerLatticeError::ShapeSizeOverflow {
+                num_frames,
+                num_positions,
+                vocab_size,
+            })?;
+
+    frame_positions
+        .checked_mul(vocab_size)
+        .ok_or(TransducerLatticeError::ShapeSizeOverflow {
+            num_frames,
+            num_positions,
+            vocab_size,
+        })
+}
+
+#[inline]
+fn validate_output_shape(
+    kind: TransducerOutputKind,
+    rows: usize,
+    dim: usize,
+    actual: usize,
+) -> Result<(), TransducerOutputError> {
+    let expected = rows
+        .checked_mul(dim)
+        .ok_or(TransducerOutputError::ShapeSizeOverflow { kind, rows, dim })?;
+
+    if actual != expected {
+        return Err(TransducerOutputError::DataLengthMismatch {
+            kind,
+            rows,
+            dim,
+            expected,
+            actual,
+        });
+    }
+
+    Ok(())
+}
 
 /// Acoustic encoder output representation.
 ///
@@ -45,19 +348,45 @@ pub struct EncoderOutput {
 impl EncoderOutput {
     /// Create a new encoder output.
     pub fn new(data: Vec<f32>, num_frames: usize, dim: usize) -> Self {
-        debug_assert_eq!(data.len(), num_frames * dim);
-        Self {
+        Self::try_new(data, num_frames, dim).unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Try to create a new encoder output.
+    ///
+    /// The flattened data buffer must contain exactly `num_frames * dim`
+    /// values. Empty tensors such as `0 x D` remain valid.
+    pub fn try_new(
+        data: Vec<f32>,
+        num_frames: usize,
+        dim: usize,
+    ) -> Result<Self, TransducerOutputError> {
+        validate_output_shape(TransducerOutputKind::Encoder, num_frames, dim, data.len())?;
+
+        Ok(Self {
             data,
             num_frames,
             dim,
-        }
+        })
     }
 
     /// Get the encoder output at time frame `t`.
     #[inline]
     pub fn frame(&self, t: FrameIndex) -> &[f32] {
+        self.try_frame(t).unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Try to get the encoder output at time frame `t`.
+    #[inline]
+    pub fn try_frame(&self, t: FrameIndex) -> Result<&[f32], TransducerOutputError> {
+        if t >= self.num_frames {
+            return Err(TransducerOutputError::FrameOutOfBounds {
+                frame: t,
+                num_frames: self.num_frames,
+            });
+        }
+
         let start = t * self.dim;
-        &self.data[start..start + self.dim]
+        Ok(&self.data[start..start + self.dim])
     }
 
     /// Number of time frames.
@@ -90,7 +419,7 @@ pub trait AutoregressivePredictor: Send + Sync + Debug {
     fn step(&self, state: &PredictorState, token: Label) -> (PredictorState, Vec<f32>);
 
     /// Get predictor output at a specific label position.
-    fn get_output(&self, predictor_out: &PredictorOutput, u: usize) -> &[f32];
+    fn get_output<'a>(&self, predictor_out: &'a PredictorOutput, u: usize) -> &'a [f32];
 }
 
 /// Predictor hidden state.
@@ -138,19 +467,50 @@ pub struct PredictorOutput {
 impl PredictorOutput {
     /// Create a new predictor output.
     pub fn new(data: Vec<f32>, num_positions: usize, dim: usize) -> Self {
-        debug_assert_eq!(data.len(), num_positions * dim);
-        Self {
+        Self::try_new(data, num_positions, dim).unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Try to create a new predictor output.
+    ///
+    /// The flattened data buffer must contain exactly `num_positions * dim`
+    /// values. Empty tensors such as `0 x D` remain valid.
+    pub fn try_new(
+        data: Vec<f32>,
+        num_positions: usize,
+        dim: usize,
+    ) -> Result<Self, TransducerOutputError> {
+        validate_output_shape(
+            TransducerOutputKind::Predictor,
+            num_positions,
+            dim,
+            data.len(),
+        )?;
+
+        Ok(Self {
             data,
             num_positions,
             dim,
-        }
+        })
     }
 
     /// Get the predictor output at label position `u`.
     #[inline]
     pub fn position(&self, u: usize) -> &[f32] {
+        self.try_position(u).unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Try to get the predictor output at label position `u`.
+    #[inline]
+    pub fn try_position(&self, u: usize) -> Result<&[f32], TransducerOutputError> {
+        if u >= self.num_positions {
+            return Err(TransducerOutputError::PositionOutOfBounds {
+                position: u,
+                num_positions: self.num_positions,
+            });
+        }
+
         let start = u * self.dim;
-        &self.data[start..start + self.dim]
+        Ok(&self.data[start..start + self.dim])
     }
 
     /// Number of label positions.
@@ -284,40 +644,152 @@ pub struct TransducerLattice<W: Semiring> {
 impl<W: Semiring> TransducerLattice<W> {
     /// Create a new transducer lattice.
     pub fn new(num_frames: usize, num_positions: usize, vocab_size: usize) -> Self {
-        let size = num_frames * num_positions * vocab_size;
-        Self {
+        Self::try_new(num_frames, num_positions, vocab_size).unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Try to create a new transducer lattice.
+    ///
+    /// The lattice stores `num_frames * num_positions * vocab_size`
+    /// log-probabilities in row-major order. Empty shapes remain valid as data
+    /// containers, but conversion to a WFST requires at least one position.
+    pub fn try_new(
+        num_frames: usize,
+        num_positions: usize,
+        vocab_size: usize,
+    ) -> Result<Self, TransducerLatticeError> {
+        let size = checked_lattice_len(num_frames, num_positions, vocab_size)?;
+
+        Ok(Self {
             num_frames,
             num_positions,
             vocab_size,
             log_probs: vec![f64::NEG_INFINITY; size],
             _phantom: std::marker::PhantomData,
-        }
+        })
     }
 
     /// Set log-probability at (t, u, label).
     #[inline]
     pub fn set(&mut self, t: usize, u: usize, label: Label, log_prob: f64) {
-        let idx = self.index(t, u, label as usize);
-        self.log_probs[idx] = log_prob;
+        self.try_set(t, u, label, log_prob)
+            .unwrap_or_else(|err| panic!("{err}"));
+    }
+
+    /// Try to set log-probability at (t, u, label).
+    #[inline]
+    pub fn try_set(
+        &mut self,
+        t: usize,
+        u: usize,
+        label: Label,
+        log_prob: f64,
+    ) -> Result<(), TransducerLatticeError> {
+        let idx = self.try_index(t, u, label)?;
+        let Some(slot) = self.log_probs.get_mut(idx) else {
+            let expected =
+                checked_lattice_len(self.num_frames, self.num_positions, self.vocab_size)?;
+            return Err(TransducerLatticeError::LogProbLengthMismatch {
+                expected,
+                actual: self.log_probs.len(),
+            });
+        };
+
+        *slot = log_prob;
+        Ok(())
     }
 
     /// Get log-probability at (t, u, label).
     #[inline]
     pub fn get(&self, t: usize, u: usize, label: Label) -> f64 {
-        let idx = self.index(t, u, label as usize);
-        self.log_probs[idx]
+        self.try_get(t, u, label)
+            .unwrap_or_else(|err| panic!("{err}"))
     }
 
-    /// Compute flat index from (t, u, label).
+    /// Try to get log-probability at (t, u, label).
     #[inline]
-    fn index(&self, t: usize, u: usize, label: usize) -> usize {
-        (t * self.num_positions + u) * self.vocab_size + label
+    pub fn try_get(&self, t: usize, u: usize, label: Label) -> Result<f64, TransducerLatticeError> {
+        let idx = self.try_index(t, u, label)?;
+        match self.log_probs.get(idx).copied() {
+            Some(log_prob) => Ok(log_prob),
+            None => {
+                let expected =
+                    checked_lattice_len(self.num_frames, self.num_positions, self.vocab_size)?;
+                Err(TransducerLatticeError::LogProbLengthMismatch {
+                    expected,
+                    actual: self.log_probs.len(),
+                })
+            }
+        }
+    }
+
+    #[inline]
+    fn try_index(&self, t: usize, u: usize, label: Label) -> Result<usize, TransducerLatticeError> {
+        if t >= self.num_frames {
+            return Err(TransducerLatticeError::FrameOutOfBounds {
+                frame: t,
+                num_frames: self.num_frames,
+            });
+        }
+        if u >= self.num_positions {
+            return Err(TransducerLatticeError::PositionOutOfBounds {
+                position: u,
+                num_positions: self.num_positions,
+            });
+        }
+        validate_vocab_size(self.vocab_size)?;
+        if (label as usize) >= self.vocab_size {
+            return Err(TransducerLatticeError::LabelOutOfBounds {
+                label,
+                vocab_size: self.vocab_size,
+            });
+        }
+
+        let position = t
+            .checked_mul(self.num_positions)
+            .and_then(|base| base.checked_add(u))
+            .ok_or(TransducerLatticeError::ShapeSizeOverflow {
+                num_frames: self.num_frames,
+                num_positions: self.num_positions,
+                vocab_size: self.vocab_size,
+            })?;
+
+        position
+            .checked_mul(self.vocab_size)
+            .and_then(|base| base.checked_add(label as usize))
+            .ok_or(TransducerLatticeError::ShapeSizeOverflow {
+                num_frames: self.num_frames,
+                num_positions: self.num_positions,
+                vocab_size: self.vocab_size,
+            })
     }
 
     /// Get all log-probs at position (t, u).
     pub fn get_position(&self, t: usize, u: usize) -> &[f64] {
-        let start = (t * self.num_positions + u) * self.vocab_size;
-        &self.log_probs[start..start + self.vocab_size]
+        self.try_get_position(t, u)
+            .unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Try to get all log-probs at position (t, u).
+    pub fn try_get_position(&self, t: usize, u: usize) -> Result<&[f64], TransducerLatticeError> {
+        let start = self.try_index(t, u, BLANK)?;
+        let end = start.checked_add(self.vocab_size).ok_or(
+            TransducerLatticeError::ShapeSizeOverflow {
+                num_frames: self.num_frames,
+                num_positions: self.num_positions,
+                vocab_size: self.vocab_size,
+            },
+        )?;
+        match self.log_probs.get(start..end) {
+            Some(log_probs) => Ok(log_probs),
+            None => {
+                let expected =
+                    checked_lattice_len(self.num_frames, self.num_positions, self.vocab_size)?;
+                Err(TransducerLatticeError::LogProbLengthMismatch {
+                    expected,
+                    actual: self.log_probs.len(),
+                })
+            }
+        }
     }
 
     /// Convert to explicit WFST representation.
@@ -328,32 +800,40 @@ impl<W: Semiring> TransducerLattice<W> {
     where
         W: From<f64> + Clone,
     {
+        self.try_to_wfst().unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Try to convert to explicit WFST representation.
+    pub fn try_to_wfst(&self) -> Result<VectorWfst<Label, W>, TransducerLatticeError>
+    where
+        W: From<f64> + Clone,
+    {
         use crate::wfst::{MutableWfst, WeightedTransition};
 
         let mut fst: VectorWfst<Label, W> = VectorWfst::new();
 
+        let num_states = self.checked_wfst_state_count()?;
+
         // Create states for each (t, u) position
         // State id = t * (num_positions) + u
-        let num_states = (self.num_frames + 1) * self.num_positions;
         fst.add_states(num_states);
 
         // Start state is (0, 0)
         fst.set_start(0);
 
         // Final state is (T, U) - after processing all frames and labels
-        let final_state =
-            (self.num_frames * self.num_positions + (self.num_positions - 1)) as StateId;
+        let final_state = self.try_state_id(self.num_frames, self.num_positions - 1)?;
         fst.set_final(final_state, W::one());
 
         // Add transitions
         for t in 0..self.num_frames {
             for u in 0..self.num_positions {
-                let from_state = (t * self.num_positions + u) as StateId;
+                let from_state = self.try_state_id(t, u)?;
 
                 // Blank transition: (t, u) -> (t+1, u)
-                let blank_prob = self.get(t, u, BLANK);
+                let blank_prob = self.try_get(t, u, BLANK)?;
                 if blank_prob > f64::NEG_INFINITY {
-                    let to_state = ((t + 1) * self.num_positions + u) as StateId;
+                    let to_state = self.try_state_id(t + 1, u)?;
                     fst.add_transition(WeightedTransition {
                         from: from_state,
                         input: Some(BLANK),
@@ -365,10 +845,16 @@ impl<W: Semiring> TransducerLattice<W> {
 
                 // Non-blank transitions: (t, u) -> (t+1, u+1) for u < U
                 if u + 1 < self.num_positions {
-                    for label in 1..self.vocab_size as Label {
-                        let label_prob = self.get(t, u, label);
+                    for label_idx in 1..self.vocab_size {
+                        let label = Label::try_from(label_idx).map_err(|_| {
+                            TransducerLatticeError::VocabularyTooLarge {
+                                vocab_size: self.vocab_size,
+                                maximum: max_label_count(),
+                            }
+                        })?;
+                        let label_prob = self.try_get(t, u, label)?;
                         if label_prob > f64::NEG_INFINITY {
-                            let to_state = ((t + 1) * self.num_positions + u + 1) as StateId;
+                            let to_state = self.try_state_id(t + 1, u + 1)?;
                             fst.add_transition(WeightedTransition {
                                 from: from_state,
                                 input: Some(label),
@@ -382,7 +868,53 @@ impl<W: Semiring> TransducerLattice<W> {
             }
         }
 
-        fst
+        Ok(fst)
+    }
+
+    #[inline]
+    fn checked_wfst_state_count(&self) -> Result<usize, TransducerLatticeError> {
+        if self.num_positions == 0 {
+            return Err(TransducerLatticeError::EmptyPositionAxis);
+        }
+
+        let rows =
+            self.num_frames
+                .checked_add(1)
+                .ok_or(TransducerLatticeError::StateCountOverflow {
+                    num_frames: self.num_frames,
+                    num_positions: self.num_positions,
+                })?;
+        let num_states = rows.checked_mul(self.num_positions).ok_or(
+            TransducerLatticeError::StateCountOverflow {
+                num_frames: self.num_frames,
+                num_positions: self.num_positions,
+            },
+        )?;
+
+        if num_states > max_label_count() {
+            return Err(TransducerLatticeError::StateCountOverflow {
+                num_frames: self.num_frames,
+                num_positions: self.num_positions,
+            });
+        }
+
+        Ok(num_states)
+    }
+
+    #[inline]
+    fn try_state_id(&self, t: usize, u: usize) -> Result<StateId, TransducerLatticeError> {
+        let state = t
+            .checked_mul(self.num_positions)
+            .and_then(|base| base.checked_add(u))
+            .ok_or(TransducerLatticeError::StateCountOverflow {
+                num_frames: self.num_frames,
+                num_positions: self.num_positions,
+            })?;
+
+        StateId::try_from(state).map_err(|_| TransducerLatticeError::StateCountOverflow {
+            num_frames: self.num_frames,
+            num_positions: self.num_positions,
+        })
     }
 }
 
@@ -438,6 +970,57 @@ mod tests {
         assert_eq!(encoder_out.frame(0), &[1.0f32, 2.0]);
         assert_eq!(encoder_out.frame(1), &[3.0f32, 4.0]);
         assert_eq!(encoder_out.frame(2), &[5.0f32, 6.0]);
+    }
+
+    #[test]
+    fn test_encoder_output_try_new_rejects_data_length_mismatch() {
+        let err = EncoderOutput::try_new(vec![1.0], 2, 2).unwrap_err();
+
+        assert_eq!(
+            err,
+            TransducerOutputError::DataLengthMismatch {
+                kind: TransducerOutputKind::Encoder,
+                rows: 2,
+                dim: 2,
+                expected: 4,
+                actual: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn test_encoder_output_try_new_rejects_shape_overflow() {
+        let err = EncoderOutput::try_new(Vec::new(), usize::MAX, 2).unwrap_err();
+
+        assert_eq!(
+            err,
+            TransducerOutputError::ShapeSizeOverflow {
+                kind: TransducerOutputKind::Encoder,
+                rows: usize::MAX,
+                dim: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn test_encoder_output_try_frame_rejects_out_of_bounds() {
+        let encoder_out = EncoderOutput::new(vec![0.1, 0.2], 1, 2);
+
+        assert_eq!(
+            encoder_out.try_frame(1),
+            Err(TransducerOutputError::FrameOutOfBounds {
+                frame: 1,
+                num_frames: 1,
+            })
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "encoder frame 1 is out of bounds for 1 frames")]
+    fn test_encoder_output_infallible_frame_preserves_panic_contract() {
+        let encoder_out = EncoderOutput::new(vec![0.1, 0.2], 1, 2);
+
+        encoder_out.frame(1);
     }
 
     #[test]
@@ -522,6 +1105,57 @@ mod tests {
     }
 
     #[test]
+    fn test_predictor_output_try_new_rejects_data_length_mismatch() {
+        let err = PredictorOutput::try_new(vec![1.0], 2, 2).unwrap_err();
+
+        assert_eq!(
+            err,
+            TransducerOutputError::DataLengthMismatch {
+                kind: TransducerOutputKind::Predictor,
+                rows: 2,
+                dim: 2,
+                expected: 4,
+                actual: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn test_predictor_output_try_new_rejects_shape_overflow() {
+        let err = PredictorOutput::try_new(Vec::new(), usize::MAX, 2).unwrap_err();
+
+        assert_eq!(
+            err,
+            TransducerOutputError::ShapeSizeOverflow {
+                kind: TransducerOutputKind::Predictor,
+                rows: usize::MAX,
+                dim: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn test_predictor_output_try_position_rejects_out_of_bounds() {
+        let predictor_out = PredictorOutput::new(vec![0.1, 0.2], 1, 2);
+
+        assert_eq!(
+            predictor_out.try_position(1),
+            Err(TransducerOutputError::PositionOutOfBounds {
+                position: 1,
+                num_positions: 1,
+            })
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "predictor position 1 is out of bounds for 1 positions")]
+    fn test_predictor_output_infallible_position_preserves_panic_contract() {
+        let predictor_out = PredictorOutput::new(vec![0.1, 0.2], 1, 2);
+
+        predictor_out.position(1);
+    }
+
+    #[test]
     fn test_predictor_output_empty() {
         let predictor_out = PredictorOutput::new(vec![], 0, 4);
 
@@ -574,6 +1208,34 @@ mod tests {
     }
 
     #[test]
+    fn test_transducer_lattice_try_new_rejects_shape_overflow() {
+        let err = TransducerLattice::<TropicalWeight>::try_new(usize::MAX, 2, 1).unwrap_err();
+
+        assert_eq!(
+            err,
+            TransducerLatticeError::ShapeSizeOverflow {
+                num_frames: usize::MAX,
+                num_positions: 2,
+                vocab_size: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn test_transducer_lattice_try_new_rejects_vocabulary_too_large() {
+        let err =
+            TransducerLattice::<TropicalWeight>::try_new(1, 1, max_label_count() + 1).unwrap_err();
+
+        assert_eq!(
+            err,
+            TransducerLatticeError::VocabularyTooLarge {
+                vocab_size: max_label_count() + 1,
+                maximum: max_label_count(),
+            }
+        );
+    }
+
+    #[test]
     fn test_transducer_lattice_set_get() {
         let mut lattice: TransducerLattice<TropicalWeight> = TransducerLattice::new(3, 2, 5);
 
@@ -594,6 +1256,41 @@ mod tests {
     }
 
     #[test]
+    fn test_transducer_lattice_try_set_get_rejects_out_of_bounds() {
+        let mut lattice: TransducerLattice<TropicalWeight> = TransducerLattice::new(1, 1, 2);
+
+        assert_eq!(
+            lattice.try_set(1, 0, BLANK, -1.0),
+            Err(TransducerLatticeError::FrameOutOfBounds {
+                frame: 1,
+                num_frames: 1,
+            })
+        );
+        assert_eq!(
+            lattice.try_get(0, 1, BLANK),
+            Err(TransducerLatticeError::PositionOutOfBounds {
+                position: 1,
+                num_positions: 1,
+            })
+        );
+        assert_eq!(
+            lattice.try_get(0, 0, 2),
+            Err(TransducerLatticeError::LabelOutOfBounds {
+                label: 2,
+                vocab_size: 2,
+            })
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "transducer lattice label 2 is out of bounds for vocabulary size 2")]
+    fn test_transducer_lattice_infallible_get_preserves_panic_contract() {
+        let lattice: TransducerLattice<TropicalWeight> = TransducerLattice::new(1, 1, 2);
+
+        lattice.get(0, 0, 2);
+    }
+
+    #[test]
     fn test_transducer_lattice_get_position() {
         let mut lattice: TransducerLattice<TropicalWeight> = TransducerLattice::new(2, 2, 3);
 
@@ -608,6 +1305,19 @@ mod tests {
         assert!((position_probs[0] - (-1.0)).abs() < 1e-10);
         assert!((position_probs[1] - (-2.0)).abs() < 1e-10);
         assert!((position_probs[2] - (-3.0)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_transducer_lattice_try_get_position_rejects_out_of_bounds() {
+        let lattice: TransducerLattice<TropicalWeight> = TransducerLattice::new(1, 1, 2);
+
+        assert_eq!(
+            lattice.try_get_position(0, 1),
+            Err(TransducerLatticeError::PositionOutOfBounds {
+                position: 1,
+                num_positions: 1,
+            })
+        );
     }
 
     #[test]
@@ -643,6 +1353,43 @@ mod tests {
         // Verify there is at least one final state
         let has_final = (0..wfst.num_states()).any(|s| wfst.is_final(s as u32));
         assert!(has_final, "WFST should have at least one final state");
+    }
+
+    #[test]
+    fn test_transducer_lattice_try_to_wfst_rejects_empty_positions() {
+        let lattice: TransducerLattice<TropicalWeight> = TransducerLattice::new(0, 0, 0);
+
+        assert_eq!(
+            lattice.try_to_wfst().unwrap_err(),
+            TransducerLatticeError::EmptyPositionAxis
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "transducer lattice cannot convert zero positions to WFST")]
+    fn test_transducer_lattice_to_wfst_preserves_panic_contract() {
+        let lattice: TransducerLattice<TropicalWeight> = TransducerLattice::new(0, 0, 0);
+
+        lattice.to_wfst();
+    }
+
+    #[test]
+    fn test_transducer_lattice_try_to_wfst_rejects_state_count_overflow() {
+        let lattice: TransducerLattice<TropicalWeight> = TransducerLattice {
+            num_frames: StateId::MAX as usize + 1,
+            num_positions: 1,
+            vocab_size: 1,
+            log_probs: Vec::new(),
+            _phantom: std::marker::PhantomData,
+        };
+
+        assert_eq!(
+            lattice.try_to_wfst().unwrap_err(),
+            TransducerLatticeError::StateCountOverflow {
+                num_frames: StateId::MAX as usize + 1,
+                num_positions: 1,
+            }
+        );
     }
 
     #[test]

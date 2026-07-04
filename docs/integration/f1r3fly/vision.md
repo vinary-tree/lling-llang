@@ -218,13 +218,13 @@ lling-llang = { version = "0.1", features = [
 
 ## Current Status
 
-| Component | Status | Notes |
-|-----------|--------|-------|
-| PathMapBackend | Planned | Awaiting PathMap Rust bindings |
-| MeTTaILTypeLayer | Stub | Type system defined, filtering not implemented |
-| MorkRuleLayer | Planned | Awaiting MORK integration |
-| MeTTaTronLayer | Planned | Awaiting MeTTaTron compiler |
-| RholangLayer | Planned | Awaiting Rholang runtime integration |
+| Component | Crate Support | Notes |
+|-----------|---------------|-------|
+| PathMapBackend | Implemented | Enabled by the `f1r3fly` feature and backed by the `pathmap` crate. |
+| MeTTaILTypeLayer | Implemented | Enabled by the `f1r3fly` feature for type-aware syntactic filtering. |
+| MorkRuleLayer | External boundary | Rule import/export belongs at the integration edge rather than in the core lattice crate. |
+| MeTTaTronLayer | External boundary | Compiler output should target the stable layer traits exposed by this crate. |
+| RholangLayer | Pattern support | Rholang-specific correction patterns are available through the code-correction layer. |
 
 ## Roadmap
 
@@ -263,7 +263,7 @@ lling-llang = { version = "0.1", features = [
 3. Distributed coordination
 4. Fault tolerance
 
-## Next Steps
+## Related Integration Guides
 
 - [PathMap Backend](pathmap-backend.md): Distributed storage details
 - [MeTTaIL Layer](mettail-layer.md): Type inference and filtering

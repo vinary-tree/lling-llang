@@ -82,14 +82,15 @@ impl Version {
 
     /// Parse a version string (e.g., "1.2.3").
     pub fn parse(s: &str) -> Option<Self> {
-        let parts: Vec<_> = s.split('.').collect();
-        if parts.is_empty() || parts.len() > 3 {
+        let mut parts = s.split('.');
+
+        let major = parts.next()?.parse().ok()?;
+        let minor = parts.next().map(str::parse).transpose().ok()?.unwrap_or(0);
+        let patch = parts.next().map(str::parse).transpose().ok()?.unwrap_or(0);
+
+        if parts.next().is_some() {
             return None;
         }
-
-        let major = parts[0].parse().ok()?;
-        let minor = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
-        let patch = parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
 
         Some(Self {
             major,
@@ -395,6 +396,106 @@ impl ApiMigrationRule {
             }
         }
     }
+
+    fn first_old_token(&self) -> Option<&str> {
+        self.old_token_at(0)
+    }
+
+    fn old_token_at(&self, index: usize) -> Option<&str> {
+        match &self.migration_type {
+            MigrationType::RenameFunction { old_name, .. }
+            | MigrationType::RenameParameter { old_name, .. }
+            | MigrationType::RenameType { old_name, .. } => {
+                (index == 0).then_some(old_name.as_str())
+            }
+            MigrationType::ReplaceCall { old_pattern, .. }
+            | MigrationType::Custom {
+                old_tokens: old_pattern,
+                ..
+            } => old_pattern.get(index).map(String::as_str),
+            MigrationType::RemoveFunction { function, .. }
+            | MigrationType::ChangeSignature { function, .. }
+            | MigrationType::AddParameter { function, .. }
+            | MigrationType::RemoveParameter { function, .. } => {
+                (index == 0).then_some(function.as_str())
+            }
+        }
+    }
+
+    fn old_token_len(&self) -> usize {
+        match &self.migration_type {
+            MigrationType::RenameFunction { .. }
+            | MigrationType::RenameParameter { .. }
+            | MigrationType::RenameType { .. }
+            | MigrationType::RemoveFunction { .. }
+            | MigrationType::ChangeSignature { .. }
+            | MigrationType::AddParameter { .. }
+            | MigrationType::RemoveParameter { .. } => 1,
+            MigrationType::ReplaceCall { old_pattern, .. }
+            | MigrationType::Custom {
+                old_tokens: old_pattern,
+                ..
+            } => old_pattern.len(),
+        }
+    }
+
+    fn old_tokens_match(&self, tokens: &[String]) -> bool {
+        if tokens.len() < self.old_token_len() {
+            return false;
+        }
+
+        match &self.migration_type {
+            MigrationType::RenameFunction { old_name, .. }
+            | MigrationType::RenameParameter { old_name, .. }
+            | MigrationType::RenameType { old_name, .. } => tokens.first() == Some(old_name),
+            MigrationType::ReplaceCall { old_pattern, .. }
+            | MigrationType::Custom {
+                old_tokens: old_pattern,
+                ..
+            } => tokens
+                .iter()
+                .zip(old_pattern.iter())
+                .all(|(token, pattern)| token == pattern),
+            MigrationType::RemoveFunction { function, .. }
+            | MigrationType::ChangeSignature { function, .. }
+            | MigrationType::AddParameter { function, .. }
+            | MigrationType::RemoveParameter { function, .. } => tokens.first() == Some(function),
+        }
+    }
+
+    fn push_new_tokens(&self, output: &mut Vec<String>) {
+        match &self.migration_type {
+            MigrationType::RenameFunction { new_name, .. }
+            | MigrationType::RenameParameter { new_name, .. }
+            | MigrationType::RenameType { new_name, .. } => output.push(new_name.clone()),
+            MigrationType::ReplaceCall { new_pattern, .. }
+            | MigrationType::Custom {
+                new_tokens: new_pattern,
+                ..
+            } => output.extend(new_pattern.iter().cloned()),
+            MigrationType::RemoveFunction { message, .. } => output.push(message.clone()),
+            MigrationType::ChangeSignature { function, .. }
+            | MigrationType::AddParameter { function, .. }
+            | MigrationType::RemoveParameter { function, .. } => output.push(function.clone()),
+        }
+    }
+
+    fn joined_new_tokens(&self) -> String {
+        match &self.migration_type {
+            MigrationType::RenameFunction { new_name, .. }
+            | MigrationType::RenameParameter { new_name, .. }
+            | MigrationType::RenameType { new_name, .. } => new_name.clone(),
+            MigrationType::ReplaceCall { new_pattern, .. }
+            | MigrationType::Custom {
+                new_tokens: new_pattern,
+                ..
+            } => new_pattern.join(" "),
+            MigrationType::RemoveFunction { message, .. } => message.clone(),
+            MigrationType::ChangeSignature { function, .. }
+            | MigrationType::AddParameter { function, .. }
+            | MigrationType::RemoveParameter { function, .. } => function.clone(),
+        }
+    }
 }
 
 /// Statistics from a migration operation.
@@ -443,9 +544,18 @@ pub struct ApiMigrationTransducer<W: Semiring> {
 impl<W: Semiring> ApiMigrationTransducer<W> {
     /// Create a new migration transducer.
     pub fn new(source_version: Version, target_version: Version) -> Self {
+        Self::with_capacity(source_version, target_version, 0)
+    }
+
+    /// Create a new migration transducer with pre-allocated rule storage.
+    pub fn with_capacity(
+        source_version: Version,
+        target_version: Version,
+        rule_capacity: usize,
+    ) -> Self {
         Self {
-            rules_by_token: HashMap::new(),
-            all_rules: Vec::new(),
+            rules_by_token: HashMap::with_capacity(rule_capacity),
+            all_rules: Vec::with_capacity(rule_capacity),
             source_version,
             target_version,
             _phantom: std::marker::PhantomData,
@@ -455,7 +565,7 @@ impl<W: Semiring> ApiMigrationTransducer<W> {
     /// Add a migration rule.
     pub fn add_rule(&mut self, rule: ApiMigrationRule) {
         // Index by first token of old pattern
-        if let Some(first_token) = rule.old_tokens().first() {
+        if let Some(first_token) = rule.first_old_token() {
             self.rules_by_token
                 .entry(first_token.to_string())
                 .or_default()
@@ -474,8 +584,8 @@ impl<W: Semiring> ApiMigrationTransducer<W> {
 
     /// Apply migration to a sequence of tokens.
     pub fn migrate(&self, tokens: &[String]) -> MigrationResult {
-        let mut result = Vec::new();
-        let mut applied_rules = Vec::new();
+        let mut result = Vec::with_capacity(tokens.len());
+        let mut applied_rules = Vec::with_capacity(tokens.len().min(self.all_rules.len()));
         let mut stats = MigrationStats::default();
         let mut i = 0;
 
@@ -492,19 +602,11 @@ impl<W: Semiring> ApiMigrationTransducer<W> {
                         continue;
                     }
 
-                    let old_tokens = rule.old_tokens();
-
                     // Check if pattern matches
-                    if tokens.len() >= i + old_tokens.len()
-                        && tokens[i..i + old_tokens.len()]
-                            .iter()
-                            .zip(old_tokens.iter())
-                            .all(|(a, b)| a == *b)
-                    {
+                    if rule.old_tokens_match(&tokens[i..]) {
                         // Apply the rule
-                        let new_tokens = rule.new_tokens();
-                        result.extend(new_tokens.iter().map(|s| s.to_string()));
-                        i += old_tokens.len();
+                        rule.push_new_tokens(&mut result);
+                        i += rule.old_token_len();
                         applied_rules.push(rule.id.clone());
 
                         stats.rules_applied += 1;
@@ -542,33 +644,44 @@ impl<W: Semiring> ApiMigrationTransducer<W> {
     ///
     /// The WFST maps old API token sequences to new ones.
     pub fn build_wfst(&self, weight_fn: impl Fn(f64) -> W) -> VectorWfst<String, W> {
-        let mut fst = VectorWfst::new();
+        let active_rule_count = self
+            .all_rules
+            .iter()
+            .filter(|rule| self.is_wfst_rule_active(rule))
+            .count();
+        let state_capacity = 1usize.saturating_add(
+            self.all_rules
+                .iter()
+                .filter(|rule| self.is_wfst_rule_active(rule))
+                .map(|rule| rule.old_token_len().saturating_sub(1))
+                .sum::<usize>(),
+        );
+        let mut fst = VectorWfst::with_capacity(state_capacity);
         let start = fst.add_state();
         fst.set_start(start);
         fst.set_final(start, W::one());
+        fst.reserve_transitions(start, active_rule_count);
 
         // Add transitions for each rule
         for rule in &self.all_rules {
-            if !rule.version_range.contains(self.source_version) {
+            if !self.is_wfst_rule_active(rule) {
                 continue;
             }
 
-            let old_tokens = rule.old_tokens();
-            let new_tokens = rule.new_tokens();
             let weight = weight_fn(rule.cost);
-
-            if old_tokens.is_empty() {
-                continue;
-            }
+            let old_token_len = rule.old_token_len();
 
             // Build path for old tokens
             let mut current = start;
-            for (idx, old_token) in old_tokens.iter().enumerate() {
-                let is_last = idx == old_tokens.len() - 1;
+            for idx in 0..old_token_len {
+                let old_token = rule
+                    .old_token_at(idx)
+                    .expect("active migration rule should expose all old tokens");
+                let is_last = idx == old_token_len - 1;
 
                 if is_last {
                     // Last token - output the replacement
-                    let output = new_tokens.join(" ");
+                    let output = rule.joined_new_tokens();
                     fst.add_transition(WeightedTransition::new(
                         current,
                         Some(old_token.to_string()),
@@ -595,6 +708,10 @@ impl<W: Semiring> ApiMigrationTransducer<W> {
         // (This is a simplification - real implementation would handle unknown tokens)
 
         fst
+    }
+
+    fn is_wfst_rule_active(&self, rule: &ApiMigrationRule) -> bool {
+        rule.version_range.contains(self.source_version) && rule.old_token_len() > 0
     }
 
     /// Get the source version.
@@ -625,8 +742,17 @@ pub struct ApiMigrationBuilder<W: Semiring> {
 impl<W: Semiring> ApiMigrationBuilder<W> {
     /// Create a new builder.
     pub fn new(source_version: Version, target_version: Version) -> Self {
+        Self::with_capacity(source_version, target_version, 0)
+    }
+
+    /// Create a new builder with pre-allocated rule storage.
+    pub fn with_capacity(
+        source_version: Version,
+        target_version: Version,
+        rule_capacity: usize,
+    ) -> Self {
         Self {
-            rules: Vec::new(),
+            rules: Vec::with_capacity(rule_capacity),
             source_version,
             target_version,
             _phantom: std::marker::PhantomData,
@@ -647,7 +773,11 @@ impl<W: Semiring> ApiMigrationBuilder<W> {
 
     /// Build the transducer.
     pub fn build(self) -> ApiMigrationTransducer<W> {
-        let mut transducer = ApiMigrationTransducer::new(self.source_version, self.target_version);
+        let mut transducer = ApiMigrationTransducer::with_capacity(
+            self.source_version,
+            self.target_version,
+            self.rules.len(),
+        );
         for rule in self.rules {
             transducer.add_rule(rule);
         }
@@ -782,6 +912,9 @@ mod tests {
         assert_eq!(v.major, 3);
         assert_eq!(v.minor, 0);
         assert_eq!(v.patch, 0);
+
+        assert!(Version::parse("").is_none());
+        assert!(Version::parse("1.2.3.4").is_none());
     }
 
     #[test]
@@ -921,6 +1054,31 @@ mod tests {
                 .build();
 
         assert_eq!(transducer.rules().len(), 2);
+    }
+
+    #[test]
+    fn test_capacity_aware_builder_preserves_behavior() {
+        let transducer: ApiMigrationTransducer<TropicalWeight> =
+            ApiMigrationBuilder::with_capacity(Version::new(1, 0), Version::new(2, 0), 2)
+                .add_rule(ApiMigrationRule::replace(
+                    ["old", "call"],
+                    ["new", "call"],
+                    Version::new(1, 0),
+                    Version::new(2, 0),
+                ))
+                .add_rule(ApiMigrationRule::rename_function(
+                    "legacy",
+                    "modern",
+                    Version::new(1, 0),
+                    Version::new(2, 0),
+                ))
+                .build();
+
+        let tokens = vec!["old".to_string(), "call".to_string(), "legacy".to_string()];
+        let result = transducer.migrate(&tokens);
+
+        assert_eq!(result.migrated, vec!["new", "call", "modern"]);
+        assert_eq!(result.stats.rules_applied, 2);
     }
 
     #[test]

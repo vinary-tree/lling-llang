@@ -22,14 +22,16 @@ mod state;
 pub mod synchronize;
 mod traits;
 mod transition;
+mod types;
 pub mod unary;
 mod vector;
 
 pub use lazy::{LazyState, LazyWfstWrapper, StateSource};
-pub use state::WfstState;
+pub use state::{WfstState, WfstStateError};
 pub use traits::{CachePolicy, LazyWfst, MutableWfst, Wfst};
 pub use transition::WeightedTransition;
-pub use vector::{VectorWfst, VectorWfstBuilder};
+pub use types::{StateId, NO_STATE};
+pub use vector::{VectorWfst, VectorWfstBuilder, VectorWfstError};
 
 // Rational operations (Union, Concatenation, Closure)
 pub use rational::{
@@ -48,11 +50,3 @@ pub use synchronize::{
     compute_max_delay, has_bounded_delay, synchronize, synchronize_bounded, MutableSyncSource,
     StringDelay, SyncSource, SyncState, SyncWfst,
 };
-
-/// State identifier for WFST states.
-///
-/// Uses `u32` for compact storage while supporting millions of states.
-pub type StateId = u32;
-
-/// Sentinel value indicating no state (similar to null).
-pub const NO_STATE: StateId = StateId::MAX;

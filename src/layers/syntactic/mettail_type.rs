@@ -13,7 +13,7 @@ use crate::backend::LatticeBackend;
 use crate::lattice::{Lattice, LatticeBuilder, LatticePathExt};
 use crate::semiring::Semiring;
 
-use crate::layers::traits::{CorrectionLayer, LayerError, LayerResult};
+use super::super::traits::{CorrectionLayer, LayerError, LayerResult};
 
 /// A MeTTaIL type expression.
 ///
@@ -281,11 +281,10 @@ mod tests {
     use crate::backend::HashMapBackend;
     use crate::semiring::TropicalWeight;
 
-    struct MockTypeChecker;
+    struct CapitalizedTypeChecker;
 
-    impl TypeChecker for MockTypeChecker {
+    impl TypeChecker for CapitalizedTypeChecker {
         fn infer_type(&self, token: &str) -> Option<TypeExpr> {
-            // Simple mock: words starting with capital are Nouns
             if token
                 .chars()
                 .next()
@@ -325,8 +324,8 @@ mod tests {
     }
 
     #[test]
-    fn test_mock_type_checker() {
-        let checker = MockTypeChecker;
+    fn test_capitalized_type_checker() {
+        let checker = CapitalizedTypeChecker;
 
         assert!(checker.check_type("Dog", &TypeExpr::base("Noun")));
         assert!(!checker.check_type("run", &TypeExpr::base("Noun")));
@@ -334,7 +333,7 @@ mod tests {
 
     #[test]
     fn test_layer_name() {
-        let layer = MeTTaILTypeLayer::new(Box::new(MockTypeChecker));
+        let layer = MeTTaILTypeLayer::new(Box::new(CapitalizedTypeChecker));
         // Use explicit trait method call with concrete types
         let name =
             <MeTTaILTypeLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::name(&layer);
@@ -343,7 +342,7 @@ mod tests {
 
     #[test]
     fn test_layer_builder() {
-        let layer = MeTTaILTypeLayer::new(Box::new(MockTypeChecker))
+        let layer = MeTTaILTypeLayer::new(Box::new(CapitalizedTypeChecker))
             .with_constraint(TypeConstraint::strict(TypeExpr::base("Noun")).at_position(0))
             .with_constraint(TypeConstraint::soft(TypeExpr::base("Verb")).at_position(1));
 
@@ -352,7 +351,7 @@ mod tests {
 
     #[test]
     fn test_estimated_reduction() {
-        let layer = MeTTaILTypeLayer::new(Box::new(MockTypeChecker));
+        let layer = MeTTaILTypeLayer::new(Box::new(CapitalizedTypeChecker));
         // Use explicit trait method call with concrete types
         let reduction = <MeTTaILTypeLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::estimated_reduction(&layer);
         assert!((reduction - 0.2).abs() < 0.001);

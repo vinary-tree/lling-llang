@@ -60,7 +60,11 @@ impl GradientAccumulator {
 
     /// Add a gradient for an arc.
     pub fn add_gradient(&mut self, arc: ArcIndex, gradient: f64) {
-        self.arc_gradients.push(ArcGradient { arc, gradient });
+        if let Some(existing) = self.arc_gradients.iter_mut().find(|g| g.arc == arc) {
+            existing.gradient += gradient;
+        } else {
+            self.arc_gradients.push(ArcGradient { arc, gradient });
+        }
     }
 
     /// Get gradient for a specific arc, or 0 if not found.
@@ -142,6 +146,12 @@ impl<L: Clone + Send + Sync> GradientWfst<L> {
         self.fst.start()
     }
 
+    /// Check if a state ID is valid for the wrapped WFST.
+    #[inline]
+    pub fn is_valid_state(&self, state: StateId) -> bool {
+        (state as usize) < self.num_states()
+    }
+
     /// Check if a state is final.
     pub fn is_final(&self, state: StateId) -> bool {
         self.fst.is_final(state)
@@ -159,22 +169,34 @@ impl<L: Clone + Send + Sync> GradientWfst<L> {
 
     /// Get the forward score for a state.
     pub fn forward_score(&self, state: StateId) -> LogWeight {
-        self.forward_scores.borrow()[state as usize]
+        self.forward_scores
+            .borrow()
+            .get(state as usize)
+            .copied()
+            .unwrap_or_else(LogWeight::zero)
     }
 
     /// Set the forward score for a state.
     pub fn set_forward_score(&self, state: StateId, score: LogWeight) {
-        self.forward_scores.borrow_mut()[state as usize] = score;
+        if let Some(slot) = self.forward_scores.borrow_mut().get_mut(state as usize) {
+            *slot = score;
+        }
     }
 
     /// Get the backward score for a state.
     pub fn backward_score(&self, state: StateId) -> LogWeight {
-        self.backward_scores.borrow()[state as usize]
+        self.backward_scores
+            .borrow()
+            .get(state as usize)
+            .copied()
+            .unwrap_or_else(LogWeight::zero)
     }
 
     /// Set the backward score for a state.
     pub fn set_backward_score(&self, state: StateId, score: LogWeight) {
-        self.backward_scores.borrow_mut()[state as usize] = score;
+        if let Some(slot) = self.backward_scores.borrow_mut().get_mut(state as usize) {
+            *slot = score;
+        }
     }
 
     /// Check if forward pass is computed.
@@ -236,6 +258,11 @@ impl<L: Clone + Send + Sync> GradientWfst<L> {
 pub fn backward<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>) -> GradientAccumulator {
     let num_states = grad_fst.num_states();
 
+    if num_states == 0 {
+        grad_fst.set_backward_computed(true);
+        return GradientAccumulator::new();
+    }
+
     // Ensure forward pass is done
     if !grad_fst.is_forward_computed() {
         // Force forward computation
@@ -263,6 +290,9 @@ pub fn backward<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>) -> GradientA
         let transitions = grad_fst.transitions(state);
         for trans in transitions {
             let to_state = trans.to;
+            if !grad_fst.is_valid_state(to_state) {
+                continue;
+            }
             let arc_weight = trans.weight;
             let beta_to = grad_fst.backward_score(to_state);
 
@@ -284,6 +314,9 @@ pub fn backward<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>) -> GradientA
 
         for (arc_idx, trans) in transitions.iter().enumerate() {
             let to_state = trans.to;
+            if !grad_fst.is_valid_state(to_state) {
+                continue;
+            }
             let arc_weight = trans.weight;
             let beta_to = grad_fst.backward_score(to_state);
 
@@ -309,6 +342,9 @@ fn compute_topological_order<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>)
     // Count in-degrees
     for s in 0..num_states as StateId {
         for trans in grad_fst.transitions(s) {
+            if !grad_fst.is_valid_state(trans.to) {
+                continue;
+            }
             in_degree[trans.to as usize] += 1;
         }
     }
@@ -321,6 +357,9 @@ fn compute_topological_order<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>)
     while let Some(state) = queue.pop() {
         order.push(state);
         for trans in grad_fst.transitions(state) {
+            if !grad_fst.is_valid_state(trans.to) {
+                continue;
+            }
             let to = trans.to as usize;
             in_degree[to] -= 1;
             if in_degree[to] == 0 {
@@ -623,5 +662,37 @@ mod tests {
 
         assert!(!grad_fst.is_forward_computed());
         assert!(grad_fst.forward_score(0).is_zero());
+    }
+
+    #[test]
+    fn test_gradient_wfst_score_accessors_ignore_invalid_states() {
+        let mut fst = VectorWfst::<char, LogWeight>::new();
+        let s0 = fst.add_state();
+        fst.set_start(s0);
+
+        let grad_fst = GradientWfst::from_wfst(&fst);
+        grad_fst.set_forward_score(99, LogWeight::new(-1.0));
+        grad_fst.set_backward_score(99, LogWeight::new(-1.0));
+
+        assert!(grad_fst.forward_score(99).is_zero());
+        assert!(grad_fst.backward_score(99).is_zero());
+    }
+
+    #[test]
+    fn test_backward_ignores_invalid_transition_targets() {
+        let mut fst = VectorWfst::<char, LogWeight>::new();
+        let s0 = fst.add_state();
+        let s1 = fst.add_state();
+        fst.set_start(s0);
+        fst.set_final(s1, LogWeight::one());
+        fst.add_arc(s0, Some('a'), Some('a'), s1, LogWeight::new(1.0));
+        fst.add_arc(s0, Some('x'), Some('x'), 99, LogWeight::new(0.1));
+
+        let grad_fst = GradientWfst::from_wfst(&fst);
+        let gradients = backward(&grad_fst);
+
+        assert_eq!(gradients.arc_gradients.len(), 1);
+        assert_eq!(gradients.arc_gradients[0].arc, ArcIndex::new(s0, 0));
+        assert!((gradients.arc_gradients[0].gradient - 1.0).abs() < 1e-6);
     }
 }

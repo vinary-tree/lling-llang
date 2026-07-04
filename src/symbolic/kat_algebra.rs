@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use crate::symbolic::BooleanAlgebra;
+use super::BooleanAlgebra;
 
 /// A Boolean test (predicate) in KAT.
 ///
@@ -63,15 +63,15 @@ impl BooleanTest {
     /// Task #21 hoist) can collect atoms across an expression tree.
     pub fn collect_atoms(&self, acc: &mut HashSet<String>) {
         match self {
-            BooleanTest::True | BooleanTest::False => {},
+            BooleanTest::True | BooleanTest::False => {}
             BooleanTest::Atom(name) => {
                 acc.insert(name.clone());
-            },
+            }
             BooleanTest::Not(inner) => inner.collect_atoms(acc),
             BooleanTest::And(a, b) | BooleanTest::Or(a, b) => {
                 a.collect_atoms(acc);
                 b.collect_atoms(acc);
-            },
+            }
         }
     }
 }

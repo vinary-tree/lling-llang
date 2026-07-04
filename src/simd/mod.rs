@@ -317,9 +317,11 @@ pub fn simd_log_sum_exp(a: &[f64]) -> f64 {
         return max_val;
     }
 
-    // Compute sum of exp(a_i - max)
-    let shifted: Vec<f64> = a.iter().map(|&x| (x - max_val).exp()).collect();
-    let sum = simd_reduce_sum(&shifted);
+    // Compute sum of exp(a_i - max) without materializing the shifted vector.
+    let sum = a
+        .iter()
+        .copied()
+        .fold(0.0, |sum, x| sum + (x - max_val).exp());
 
     max_val + sum.ln()
 }
@@ -332,19 +334,10 @@ pub fn simd_log_add(a: &[f64], b: &[f64]) -> Vec<f64> {
     let n = a.len();
     let mut result = vec![0.0; n];
 
-    // Use scalar implementation with numerical stability
-    // SIMD exp/ln requires special handling
-    for i in 0..n {
-        let (x, y) = if a[i] > b[i] {
-            (a[i], b[i])
-        } else {
-            (b[i], a[i])
-        };
-        if y.is_infinite() && y < 0.0 {
-            result[i] = x;
-        } else {
-            result[i] = x + (1.0 + (y - x).exp()).ln();
-        }
+    // SIMD exp/ln requires special handling, so keep the transcendental
+    // operation scalar while avoiding duplicated edge-case logic.
+    for ((out, &left), &right) in result.iter_mut().zip(a).zip(b) {
+        *out = log_add_scalar(left, right);
     }
 
     result
@@ -481,71 +474,54 @@ impl BatchForwardScores {
 
     /// Merge scores for duplicate states using log-add.
     pub fn merge_duplicates_log(&mut self) {
-        if self.states.len() <= 1 {
-            return;
-        }
-
-        // Sort by state
-        let mut indices: Vec<usize> = (0..self.states.len()).collect();
-        indices.sort_by_key(|&i| self.states[i]);
-
-        let mut new_states = Vec::with_capacity(self.states.len());
-        let mut new_scores = Vec::with_capacity(self.scores.len());
-
-        let mut current_state = self.states[indices[0]];
-        let mut current_score = self.scores[indices[0]];
-
-        for &idx in &indices[1..] {
-            if self.states[idx] == current_state {
-                // Log-add the scores
-                current_score = log_add_scalar(current_score, self.scores[idx]);
-            } else {
-                new_states.push(current_state);
-                new_scores.push(current_score);
-                current_state = self.states[idx];
-                current_score = self.scores[idx];
-            }
-        }
-
-        new_states.push(current_state);
-        new_scores.push(current_score);
-
-        self.states = new_states;
-        self.scores = new_scores;
-        self.best_score = simd_tropical_reduce_min(&self.scores);
+        self.merge_duplicates_by(log_add_scalar);
     }
 
     /// Merge scores for duplicate states using tropical (min).
     pub fn merge_duplicates_tropical(&mut self) {
-        if self.states.len() <= 1 {
+        self.merge_duplicates_by(f64::min);
+    }
+
+    fn merge_duplicates_by(&mut self, merge: impl Fn(f64, f64) -> f64) {
+        let len = self.states.len().min(self.scores.len());
+        self.states.truncate(len);
+        self.scores.truncate(len);
+
+        if len <= 1 {
+            self.best_score = simd_tropical_reduce_min(&self.scores);
             return;
         }
 
-        let mut indices: Vec<usize> = (0..self.states.len()).collect();
-        indices.sort_by_key(|&i| self.states[i]);
+        let mut pairs: Vec<(u32, f64)> = self
+            .states
+            .iter()
+            .copied()
+            .zip(self.scores.iter().copied())
+            .collect();
+        pairs.sort_unstable_by_key(|&(state, _)| state);
 
-        let mut new_states = Vec::with_capacity(self.states.len());
-        let mut new_scores = Vec::with_capacity(self.scores.len());
+        self.states.clear();
+        self.scores.clear();
 
-        let mut current_state = self.states[indices[0]];
-        let mut current_score = self.scores[indices[0]];
+        let mut pairs = pairs.into_iter();
+        let Some((mut current_state, mut current_score)) = pairs.next() else {
+            self.best_score = f64::INFINITY;
+            return;
+        };
 
-        for &idx in &indices[1..] {
-            if self.states[idx] == current_state {
-                current_score = current_score.min(self.scores[idx]);
+        for (state, score) in pairs {
+            if state == current_state {
+                current_score = merge(current_score, score);
             } else {
-                new_states.push(current_state);
-                new_scores.push(current_score);
-                current_state = self.states[idx];
-                current_score = self.scores[idx];
+                self.states.push(current_state);
+                self.scores.push(current_score);
+                current_state = state;
+                current_score = score;
             }
         }
 
-        new_states.push(current_state);
-        new_scores.push(current_score);
-
-        self.states = new_states;
-        self.scores = new_scores;
+        self.states.push(current_state);
+        self.scores.push(current_score);
         self.best_score = simd_tropical_reduce_min(&self.scores);
     }
 }
@@ -632,11 +608,12 @@ unsafe fn simd_min_plus_update_avx2(d: &mut [f64], n: usize, k: usize) {
 /// Scalar log-add for two values.
 #[inline]
 fn log_add_scalar(a: f64, b: f64) -> f64 {
-    let (x, y) = if a > b { (a, b) } else { (b, a) };
-    if y.is_infinite() && y < 0.0 {
+    let (x, y) = if a >= b { (a, b) } else { (b, a) };
+
+    if x == f64::INFINITY || y == f64::NEG_INFINITY {
         x
     } else {
-        x + (1.0 + (y - x).exp()).ln()
+        x + (y - x).exp().ln_1p()
     }
 }
 
@@ -778,6 +755,18 @@ mod tests {
     }
 
     #[test]
+    fn test_log_add_handles_positive_infinity() {
+        let result = simd_log_add(&[f64::INFINITY], &[f64::INFINITY]);
+        assert_eq!(result, vec![f64::INFINITY]);
+    }
+
+    #[test]
+    fn test_log_sum_exp_handles_positive_infinity() {
+        let result = simd_log_sum_exp(&[0.0, f64::INFINITY]);
+        assert_eq!(result, f64::INFINITY);
+    }
+
+    #[test]
     fn test_reduce_max() {
         let a = vec![1.0, 5.0, 3.0, 8.0, 2.0, 7.0, 4.0, 6.0, 0.0, 9.0];
         assert!((simd_reduce_max(&a) - 9.0).abs() < 1e-10);
@@ -814,6 +803,24 @@ mod tests {
         let s1_idx = scores.states.iter().position(|&s| s == 1).expect("state 1");
         assert!((scores.scores[s0_idx] - 2.0).abs() < 1e-10); // min(3.0, 2.0)
         assert!((scores.scores[s1_idx] - 4.0).abs() < 1e-10); // min(5.0, 4.0)
+    }
+
+    #[test]
+    fn test_batch_forward_scores_merge_log() {
+        let mut scores = BatchForwardScores::with_capacity(4);
+        scores.add(2, 0.0);
+        scores.add(1, -1.0);
+        scores.add(2, 0.0);
+        scores.add(1, f64::NEG_INFINITY);
+
+        scores.merge_duplicates_log();
+
+        assert_eq!(scores.len(), 2);
+        let s1_idx = scores.states.iter().position(|&s| s == 1).expect("state 1");
+        let s2_idx = scores.states.iter().position(|&s| s == 2).expect("state 2");
+        assert!((scores.scores[s1_idx] + 1.0).abs() < 1e-10);
+        assert!((scores.scores[s2_idx] - 2.0_f64.ln()).abs() < 1e-10);
+        assert!((scores.best_score + 1.0).abs() < 1e-10);
     }
 
     #[test]

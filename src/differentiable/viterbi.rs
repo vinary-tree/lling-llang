@@ -63,6 +63,9 @@ pub fn viterbi_score<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>) -> LogW
     }
 
     let start = grad_fst.start();
+    if !grad_fst.is_valid_state(start) {
+        return LogWeight::zero();
+    }
 
     // Use tropical semiring for Viterbi (min, +)
     // We use f64::INFINITY as the tropical zero (unreachable)
@@ -83,6 +86,9 @@ pub fn viterbi_score<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>) -> LogW
 
         for trans in grad_fst.transitions(state) {
             let to_state = trans.to;
+            if !grad_fst.is_valid_state(to_state) {
+                continue;
+            }
             // In log semiring, arc weights are already negative log-probs
             // Tropical ⊗ = +, so new_delta = delta_state + arc_weight
             let arc_weight = trans.weight.value();
@@ -137,6 +143,13 @@ pub fn viterbi_path_with_grad<L: Clone + Send + Sync>(
     }
 
     let start = grad_fst.start();
+    if !grad_fst.is_valid_state(start) {
+        return ViterbiGradResult {
+            score: LogWeight::zero(),
+            path: Vec::new(),
+            gradients: GradientAccumulator::new(),
+        };
+    }
 
     // Forward pass with backpointers
     let mut delta = vec![f64::INFINITY; num_states];
@@ -154,6 +167,9 @@ pub fn viterbi_path_with_grad<L: Clone + Send + Sync>(
 
         for (arc_idx, trans) in grad_fst.transitions(state).iter().enumerate() {
             let to_state = trans.to;
+            if !grad_fst.is_valid_state(to_state) {
+                continue;
+            }
             let arc_weight = trans.weight.value();
             let new_delta = delta_state + arc_weight;
 
@@ -215,6 +231,9 @@ fn compute_topological_order<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>)
 
     for s in 0..num_states as StateId {
         for trans in grad_fst.transitions(s) {
+            if !grad_fst.is_valid_state(trans.to) {
+                continue;
+            }
             in_degree[trans.to as usize] += 1;
         }
     }
@@ -226,6 +245,9 @@ fn compute_topological_order<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>)
     while let Some(state) = queue.pop() {
         order.push(state);
         for trans in grad_fst.transitions(state) {
+            if !grad_fst.is_valid_state(trans.to) {
+                continue;
+            }
             let to = trans.to as usize;
             in_degree[to] -= 1;
             if in_degree[to] == 0 {
@@ -604,5 +626,40 @@ mod tests {
 
         // Best path: 0 -> 1 -> 2 with cost -2.0
         assert!((score.value() - (-2.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_viterbi_ignores_invalid_transition_targets() {
+        let mut fst = VectorWfst::<char, LogWeight>::new();
+        let s0 = fst.add_state();
+        let s1 = fst.add_state();
+        fst.set_start(s0);
+        fst.set_final(s1, LogWeight::one());
+        fst.add_arc(s0, Some('a'), Some('a'), s1, LogWeight::new(1.0));
+        fst.add_arc(s0, Some('x'), Some('x'), 99, LogWeight::new(-100.0));
+
+        let grad_fst = GradientWfst::from_wfst(&fst);
+        let score = viterbi_score(&grad_fst);
+        let result = viterbi_path_with_grad(&grad_fst);
+
+        assert!((score.value() - 1.0).abs() < 1e-6);
+        assert!((result.score.value() - 1.0).abs() < 1e-6);
+        assert_eq!(result.path, vec![ArcIndex::new(s0, 0)]);
+    }
+
+    #[test]
+    fn test_viterbi_invalid_start_returns_zero() {
+        let mut fst = VectorWfst::<char, LogWeight>::new();
+        fst.add_state();
+        fst.set_start(99);
+
+        let grad_fst = GradientWfst::from_wfst(&fst);
+        let score = viterbi_score(&grad_fst);
+        let result = viterbi_path_with_grad(&grad_fst);
+
+        assert!(score.is_zero());
+        assert!(result.score.is_zero());
+        assert!(result.path.is_empty());
+        assert!(result.gradients.arc_gradients.is_empty());
     }
 }

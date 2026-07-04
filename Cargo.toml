@@ -50,6 +50,9 @@ z3 = "0.12"
 
 # Random number generation for path sampling
 rand = "0.9"
+regex = "1"
+regex-automata = "0.4"
+rayon = { version = "1.11", optional = true }
 
 # Hashing
 blake3 = "1.5"
@@ -71,7 +74,7 @@ default = []
 
 # === Core Optional Features ===
 # Integration with liblevenshtein for lexical correction
-levenshtein = ["dep:liblevenshtein", "dep:libdictenstein"]
+levenshtein = ["dep:liblevenshtein", "dep:libdictenstein", "dep:rayon"]
 
 # libdictenstein lattice bridge: lling-llang semirings as dictionary values (cycle-break)
 lattice = ["dep:llattice", "dep:libdictenstein"]

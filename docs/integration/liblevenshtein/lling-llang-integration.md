@@ -546,7 +546,7 @@ impl From<SpellingLayerError> for LayerError {
 }
 ```
 
-## Next Steps
+## Related Topics
 
 - [Overview](overview.md): liblevenshtein architecture
 - [Dictionaries](dictionaries.md): Dictionary implementations

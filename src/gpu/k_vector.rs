@@ -70,6 +70,7 @@ impl KVectorConfig {
             num_slots,
             slot_capacity: 16,
         }
+        .normalized()
     }
 
     /// Create with custom slot capacity.
@@ -79,11 +80,29 @@ impl KVectorConfig {
             num_slots,
             slot_capacity,
         }
+        .normalized()
+    }
+
+    /// Calculate total memory size in bytes, returning `None` on overflow.
+    pub fn checked_memory_size(&self, element_size: usize) -> Option<usize> {
+        self.normalized_num_vectors()
+            .checked_mul(self.num_slots)?
+            .checked_mul(self.slot_capacity)?
+            .checked_mul(element_size)
     }
 
     /// Calculate total memory size in bytes for a given element size.
     pub fn memory_size(&self, element_size: usize) -> usize {
-        self.num_vectors * self.num_slots * self.slot_capacity * element_size
+        self.checked_memory_size(element_size).unwrap_or(usize::MAX)
+    }
+
+    fn normalized(mut self) -> Self {
+        self.num_vectors = self.normalized_num_vectors();
+        self
+    }
+
+    fn normalized_num_vectors(&self) -> usize {
+        self.num_vectors.max(1)
     }
 }
 
@@ -109,7 +128,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for KVectorSlot<T> {
         let values = self
             .values
             .lock()
-            .expect("gpu/k_vector.rs: required value was None/Err");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         f.debug_struct("KVectorSlot")
             .field("values", &*values)
             .field("count", &self.count.load(Ordering::Relaxed))
@@ -129,18 +148,25 @@ impl<T> KVectorSlot<T> {
         let mut values = self
             .values
             .lock()
-            .expect("gpu/k_vector.rs: required value was None/Err");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         values.push(value);
         self.count.store(values.len(), Ordering::Release);
     }
 
+    #[cfg(test)]
     fn drain(&self) -> Vec<T> {
+        let mut drained = Vec::with_capacity(self.len());
+        self.drain_into(&mut drained);
+        drained
+    }
+
+    fn drain_into(&self, output: &mut Vec<T>) {
         let mut values = self
             .values
             .lock()
-            .expect("gpu/k_vector.rs: required value was None/Err");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        output.extend(values.drain(..));
         self.count.store(0, Ordering::Release);
-        std::mem::take(&mut *values)
     }
 
     fn len(&self) -> usize {
@@ -155,7 +181,7 @@ impl<T> KVectorSlot<T> {
         let mut values = self
             .values
             .lock()
-            .expect("gpu/k_vector.rs: required value was None/Err");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         values.clear();
         self.count.store(0, Ordering::Release);
     }
@@ -177,6 +203,7 @@ pub struct KVector<T> {
 impl<T> KVector<T> {
     /// Create a new K-vector.
     pub fn new(config: KVectorConfig) -> Self {
+        let config = config.normalized();
         let vectors = (0..config.num_vectors)
             .map(|_| {
                 (0..config.num_slots)
@@ -207,59 +234,104 @@ impl<T> KVector<T> {
         // Simple LCG for fast pseudo-random selection
         let state = self.random_state.fetch_add(1, Ordering::Relaxed);
         let hash = state.wrapping_mul(0x5851F42D4C957F2D);
-        hash % self.config.num_vectors
+        hash % self.vectors.len()
     }
 
     /// Push a value to a slot, using random vector selection.
-    pub fn push(&self, slot: usize, value: T) {
+    ///
+    /// Returns `false` if `slot` is out of range.
+    pub fn push(&self, slot: usize, value: T) -> bool {
+        if slot >= self.config.num_slots {
+            return false;
+        }
+
         let k = self.random_vector();
-        self.vectors[k][slot].push(value);
+        let Some(vector) = self.vectors.get(k) else {
+            return false;
+        };
+        let Some(slot_ref) = vector.get(slot) else {
+            return false;
+        };
+
+        slot_ref.push(value);
+        true
     }
 
     /// Push a value to a specific vector's slot.
-    pub fn push_to_vector(&self, k: usize, slot: usize, value: T) {
-        self.vectors[k][slot].push(value);
+    ///
+    /// Returns `false` if `k` or `slot` is out of range.
+    pub fn push_to_vector(&self, k: usize, slot: usize, value: T) -> bool {
+        let Some(vector) = self.vectors.get(k) else {
+            return false;
+        };
+        let Some(slot_ref) = vector.get(slot) else {
+            return false;
+        };
+
+        slot_ref.push(value);
+        true
     }
 
     /// Collect all values from a slot across all K vectors.
     pub fn collect(&self, slot: usize) -> Vec<T> {
-        let mut result = Vec::new();
-        for k in 0..self.config.num_vectors {
-            result.extend(self.vectors[k][slot].drain());
-        }
+        let mut result = Vec::with_capacity(self.slot_count(slot));
+        let _ = self.collect_into(slot, &mut result);
         result
+    }
+
+    /// Append all values from a slot across all K vectors to `output`.
+    ///
+    /// Values are drained from the K-vector. Existing values in `output` are
+    /// preserved and new values are appended. Returns `false` if `slot` is out
+    /// of range.
+    pub fn collect_into(&self, slot: usize, output: &mut Vec<T>) -> bool {
+        if slot >= self.config.num_slots {
+            return false;
+        }
+
+        output.reserve(self.slot_count(slot));
+        for vector in &self.vectors {
+            if let Some(slot_ref) = vector.get(slot) {
+                slot_ref.drain_into(output);
+            }
+        }
+        true
     }
 
     /// Get the count of values in a slot across all K vectors.
     pub fn slot_count(&self, slot: usize) -> usize {
-        (0..self.config.num_vectors)
-            .map(|k| self.vectors[k][slot].len())
-            .sum()
+        self.vectors
+            .iter()
+            .filter_map(|vector| vector.get(slot))
+            .fold(0usize, |total, slot| total.saturating_add(slot.len()))
     }
 
     /// Check if a slot is empty across all K vectors.
     pub fn slot_is_empty(&self, slot: usize) -> bool {
-        (0..self.config.num_vectors).all(|k| self.vectors[k][slot].is_empty())
+        self.vectors
+            .iter()
+            .filter_map(|vector| vector.get(slot))
+            .all(KVectorSlot::is_empty)
     }
 
     /// Clear all slots.
     pub fn clear(&self) {
-        for k in 0..self.config.num_vectors {
-            for slot in 0..self.config.num_slots {
-                self.vectors[k][slot].clear();
+        for vector in &self.vectors {
+            for slot in vector {
+                slot.clear();
             }
         }
     }
 
     /// Get statistics about the K-vector.
     pub fn stats(&self) -> KVectorStats {
-        let mut total_count = 0;
+        let mut total_count: usize = 0;
         let mut non_empty_slots = 0;
 
         for slot in 0..self.config.num_slots {
             let count = self.slot_count(slot);
             if count > 0 {
-                total_count += count;
+                total_count = total_count.saturating_add(count);
                 non_empty_slots += 1;
             }
         }
@@ -351,6 +423,40 @@ mod tests {
     }
 
     #[test]
+    fn test_kvector_config_normalizes_zero_vectors() {
+        let config = KVectorConfig::new(0, 10);
+
+        assert_eq!(config.num_vectors, 1);
+    }
+
+    #[test]
+    fn test_kvector_new_normalizes_public_config_literal() {
+        let config = KVectorConfig {
+            num_vectors: 0,
+            num_slots: 2,
+            slot_capacity: 1,
+        };
+        let k_vec: KVector<i32> = KVector::new(config);
+
+        assert_eq!(
+            config.checked_memory_size(std::mem::size_of::<i32>()),
+            Some(8)
+        );
+        assert_eq!(config.memory_size(std::mem::size_of::<i32>()), 8);
+        assert_eq!(k_vec.config().num_vectors, 1);
+        assert!(k_vec.push(0, 7));
+        assert_eq!(k_vec.collect(0), vec![7]);
+    }
+
+    #[test]
+    fn test_kvector_memory_size_overflow_is_explicit() {
+        let config = KVectorConfig::with_capacity(usize::MAX, 2, 2);
+
+        assert_eq!(config.checked_memory_size(2), None);
+        assert_eq!(config.memory_size(2), usize::MAX);
+    }
+
+    #[test]
     fn test_kvector_creation() {
         let k_vec: KVector<i32> = KVector::with_num_slots(10);
         assert_eq!(k_vec.config().num_vectors, DEFAULT_K);
@@ -361,9 +467,9 @@ mod tests {
     fn test_kvector_push_and_collect() {
         let k_vec: KVector<i32> = KVector::new(KVectorConfig::new(4, 10));
 
-        k_vec.push(0, 1);
-        k_vec.push(0, 2);
-        k_vec.push(0, 3);
+        assert!(k_vec.push(0, 1));
+        assert!(k_vec.push(0, 2));
+        assert!(k_vec.push(0, 3));
 
         let values = k_vec.collect(0);
         assert_eq!(values.len(), 3);
@@ -378,9 +484,9 @@ mod tests {
     fn test_kvector_push_to_specific_vector() {
         let k_vec: KVector<i32> = KVector::new(KVectorConfig::new(4, 10));
 
-        k_vec.push_to_vector(0, 5, 10);
-        k_vec.push_to_vector(1, 5, 20);
-        k_vec.push_to_vector(2, 5, 30);
+        assert!(k_vec.push_to_vector(0, 5, 10));
+        assert!(k_vec.push_to_vector(1, 5, 20));
+        assert!(k_vec.push_to_vector(2, 5, 30));
 
         let values = k_vec.collect(5);
         assert_eq!(values.len(), 3);
@@ -388,6 +494,62 @@ mod tests {
         let mut sorted = values;
         sorted.sort();
         assert_eq!(sorted, vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn test_kvector_collect_into_appends_and_drains() {
+        let k_vec: KVector<i32> = KVector::new(KVectorConfig::new(4, 10));
+
+        assert!(k_vec.push_to_vector(0, 3, 10));
+        assert!(k_vec.push_to_vector(1, 3, 20));
+        assert!(k_vec.push_to_vector(2, 3, 30));
+
+        let mut values = vec![-1];
+        assert!(k_vec.collect_into(3, &mut values));
+
+        let mut drained = values[1..].to_vec();
+        drained.sort();
+        assert_eq!(values[0], -1);
+        assert_eq!(drained, vec![10, 20, 30]);
+        assert!(k_vec.slot_is_empty(3));
+    }
+
+    #[test]
+    fn test_kvector_collect_into_invalid_slot_preserves_output() {
+        let k_vec: KVector<i32> = KVector::new(KVectorConfig::new(4, 2));
+        let mut values = vec![1, 2, 3];
+
+        assert!(!k_vec.collect_into(4, &mut values));
+        assert_eq!(values, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_kvector_out_of_range_operations_are_total() {
+        let k_vec: KVector<i32> = KVector::new(KVectorConfig::new(4, 2));
+
+        assert!(!k_vec.push(5, 1));
+        assert!(!k_vec.push_to_vector(4, 0, 2));
+        assert!(!k_vec.push_to_vector(0, 5, 3));
+        assert!(k_vec.collect(5).is_empty());
+        assert_eq!(k_vec.slot_count(5), 0);
+        assert!(k_vec.slot_is_empty(5));
+    }
+
+    #[test]
+    fn test_kvector_invalid_push_does_not_advance_selection_state() {
+        let k_vec: KVector<i32> = KVector::new(KVectorConfig::new(4, 2));
+        let before = k_vec
+            .random_state
+            .load(std::sync::atomic::Ordering::Relaxed);
+
+        assert!(!k_vec.push(5, 1));
+
+        assert_eq!(
+            k_vec
+                .random_state
+                .load(std::sync::atomic::Ordering::Relaxed),
+            before
+        );
     }
 
     #[test]
@@ -402,6 +564,43 @@ mod tests {
 
         assert_eq!(k_vec.slot_count(0), 2);
         assert!(!k_vec.slot_is_empty(0));
+    }
+
+    #[test]
+    fn test_kvector_slot_count_saturates() {
+        let k_vec: KVector<i32> = KVector::new(KVectorConfig::new(2, 1));
+
+        k_vec.vectors[0][0]
+            .count
+            .store(usize::MAX, std::sync::atomic::Ordering::Release);
+        k_vec.vectors[1][0]
+            .count
+            .store(1, std::sync::atomic::Ordering::Release);
+
+        assert_eq!(k_vec.slot_count(0), usize::MAX);
+    }
+
+    #[test]
+    fn test_kvector_slot_drain_retains_capacity() {
+        let slot = KVectorSlot::new(4);
+        slot.push(1);
+        slot.push(2);
+
+        let before_capacity = slot
+            .values
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .capacity();
+        let drained = slot.drain();
+        let after_capacity = slot
+            .values
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .capacity();
+
+        assert_eq!(drained, vec![1, 2]);
+        assert_eq!(after_capacity, before_capacity);
+        assert_eq!(slot.len(), 0);
     }
 
     #[test]
@@ -536,6 +735,30 @@ mod property_tests {
             let mut sorted_output = collected;
             sorted_output.sort();
             prop_assert_eq!(sorted_input, sorted_output);
+        }
+
+        /// collect_into appends preserved values and drains the slot.
+        #[test]
+        fn collect_into_preserves_values(
+            prefix in proptest::collection::vec(-1000i32..0, 0..10),
+            values in proptest::collection::vec(0i32..1000, 1..50)
+        ) {
+            let k_vec: KVector<i32> = KVector::new(KVectorConfig::new(4, 10));
+
+            for &v in &values {
+                k_vec.push(0, v);
+            }
+
+            let mut output = prefix.clone();
+            prop_assert!(k_vec.collect_into(0, &mut output));
+
+            prop_assert_eq!(&output[..prefix.len()], prefix.as_slice());
+            let mut sorted_input = values.clone();
+            sorted_input.sort();
+            let mut sorted_output = output[prefix.len()..].to_vec();
+            sorted_output.sort();
+            prop_assert_eq!(sorted_input, sorted_output);
+            prop_assert!(k_vec.slot_is_empty(0));
         }
 
         /// Push to specific vector is retrievable.

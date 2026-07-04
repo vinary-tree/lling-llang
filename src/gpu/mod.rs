@@ -65,7 +65,10 @@ mod soft_prune;
 mod token_recombine;
 
 // CSR representation for memory-efficient WFST storage
-pub use csr::{csr_from_vector_wfst, csr_memory_size, CsrArc, CsrBuilder, CsrState, CsrWfst};
+pub use csr::{
+    checked_csr_memory_size, csr_from_vector_wfst, csr_memory_size, CsrArc, CsrBuilder,
+    CsrBuilderError, CsrState, CsrWfst,
+};
 
 // Token recombination with uint64 packing
 pub use token_recombine::{
@@ -79,7 +82,10 @@ pub use load_balance::{LoadBalancer, WorkDispatcher, WorkGroup, WorkItem, WorkQu
 pub use k_vector::{reduce_with_k_vectors, KVector, KVectorConfig, KVectorStats};
 
 // Channels/Lanes for batched streaming
-pub use channels::{BatchedDecoder, Channel, ChannelState, DecoderConfig, Lane, LaneState};
+pub use channels::{
+    checked_decoder_memory_size, BatchedDecoder, Channel, ChannelState, DecoderConfig, Lane,
+    LaneState,
+};
 
 // Soft pruning
 pub use soft_prune::{

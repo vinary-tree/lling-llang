@@ -57,7 +57,7 @@
 //! - **Zero-sum-free**: If the first component is zero-sum-free
 //! - **Commutative ⊗**: If both components have commutative ⊗
 
-use crate::semiring::traits::{
+use super::super::traits::{
     CommutativeTimesSemiring, DivisibleSemiring, IdempotentSemiring, KClosedSemiring,
     NonnegativeSemiring, QuantizableSemiring, Semiring, StarSemiring, StochasticSemiring,
     TotallyOrderedSemiring, WeaklyLeftDivisibleSemiring, ZeroSumFreeSemiring,
@@ -571,14 +571,14 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::semiring::traits::tests::{
+    use super::super::super::basic::TropicalWeight;
+    use super::super::super::traits::tests::{
         verify_commutative_times_semiring, verify_divisible_semiring, verify_idempotent_semiring,
         verify_k_closed_semiring, verify_quantizable_semiring, verify_semiring_axioms,
         verify_star_semiring, verify_stochastic_semiring, verify_totally_ordered_semiring,
         verify_weakly_left_divisible_semiring, verify_zero_sum_free_semiring,
     };
-    use crate::semiring::TropicalWeight;
+    use super::*;
     use proptest::prelude::*;
 
     type LexTrop = LexicographicWeight<TropicalWeight, TropicalWeight>;

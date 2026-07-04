@@ -3,9 +3,11 @@
 //! This module implements differentiable transducer loss using the WFST framework,
 //! following the approach of k2-fsa for efficient forward-backward computation.
 
-use super::{build_target_graph, Label, TransducerLattice, BLANK};
+use std::collections::{HashMap, VecDeque};
+
+use super::{Label, TransducerLattice, BLANK};
 use crate::semiring::Semiring;
-use crate::wfst::{VectorWfst, Wfst};
+use crate::wfst::{StateId, VectorWfst, Wfst};
 
 /// Result of transducer loss computation.
 #[derive(Debug, Clone)]
@@ -201,15 +203,8 @@ pub fn transducer_loss_with_lm<W>(
 where
     W: Semiring + From<f64> + Into<f64> + Clone,
 {
-    // Build target graph composed with LM
-    let _target_graph: VectorWfst<Label, W> = build_target_graph(targets);
-
-    // For simplicity, we compute the loss using the basic algorithm
-    // and add LM scores as additional weights on the target path
     let mut result = transducer_loss(lattice, targets);
 
-    // Add LM score to the loss (this is a simplified version)
-    // Full implementation would compose the lattice with LM
     let lm_score = compute_lm_score(lm, targets);
     result.loss -= lm_weight * lm_score;
 
@@ -221,57 +216,100 @@ fn compute_lm_score<W>(lm: &VectorWfst<Label, W>, targets: &[Label]) -> f64
 where
     W: Semiring + Into<f64> + Clone,
 {
-    let mut score = 0.0f64;
-    let mut state = lm.start();
+    const OOV_LOG_SCORE: f64 = -10.0;
+
+    if lm.is_empty() || !lm.is_valid_state(lm.start()) {
+        return OOV_LOG_SCORE * targets.len() as f64;
+    }
+
+    let mut scores = HashMap::with_capacity(lm.num_states());
+    scores.insert(lm.start(), 0.0);
+    scores = epsilon_closure_scores(lm, scores);
 
     for &label in targets {
-        // Find transition for this label
-        let mut found = false;
-        for tr in lm.transitions(state) {
-            if tr.input == Some(label) {
-                let weight: f64 = tr.weight.clone().into();
-                score += weight;
-                state = tr.to;
-                found = true;
-                break;
-            }
-        }
+        let mut next_scores = HashMap::with_capacity(scores.len());
 
-        if !found {
-            // Try backoff (epsilon transitions)
+        for (&state, &score) in &scores {
             for tr in lm.transitions(state) {
-                if tr.input.is_none() {
-                    let backoff_weight: f64 = tr.weight.clone().into();
-                    score += backoff_weight;
-                    state = tr.to;
-                    // Try again from backoff state
-                    for tr2 in lm.transitions(state) {
-                        if tr2.input == Some(label) {
-                            let weight: f64 = tr2.weight.clone().into();
-                            score += weight;
-                            state = tr2.to;
-                            found = true;
-                            break;
-                        }
-                    }
-                    break;
+                if tr.input == Some(label) && lm.is_valid_state(tr.to) {
+                    let weight: f64 = tr.weight.into();
+                    merge_log_score(&mut next_scores, tr.to, score + weight);
                 }
             }
         }
 
-        if !found {
-            // Unknown word penalty
-            score += -10.0; // OOV penalty
+        if next_scores.is_empty() {
+            for (&state, &score) in &scores {
+                merge_log_score(&mut next_scores, state, score + OOV_LOG_SCORE);
+            }
+        }
+
+        scores = epsilon_closure_scores(lm, next_scores);
+    }
+
+    let mut final_score = f64::NEG_INFINITY;
+    for (&state, &score) in &scores {
+        if lm.is_final(state) {
+            let final_weight: f64 = lm.final_weight(state).into();
+            final_score = log_add(final_score, score + final_weight);
         }
     }
 
-    // Add final weight
-    if lm.is_final(state) {
-        let final_weight: f64 = lm.final_weight(state).into();
-        score += final_weight;
+    if final_score > f64::NEG_INFINITY {
+        final_score
+    } else {
+        scores.values().copied().fold(f64::NEG_INFINITY, log_add)
+    }
+}
+
+fn epsilon_closure_scores<W>(
+    lm: &VectorWfst<Label, W>,
+    mut scores: HashMap<StateId, f64>,
+) -> HashMap<StateId, f64>
+where
+    W: Semiring + Into<f64> + Clone,
+{
+    let mut queue: VecDeque<StateId> = scores.keys().copied().collect();
+    let max_relaxations = lm
+        .total_transitions()
+        .saturating_add(lm.num_states())
+        .saturating_mul(4)
+        .max(1);
+    let mut relaxations = 0usize;
+
+    while let Some(state) = queue.pop_front() {
+        if !lm.is_valid_state(state) {
+            continue;
+        }
+
+        let state_score = scores.get(&state).copied().unwrap_or(f64::NEG_INFINITY);
+        for tr in lm.transitions(state) {
+            if tr.input.is_some() || !lm.is_valid_state(tr.to) {
+                continue;
+            }
+
+            let weight: f64 = tr.weight.into();
+            if merge_log_score(&mut scores, tr.to, state_score + weight) {
+                relaxations += 1;
+                if relaxations <= max_relaxations {
+                    queue.push_back(tr.to);
+                }
+            }
+        }
     }
 
-    score
+    scores
+}
+
+fn merge_log_score(scores: &mut HashMap<StateId, f64>, state: StateId, score: f64) -> bool {
+    let old_score = scores.get(&state).copied().unwrap_or(f64::NEG_INFINITY);
+    let merged = log_add(old_score, score);
+    if merged > old_score + 1e-12 {
+        scores.insert(state, merged);
+        true
+    } else {
+        false
+    }
 }
 
 /// Batched transducer loss for multiple utterances.
@@ -368,6 +406,7 @@ where
 mod tests {
     use super::*;
     use crate::semiring::TropicalWeight;
+    use crate::wfst::MutableWfst;
 
     #[test]
     fn test_log_add() {
@@ -412,5 +451,45 @@ mod tests {
 
         grads.add(0, 0, 1, 0.3);
         assert!((grads.get(0, 0, 1) - 0.8).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_transducer_loss_with_lm_log_sums_parallel_lm_paths() {
+        let mut lattice: TransducerLattice<TropicalWeight> = TransducerLattice::new(1, 2, 3);
+        lattice.set(0, 0, BLANK, -2.0);
+        lattice.set(0, 0, 1, -0.1);
+        lattice.set(0, 1, BLANK, -0.2);
+
+        let mut lm: VectorWfst<Label, TropicalWeight> = VectorWfst::new();
+        let s0 = lm.add_state();
+        let s1 = lm.add_state();
+        lm.set_start(s0);
+        lm.set_final(s1, TropicalWeight::one());
+        lm.add_arc(s0, Some(1), Some(1), s1, TropicalWeight::new(-0.2));
+        lm.add_arc(s0, Some(1), Some(1), s1, TropicalWeight::new(-0.4));
+
+        let targets = vec![1];
+        let base = transducer_loss(&lattice, &targets);
+        let fused = transducer_loss_with_lm(&lattice, &targets, &lm, 1.0);
+        let expected_lm_score = log_add(-0.2, -0.4);
+
+        assert!((fused.loss - (base.loss - expected_lm_score)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_lm_score_follows_chained_backoff_arcs() {
+        let mut lm: VectorWfst<Label, TropicalWeight> = VectorWfst::new();
+        let s0 = lm.add_state();
+        let s1 = lm.add_state();
+        let s2 = lm.add_state();
+        let s3 = lm.add_state();
+        lm.set_start(s0);
+        lm.set_final(s3, TropicalWeight::one());
+        lm.add_arc(s0, None, None, s1, TropicalWeight::new(-0.1));
+        lm.add_arc(s1, None, None, s2, TropicalWeight::new(-0.2));
+        lm.add_arc(s2, Some(1), Some(1), s3, TropicalWeight::new(-0.3));
+
+        let score = compute_lm_score(&lm, &[1]);
+        assert!((score - -0.6).abs() < 1e-10);
     }
 }

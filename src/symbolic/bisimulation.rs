@@ -44,7 +44,10 @@ pub struct Lts {
 impl Lts {
     /// Build an LTS over `num_states` with the given labeled transitions.
     pub fn new(num_states: usize, transitions: Vec<(usize, Action, usize)>) -> Self {
-        Self { num_states, transitions }
+        Self {
+            num_states,
+            transitions,
+        }
     }
 
     /// Per-state outgoing adjacency `(action, target)`.
@@ -179,7 +182,15 @@ mod tests {
         // t: 4 -a-> 5; 4 -a-> 6; 5 -b-> 7; 6 -c-> 8  (a.b + a.c)
         let lts = Lts::new(
             9,
-            vec![(0, A, 1), (1, B, 2), (1, C, 3), (4, A, 5), (4, A, 6), (5, B, 7), (6, C, 8)],
+            vec![
+                (0, A, 1),
+                (1, B, 2),
+                (1, C, 3),
+                (4, A, 5),
+                (4, A, 6),
+                (5, B, 7),
+                (6, C, 8),
+            ],
         );
         let colors = vec![0; 9];
         let block = lts.bisimulation(&colors);

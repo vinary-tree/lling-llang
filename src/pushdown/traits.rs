@@ -155,10 +155,14 @@ pub trait WeightedPda<L, W: Semiring>: Clone + Send + Sync {
     where
         L: PartialEq,
     {
-        self.transitions(state)
-            .iter()
-            .filter(|t| t.matches(input, stack_top))
-            .collect()
+        let transitions = self.transitions(state);
+        let mut matches = Vec::with_capacity(transitions.len());
+        for transition in transitions {
+            if transition.matches(input, stack_top) {
+                matches.push(transition);
+            }
+        }
+        matches
     }
 
     /// Get epsilon transitions from a state with a given stack top.
@@ -170,10 +174,14 @@ pub trait WeightedPda<L, W: Semiring>: Clone + Send + Sync {
     where
         L: PartialEq,
     {
-        self.transitions(state)
-            .iter()
-            .filter(|t| t.is_epsilon() && t.stack_top == stack_top)
-            .collect()
+        let transitions = self.transitions(state);
+        let mut matches = Vec::with_capacity(transitions.len());
+        for transition in transitions {
+            if transition.is_epsilon() && transition.stack_top == stack_top {
+                matches.push(transition);
+            }
+        }
+        matches
     }
 
     /// Get the number of states.
@@ -245,8 +253,8 @@ pub trait WeightedPda<L, W: Semiring>: Clone + Send + Sync {
 
 #[cfg(test)]
 mod tests {
+    use super::super::stack::StackAction;
     use super::*;
-    use crate::pushdown::stack::StackAction;
     use crate::semiring::TropicalWeight;
 
     #[test]

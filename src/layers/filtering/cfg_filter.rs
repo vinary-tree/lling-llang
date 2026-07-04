@@ -8,7 +8,7 @@ use crate::cfg::{EarleyParser, Grammar, ParseError};
 use crate::lattice::{Lattice, LatticeBuilder};
 use crate::semiring::Semiring;
 
-use crate::layers::traits::{CorrectionLayer, LayerError, LayerResult};
+use super::super::traits::{CorrectionLayer, LayerError, LayerResult};
 
 /// CFG grammar filtering layer.
 ///

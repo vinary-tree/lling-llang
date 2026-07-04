@@ -4,7 +4,10 @@
 
 use std::hash::Hash;
 
-use super::{MultiTapeLabel, MultiTapeWfst};
+use super::builder::MultiTapeWfstBuilder;
+use super::label::MultiTapeLabel;
+use super::traits::MultiTapeWfst;
+use super::vector::VectorMultiTapeWfst;
 use crate::semiring::Semiring;
 use crate::wfst::{MutableWfst, VectorWfst, WeightedTransition};
 
@@ -104,14 +107,12 @@ where
 pub fn project_tapes<L, W, T, const N: usize, const M: usize>(
     source: &T,
     tapes: [usize; M],
-) -> crate::multitape::VectorMultiTapeWfst<L, W, M>
+) -> VectorMultiTapeWfst<L, W, M>
 where
     L: Clone + Eq + Hash + Send + Sync,
     W: Semiring + Clone,
     T: MultiTapeWfst<L, W, N>,
 {
-    use crate::multitape::MultiTapeWfstBuilder;
-
     // Verify tape indices
     for &tape in &tapes {
         assert!(tape < N, "Tape index {} out of range (max {})", tape, N - 1);
@@ -152,11 +153,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::multitape::MultiTapeWfstBuilder;
     use crate::semiring::TropicalWeight;
     use crate::wfst::Wfst;
 
-    fn make_test_mt() -> crate::multitape::VectorMultiTapeWfst<char, TropicalWeight, 3> {
+    fn make_test_mt() -> VectorMultiTapeWfst<char, TropicalWeight, 3> {
         let mut builder = MultiTapeWfstBuilder::<char, TropicalWeight, 3>::new();
 
         let s0 = builder.add_state();
@@ -272,13 +272,11 @@ mod tests {
         let mt = make_test_mt();
 
         // Project to tapes 0 and 2
-        let projected: crate::multitape::VectorMultiTapeWfst<char, TropicalWeight, 2> =
-            project_tapes(&mt, [0, 2]);
+        let projected: VectorMultiTapeWfst<char, TropicalWeight, 2> = project_tapes(&mt, [0, 2]);
 
         assert_eq!(projected.num_states(), 3);
         assert_eq!(projected.num_tapes(), 2);
 
-        use crate::multitape::MultiTapeWfst;
         let trans = &projected.transitions(0)[0];
         assert_eq!(trans.tape_label(0), Some(&'a'));
         assert_eq!(trans.tape_label(1), Some(&'1'));

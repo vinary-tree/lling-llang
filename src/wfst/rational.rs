@@ -46,8 +46,15 @@
 use smallvec::SmallVec;
 
 use super::lazy::{LazyState, LazyWfstWrapper, StateSource};
-use super::{StateId, WeightedTransition, Wfst};
+use super::traits::Wfst;
+use super::transition::WeightedTransition;
+use super::types::{StateId, NO_STATE};
 use crate::semiring::Semiring;
+
+#[cfg(test)]
+use super::traits::{LazyWfst, MutableWfst};
+#[cfg(test)]
+use super::vector::{VectorWfst, VectorWfstBuilder};
 
 // =============================================================================
 // State ID Encoding
@@ -67,6 +74,12 @@ use crate::semiring::Semiring;
 /// State ID layout for Closure:
 /// - State 0: Super-start state (also final)
 /// - States 1..=n: States from T (offset by 1)
+
+#[inline]
+fn add_offset(state: StateId, offset: usize) -> Option<StateId> {
+    let offset = StateId::try_from(offset).ok()?;
+    state.checked_add(offset)
+}
 
 // =============================================================================
 // Union (Sum): T₁ ⊕ T₂
@@ -89,6 +102,8 @@ where
     fst2: T2,
     /// Number of states in fst1 (for offset calculation)
     n1: usize,
+    /// Number of states in fst2.
+    n2: usize,
     _phantom: std::marker::PhantomData<(L, W)>,
 }
 
@@ -102,10 +117,12 @@ where
     /// Create a new union source.
     pub fn new(fst1: T1, fst2: T2) -> Self {
         let n1 = fst1.num_states();
+        let n2 = fst2.num_states();
         Self {
             fst1,
             fst2,
             n1,
+            n2,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -113,26 +130,56 @@ where
     /// Decode a union state ID to (fst_index, original_state).
     /// Returns (0, state) for super-start, (1, state) for fst1, (2, state) for fst2.
     #[inline]
-    fn decode_state(&self, state: StateId) -> (u8, StateId) {
+    fn decode_state(&self, state: StateId) -> Option<(u8, StateId)> {
         if state == 0 {
-            (0, 0) // Super-start
-        } else if (state as usize) <= self.n1 {
-            (1, state - 1) // fst1
-        } else {
-            (2, state - 1 - self.n1 as StateId) // fst2
+            return Some((0, 0)); // Super-start
         }
+
+        let raw_state = state as usize;
+        if raw_state <= self.n1 {
+            return Some((1, state - 1)); // fst1
+        }
+
+        let fst2_start = self.n1.checked_add(1)?;
+        let fst2_end = fst2_start.checked_add(self.n2)?;
+        if raw_state < fst2_start || raw_state >= fst2_end {
+            return None;
+        }
+
+        let original = raw_state - fst2_start;
+        Some((2, StateId::try_from(original).ok()?))
+    }
+
+    /// Check whether a state ID is valid in fst1.
+    #[inline]
+    fn is_valid_fst1_state(&self, state: StateId) -> bool {
+        (state as usize) < self.n1
+    }
+
+    /// Check whether a state ID is valid in fst2.
+    #[inline]
+    fn is_valid_fst2_state(&self, state: StateId) -> bool {
+        (state as usize) < self.n2
     }
 
     /// Encode a state from fst1 to union state ID.
     #[inline]
-    fn encode_fst1(&self, state: StateId) -> StateId {
-        state + 1
+    fn encode_fst1(&self, state: StateId) -> Option<StateId> {
+        if self.is_valid_fst1_state(state) {
+            add_offset(state, 1)
+        } else {
+            None
+        }
     }
 
     /// Encode a state from fst2 to union state ID.
     #[inline]
-    fn encode_fst2(&self, state: StateId) -> StateId {
-        state + 1 + self.n1 as StateId
+    fn encode_fst2(&self, state: StateId) -> Option<StateId> {
+        if self.is_valid_fst2_state(state) {
+            add_offset(state, self.n1.checked_add(1)?)
+        } else {
+            None
+        }
     }
 }
 
@@ -144,7 +191,9 @@ where
     T2: Wfst<L, W>,
 {
     fn compute_state(&self, state: StateId) -> LazyState<L, W> {
-        let (fst_idx, original) = self.decode_state(state);
+        let Some((fst_idx, original)) = self.decode_state(state) else {
+            return LazyState::Pending;
+        };
 
         match fst_idx {
             0 => {
@@ -155,21 +204,13 @@ where
                 let start2 = self.fst2.start();
 
                 // ε-transition to fst1 start
-                if start1 != super::NO_STATE {
-                    transitions.push(WeightedTransition::epsilon(
-                        state,
-                        self.encode_fst1(start1),
-                        W::one(),
-                    ));
+                if let Some(encoded_start) = self.encode_fst1(start1) {
+                    transitions.push(WeightedTransition::epsilon(state, encoded_start, W::one()));
                 }
 
                 // ε-transition to fst2 start
-                if start2 != super::NO_STATE {
-                    transitions.push(WeightedTransition::epsilon(
-                        state,
-                        self.encode_fst2(start2),
-                        W::one(),
-                    ));
+                if let Some(encoded_start) = self.encode_fst2(start2) {
+                    transitions.push(WeightedTransition::epsilon(state, encoded_start, W::one()));
                 }
 
                 LazyState::non_final(transitions)
@@ -183,12 +224,14 @@ where
                     .fst1
                     .transitions(original)
                     .iter()
-                    .map(|t| WeightedTransition {
-                        from: state,
-                        input: t.input.clone(),
-                        output: t.output.clone(),
-                        to: self.encode_fst1(t.to),
-                        weight: t.weight,
+                    .filter_map(|t| {
+                        Some(WeightedTransition {
+                            from: state,
+                            input: t.input.clone(),
+                            output: t.output.clone(),
+                            to: self.encode_fst1(t.to)?,
+                            weight: t.weight,
+                        })
                     })
                     .collect();
 
@@ -207,12 +250,14 @@ where
                     .fst2
                     .transitions(original)
                     .iter()
-                    .map(|t| WeightedTransition {
-                        from: state,
-                        input: t.input.clone(),
-                        output: t.output.clone(),
-                        to: self.encode_fst2(t.to),
-                        weight: t.weight,
+                    .filter_map(|t| {
+                        Some(WeightedTransition {
+                            from: state,
+                            input: t.input.clone(),
+                            output: t.output.clone(),
+                            to: self.encode_fst2(t.to)?,
+                            weight: t.weight,
+                        })
                     })
                     .collect();
 
@@ -222,7 +267,7 @@ where
                     LazyState::non_final(transitions)
                 }
             }
-            _ => unreachable!(),
+            _ => LazyState::Pending,
         }
     }
 
@@ -231,7 +276,7 @@ where
     }
 
     fn num_states_hint(&self) -> Option<usize> {
-        Some(1 + self.n1 + self.fst2.num_states())
+        1usize.checked_add(self.n1)?.checked_add(self.n2)
     }
 }
 
@@ -282,6 +327,10 @@ where
     fst2: T2,
     /// Number of states in fst1 (for offset calculation)
     n1: usize,
+    /// Number of states in fst2.
+    n2: usize,
+    /// Whether both operands have valid starts and fit in the StateId space.
+    valid_language: bool,
     _phantom: std::marker::PhantomData<(L, W)>,
 }
 
@@ -295,10 +344,19 @@ where
     /// Create a new concatenation source.
     pub fn new(fst1: T1, fst2: T2) -> Self {
         let n1 = fst1.num_states();
+        let n2 = fst2.num_states();
+        let total_states = n1.checked_add(n2);
+        let valid_language = fst1.is_valid_state(fst1.start())
+            && fst2.is_valid_state(fst2.start())
+            && total_states
+                .map(|total| total <= NO_STATE as usize)
+                .unwrap_or(false);
         Self {
             fst1,
             fst2,
             n1,
+            n2,
+            valid_language,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -311,18 +369,39 @@ where
 
     /// Decode a state to (is_fst1, original_state).
     #[inline]
-    fn decode_state(&self, state: StateId) -> (bool, StateId) {
-        if self.is_fst1_state(state) {
-            (true, state)
-        } else {
-            (false, state - self.n1 as StateId)
+    fn decode_state(&self, state: StateId) -> Option<(bool, StateId)> {
+        if !self.valid_language {
+            return None;
         }
+
+        let raw_state = state as usize;
+        if raw_state < self.n1 {
+            return Some((true, state));
+        }
+
+        let total_states = self.n1.checked_add(self.n2)?;
+        if raw_state >= total_states {
+            return None;
+        }
+
+        let original = raw_state - self.n1;
+        Some((false, StateId::try_from(original).ok()?))
+    }
+
+    /// Check whether a state ID is valid in fst2.
+    #[inline]
+    fn is_valid_fst2_state(&self, state: StateId) -> bool {
+        (state as usize) < self.n2
     }
 
     /// Encode a state from fst2 to concat state ID.
     #[inline]
-    fn encode_fst2(&self, state: StateId) -> StateId {
-        state + self.n1 as StateId
+    fn encode_fst2(&self, state: StateId) -> Option<StateId> {
+        if self.is_valid_fst2_state(state) {
+            add_offset(state, self.n1)
+        } else {
+            None
+        }
     }
 }
 
@@ -334,7 +413,9 @@ where
     T2: Wfst<L, W>,
 {
     fn compute_state(&self, state: StateId) -> LazyState<L, W> {
-        let (is_fst1, original) = self.decode_state(state);
+        let Some((is_fst1, original)) = self.decode_state(state) else {
+            return LazyState::Pending;
+        };
 
         if is_fst1 {
             // State from fst1
@@ -345,22 +426,28 @@ where
                 .fst1
                 .transitions(original)
                 .iter()
-                .map(|t| WeightedTransition {
-                    from: state,
-                    input: t.input.clone(),
-                    output: t.output.clone(),
-                    to: t.to, // fst1 states keep their IDs
-                    weight: t.weight,
+                .filter_map(|t| {
+                    if self.is_fst1_state(t.to) {
+                        Some(WeightedTransition {
+                            from: state,
+                            input: t.input.clone(),
+                            output: t.output.clone(),
+                            to: t.to, // fst1 states keep their IDs
+                            weight: t.weight,
+                        })
+                    } else {
+                        None
+                    }
                 })
                 .collect();
 
             // If this is a final state in fst1, add ε-transition to fst2 start
             if is_final_in_fst1 {
                 let start2 = self.fst2.start();
-                if start2 != super::NO_STATE {
+                if let Some(encoded_start) = self.encode_fst2(start2) {
                     transitions.push(WeightedTransition::epsilon(
                         state,
-                        self.encode_fst2(start2),
+                        encoded_start,
                         final_weight_fst1,
                     ));
                 }
@@ -378,12 +465,14 @@ where
                 .fst2
                 .transitions(original)
                 .iter()
-                .map(|t| WeightedTransition {
-                    from: state,
-                    input: t.input.clone(),
-                    output: t.output.clone(),
-                    to: self.encode_fst2(t.to),
-                    weight: t.weight,
+                .filter_map(|t| {
+                    Some(WeightedTransition {
+                        from: state,
+                        input: t.input.clone(),
+                        output: t.output.clone(),
+                        to: self.encode_fst2(t.to)?,
+                        weight: t.weight,
+                    })
                 })
                 .collect();
 
@@ -396,11 +485,24 @@ where
     }
 
     fn start(&self) -> StateId {
-        self.fst1.start()
+        if !self.valid_language {
+            return NO_STATE;
+        }
+
+        let start = self.fst1.start();
+        if self.is_fst1_state(start) {
+            start
+        } else {
+            NO_STATE
+        }
     }
 
     fn num_states_hint(&self) -> Option<usize> {
-        Some(self.n1 + self.fst2.num_states())
+        if !self.valid_language {
+            return Some(0);
+        }
+
+        self.n1.checked_add(self.n2)
     }
 }
 
@@ -485,8 +587,12 @@ where
 
     /// Encode an original state ID to closure state ID.
     #[inline]
-    fn encode_state(&self, state: StateId) -> StateId {
-        state + 1
+    fn encode_state(&self, state: StateId) -> Option<StateId> {
+        if (state as usize) < self.n {
+            add_offset(state, 1)
+        } else {
+            None
+        }
     }
 }
 
@@ -502,12 +608,8 @@ where
             let mut transitions = SmallVec::new();
 
             let fst_start = self.fst.start();
-            if fst_start != super::NO_STATE {
-                transitions.push(WeightedTransition::epsilon(
-                    state,
-                    self.encode_state(fst_start),
-                    W::one(),
-                ));
+            if let Some(encoded_start) = self.encode_state(fst_start) {
+                transitions.push(WeightedTransition::epsilon(state, encoded_start, W::one()));
             }
 
             // Super-start is final with weight one (accepts empty string)
@@ -515,6 +617,10 @@ where
         } else {
             // State from original FST
             let original = self.decode_state(state);
+            if (original as usize) >= self.n {
+                return LazyState::Pending;
+            }
+
             let is_final = self.fst.is_final(original);
             let final_weight = self.fst.final_weight(original);
 
@@ -522,12 +628,14 @@ where
                 .fst
                 .transitions(original)
                 .iter()
-                .map(|t| WeightedTransition {
-                    from: state,
-                    input: t.input.clone(),
-                    output: t.output.clone(),
-                    to: self.encode_state(t.to),
-                    weight: t.weight,
+                .filter_map(|t| {
+                    Some(WeightedTransition {
+                        from: state,
+                        input: t.input.clone(),
+                        output: t.output.clone(),
+                        to: self.encode_state(t.to)?,
+                        weight: t.weight,
+                    })
                 })
                 .collect();
 
@@ -535,10 +643,10 @@ where
             // (for the closure/repetition)
             if is_final {
                 let fst_start = self.fst.start();
-                if fst_start != super::NO_STATE {
+                if let Some(encoded_start) = self.encode_state(fst_start) {
                     transitions.push(WeightedTransition::epsilon(
                         state,
-                        self.encode_state(fst_start),
+                        encoded_start,
                         final_weight,
                     ));
                 }
@@ -558,7 +666,7 @@ where
     }
 
     fn num_states_hint(&self) -> Option<usize> {
-        Some(1 + self.n)
+        self.n.checked_add(1)
     }
 }
 
@@ -609,7 +717,6 @@ where
 mod tests {
     use super::*;
     use crate::semiring::TropicalWeight;
-    use crate::wfst::{LazyWfst, VectorWfst, VectorWfstBuilder};
 
     fn make_single_arc_fst(label: char) -> VectorWfst<char, TropicalWeight> {
         VectorWfstBuilder::new()
@@ -618,6 +725,57 @@ mod tests {
             .arc(0, Some(label), Some(label), 1, TropicalWeight::one())
             .final_state(1, TropicalWeight::one())
             .build()
+    }
+
+    fn make_fst_with_malformed_target(label: char) -> VectorWfst<char, TropicalWeight> {
+        let mut fst = VectorWfst::with_capacity(2);
+        fst.add_state();
+        fst.add_state();
+        fst.set_start(0);
+        fst.add_arc(0, Some(label), Some(label), 1, TropicalWeight::one());
+        fst.add_transition(WeightedTransition::new(
+            0,
+            Some('x'),
+            Some('x'),
+            NO_STATE,
+            TropicalWeight::new(3.0),
+        ));
+        fst.set_final(1, TropicalWeight::one());
+        fst
+    }
+
+    fn make_no_start_fst(label: char) -> VectorWfst<char, TropicalWeight> {
+        let mut fst = VectorWfst::with_capacity(2);
+        fst.add_state();
+        fst.add_state();
+        fst.add_arc(0, Some(label), Some(label), 1, TropicalWeight::one());
+        fst.set_final(1, TropicalWeight::one());
+        fst
+    }
+
+    #[derive(Clone)]
+    struct HugeStateCountWfst;
+
+    impl Wfst<char, TropicalWeight> for HugeStateCountWfst {
+        fn start(&self) -> StateId {
+            0
+        }
+
+        fn is_final(&self, _state: StateId) -> bool {
+            false
+        }
+
+        fn final_weight(&self, _state: StateId) -> TropicalWeight {
+            TropicalWeight::zero()
+        }
+
+        fn transitions(&self, _state: StateId) -> &[WeightedTransition<char, TropicalWeight>] {
+            &[]
+        }
+
+        fn num_states(&self) -> usize {
+            NO_STATE as usize
+        }
     }
 
     #[test]
@@ -760,6 +918,118 @@ mod tests {
         let start_trans = u.transitions_lazy(0);
         // Only one ε-transition (to fst_a, not to empty fst which has NO_STATE start)
         assert_eq!(start_trans.len(), 1);
+    }
+
+    #[test]
+    fn test_union_skips_malformed_transition_targets() {
+        let fst_a = make_fst_with_malformed_target('a');
+        let fst_b = make_fst_with_malformed_target('b');
+        let mut u = union(&fst_a, &fst_b);
+        let state_count = u.num_states() as StateId;
+
+        let fst1_start = u.transitions_lazy(1).to_vec();
+        assert_eq!(fst1_start.len(), 1);
+        assert_eq!(fst1_start[0].input, Some('a'));
+        assert_eq!(fst1_start[0].to, 2);
+        assert!(fst1_start
+            .iter()
+            .all(|transition| transition.to < state_count));
+
+        let fst2_start = u.transitions_lazy(3).to_vec();
+        assert_eq!(fst2_start.len(), 1);
+        assert_eq!(fst2_start[0].input, Some('b'));
+        assert_eq!(fst2_start[0].to, 4);
+        assert!(fst2_start
+            .iter()
+            .all(|transition| transition.to < state_count));
+    }
+
+    #[test]
+    fn test_concat_skips_malformed_transition_targets() {
+        let fst_a = make_fst_with_malformed_target('a');
+        let fst_b = make_fst_with_malformed_target('b');
+        let mut c = concat(&fst_a, &fst_b);
+        let state_count = c.num_states() as StateId;
+
+        let fst1_start = c.transitions_lazy(0).to_vec();
+        assert_eq!(fst1_start.len(), 1);
+        assert_eq!(fst1_start[0].input, Some('a'));
+        assert_eq!(fst1_start[0].to, 1);
+        assert!(fst1_start
+            .iter()
+            .all(|transition| transition.to < state_count));
+
+        let fst1_final = c.transitions_lazy(1).to_vec();
+        assert_eq!(fst1_final.len(), 1);
+        assert!(fst1_final[0].is_epsilon());
+        assert_eq!(fst1_final[0].to, 2);
+
+        let fst2_start = c.transitions_lazy(2).to_vec();
+        assert_eq!(fst2_start.len(), 1);
+        assert_eq!(fst2_start[0].input, Some('b'));
+        assert_eq!(fst2_start[0].to, 3);
+        assert!(fst2_start
+            .iter()
+            .all(|transition| transition.to < state_count));
+    }
+
+    #[test]
+    fn test_concat_missing_left_start_is_empty() {
+        let no_start = make_no_start_fst('a');
+        let fst_b = make_single_arc_fst('b');
+        let mut c = concat(&no_start, &fst_b);
+
+        assert_eq!(c.start(), NO_STATE);
+        assert_eq!(c.num_states(), 0);
+        c.expand(0);
+        assert!(!c.is_final(0));
+        assert!(c.transitions_lazy(0).is_empty());
+    }
+
+    #[test]
+    fn test_concat_missing_right_start_is_empty() {
+        let fst_a = make_single_arc_fst('a');
+        let no_start = make_no_start_fst('b');
+        let mut c = concat(&fst_a, &no_start);
+
+        assert_eq!(c.start(), NO_STATE);
+        assert_eq!(c.num_states(), 0);
+        c.expand(0);
+        assert!(!c.is_final(0));
+        assert!(c.transitions_lazy(0).is_empty());
+    }
+
+    #[test]
+    fn test_concat_rejects_unrepresentable_state_space() {
+        let fst_b = make_single_arc_fst('b');
+        let c = concat(&HugeStateCountWfst, &fst_b);
+
+        assert_eq!(c.start(), NO_STATE);
+        assert_eq!(c.num_states(), 0);
+    }
+
+    #[test]
+    fn test_closure_skips_malformed_transition_targets() {
+        let fst = make_fst_with_malformed_target('a');
+        let mut k = closure(&fst);
+        let state_count = k.num_states() as StateId;
+
+        let super_start = k.transitions_lazy(0).to_vec();
+        assert_eq!(super_start.len(), 1);
+        assert_eq!(super_start[0].to, 1);
+
+        let original_start = k.transitions_lazy(1).to_vec();
+        assert_eq!(original_start.len(), 1);
+        assert_eq!(original_start[0].input, Some('a'));
+        assert_eq!(original_start[0].to, 2);
+        assert!(original_start
+            .iter()
+            .all(|transition| transition.to < state_count));
+
+        let original_final = k.transitions_lazy(2).to_vec();
+        assert_eq!(original_final.len(), 1);
+        assert!(original_final[0].is_epsilon());
+        assert_eq!(original_final[0].to, 1);
     }
 
     // =========================================================================
@@ -952,7 +1222,6 @@ mod tests {
     mod property_tests {
         use super::*;
         use crate::test_utils::arb_tropical_wfst;
-        use crate::wfst::NO_STATE;
         use proptest::prelude::*;
 
         proptest! {

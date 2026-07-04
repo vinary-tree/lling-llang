@@ -38,7 +38,7 @@ use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::One;
 
-use crate::symbolic::BooleanAlgebra;
+use super::BooleanAlgebra;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Bound
@@ -163,7 +163,7 @@ impl OrderedPoint for BigRational {
                     // satisfies every open/closed combination.
                     Ordering::Less => Some((&a + &b) / two()),
                 }
-            },
+            }
         }
     }
 }
@@ -200,6 +200,36 @@ impl Ord for OrderedF64 {
     }
 }
 
+fn next_f64_up(value: f64) -> f64 {
+    if value.is_nan() || value == f64::INFINITY {
+        value
+    } else if value == 0.0 {
+        f64::from_bits(1)
+    } else {
+        let bits = value.to_bits();
+        if value > 0.0 {
+            f64::from_bits(bits + 1)
+        } else {
+            f64::from_bits(bits - 1)
+        }
+    }
+}
+
+fn next_f64_down(value: f64) -> f64 {
+    if value.is_nan() || value == f64::NEG_INFINITY {
+        value
+    } else if value == 0.0 {
+        -f64::from_bits(1)
+    } else {
+        let bits = value.to_bits();
+        if value > 0.0 {
+            f64::from_bits(bits - 1)
+        } else {
+            f64::from_bits(bits + 1)
+        }
+    }
+}
+
 impl OrderedPoint for OrderedF64 {
     fn witness_in(lo: &Bound<OrderedF64>, hi: &Bound<OrderedF64>) -> Option<OrderedF64> {
         // Effective inclusive minimum / maximum, using next-representable floats
@@ -208,13 +238,13 @@ impl OrderedPoint for OrderedF64 {
         let lo_min: Option<f64> = match lo {
             Bound::NegInf => None,
             Bound::Incl(a) => Some(a.0),
-            Bound::Excl(a) => Some(a.0.next_up()),
+            Bound::Excl(a) => Some(next_f64_up(a.0)),
             Bound::PosInf => return None,
         };
         let hi_max: Option<f64> = match hi {
             Bound::PosInf => None,
             Bound::Incl(b) => Some(b.0),
-            Bound::Excl(b) => Some(b.0.next_down()),
+            Bound::Excl(b) => Some(next_f64_down(b.0)),
             Bound::NegInf => return None,
         };
         match (lo_min, hi_max) {
@@ -337,7 +367,9 @@ impl<P: OrderedPoint> OrderedFieldPred<P> {
 
     /// The everywhere-false predicate.
     pub fn bottom() -> Self {
-        OrderedFieldPred { intervals: Vec::new() }
+        OrderedFieldPred {
+            intervals: Vec::new(),
+        }
     }
 
     /// A single closed range `[lo, hi]`.
@@ -576,8 +608,10 @@ mod tests {
     fn discrete_adjacent_intervals_merge() {
         // [1,2] ∪ [3,4] = [1,4] over the integers (2 and 3 are adjacent).
         let alg = OrderedFieldAlgebra::<BigInt>::new();
-        let merged = alg
-            .or(&OrderedFieldPred::closed(bi(1), bi(2)), &OrderedFieldPred::closed(bi(3), bi(4)));
+        let merged = alg.or(
+            &OrderedFieldPred::closed(bi(1), bi(2)),
+            &OrderedFieldPred::closed(bi(3), bi(4)),
+        );
         // Equivalent to [1,4].
         assert_eq!(merged, OrderedFieldPred::closed(bi(1), bi(4)));
         for v in 1..=4 {
@@ -689,7 +723,10 @@ mod tests {
         let lhs = alg.not(&alg.and(&a, &b));
         let rhs = alg.or(&alg.not(&a), &alg.not(&b));
         // semantic equivalence: symmetric difference empty
-        let sym = alg.or(&alg.and(&lhs, &alg.not(&rhs)), &alg.and(&rhs, &alg.not(&lhs)));
+        let sym = alg.or(
+            &alg.and(&lhs, &alg.not(&rhs)),
+            &alg.and(&rhs, &alg.not(&lhs)),
+        );
         assert!(!alg.is_satisfiable(&sym));
     }
 }

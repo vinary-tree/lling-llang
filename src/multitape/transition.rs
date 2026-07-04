@@ -3,7 +3,7 @@
 use std::fmt::{self, Debug};
 use std::hash::Hash;
 
-use super::MultiTapeLabel;
+use super::label::MultiTapeLabel;
 use crate::semiring::Semiring;
 use crate::wfst::StateId;
 

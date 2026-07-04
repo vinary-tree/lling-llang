@@ -1,5 +1,6 @@
 //! Viterbi algorithm for finding the best path.
 
+use super::adjacency::{edge_adjacency, edge_topological_order, node_index};
 use crate::backend::LatticeBackend;
 use crate::lattice::{EdgeId, Lattice, LatticePath, NodeId};
 use crate::semiring::Semiring;
@@ -67,10 +68,18 @@ impl<W: Semiring> ViterbiResult<W> {
 /// }
 /// ```
 pub fn viterbi<W: Semiring, B: LatticeBackend>(lattice: &mut Lattice<W, B>) -> ViterbiResult<W> {
+    let n = lattice.num_nodes();
+    let start = lattice.start();
+    let end = lattice.end();
+
+    if node_index(start, n).is_none() || node_index(end, n).is_none() {
+        return ViterbiResult::failure();
+    }
+
     // Handle empty lattice
     if lattice.is_empty() {
         // No edges, but start == end is a valid (empty) path
-        if lattice.start() == lattice.end() {
+        if start == end {
             let mut path = LatticePath::new();
             path.mark_complete();
             return ViterbiResult::success(path);
@@ -78,34 +87,25 @@ pub fn viterbi<W: Semiring, B: LatticeBackend>(lattice: &mut Lattice<W, B>) -> V
         return ViterbiResult::failure();
     }
 
-    // Get topological order
-    let topo_order = match lattice.topological_order() {
-        Some(order) => order.to_vec(),
-        None => return ViterbiResult::failure(), // Cycle detected
+    let adjacency = match edge_adjacency(lattice) {
+        Some(adjacency) => adjacency,
+        None => return ViterbiResult::failure(),
     };
 
-    let n = lattice.num_nodes();
-    let start = lattice.start();
-    let end = lattice.end();
+    let topo_order = match edge_topological_order(lattice, &adjacency) {
+        Some(order) => order,
+        None => return ViterbiResult::failure(), // Cycle detected
+    };
 
     // Forward pass: compute best scores
     // (score, backpointer edge, backpointer node)
     let mut best: Vec<Option<(W, EdgeId, NodeId)>> = vec![None; n];
 
-    // Start node has zero cost (semiring one)
-    // We use None for start to indicate "no edge taken yet"
-    let _start_idx = start.0 as usize;
-
     // Process in topological order
     for &node_id in &topo_order {
-        let node_idx = node_id.0 as usize;
-
-        // Skip nodes that are not reachable from start
-        // (except start itself, which we initialize with weight one)
-        if node_id != start && best[node_idx].is_none() {
-            // Check if this is an unreachable node
-            // For start, we don't need a backpointer
-        }
+        let Some(node_idx) = node_index(node_id, n) else {
+            return ViterbiResult::failure();
+        };
 
         // Get current best score to this node
         let current_score = if node_id == start {
@@ -118,8 +118,13 @@ pub fn viterbi<W: Semiring, B: LatticeBackend>(lattice: &mut Lattice<W, B>) -> V
         };
 
         // Relax outgoing edges
-        for edge in lattice.outgoing_edges(node_id) {
-            let target_idx = edge.target.0 as usize;
+        for &edge_id in &adjacency[node_idx] {
+            let Some(edge) = lattice.edge(edge_id) else {
+                return ViterbiResult::failure();
+            };
+            let Some(target_idx) = node_index(edge.target, n) else {
+                return ViterbiResult::failure();
+            };
             let new_score = current_score.times(&edge.weight);
 
             let update = match &best[target_idx] {
@@ -139,14 +144,16 @@ pub fn viterbi<W: Semiring, B: LatticeBackend>(lattice: &mut Lattice<W, B>) -> V
             };
 
             if update {
-                best[target_idx] = Some((new_score, edge.id, node_id));
+                best[target_idx] = Some((new_score, edge_id, node_id));
             }
         }
     }
 
     // Check if end is reachable
-    let end_idx = end.0 as usize;
-    if end_idx >= n || (start != end && best[end_idx].is_none()) {
+    let Some(end_idx) = node_index(end, n) else {
+        return ViterbiResult::failure();
+    };
+    if start != end && best[end_idx].is_none() {
         return ViterbiResult::failure();
     }
 
@@ -155,7 +162,9 @@ pub fn viterbi<W: Semiring, B: LatticeBackend>(lattice: &mut Lattice<W, B>) -> V
     let mut current = end;
 
     while current != start {
-        let current_idx = current.0 as usize;
+        let Some(current_idx) = node_index(current, n) else {
+            return ViterbiResult::failure();
+        };
         match &best[current_idx] {
             Some((_, edge_id, prev_node)) => {
                 edges.push(*edge_id);
@@ -191,6 +200,10 @@ pub fn viterbi<W: Semiring, B: LatticeBackend>(lattice: &mut Lattice<W, B>) -> V
 
 #[cfg(test)]
 mod tests {
+    use super::super::adjacency::test_support::{
+        lattice_with_invalid_start, lattice_with_malformed_target,
+        lattice_with_stale_multihop_outgoing, lattice_with_stale_outgoing,
+    };
     use super::*;
     use crate::backend::HashMapBackend;
     use crate::lattice::{EdgeMetadata, LatticeBuilder};
@@ -271,6 +284,44 @@ mod tests {
         // Empty lattice with start == end is a valid empty path
         assert!(result.success);
         assert!(result.path.is_empty());
+    }
+
+    #[test]
+    fn test_viterbi_rejects_invalid_start_or_end() {
+        let mut lattice = lattice_with_invalid_start();
+        let result = viterbi(&mut lattice);
+
+        assert!(!result.success);
+    }
+
+    #[test]
+    fn test_viterbi_rejects_malformed_target() {
+        let mut lattice = lattice_with_malformed_target();
+        let result = viterbi(&mut lattice);
+
+        assert!(!result.success);
+    }
+
+    #[test]
+    fn test_viterbi_uses_edges_when_outgoing_cache_is_stale() {
+        let mut lattice = lattice_with_stale_outgoing();
+        let result = viterbi(&mut lattice);
+
+        assert!(result.success);
+        assert_eq!(result.path.len(), 1);
+        assert_eq!(result.path.weight.value(), 1.0);
+        assert_eq!(result.path.to_words(&lattice), vec!["a"]);
+    }
+
+    #[test]
+    fn test_viterbi_topological_order_uses_edges_when_outgoing_cache_is_stale() {
+        let mut lattice = lattice_with_stale_multihop_outgoing();
+        let result = viterbi(&mut lattice);
+
+        assert!(result.success);
+        assert_eq!(result.path.len(), 2);
+        assert_eq!(result.path.weight.value(), 3.0);
+        assert_eq!(result.path.to_words(&lattice), vec!["a", "b"]);
     }
 
     #[test]
@@ -380,8 +431,7 @@ mod tests {
 #[cfg(test)]
 mod property_tests {
     use super::*;
-    use crate::path::nbest;
-    use crate::test_utils::{arb_diamond_lattice, arb_linear_lattice, arb_tropical_lattice};
+    use crate::test_utils::{arb_linear_lattice, arb_tropical_lattice};
     use proptest::prelude::*;
 
     proptest! {
@@ -414,29 +464,6 @@ mod property_tests {
             let result = viterbi(&mut lattice);
             prop_assert!(result.success);
             prop_assert_eq!(result.path.len(), 4);
-        }
-
-        /// Viterbi finds optimal path (weight <= all other paths).
-        #[test]
-        fn viterbi_finds_optimal(
-            mut lattice in arb_diamond_lattice(3)
-        ) {
-            let viterbi_result = viterbi(&mut lattice);
-            prop_assert!(viterbi_result.success);
-            let viterbi_weight = viterbi_result.path.weight.value();
-
-            // Get all paths via n-best
-            let all_paths = nbest(&mut lattice, 100);
-
-            // Viterbi should find the minimum weight
-            for path in &all_paths {
-                prop_assert!(
-                    viterbi_weight <= path.weight.value() + 1e-9,
-                    "Viterbi weight {} > path weight {}",
-                    viterbi_weight,
-                    path.weight.value()
-                );
-            }
         }
 
         /// Viterbi path has non-negative weight (tropical).

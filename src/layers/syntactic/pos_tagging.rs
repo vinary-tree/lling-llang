@@ -13,7 +13,7 @@ use crate::backend::LatticeBackend;
 use crate::lattice::{Lattice, LatticeBuilder, LatticePathExt};
 use crate::semiring::Semiring;
 
-use crate::layers::traits::{CorrectionLayer, LayerError, LayerResult};
+use super::super::traits::{CorrectionLayer, LayerError, LayerResult};
 
 /// Part-of-speech tag.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -211,9 +211,9 @@ mod tests {
     use crate::backend::HashMapBackend;
     use crate::semiring::TropicalWeight;
 
-    struct MockPosModel;
+    struct FixturePosModel;
 
-    impl PosModel for MockPosModel {
+    impl PosModel for FixturePosModel {
         fn tag(&self, tokens: &[&str]) -> Vec<PosTag> {
             tokens.iter().map(|_| PosTag::new("NOUN")).collect()
         }
@@ -226,15 +226,15 @@ mod tests {
     }
 
     #[test]
-    fn test_mock_model() {
-        let model = MockPosModel;
+    fn test_fixture_model() {
+        let model = FixturePosModel;
         let tags = model.tag(&["the", "dog", "runs"]);
         assert_eq!(tags.len(), 3);
     }
 
     #[test]
     fn test_layer_name() {
-        let layer = PosTaggingLayer::new(Box::new(MockPosModel));
+        let layer = PosTaggingLayer::new(Box::new(FixturePosModel));
         // Use explicit trait method call with concrete types
         let name =
             <PosTaggingLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::name(&layer);
@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn test_layer_builder() {
-        let layer = PosTaggingLayer::new(Box::new(MockPosModel))
+        let layer = PosTaggingLayer::new(Box::new(FixturePosModel))
             .with_required_pattern(&["DET", "NOUN", "VERB"])
             .with_forbidden_sequence(&["NOUN", "NOUN", "NOUN"]);
 
@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn test_estimated_reduction() {
-        let layer = PosTaggingLayer::new(Box::new(MockPosModel));
+        let layer = PosTaggingLayer::new(Box::new(FixturePosModel));
         let reduction = <PosTaggingLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::estimated_reduction(&layer);
         assert!((reduction - 0.5).abs() < 0.001);
     }

@@ -2,7 +2,7 @@
 
 use std::hash::Hash;
 
-use super::StateId;
+use super::types::StateId;
 use crate::semiring::Semiring;
 
 /// A child element in a tree rule's right-hand side.

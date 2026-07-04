@@ -10,10 +10,10 @@ use crate::cfg::EarleyParser;
 use crate::lattice::{Lattice, LatticeBuilder};
 use crate::semiring::Semiring;
 
+use super::super::traits::{CorrectionLayer, LayerError, LayerResult};
 use super::grammar::LatexGrammar;
 use super::repair::{CompositeRepairStrategy, RepairStrategy, RepairSuggestion};
 use super::validator::{LatexValidator, ValidationResult};
-use crate::layers::traits::{CorrectionLayer, LayerError, LayerResult};
 
 /// Configuration for the LaTeX syntax layer.
 #[derive(Clone)]
@@ -211,10 +211,6 @@ impl LatexSyntaxLayer {
     }
 }
 
-// Implement Send + Sync for thread safety
-unsafe impl Send for LatexSyntaxLayer {}
-unsafe impl Sync for LatexSyntaxLayer {}
-
 impl<W: Semiring, B: LatticeBackend> CorrectionLayer<W, B> for LatexSyntaxLayer {
     fn name(&self) -> &str {
         "latex-syntax"
@@ -279,9 +275,7 @@ impl<W: Semiring, B: LatticeBackend> CorrectionLayer<W, B> for LatexSyntaxLayer 
 
         // Phase 2: Structural validation (optional)
         if self.config.validate_structure {
-            // Extract token sequence from best path for validation
-            // This is a simplified approach - a more sophisticated implementation
-            // would validate all paths or representative paths
+            // Validate the token projection exposed by the filtered lattice.
             let tokens: Vec<String> = filtered_lattice
                 .edges()
                 .iter()

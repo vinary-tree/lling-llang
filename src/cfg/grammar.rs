@@ -93,6 +93,20 @@ pub enum GrammarError {
     EmptyGrammar,
     /// Duplicate rule ID.
     DuplicateRuleId(RuleId),
+    /// Rule IDs must be contiguous from zero so they can index productions.
+    InvalidRuleId {
+        /// Rule ID required at this production index.
+        expected: RuleId,
+        /// Rule ID found in the production list.
+        found: RuleId,
+    },
+    /// More productions were provided than can be addressed by [`RuleId`].
+    TooManyProductions {
+        /// Number of productions provided.
+        count: usize,
+        /// Largest representable rule ID.
+        max_rule_id: u32,
+    },
 }
 
 impl fmt::Display for GrammarError {
@@ -102,6 +116,14 @@ impl fmt::Display for GrammarError {
             GrammarError::UndefinedNonTerminal(nt) => write!(f, "undefined non-terminal: {}", nt),
             GrammarError::EmptyGrammar => write!(f, "empty grammar (no productions)"),
             GrammarError::DuplicateRuleId(id) => write!(f, "duplicate rule ID: {}", id),
+            GrammarError::InvalidRuleId { expected, found } => {
+                write!(f, "invalid rule ID: expected {}, found {}", expected, found)
+            }
+            GrammarError::TooManyProductions { count, max_rule_id } => write!(
+                f,
+                "too many productions: {} exceeds maximum rule ID {}",
+                count, max_rule_id
+            ),
         }
     }
 }
@@ -133,11 +155,31 @@ impl Grammar {
     /// Create a new grammar.
     pub fn new(
         start: NonTerminal,
-        productions: Vec<Production>,
+        mut productions: Vec<Production>,
         num_non_terminals: usize,
     ) -> Result<Self, GrammarError> {
         if productions.is_empty() {
             return Err(GrammarError::EmptyGrammar);
+        }
+
+        if start.index() as usize >= num_non_terminals {
+            return Err(GrammarError::UndefinedNonTerminal(start));
+        }
+
+        productions.sort_by_key(|prod| prod.id);
+        for pair in productions.windows(2) {
+            if pair[0].id == pair[1].id {
+                return Err(GrammarError::DuplicateRuleId(pair[0].id));
+            }
+        }
+        for (idx, prod) in productions.iter().enumerate() {
+            let expected = Self::rule_id_for_index(idx, productions.len())?;
+            if prod.id != expected {
+                return Err(GrammarError::InvalidRuleId {
+                    expected,
+                    found: prod.id,
+                });
+            }
         }
 
         // Build by_lhs index
@@ -147,6 +189,13 @@ impl Grammar {
             let nt_idx = prod.lhs.index() as usize;
             if nt_idx >= num_non_terminals {
                 return Err(GrammarError::UndefinedNonTerminal(prod.lhs));
+            }
+            for sym in &prod.rhs {
+                if let Symbol::NonTerminal(nt) = sym {
+                    if nt.index() as usize >= num_non_terminals {
+                        return Err(GrammarError::UndefinedNonTerminal(*nt));
+                    }
+                }
             }
             by_lhs[nt_idx].push(prod.id);
         }
@@ -160,6 +209,14 @@ impl Grammar {
             vocab_names: FxHashMap::default(),
             num_non_terminals,
         })
+    }
+
+    fn rule_id_for_index(index: usize, production_count: usize) -> Result<RuleId, GrammarError> {
+        let id = u32::try_from(index).map_err(|_| GrammarError::TooManyProductions {
+            count: production_count,
+            max_rule_id: u32::MAX,
+        })?;
+        Ok(RuleId::new(id))
     }
 
     /// Get the start symbol.
@@ -277,10 +334,15 @@ impl Grammar {
                         Symbol::NonTerminal(nt) => {
                             let nt_idx = nt.index() as usize;
                             // Add FIRST(nt) to FIRST(lhs)
-                            for (&t, _) in &first[nt_idx].clone() {
-                                if !first[lhs_idx].contains_key(&t) {
+                            let additions: SmallVec<[Terminal; 8]> = first[nt_idx]
+                                .keys()
+                                .copied()
+                                .filter(|t| !first[lhs_idx].contains_key(t))
+                                .collect();
+                            if !additions.is_empty() {
+                                changed = true;
+                                for t in additions {
                                     first[lhs_idx].insert(t, true);
-                                    changed = true;
                                 }
                             }
                             // If nt is not nullable, stop
@@ -395,6 +457,126 @@ mod tests {
     fn test_empty_grammar_error() {
         let result = Grammar::new(NonTerminal::new(0), vec![], 1);
         assert!(matches!(result, Err(GrammarError::EmptyGrammar)));
+    }
+
+    #[test]
+    fn test_start_symbol_must_be_defined() {
+        let productions = vec![Production::new(
+            RuleId::new(0),
+            NonTerminal::new(0),
+            smallvec::smallvec![Symbol::terminal(0)],
+        )];
+
+        let result = Grammar::new(NonTerminal::new(1), productions, 1);
+
+        assert!(matches!(
+            result,
+            Err(GrammarError::UndefinedNonTerminal(NonTerminal(1)))
+        ));
+    }
+
+    #[test]
+    fn test_rhs_non_terminal_must_be_defined() {
+        let productions = vec![Production::new(
+            RuleId::new(0),
+            NonTerminal::new(0),
+            smallvec::smallvec![Symbol::non_terminal(1)],
+        )];
+
+        let result = Grammar::new(NonTerminal::new(0), productions, 1);
+
+        assert!(matches!(
+            result,
+            Err(GrammarError::UndefinedNonTerminal(NonTerminal(1)))
+        ));
+    }
+
+    #[test]
+    fn test_duplicate_rule_id_error() {
+        let productions = vec![
+            Production::new(
+                RuleId::new(0),
+                NonTerminal::new(0),
+                smallvec::smallvec![Symbol::terminal(0)],
+            ),
+            Production::new(
+                RuleId::new(0),
+                NonTerminal::new(0),
+                smallvec::smallvec![Symbol::terminal(1)],
+            ),
+        ];
+
+        let result = Grammar::new(NonTerminal::new(0), productions, 1);
+
+        assert!(matches!(
+            result,
+            Err(GrammarError::DuplicateRuleId(RuleId(0)))
+        ));
+    }
+
+    #[test]
+    fn test_rule_ids_must_be_contiguous() {
+        let productions = vec![Production::new(
+            RuleId::new(1),
+            NonTerminal::new(0),
+            smallvec::smallvec![Symbol::terminal(0)],
+        )];
+
+        let result = Grammar::new(NonTerminal::new(0), productions, 1);
+
+        assert!(matches!(
+            result,
+            Err(GrammarError::InvalidRuleId {
+                expected: RuleId(0),
+                found: RuleId(1)
+            })
+        ));
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn test_rule_index_overflow_error() {
+        let result = Grammar::rule_id_for_index(u32::MAX as usize + 1, u32::MAX as usize + 2);
+
+        assert!(matches!(
+            result,
+            Err(GrammarError::TooManyProductions {
+                count,
+                max_rule_id: u32::MAX
+            }) if count == u32::MAX as usize + 2
+        ));
+    }
+
+    #[test]
+    fn test_productions_are_indexed_by_rule_id() {
+        let productions = vec![
+            Production::new(
+                RuleId::new(1),
+                NonTerminal::new(1),
+                smallvec::smallvec![Symbol::terminal(1)],
+            ),
+            Production::new(
+                RuleId::new(0),
+                NonTerminal::new(0),
+                smallvec::smallvec![Symbol::non_terminal(1)],
+            ),
+        ];
+
+        let grammar = Grammar::new(NonTerminal::new(0), productions, 2).expect("valid grammar");
+
+        assert_eq!(
+            grammar.production(RuleId::new(0)).map(|p| p.lhs),
+            Some(NonTerminal(0))
+        );
+        assert_eq!(
+            grammar.production(RuleId::new(1)).map(|p| p.lhs),
+            Some(NonTerminal(1))
+        );
+        let lhs_rules: Vec<_> = grammar
+            .productions_for(NonTerminal::new(1))
+            .map(|prod| prod.id)
+            .collect();
+        assert_eq!(lhs_rules, vec![RuleId::new(1)]);
     }
 
     #[test]

@@ -34,7 +34,7 @@
 //! - Hannun et al., "Differentiable Weighted Finite-State Transducers" (ICML 2020, arXiv:2010.01003)
 //! - Katz, "Estimation of probabilities from sparse data" (1987)
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::semiring::{LogWeight, Semiring};
 use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst};
@@ -148,6 +148,122 @@ impl NgramCounts {
     }
 }
 
+fn vocab_tokens(vocab_size: usize) -> impl Iterator<Item = TokenId> {
+    (0..vocab_size).map_while(|token| TokenId::try_from(token).ok())
+}
+
+fn token_in_vocab(token: TokenId, vocab_size: usize) -> bool {
+    (token as usize) < vocab_size
+}
+
+fn sorted_kept_bigrams(
+    counts: &NgramCounts,
+    vocab_size: usize,
+    min_count: usize,
+) -> Vec<(TokenId, TokenId, usize)> {
+    let mut bigrams: Vec<_> = counts
+        .bigrams
+        .iter()
+        .filter_map(|(&(prev, curr), &count)| {
+            (count >= min_count
+                && token_in_vocab(prev, vocab_size)
+                && token_in_vocab(curr, vocab_size))
+            .then_some((prev, curr, count))
+        })
+        .collect();
+    bigrams.sort_unstable();
+    bigrams
+}
+
+fn sorted_bigram_arc_candidates(
+    counts: &NgramCounts,
+    vocab_size: usize,
+    min_count: usize,
+) -> Vec<(TokenId, TokenId, usize)> {
+    if min_count > 0 {
+        return sorted_kept_bigrams(counts, vocab_size, min_count);
+    }
+
+    let tokens: Vec<_> = vocab_tokens(vocab_size).collect();
+    let mut bigrams = Vec::with_capacity(tokens.len().saturating_mul(tokens.len()));
+    for &prev in &tokens {
+        for &curr in &tokens {
+            bigrams.push((prev, curr, counts.bigram_count(prev, curr)));
+        }
+    }
+    bigrams
+}
+
+fn sorted_observed_trigrams(
+    counts: &NgramCounts,
+    vocab_size: usize,
+    min_count: usize,
+) -> Vec<(TokenId, TokenId, TokenId, usize)> {
+    let mut trigrams: Vec<_> = counts
+        .trigrams
+        .iter()
+        .filter_map(|(&(prev1, prev2, curr), &count)| {
+            (count >= min_count
+                && token_in_vocab(prev1, vocab_size)
+                && token_in_vocab(prev2, vocab_size)
+                && token_in_vocab(curr, vocab_size))
+            .then_some((prev1, prev2, curr, count))
+        })
+        .collect();
+    trigrams.sort_unstable();
+    trigrams
+}
+
+fn sorted_trigram_arc_candidates(
+    counts: &NgramCounts,
+    vocab_size: usize,
+    min_count: usize,
+    kept_bigrams: &[(TokenId, TokenId, usize)],
+) -> Vec<(TokenId, TokenId, TokenId, usize)> {
+    if min_count > 0 {
+        return sorted_observed_trigrams(counts, vocab_size, min_count);
+    }
+
+    let mut currs_by_prev: HashMap<TokenId, Vec<TokenId>> = HashMap::new();
+    for &(prev, curr, _) in kept_bigrams {
+        currs_by_prev.entry(prev).or_default().push(curr);
+    }
+
+    let mut trigrams = Vec::new();
+    for &(prev1, prev2, _) in kept_bigrams {
+        let Some(currs) = currs_by_prev.get(&prev2) else {
+            continue;
+        };
+        for &curr in currs {
+            trigrams.push((prev1, prev2, curr, counts.trigram_count(prev1, prev2, curr)));
+        }
+    }
+    trigrams.sort_unstable();
+    trigrams
+}
+
+fn direct_count_by_prev(bigrams: &[(TokenId, TokenId, usize)]) -> HashMap<TokenId, usize> {
+    let mut counts = HashMap::new();
+    for &(prev, _, _) in bigrams {
+        *counts.entry(prev).or_insert(0) += 1;
+    }
+    counts
+}
+
+fn direct_count_by_history(
+    trigrams: &[(TokenId, TokenId, TokenId, usize)],
+    bigram_states: &HashMap<(TokenId, TokenId), StateId>,
+) -> HashMap<(TokenId, TokenId), usize> {
+    let mut counts = HashMap::new();
+    for &(prev1, prev2, curr, _) in trigrams {
+        if bigram_states.contains_key(&(prev1, prev2)) && bigram_states.contains_key(&(prev2, curr))
+        {
+            *counts.entry((prev1, prev2)).or_insert(0) += 1;
+        }
+    }
+    counts
+}
+
 /// Build a pruned bigram transition graph.
 ///
 /// # Arguments
@@ -164,32 +280,40 @@ pub fn build_pruned_bigram_graph(
     counts: &NgramCounts,
     config: &PrunedNgramConfig,
 ) -> VectorWfst<TokenId, LogWeight> {
-    let mut fst = VectorWfst::new();
+    let tokens: Vec<_> = vocab_tokens(vocab_size).collect();
+    let bigram_arcs = sorted_bigram_arc_candidates(counts, vocab_size, config.min_count);
+    let direct_counts = direct_count_by_prev(&bigram_arcs);
+    let mut fst = VectorWfst::with_capacity(1 + tokens.len() + usize::from(config.use_backoff));
 
     // Create start state
     let start = fst.add_state();
     fst.set_start(start);
     fst.set_final(start, LogWeight::one());
+    fst.reserve_transitions(start, tokens.len());
 
     // Create state for each token (represents context)
-    let mut token_states: HashMap<TokenId, StateId> = HashMap::new();
-    for token in 0..vocab_size as TokenId {
+    let mut token_states: HashMap<TokenId, StateId> = HashMap::with_capacity(tokens.len());
+    for &token in &tokens {
         let state = fst.add_state();
         token_states.insert(token, state);
         fst.set_final(state, LogWeight::one());
+        let outgoing =
+            direct_counts.get(&token).copied().unwrap_or(0) + usize::from(config.use_backoff);
+        fst.reserve_transitions(state, outgoing);
     }
 
     // Back-off state (if using back-off)
     let backoff_state = if config.use_backoff {
         let state = fst.add_state();
         fst.set_final(state, LogWeight::one());
+        fst.reserve_transitions(state, tokens.len());
         Some(state)
     } else {
         None
     };
 
     // Add transitions from start to each token
-    for token in 0..vocab_size as TokenId {
+    for &token in &tokens {
         let log_prob = if counts.total > 0 {
             let prob = counts.unigram_prob(token).max(1e-10);
             -prob.ln()
@@ -207,52 +331,43 @@ pub fn build_pruned_bigram_graph(
         );
     }
 
-    // Add bigram transitions
-    for prev in 0..vocab_size as TokenId {
+    // Add direct transitions for observed bigrams above threshold.
+    for &(prev, curr, _) in &bigram_arcs {
         let from_state = token_states[&prev];
-        let mut seen_tokens = HashSet::new();
+        let to_state = token_states[&curr];
+        let log_prob = if config.smoothing {
+            compute_smoothed_log_prob(counts, prev, curr, config)
+        } else {
+            let prob = counts.bigram_prob(prev, curr).max(1e-10);
+            -prob.ln()
+        };
 
-        // Add direct transitions for observed bigrams above threshold
-        for curr in 0..vocab_size as TokenId {
-            let count = counts.bigram_count(prev, curr);
-            if count >= config.min_count {
-                let log_prob = if config.smoothing {
-                    compute_smoothed_prob(counts, prev, curr, config)
-                } else {
-                    let prob = counts.bigram_prob(prev, curr).max(1e-10);
-                    -prob.ln()
-                };
+        fst.add_arc(
+            from_state,
+            Some(curr),
+            Some(curr),
+            to_state,
+            LogWeight::new(log_prob),
+        );
+    }
 
-                let to_state = token_states[&curr];
-                fst.add_arc(
-                    from_state,
-                    Some(curr),
-                    Some(curr),
-                    to_state,
-                    LogWeight::new(log_prob),
-                );
-                seen_tokens.insert(curr);
-            }
-        }
-
-        // Add back-off transitions for unseen bigrams
-        if config.use_backoff {
-            if let Some(backoff) = backoff_state {
-                // ε-transition to back-off state with back-off weight
-                fst.add_arc(
-                    from_state,
-                    None,
-                    None,
-                    backoff,
-                    LogWeight::new(config.backoff_weight),
-                );
-            }
+    // Add back-off transitions after direct arcs to preserve per-state arc order.
+    if let Some(backoff) = backoff_state {
+        for &prev in &tokens {
+            let from_state = token_states[&prev];
+            fst.add_arc(
+                from_state,
+                None,
+                None,
+                backoff,
+                LogWeight::new(config.backoff_weight),
+            );
         }
     }
 
     // From back-off state, allow all tokens with unigram probabilities
     if let Some(backoff) = backoff_state {
-        for token in 0..vocab_size as TokenId {
+        for &token in &tokens {
             let log_prob = if counts.total > 0 {
                 let prob = counts.unigram_prob(token).max(1e-10);
                 -prob.ln()
@@ -274,8 +389,8 @@ pub fn build_pruned_bigram_graph(
     fst
 }
 
-/// Compute smoothed probability using simple discounting.
-fn compute_smoothed_prob(
+/// Compute smoothed log probability using simple discounting.
+fn compute_smoothed_log_prob(
     counts: &NgramCounts,
     prev: TokenId,
     curr: TokenId,
@@ -305,42 +420,60 @@ pub fn build_pruned_trigram_graph(
     counts: &NgramCounts,
     config: &PrunedNgramConfig,
 ) -> VectorWfst<TokenId, LogWeight> {
-    let mut fst = VectorWfst::new();
+    let tokens: Vec<_> = vocab_tokens(vocab_size).collect();
+    let kept_bigrams = sorted_kept_bigrams(counts, vocab_size, config.min_count);
+    let trigram_arcs =
+        sorted_trigram_arc_candidates(counts, vocab_size, config.min_count, &kept_bigrams);
+    let direct_bigram_counts = direct_count_by_prev(&kept_bigrams);
+    let mut fst = VectorWfst::with_capacity(
+        1 + tokens.len() + kept_bigrams.len() + usize::from(config.use_backoff),
+    );
 
     // Create start state
     let start = fst.add_state();
     fst.set_start(start);
     fst.set_final(start, LogWeight::one());
+    fst.reserve_transitions(start, tokens.len());
 
     // State for single-token history (used after start)
-    let mut unigram_states: HashMap<TokenId, StateId> = HashMap::new();
-    for token in 0..vocab_size as TokenId {
+    let mut unigram_states: HashMap<TokenId, StateId> = HashMap::with_capacity(tokens.len());
+    for &token in &tokens {
         let state = fst.add_state();
         unigram_states.insert(token, state);
         fst.set_final(state, LogWeight::one());
+        let outgoing = direct_bigram_counts.get(&token).copied().unwrap_or(0)
+            + usize::from(config.use_backoff);
+        fst.reserve_transitions(state, outgoing);
     }
 
     // States for bigram history
-    let mut bigram_states: HashMap<(TokenId, TokenId), StateId> = HashMap::new();
-    for &(prev, curr) in counts.bigrams.keys() {
-        if counts.bigram_count(prev, curr) >= config.min_count {
-            let state = fst.add_state();
-            bigram_states.insert((prev, curr), state);
-            fst.set_final(state, LogWeight::one());
-        }
+    let mut bigram_states: HashMap<(TokenId, TokenId), StateId> =
+        HashMap::with_capacity(kept_bigrams.len());
+    for &(prev, curr, _) in &kept_bigrams {
+        let state = fst.add_state();
+        bigram_states.insert((prev, curr), state);
+        fst.set_final(state, LogWeight::one());
+    }
+
+    let direct_trigram_counts = direct_count_by_history(&trigram_arcs, &bigram_states);
+    for (&history, &state) in &bigram_states {
+        let outgoing = direct_trigram_counts.get(&history).copied().unwrap_or(0)
+            + usize::from(config.use_backoff);
+        fst.reserve_transitions(state, outgoing);
     }
 
     // Back-off state for bigram level
     let bigram_backoff = if config.use_backoff {
         let state = fst.add_state();
         fst.set_final(state, LogWeight::one());
+        fst.reserve_transitions(state, tokens.len());
         Some(state)
     } else {
         None
     };
 
     // Transitions from start -> unigram states
-    for token in 0..vocab_size as TokenId {
+    for &token in &tokens {
         let log_prob = if counts.total > 0 {
             let prob = counts.unigram_prob(token).max(1e-10);
             -prob.ln()
@@ -358,27 +491,23 @@ pub fn build_pruned_trigram_graph(
     }
 
     // Transitions from unigram -> bigram states
-    for prev in 0..vocab_size as TokenId {
+    for &(prev, curr, _) in &kept_bigrams {
         let from_state = unigram_states[&prev];
+        let to_state = bigram_states[&(prev, curr)];
+        let prob = counts.bigram_prob(prev, curr).max(1e-10);
+        fst.add_arc(
+            from_state,
+            Some(curr),
+            Some(curr),
+            to_state,
+            LogWeight::new(-prob.ln()),
+        );
+    }
 
-        for curr in 0..vocab_size as TokenId {
-            let count = counts.bigram_count(prev, curr);
-            if count >= config.min_count {
-                if let Some(&to_state) = bigram_states.get(&(prev, curr)) {
-                    let prob = counts.bigram_prob(prev, curr).max(1e-10);
-                    fst.add_arc(
-                        from_state,
-                        Some(curr),
-                        Some(curr),
-                        to_state,
-                        LogWeight::new(-prob.ln()),
-                    );
-                }
-            }
-        }
-
-        // Back-off to bigram_backoff
-        if let Some(backoff) = bigram_backoff {
+    // Back-off from unigram states after direct arcs to preserve ordering.
+    if let Some(backoff) = bigram_backoff {
+        for &prev in &tokens {
+            let from_state = unigram_states[&prev];
             fst.add_arc(
                 from_state,
                 None,
@@ -391,7 +520,7 @@ pub fn build_pruned_trigram_graph(
 
     // From bigram_backoff, allow all tokens with unigram probabilities
     if let Some(backoff) = bigram_backoff {
-        for token in 0..vocab_size as TokenId {
+        for &token in &tokens {
             let prob = counts.unigram_prob(token).max(1e-10);
             // Go to unigram state after back-off
             let to_state = unigram_states[&token];
@@ -406,31 +535,32 @@ pub fn build_pruned_trigram_graph(
     }
 
     // Transitions from bigram -> bigram states (trigrams)
-    for (&(prev1, prev2), &from_state) in &bigram_states {
-        for curr in 0..vocab_size as TokenId {
-            let count = counts.trigram_count(prev1, prev2, curr);
-            if count >= config.min_count {
-                // Trigram observed: direct transition
-                if let Some(&to_state) = bigram_states.get(&(prev2, curr)) {
-                    let denom = counts.bigram_count(prev1, prev2) as f64;
-                    let prob = if denom > 0.0 {
-                        (count as f64 / denom).max(1e-10)
-                    } else {
-                        1e-10
-                    };
-                    fst.add_arc(
-                        from_state,
-                        Some(curr),
-                        Some(curr),
-                        to_state,
-                        LogWeight::new(-prob.ln()),
-                    );
-                }
-            }
-        }
+    for &(prev1, prev2, curr, count) in &trigram_arcs {
+        let Some(&from_state) = bigram_states.get(&(prev1, prev2)) else {
+            continue;
+        };
+        let Some(&to_state) = bigram_states.get(&(prev2, curr)) else {
+            continue;
+        };
+        let denom = counts.bigram_count(prev1, prev2) as f64;
+        let prob = if denom > 0.0 {
+            (count as f64 / denom).max(1e-10)
+        } else {
+            1e-10
+        };
+        fst.add_arc(
+            from_state,
+            Some(curr),
+            Some(curr),
+            to_state,
+            LogWeight::new(-prob.ln()),
+        );
+    }
 
-        // Back-off from bigram state
-        if let Some(backoff) = bigram_backoff {
+    // Back-off from bigram states after direct trigram arcs.
+    if let Some(backoff) = bigram_backoff {
+        for &(prev, curr, _) in &kept_bigrams {
+            let from_state = bigram_states[&(prev, curr)];
             fst.add_arc(
                 from_state,
                 None,
@@ -497,6 +627,21 @@ impl PrunedNgramStats {
 mod tests {
     use super::*;
     use crate::wfst::NO_STATE;
+
+    fn state_reached_from_start(fst: &VectorWfst<TokenId, LogWeight>, token: TokenId) -> StateId {
+        fst.transitions(fst.start())
+            .iter()
+            .find(|transition| transition.input == Some(token))
+            .map(|transition| transition.to)
+            .expect("token should be reachable from start")
+    }
+
+    fn labeled_transition_count(fst: &VectorWfst<TokenId, LogWeight>, state: StateId) -> usize {
+        fst.transitions(state)
+            .iter()
+            .filter(|transition| transition.input.is_some())
+            .count()
+    }
 
     #[test]
     fn test_pruned_ngram_config_default() {
@@ -625,6 +770,84 @@ mod tests {
         let fst = build_pruned_bigram_graph(3, &counts, &config);
 
         assert!(fst.num_states() > 0);
+    }
+
+    #[test]
+    fn test_sparse_bigram_builder_uses_observed_entries() {
+        let mut counts = NgramCounts::new();
+        counts.add_sequence(&[9000, 42, 9000, 42, 9000, 7]);
+
+        let config = PrunedNgramConfig {
+            min_count: 2,
+            use_backoff: false,
+            ..Default::default()
+        };
+        let fst = build_pruned_bigram_graph(10_000, &counts, &config);
+
+        let high_id_state = state_reached_from_start(&fst, 9000);
+        let low_count_state = state_reached_from_start(&fst, 7);
+
+        assert_eq!(labeled_transition_count(&fst, high_id_state), 1);
+        assert_eq!(labeled_transition_count(&fst, low_count_state), 0);
+        assert_eq!(fst.transitions(high_id_state)[0].input, Some(42));
+    }
+
+    #[test]
+    fn test_sparse_trigram_builder_uses_observed_entries() {
+        let mut counts = NgramCounts::new();
+        counts.add_sequence(&[9000, 42, 7, 9000, 42, 7]);
+
+        let config = PrunedNgramConfig {
+            order: 3,
+            min_count: 2,
+            use_backoff: false,
+            ..Default::default()
+        };
+        let fst = build_pruned_trigram_graph(10_000, &counts, &config);
+
+        let unigram_9000 = state_reached_from_start(&fst, 9000);
+        let bigram_9000_42 = fst.transitions(unigram_9000)[0].to;
+
+        assert_eq!(fst.transitions(unigram_9000)[0].input, Some(42));
+        assert_eq!(labeled_transition_count(&fst, bigram_9000_42), 1);
+        assert_eq!(fst.transitions(bigram_9000_42)[0].input, Some(7));
+    }
+
+    #[test]
+    fn test_zero_min_count_bigram_keeps_dense_direct_arcs() {
+        let counts = NgramCounts::new();
+        let config = PrunedNgramConfig {
+            min_count: 0,
+            use_backoff: false,
+            ..Default::default()
+        };
+        let fst = build_pruned_bigram_graph(3, &counts, &config);
+
+        for token in 0..3 {
+            let state = state_reached_from_start(&fst, token);
+            assert_eq!(labeled_transition_count(&fst, state), 3);
+        }
+    }
+
+    #[test]
+    fn test_zero_min_count_trigram_keeps_context_continuations() {
+        let mut counts = NgramCounts::new();
+        counts.add_sequence(&[0, 1, 2, 0, 1]);
+
+        let config = PrunedNgramConfig {
+            order: 3,
+            min_count: 0,
+            use_backoff: false,
+            ..Default::default()
+        };
+        let fst = build_pruned_trigram_graph(3, &counts, &config);
+
+        let unigram_0 = state_reached_from_start(&fst, 0);
+        let bigram_0_1 = fst.transitions(unigram_0)[0].to;
+
+        assert_eq!(fst.transitions(unigram_0)[0].input, Some(1));
+        assert_eq!(labeled_transition_count(&fst, bigram_0_1), 1);
+        assert_eq!(fst.transitions(bigram_0_1)[0].input, Some(2));
     }
 
     #[test]

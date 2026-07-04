@@ -21,7 +21,7 @@
 //! let fst = normalizer.build();
 //! ```
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 
 use crate::semiring::{Semiring, TropicalWeight};
@@ -126,6 +126,37 @@ impl NormalizationConfig {
             normalization_cost: 0.0,
         }
     }
+
+    fn mapping_capacity_hint(&self) -> (usize, usize, usize) {
+        let mut single = 0usize;
+        let mut multi = 0usize;
+        let mut delete = 0usize;
+
+        if self.smart_quotes {
+            single += 14;
+        }
+        if self.normalize_dashes {
+            single += 10;
+        }
+        if self.normalize_ellipsis {
+            multi += 2;
+        }
+        if self.remove_zero_width {
+            delete += 6;
+        }
+        if self.collapse_whitespace {
+            single += 15;
+        }
+        if self.normalize_line_endings {
+            single += 1;
+        }
+        if self.remove_diacritics {
+            single += 61;
+            multi += 4;
+        }
+
+        (single, multi, delete)
+    }
 }
 
 /// Character mapping for normalization.
@@ -136,13 +167,38 @@ pub struct CharacterMapping {
     /// Character-to-string mappings (for expansions like ligatures)
     multi: HashMap<char, String>,
     /// Characters to delete (map to empty)
-    delete: Vec<char>,
+    delete: HashSet<char>,
 }
 
 impl CharacterMapping {
     /// Create a new empty mapping.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Create a new empty mapping with pre-allocated storage.
+    pub fn with_capacity(
+        single_capacity: usize,
+        multi_capacity: usize,
+        delete_capacity: usize,
+    ) -> Self {
+        Self {
+            single: HashMap::with_capacity(single_capacity),
+            multi: HashMap::with_capacity(multi_capacity),
+            delete: HashSet::with_capacity(delete_capacity),
+        }
+    }
+
+    /// Reserve additional mapping capacity.
+    pub fn reserve(
+        &mut self,
+        single_additional: usize,
+        multi_additional: usize,
+        delete_additional: usize,
+    ) {
+        self.single.reserve(single_additional);
+        self.multi.reserve(multi_additional);
+        self.delete.reserve(delete_additional);
     }
 
     /// Add a single character mapping.
@@ -159,7 +215,7 @@ impl CharacterMapping {
 
     /// Add a character to delete.
     pub fn add_deletion(&mut self, c: char) -> &mut Self {
-        self.delete.push(c);
+        self.delete.insert(c);
         self
     }
 
@@ -184,16 +240,20 @@ impl CharacterMapping {
 
     /// Get all source characters.
     pub fn source_chars(&self) -> Vec<char> {
-        let mut chars: Vec<char> = self
-            .single
-            .keys()
-            .copied()
-            .chain(self.multi.keys().copied())
-            .chain(self.delete.iter().copied())
-            .collect();
+        let mut chars = Vec::with_capacity(self.mapping_count());
+        chars.extend(self.single.keys().copied());
+        chars.extend(self.multi.keys().copied());
+        chars.extend(self.delete.iter().copied());
         chars.sort();
         chars.dedup();
         chars
+    }
+
+    fn mapping_count(&self) -> usize {
+        self.single
+            .len()
+            .saturating_add(self.multi.len())
+            .saturating_add(self.delete.len())
     }
 }
 
@@ -293,6 +353,9 @@ impl<W: Semiring> NormalizationTransducer<W> {
     /// Build the complete character mapping based on configuration.
     fn build_mapping(&self) -> CharacterMapping {
         let mut mapping = self.custom_mappings.clone();
+        let (single_capacity, multi_capacity, delete_capacity) =
+            self.config.mapping_capacity_hint();
+        mapping.reserve(single_capacity, multi_capacity, delete_capacity);
 
         // Smart quotes to straight quotes
         if self.config.smart_quotes {
@@ -447,7 +510,14 @@ impl<W: Semiring> NormalizationTransducer<W> {
     /// Normalize a single character, returning the result.
     pub fn normalize_char(&self, c: char) -> NormalizationResult {
         let mapping = self.build_mapping();
+        self.normalize_char_with_mapping(c, &mapping)
+    }
 
+    fn normalize_char_with_mapping(
+        &self,
+        c: char,
+        mapping: &CharacterMapping,
+    ) -> NormalizationResult {
         // First check custom/config mappings
         let base_result = if let Some(result) = mapping.get(c) {
             result
@@ -457,62 +527,67 @@ impl<W: Semiring> NormalizationTransducer<W> {
 
         // Apply case folding to the result
         if self.config.case_fold_lower {
-            match base_result {
-                NormalizationResult::Single(ch) => {
-                    let lower: String = ch.to_lowercase().collect();
-                    if lower.len() == 1 {
-                        NormalizationResult::Single(
-                            lower
-                                .chars()
-                                .next()
-                                .expect("error_models/normalize.rs: required value was None/Err"),
-                        )
-                    } else {
-                        NormalizationResult::Multi(lower)
-                    }
-                }
-                NormalizationResult::Multi(s) => NormalizationResult::Multi(s.to_lowercase()),
-                NormalizationResult::Delete => NormalizationResult::Delete,
-            }
+            Self::fold_result_lower(base_result)
         } else if self.config.case_fold_upper {
-            match base_result {
-                NormalizationResult::Single(ch) => {
-                    let upper: String = ch.to_uppercase().collect();
-                    if upper.len() == 1 {
-                        NormalizationResult::Single(
-                            upper
-                                .chars()
-                                .next()
-                                .expect("error_models/normalize.rs: required value was None/Err"),
-                        )
-                    } else {
-                        NormalizationResult::Multi(upper)
-                    }
-                }
-                NormalizationResult::Multi(s) => NormalizationResult::Multi(s.to_uppercase()),
-                NormalizationResult::Delete => NormalizationResult::Delete,
-            }
+            Self::fold_result_upper(base_result)
         } else {
             base_result
         }
     }
 
+    fn fold_result_lower(result: NormalizationResult) -> NormalizationResult {
+        match result {
+            NormalizationResult::Single(ch) => Self::fold_char(ch, char::to_lowercase),
+            NormalizationResult::Multi(s) => NormalizationResult::Multi(s.to_lowercase()),
+            NormalizationResult::Delete => NormalizationResult::Delete,
+        }
+    }
+
+    fn fold_result_upper(result: NormalizationResult) -> NormalizationResult {
+        match result {
+            NormalizationResult::Single(ch) => Self::fold_char(ch, char::to_uppercase),
+            NormalizationResult::Multi(s) => NormalizationResult::Multi(s.to_uppercase()),
+            NormalizationResult::Delete => NormalizationResult::Delete,
+        }
+    }
+
+    fn fold_char<I>(ch: char, fold: impl FnOnce(char) -> I) -> NormalizationResult
+    where
+        I: Iterator<Item = char>,
+    {
+        let mut folded = fold(ch);
+        let first = folded
+            .next()
+            .expect("error_models/normalize.rs: required value was None/Err");
+        if let Some(second) = folded.next() {
+            let mut output = String::with_capacity(first.len_utf8() + second.len_utf8());
+            output.push(first);
+            output.push(second);
+            output.extend(folded);
+            NormalizationResult::Multi(output)
+        } else {
+            NormalizationResult::Single(first)
+        }
+    }
+
     /// Normalize a string.
     pub fn normalize_string(&self, input: &str) -> String {
+        let mapping = self.build_mapping();
         let mut result = String::with_capacity(input.len());
 
-        // Handle CRLF -> LF conversion
-        let input = if self.config.normalize_line_endings {
-            input.replace("\r\n", "\n")
+        if self.config.normalize_line_endings {
+            let mut chars = input.chars().peekable();
+            while let Some(c) = chars.next() {
+                if c == '\r' && chars.peek() == Some(&'\n') {
+                    chars.next();
+                    self.push_normalized_char('\n', &mapping, &mut result);
+                } else {
+                    self.push_normalized_char(c, &mapping, &mut result);
+                }
+            }
         } else {
-            input.to_string()
-        };
-
-        for c in input.chars() {
-            match self.normalize_char(c) {
-                NormalizationResult::Single(nc) => result.push(nc),
-                NormalizationResult::Multi(s) => result.push_str(&s),
-                NormalizationResult::Delete => {}
+            for c in input.chars() {
+                self.push_normalized_char(c, &mapping, &mut result);
             }
         }
 
@@ -536,10 +611,21 @@ impl<W: Semiring> NormalizationTransducer<W> {
 
         // Strip leading/trailing whitespace
         if self.config.strip_whitespace {
-            result = result.trim().to_string();
+            let trimmed = result.trim();
+            if trimmed.len() != result.len() {
+                result = trimmed.to_string();
+            }
         }
 
         result
+    }
+
+    fn push_normalized_char(&self, c: char, mapping: &CharacterMapping, output: &mut String) {
+        match self.normalize_char_with_mapping(c, mapping) {
+            NormalizationResult::Single(nc) => output.push(nc),
+            NormalizationResult::Multi(s) => output.push_str(&s),
+            NormalizationResult::Delete => {}
+        }
     }
 
     /// Build a character-level normalization WFST.
@@ -551,16 +637,22 @@ impl<W: Semiring> NormalizationTransducer<W> {
     where
         W: From<TropicalWeight>,
     {
-        let mut fst: VectorWfst<char, W> = VectorWfst::new();
+        let mapping = self.build_mapping();
+        let source_chars = mapping.source_chars();
+        let transition_capacity = source_chars
+            .len()
+            .saturating_add(Self::ascii_identity_count(&mapping));
+
+        let mut fst: VectorWfst<char, W> = VectorWfst::with_capacity(1);
         let state = fst.add_state();
         fst.set_start(state);
         fst.set_final(state, W::one());
+        fst.reserve_transitions(state, transition_capacity);
 
-        let mapping = self.build_mapping();
         let weight = W::from(TropicalWeight::new(self.config.normalization_cost));
 
         // Add arcs for all mapped characters
-        for c in mapping.source_chars() {
+        for c in source_chars {
             if let Some(result) = mapping.get(c) {
                 match result {
                     NormalizationResult::Single(to) => {
@@ -603,16 +695,22 @@ impl<W: Semiring> NormalizationTransducer<W> {
     where
         W: From<TropicalWeight>,
     {
-        let mut fst: VectorWfst<Option<char>, W> = VectorWfst::new();
+        let mapping = self.build_mapping();
+        let source_chars = mapping.source_chars();
+        let transition_capacity = source_chars
+            .len()
+            .saturating_add(Self::ascii_identity_count(&mapping));
+
+        let mut fst: VectorWfst<Option<char>, W> = VectorWfst::with_capacity(1);
         let state = fst.add_state();
         fst.set_start(state);
         fst.set_final(state, W::one());
+        fst.reserve_transitions(state, transition_capacity);
 
-        let mapping = self.build_mapping();
         let weight = W::from(TropicalWeight::new(self.config.normalization_cost));
 
         // Add arcs for all mapped characters
-        for c in mapping.source_chars() {
+        for c in source_chars {
             if let Some(result) = mapping.get(c) {
                 match result {
                     NormalizationResult::Single(to) => {
@@ -661,6 +759,10 @@ impl<W: Semiring> NormalizationTransducer<W> {
         }
 
         fst
+    }
+
+    fn ascii_identity_count(mapping: &CharacterMapping) -> usize {
+        (' '..='~').filter(|&c| !mapping.contains(c)).count()
     }
 }
 
@@ -773,6 +875,7 @@ mod tests {
             NormalizationTransducer::<TropicalWeight>::new().with_case_fold_upper(true);
 
         assert_eq!(normalizer.normalize_string("hello world"), "HELLO WORLD");
+        assert_eq!(normalizer.normalize_string("straße"), "STRASSE");
     }
 
     #[test]
@@ -917,6 +1020,18 @@ mod tests {
         assert!(chars.contains(&'a'));
         assert!(chars.contains(&'x'));
         assert!(chars.contains(&'q'));
+    }
+
+    #[test]
+    fn test_character_mapping_source_chars_are_sorted_and_unique() {
+        let mut mapping = CharacterMapping::with_capacity(2, 1, 2);
+        mapping.add('b', 'B');
+        mapping.add('a', 'A');
+        mapping.add_expansion('c', "see");
+        mapping.add_deletion('b');
+        mapping.add_deletion('b');
+
+        assert_eq!(mapping.source_chars(), vec!['a', 'b', 'c']);
     }
 
     #[test]

@@ -1,8 +1,10 @@
 //! Trait definitions for multi-tape WFSTs.
 
+use std::collections::HashSet;
 use std::hash::Hash;
 
-use super::{MultiTapeLabel, MultiTapeTransition};
+use super::label::MultiTapeLabel;
+use super::transition::MultiTapeTransition;
 use crate::semiring::Semiring;
 use crate::wfst::StateId;
 
@@ -140,62 +142,53 @@ where
         self.transduce(input).is_some()
     }
 
-    /// Run the transducer on input and return the total weight if accepting.
+    /// Run the transducer on input and return an accepting path weight if one exists.
     fn transduce(&self, input: &[MultiTapeLabel<L, N>]) -> Option<W>
     where
         L: PartialEq,
     {
-        // Simple recursive implementation for now
-        fn transduce_from<L, W, const N: usize, T>(
-            wfst: &T,
-            state: StateId,
-            input: &[MultiTapeLabel<L, N>],
-        ) -> Option<W>
-        where
-            L: Clone + Eq + Hash + Send + Sync + PartialEq,
-            W: Semiring + Clone,
-            T: MultiTapeWfst<L, W, N>,
-        {
-            if input.is_empty() {
-                if wfst.is_final(state) {
-                    return Some(wfst.final_weight(state));
-                }
-                // Try epsilon transitions
-                for trans in wfst.transitions(state) {
-                    if trans.is_epsilon() {
-                        if let Some(w) = transduce_from(wfst, trans.to, input) {
-                            return Some(trans.weight.clone().times(&w));
-                        }
-                    }
-                }
-                return None;
+        let start = self.start();
+        let mut agenda = vec![(start, 0usize, W::one())];
+        let mut visited = HashSet::new();
+
+        while let Some((state, input_pos, path_weight)) = agenda.pop() {
+            if !visited.insert((state, input_pos)) {
+                continue;
             }
 
-            let label = &input[0];
-            let rest = &input[1..];
+            if input_pos == input.len() && self.is_final(state) {
+                return Some(path_weight.times(&self.final_weight(state)));
+            }
 
-            // Try matching transitions
-            for trans in wfst.transitions(state) {
-                if trans.labels == *label {
-                    if let Some(w) = transduce_from(wfst, trans.to, rest) {
-                        return Some(trans.weight.clone().times(&w));
+            let mut successors = Vec::new();
+
+            if input_pos < input.len() {
+                let label = &input[input_pos];
+                for trans in self.transitions(state) {
+                    if trans.labels == *label {
+                        successors.push((
+                            trans.to,
+                            input_pos + 1,
+                            path_weight.clone().times(&trans.weight),
+                        ));
                     }
                 }
             }
 
-            // Try epsilon transitions
-            for trans in wfst.transitions(state) {
+            for trans in self.transitions(state) {
                 if trans.is_epsilon() {
-                    if let Some(w) = transduce_from(wfst, trans.to, input) {
-                        return Some(trans.weight.clone().times(&w));
-                    }
+                    successors.push((
+                        trans.to,
+                        input_pos,
+                        path_weight.clone().times(&trans.weight),
+                    ));
                 }
             }
 
-            None
+            agenda.extend(successors.into_iter().rev());
         }
 
-        transduce_from(self, self.start(), input)
+        None
     }
 }
 
@@ -211,27 +204,131 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::multitape::VectorMultiTapeWfst;
     use crate::semiring::TropicalWeight;
 
-    fn make_simple_mt() -> VectorMultiTapeWfst<char, TropicalWeight, 2> {
-        use crate::multitape::MultiTapeWfstBuilder;
+    #[derive(Clone)]
+    struct TestMultiTape {
+        start: StateId,
+        final_weights: Vec<Option<TropicalWeight>>,
+        transitions: Vec<Vec<MultiTapeTransition<char, TropicalWeight, 2>>>,
+    }
 
-        let mut builder = MultiTapeWfstBuilder::<char, TropicalWeight, 2>::new();
-        let s0 = builder.add_state();
-        let s1 = builder.add_state();
+    impl TestMultiTape {
+        fn new(num_states: usize) -> Self {
+            Self {
+                start: 0,
+                final_weights: vec![None; num_states],
+                transitions: vec![Vec::new(); num_states],
+            }
+        }
 
-        builder.set_start(s0);
-        builder.set_final(s1, TropicalWeight::one());
+        fn set_start(&mut self, state: StateId) {
+            self.start = state;
+        }
 
-        builder.add_transition(
-            s0,
-            s1,
+        fn set_final(&mut self, state: StateId, weight: TropicalWeight) {
+            self.final_weights[state as usize] = Some(weight);
+        }
+
+        fn add_transition(
+            &mut self,
+            from: StateId,
+            to: StateId,
+            labels: MultiTapeLabel<char, 2>,
+            weight: TropicalWeight,
+        ) {
+            self.transitions[from as usize]
+                .push(MultiTapeTransition::new(from, labels, to, weight));
+        }
+    }
+
+    impl MultiTapeWfst<char, TropicalWeight, 2> for TestMultiTape {
+        fn start(&self) -> StateId {
+            self.start
+        }
+
+        fn is_final(&self, state: StateId) -> bool {
+            self.final_weights
+                .get(state as usize)
+                .is_some_and(Option::is_some)
+        }
+
+        fn final_weight(&self, state: StateId) -> TropicalWeight {
+            self.final_weights
+                .get(state as usize)
+                .and_then(|weight| *weight)
+                .unwrap_or_else(TropicalWeight::zero)
+        }
+
+        fn transitions(&self, state: StateId) -> &[MultiTapeTransition<char, TropicalWeight, 2>] {
+            self.transitions
+                .get(state as usize)
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+        }
+
+        fn num_states(&self) -> usize {
+            self.transitions.len()
+        }
+
+        fn num_transitions(&self) -> usize {
+            self.transitions.iter().map(Vec::len).sum()
+        }
+
+        fn states(&self) -> impl Iterator<Item = StateId> {
+            (0..self.num_states()).map(|state| state as StateId)
+        }
+
+        fn final_states(&self) -> impl Iterator<Item = StateId> {
+            self.final_weights
+                .iter()
+                .enumerate()
+                .filter_map(|(state, weight)| weight.is_some().then_some(state as StateId))
+        }
+    }
+
+    fn make_simple_mt() -> TestMultiTape {
+        let mut mt = TestMultiTape::new(2);
+        mt.set_start(0);
+        mt.set_final(1, TropicalWeight::one());
+        mt.add_transition(
+            0,
+            1,
             MultiTapeLabel::from_values(['a', 'x']),
             TropicalWeight::one(),
         );
+        mt
+    }
 
-        builder.build()
+    fn make_epsilon_cycle_mt() -> TestMultiTape {
+        let mut mt = TestMultiTape::new(2);
+        mt.set_start(0);
+        mt.set_final(1, TropicalWeight::one());
+        mt.add_transition(0, 0, MultiTapeLabel::epsilon(), TropicalWeight::one());
+        mt.add_transition(
+            0,
+            1,
+            MultiTapeLabel::from_values(['a', 'x']),
+            TropicalWeight::one(),
+        );
+        mt
+    }
+
+    fn make_long_chain_mt(length: usize) -> TestMultiTape {
+        let mut mt = TestMultiTape::new(length + 1);
+        mt.set_start(0);
+
+        for state in 0..length {
+            mt.add_transition(
+                state as StateId,
+                state as StateId + 1,
+                MultiTapeLabel::from_values(['a', 'x']),
+                TropicalWeight::one(),
+            );
+        }
+
+        mt.set_final(length as StateId, TropicalWeight::one());
+        mt
     }
 
     #[test]
@@ -262,5 +359,22 @@ mod tests {
         // Should reject
         let input2 = vec![MultiTapeLabel::from_values(['b', 'y'])];
         assert!(!mt.accepts(&input2));
+    }
+
+    #[test]
+    fn test_transduce_handles_epsilon_cycle() {
+        let mt = make_epsilon_cycle_mt();
+        let input = vec![MultiTapeLabel::from_values(['a', 'x'])];
+
+        assert!(mt.accepts(&input));
+    }
+
+    #[test]
+    fn test_transduce_long_chain_without_recursion() {
+        let length = 2048;
+        let mt = make_long_chain_mt(length);
+        let input = vec![MultiTapeLabel::from_values(['a', 'x']); length];
+
+        assert!(mt.accepts(&input));
     }
 }

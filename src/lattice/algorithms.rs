@@ -7,31 +7,91 @@ use super::types::{Edge, Node, NodeId};
 use crate::backend::LatticeBackend;
 use crate::semiring::Semiring;
 
+#[cfg(test)]
+use super::builder::LatticeBuilder;
+#[cfg(test)]
+use super::types::{EdgeId, EdgeMetadata};
+
+fn node_index(node_id: NodeId, node_count: usize) -> Option<usize> {
+    let idx = node_id.0 as usize;
+    (idx < node_count).then_some(idx)
+}
+
+fn validate_node_ids(nodes: &[Node]) -> bool {
+    let mut seen = vec![false; nodes.len()];
+    for node in nodes {
+        let Some(idx) = node_index(node.id, nodes.len()) else {
+            return false;
+        };
+        if seen[idx] {
+            return false;
+        }
+        seen[idx] = true;
+    }
+    true
+}
+
+fn adjacency_from_edges<W: Semiring>(
+    nodes: &[Node],
+    edges: &[Edge<W>],
+) -> Option<(Vec<Vec<NodeId>>, Vec<usize>)> {
+    if !validate_node_ids(nodes) {
+        return None;
+    }
+
+    let mut adjacency: Vec<Vec<NodeId>> = vec![Vec::new(); nodes.len()];
+    let mut in_degree: Vec<usize> = vec![0; nodes.len()];
+
+    for edge in edges {
+        let source_idx = node_index(edge.source, nodes.len())?;
+        let target_idx = node_index(edge.target, nodes.len())?;
+        adjacency[source_idx].push(edge.target);
+        in_degree[target_idx] = in_degree[target_idx].checked_add(1)?;
+    }
+
+    Some((adjacency, in_degree))
+}
+
+fn reachable_adjacency_from_edges<W: Semiring, B: LatticeBackend>(
+    lattice: &Lattice<W, B>,
+) -> Vec<Vec<NodeId>> {
+    if !validate_node_ids(lattice.nodes()) {
+        return Vec::new();
+    }
+
+    let mut adjacency: Vec<Vec<NodeId>> = vec![Vec::new(); lattice.num_nodes()];
+    for edge in lattice.edges() {
+        let Some(source_idx) = node_index(edge.source, lattice.num_nodes()) else {
+            continue;
+        };
+        if node_index(edge.target, lattice.num_nodes()).is_some() {
+            adjacency[source_idx].push(edge.target);
+        }
+    }
+
+    adjacency
+}
+
 /// Compute topological order using Kahn's algorithm.
 ///
 /// Returns `None` if the graph contains a cycle.
 ///
 /// Time complexity: O(V + E)
-/// Space complexity: O(V + E) for the edge target lookup
+/// Space complexity: O(V + E) for the edge adjacency table
 pub fn topological_sort<W: Semiring>(nodes: &[Node], edges: &[Edge<W>]) -> Option<Vec<NodeId>> {
     if nodes.is_empty() {
         return Some(Vec::new());
     }
 
-    let n = nodes.len();
+    let (adjacency, mut in_degree) = adjacency_from_edges(nodes, edges)?;
 
-    // Build edge_id -> target lookup table: O(E)
-    // This is the key optimization: instead of scanning all nodes for each edge,
-    // we do a single pass over edges to build a direct lookup.
-    let edge_targets: Vec<NodeId> = edges.iter().map(|e| e.target).collect();
-
-    let mut in_degree: Vec<usize> = nodes.iter().map(|node| node.incoming.len()).collect();
-    let mut queue: Vec<NodeId> = Vec::with_capacity(n);
-    let mut result: Vec<NodeId> = Vec::with_capacity(n);
+    let mut queue: Vec<NodeId> = Vec::with_capacity(nodes.len());
+    let mut result: Vec<NodeId> = Vec::with_capacity(nodes.len());
 
     // Start with nodes that have no incoming edges
     for node in nodes {
-        if node.incoming.is_empty() {
+        let idx = node_index(node.id, nodes.len())?;
+        if in_degree[idx] == 0 {
             queue.push(node.id);
         }
     }
@@ -40,20 +100,17 @@ pub fn topological_sort<W: Semiring>(nodes: &[Node], edges: &[Edge<W>]) -> Optio
         result.push(node_id);
 
         // Decrease in-degree for all neighbors: O(out_degree) per node
-        if let Some(node) = nodes.get(node_id.0 as usize) {
-            for &edge_id in &node.outgoing {
-                // O(1) lookup instead of O(V) scan
-                let target = edge_targets[edge_id.0 as usize];
-                let idx = target.0 as usize;
-                in_degree[idx] -= 1;
-                if in_degree[idx] == 0 {
-                    queue.push(target);
-                }
+        let node_idx = node_index(node_id, nodes.len())?;
+        for &target in &adjacency[node_idx] {
+            let target_idx = node_index(target, nodes.len())?;
+            in_degree[target_idx] = in_degree[target_idx].checked_sub(1)?;
+            if in_degree[target_idx] == 0 {
+                queue.push(target);
             }
         }
     }
 
-    if result.len() == n {
+    if result.len() == nodes.len() {
         Some(result)
     } else {
         // Cycle detected
@@ -69,14 +126,9 @@ pub fn is_acyclic(nodes: &[Node], edges: &[Edge<impl Semiring>]) -> bool {
         return true;
     }
 
-    // Build adjacency list for DFS
-    let mut adj: Vec<Vec<NodeId>> = vec![Vec::new(); nodes.len()];
-    for edge in edges {
-        let src = edge.source.0 as usize;
-        if src < adj.len() {
-            adj[src].push(edge.target);
-        }
-    }
+    let Some((adj, _)) = adjacency_from_edges(nodes, edges) else {
+        return false;
+    };
 
     // DFS with coloring: 0 = white (unvisited), 1 = gray (in progress), 2 = black (done)
     let mut color: Vec<u8> = vec![0; nodes.len()];
@@ -85,10 +137,9 @@ pub fn is_acyclic(nodes: &[Node], edges: &[Edge<impl Semiring>]) -> bool {
         color[node] = 1; // Gray - currently being processed
 
         for &neighbor in &adj[node] {
-            let idx = neighbor.0 as usize;
-            if idx >= color.len() {
-                continue;
-            }
+            let Some(idx) = node_index(neighbor, color.len()) else {
+                return false;
+            };
             match color[idx] {
                 1 => return false, // Back edge - cycle detected
                 0 => {
@@ -128,27 +179,34 @@ pub fn count_paths<W: Semiring, B: LatticeBackend>(lattice: &mut Lattice<W, B>) 
 
     let n = lattice.num_nodes();
     let mut path_count: Vec<usize> = vec![0; n];
+    let start_idx = lattice.start().0 as usize;
+    let end_idx = lattice.end().0 as usize;
+    if start_idx >= n || end_idx >= n {
+        return None;
+    }
 
     // Start node has 1 path (the empty path to itself)
-    path_count[lattice.start().0 as usize] = 1;
+    path_count[start_idx] = 1;
+    let (adjacency, _) = adjacency_from_edges(lattice.nodes(), lattice.edges())?;
 
     // Process in topological order
     for node_id in topo_order {
-        let current_count = path_count[node_id.0 as usize];
+        let node_idx = node_id.0 as usize;
+        if node_idx >= path_count.len() {
+            return None;
+        }
+        let current_count = path_count[node_idx];
         if current_count == 0 {
             continue;
         }
 
-        // Add paths to all successors
-        let outgoing: Vec<_> = lattice.outgoing_edges(node_id).map(|e| e.target).collect();
-
-        for target in outgoing {
-            let target_idx = target.0 as usize;
+        for &target in &adjacency[node_idx] {
+            let target_idx = node_index(target, path_count.len())?;
             path_count[target_idx] = path_count[target_idx].checked_add(current_count)?;
         }
     }
 
-    Some(path_count[lattice.end().0 as usize])
+    Some(path_count[end_idx])
 }
 
 /// Find all reachable nodes from a given starting node.
@@ -160,15 +218,19 @@ pub fn reachable_nodes<W: Semiring, B: LatticeBackend>(
 ) -> FxHashSet<NodeId> {
     let mut visited = FxHashSet::default();
     let mut queue = vec![start];
+    let adjacency = reachable_adjacency_from_edges(lattice);
 
     while let Some(node_id) = queue.pop() {
+        let Some(node_idx) = node_index(node_id, adjacency.len()) else {
+            continue;
+        };
         if !visited.insert(node_id) {
             continue;
         }
 
-        for edge in lattice.outgoing_edges(node_id) {
-            if !visited.contains(&edge.target) {
-                queue.push(edge.target);
+        for &target in &adjacency[node_idx] {
+            if !visited.contains(&target) {
+                queue.push(target);
             }
         }
     }
@@ -183,7 +245,11 @@ pub fn path_exists<W: Semiring, B: LatticeBackend>(
     target: NodeId,
 ) -> bool {
     if source == target {
-        return true;
+        return lattice.node(source).is_some();
+    }
+
+    if lattice.node(source).is_none() || lattice.node(target).is_none() {
+        return false;
     }
 
     let reachable = reachable_nodes(lattice, source);
@@ -194,8 +260,6 @@ pub fn path_exists<W: Semiring, B: LatticeBackend>(
 mod tests {
     use super::*;
     use crate::backend::HashMapBackend;
-    use crate::lattice::builder::LatticeBuilder;
-    use crate::lattice::types::EdgeMetadata;
     use crate::semiring::TropicalWeight;
 
     fn linear_lattice(n: usize) -> Lattice<TropicalWeight, HashMapBackend> {
@@ -226,6 +290,78 @@ mod tests {
         builder.add_correction(2, 3, "d", TropicalWeight::new(1.0), EdgeMetadata::default());
 
         builder.build(3)
+    }
+
+    fn lattice_with_stale_incoming() -> Lattice<TropicalWeight, HashMapBackend> {
+        let mut backend = HashMapBackend::new();
+        let label = backend.intern("a");
+        let edge_id = EdgeId::new(0);
+        let mut nodes = vec![
+            Node::with_position(NodeId::new(0), 0),
+            Node::with_position(NodeId::new(1), 1),
+        ];
+        nodes[0].outgoing.push(edge_id);
+
+        let edges = vec![Edge::new(
+            edge_id,
+            NodeId::new(0),
+            NodeId::new(1),
+            label,
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        )];
+
+        Lattice::new(nodes, edges, NodeId::new(0), NodeId::new(1), backend)
+    }
+
+    fn lattice_with_stale_outgoing() -> Lattice<TropicalWeight, HashMapBackend> {
+        let mut backend = HashMapBackend::new();
+        let label = backend.intern("a");
+        let edge_id = EdgeId::new(0);
+        let nodes = vec![
+            Node::with_position(NodeId::new(0), 0),
+            Node::with_position(NodeId::new(1), 1),
+        ];
+
+        let edges = vec![Edge::new(
+            edge_id,
+            NodeId::new(0),
+            NodeId::new(1),
+            label,
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        )];
+
+        Lattice::new(nodes, edges, NodeId::new(0), NodeId::new(1), backend)
+    }
+
+    fn lattice_with_malformed_target() -> Lattice<TropicalWeight, HashMapBackend> {
+        let mut backend = HashMapBackend::new();
+        let label = backend.intern("bad");
+        let edge_id = EdgeId::new(0);
+        let mut nodes = vec![
+            Node::with_position(NodeId::new(0), 0),
+            Node::with_position(NodeId::new(1), 1),
+        ];
+        nodes[0].outgoing.push(edge_id);
+
+        let edges = vec![Edge::new(
+            edge_id,
+            NodeId::new(0),
+            NodeId::new(99),
+            label,
+            TropicalWeight::new(1.0),
+            EdgeMetadata::default(),
+        )];
+
+        Lattice::new(nodes, edges, NodeId::new(0), NodeId::new(1), backend)
+    }
+
+    fn lattice_with_invalid_start() -> Lattice<TropicalWeight, HashMapBackend> {
+        let backend = HashMapBackend::new();
+        let nodes = vec![Node::with_position(NodeId::new(0), 0)];
+
+        Lattice::new(nodes, Vec::new(), NodeId::new(99), NodeId::new(0), backend)
     }
 
     #[test]
@@ -280,6 +416,39 @@ mod tests {
     }
 
     #[test]
+    fn test_topological_sort_uses_edge_list_for_in_degree() {
+        let lattice = lattice_with_stale_incoming();
+        let order = topological_sort(lattice.nodes(), lattice.edges())
+            .expect("stale incoming adjacency should not poison topological order");
+
+        assert_eq!(order, vec![NodeId::new(0), NodeId::new(1)]);
+    }
+
+    #[test]
+    fn test_topological_sort_uses_edges_when_outgoing_cache_is_stale() {
+        let lattice = lattice_with_stale_outgoing();
+        let order = topological_sort(lattice.nodes(), lattice.edges())
+            .expect("stale outgoing adjacency should not hide edge-list connectivity");
+
+        assert_eq!(order, vec![NodeId::new(0), NodeId::new(1)]);
+    }
+
+    #[test]
+    fn test_topological_sort_rejects_malformed_target() {
+        let lattice = lattice_with_malformed_target();
+
+        assert!(topological_sort(lattice.nodes(), lattice.edges()).is_none());
+    }
+
+    #[test]
+    fn test_topological_sort_rejects_non_contiguous_node_ids() {
+        let nodes = vec![Node::with_position(NodeId::new(99), 0)];
+        let empty_edges: &[Edge<TropicalWeight>] = &[];
+
+        assert!(topological_sort(&nodes, empty_edges).is_none());
+    }
+
+    #[test]
     fn test_is_acyclic_linear() {
         let lattice = linear_lattice(3);
         assert!(is_acyclic(lattice.nodes(), lattice.edges()));
@@ -289,6 +458,21 @@ mod tests {
     fn test_is_acyclic_diamond() {
         let lattice = diamond_lattice();
         assert!(is_acyclic(lattice.nodes(), lattice.edges()));
+    }
+
+    #[test]
+    fn test_is_acyclic_rejects_malformed_target() {
+        let lattice = lattice_with_malformed_target();
+
+        assert!(!is_acyclic(lattice.nodes(), lattice.edges()));
+    }
+
+    #[test]
+    fn test_is_acyclic_rejects_non_contiguous_node_ids() {
+        let nodes = vec![Node::with_position(NodeId::new(99), 0)];
+        let empty_edges: &[Edge<TropicalWeight>] = &[];
+
+        assert!(!is_acyclic(&nodes, empty_edges));
     }
 
     #[test]
@@ -320,6 +504,27 @@ mod tests {
     }
 
     #[test]
+    fn test_count_paths_rejects_malformed_target() {
+        let mut lattice = lattice_with_malformed_target();
+
+        assert_eq!(count_paths(&mut lattice), None);
+    }
+
+    #[test]
+    fn test_count_paths_rejects_invalid_start_or_end() {
+        let mut lattice = lattice_with_invalid_start();
+
+        assert_eq!(count_paths(&mut lattice), None);
+    }
+
+    #[test]
+    fn test_count_paths_uses_edges_when_outgoing_cache_is_stale() {
+        let mut lattice = lattice_with_stale_outgoing();
+
+        assert_eq!(count_paths(&mut lattice), Some(1));
+    }
+
+    #[test]
     fn test_reachable_nodes() {
         let lattice = diamond_lattice();
         let reachable = reachable_nodes(&lattice, lattice.start());
@@ -339,12 +544,38 @@ mod tests {
     }
 
     #[test]
+    fn test_reachable_nodes_ignores_malformed_targets() {
+        let lattice = lattice_with_malformed_target();
+        let reachable = reachable_nodes(&lattice, lattice.start());
+
+        assert!(reachable.contains(&lattice.start()));
+        assert!(!reachable.contains(&NodeId::new(99)));
+    }
+
+    #[test]
+    fn test_reachable_nodes_uses_edges_when_outgoing_cache_is_stale() {
+        let lattice = lattice_with_stale_outgoing();
+        let reachable = reachable_nodes(&lattice, lattice.start());
+
+        assert!(reachable.contains(&lattice.start()));
+        assert!(reachable.contains(&lattice.end()));
+    }
+
+    #[test]
     fn test_path_exists() {
         let lattice = diamond_lattice();
 
         assert!(path_exists(&lattice, lattice.start(), lattice.end()));
         assert!(path_exists(&lattice, lattice.start(), lattice.start()));
         assert!(!path_exists(&lattice, lattice.end(), lattice.start()));
+    }
+
+    #[test]
+    fn test_path_exists_rejects_invalid_nodes() {
+        let lattice = lattice_with_malformed_target();
+
+        assert!(!path_exists(&lattice, lattice.start(), NodeId::new(99)));
+        assert!(!path_exists(&lattice, NodeId::new(99), NodeId::new(99)));
     }
 
     #[test]

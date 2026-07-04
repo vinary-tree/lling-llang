@@ -79,21 +79,38 @@ impl<'a, L: Clone + PartialEq, W: Semiring> PdaDecoder<'a, L, W> {
     /// [`DEFAULT_MAX_STACK_DEPTH`](Self::DEFAULT_MAX_STACK_DEPTH) ε-closure
     /// bound.
     pub fn new(pda: &'a VectorPda<L, W>) -> Self {
-        Self { pda, max_stack_depth: Self::DEFAULT_MAX_STACK_DEPTH }
+        Self {
+            pda,
+            max_stack_depth: Self::DEFAULT_MAX_STACK_DEPTH,
+        }
     }
 
     /// Wrap an automaton with an explicit ε-closure stack-depth bound. Use a
     /// smaller bound to cut off pathological ε-push-cycles sooner, or a larger
     /// one for grammars with genuinely deep nesting.
     pub fn with_max_stack_depth(pda: &'a VectorPda<L, W>, max_stack_depth: usize) -> Self {
-        Self { pda, max_stack_depth }
+        Self {
+            pda,
+            max_stack_depth,
+        }
+    }
+
+    fn closure_work_capacity(&self) -> usize {
+        self.pda
+            .get_num_states()
+            .saturating_add(self.pda.get_num_transitions())
+            .max(1)
     }
 
     /// The initial configuration: start state, empty remaining input (terminals
     /// are fed one at a time via [`advance`](Self::advance)), and the
     /// automaton's initial stack symbol on the bottom of the stack.
     pub fn initial_config(&self) -> PdaConfiguration<L> {
-        PdaConfiguration::initial(self.pda.get_start(), Vec::new(), self.pda.get_initial_stack())
+        PdaConfiguration::initial(
+            self.pda.get_start(),
+            Vec::new(),
+            self.pda.get_initial_stack(),
+        )
     }
 
     /// Enumerate the terminals that may legally be read next from `cfg`.
@@ -155,11 +172,8 @@ impl<'a, L: Clone + PartialEq, W: Semiring> PdaDecoder<'a, L, W> {
                 }
                 // Feed exactly `sym` as the remaining input so the shared
                 // `apply_transition` consumes it and applies the stack action.
-                let staged = PdaConfiguration::new(
-                    config.state,
-                    vec![sym.clone()],
-                    config.stack.clone(),
-                );
+                let staged =
+                    PdaConfiguration::new(config.state, vec![sym.clone()], config.stack.clone());
                 if let Some(mut next) = staged.apply_transition(trans) {
                     // Leave the cursor with empty remaining input; the caller
                     // re-closes on the next step.
@@ -209,9 +223,11 @@ impl<'a, L: Clone + PartialEq, W: Semiring> PdaDecoder<'a, L, W> {
     /// reachable set is finite. The walk is a standard work-list BFS seeded
     /// with `cfg` itself, so the closure always contains `cfg`.
     fn epsilon_closure(&self, cfg: &PdaConfiguration<L>) -> Vec<PdaConfiguration<L>> {
-        let mut visited: HashSet<(crate::wfst::StateId, Vec<StackSymbol>)> = HashSet::new();
-        let mut closure: Vec<PdaConfiguration<L>> = Vec::new();
-        let mut work: Vec<PdaConfiguration<L>> = Vec::new();
+        let capacity = self.closure_work_capacity();
+        let mut visited: HashSet<(crate::wfst::StateId, Vec<StackSymbol>)> =
+            HashSet::with_capacity(capacity);
+        let mut closure: Vec<PdaConfiguration<L>> = Vec::with_capacity(capacity);
+        let mut work: Vec<PdaConfiguration<L>> = Vec::with_capacity(capacity);
 
         let seed = PdaConfiguration::new(cfg.state, Vec::new(), cfg.stack.clone());
         visited.insert((seed.state, seed.stack.clone()));
@@ -228,8 +244,7 @@ impl<'a, L: Clone + PartialEq, W: Semiring> PdaDecoder<'a, L, W> {
                     continue;
                 }
                 // ε-transition: empty remaining input, apply the stack action.
-                let staged =
-                    PdaConfiguration::new(config.state, Vec::new(), config.stack.clone());
+                let staged = PdaConfiguration::new(config.state, Vec::new(), config.stack.clone());
                 if let Some(next) = staged.apply_transition(trans) {
                     // Bound the descent: an ε-`Push` cycle would otherwise build
                     // an unboundedly deep stack (every depth is a fresh, unseen
@@ -259,12 +274,11 @@ impl<'a, L: Clone + PartialEq, W: Semiring> PdaDecoder<'a, L, W> {
     /// [`acceptance_weight`](Self::acceptance_weight); the unweighted
     /// [`legal_next`](Self::legal_next) / [`is_accepting`](Self::is_accepting)
     /// keep their own (cheaper, weight-free) closure.
-    fn weighted_epsilon_closure(
-        &self,
-        cfg: &PdaConfiguration<L>,
-    ) -> Vec<(PdaConfiguration<L>, W)> {
-        let mut best: HashMap<(crate::wfst::StateId, Vec<StackSymbol>), W> = HashMap::new();
-        let mut queue: VecDeque<PdaConfiguration<L>> = VecDeque::new();
+    fn weighted_epsilon_closure(&self, cfg: &PdaConfiguration<L>) -> Vec<(PdaConfiguration<L>, W)> {
+        let capacity = self.closure_work_capacity();
+        let mut best: HashMap<(crate::wfst::StateId, Vec<StackSymbol>), W> =
+            HashMap::with_capacity(capacity);
+        let mut queue: VecDeque<PdaConfiguration<L>> = VecDeque::with_capacity(capacity);
 
         let seed = PdaConfiguration::new(cfg.state, Vec::new(), cfg.stack.clone());
         best.insert((seed.state, seed.stack.clone()), W::one());
@@ -281,8 +295,7 @@ impl<'a, L: Clone + PartialEq, W: Semiring> PdaDecoder<'a, L, W> {
                 if !trans.is_epsilon() || trans.stack_top != stack_top {
                     continue;
                 }
-                let staged =
-                    PdaConfiguration::new(config.state, Vec::new(), config.stack.clone());
+                let staged = PdaConfiguration::new(config.state, Vec::new(), config.stack.clone());
                 let Some(next) = staged.apply_transition(trans) else {
                     continue;
                 };
@@ -324,7 +337,11 @@ impl<'a, L: Clone + PartialEq, W: Semiring> PdaDecoder<'a, L, W> {
     /// terminal projection. Terminal order follows first discovery.
     pub fn legal_next_weighted(&self, cfg: &PdaConfiguration<L>) -> Vec<(L, W)> {
         let closure = self.weighted_epsilon_closure(cfg);
-        let mut out: Vec<(L, W)> = Vec::new();
+        let capacity: usize = closure
+            .iter()
+            .map(|(config, _)| self.pda.get_transitions(config.state).len())
+            .sum();
+        let mut out: Vec<(L, W)> = Vec::with_capacity(capacity);
         for (config, path_weight) in &closure {
             let Some(stack_top) = config.stack_top() else {
                 continue;
@@ -374,7 +391,11 @@ impl<'a, L: Clone + PartialEq, W: Semiring> PdaDecoder<'a, L, W> {
                 }
             };
             let contribution = path_weight.times(&final_weight);
-            total = if accepted { total.plus(&contribution) } else { contribution };
+            total = if accepted {
+                total.plus(&contribution)
+            } else {
+                contribution
+            };
             accepted = true;
         }
         if accepted {
@@ -426,8 +447,8 @@ impl<L: Clone + PartialEq, W: Semiring> PdaDecoder<'_, L, W> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::{builder::PdaBuilder, stack::StackAction};
     use super::*;
-    use crate::pushdown::{PdaBuilder, StackAction};
     use crate::semiring::TropicalWeight;
 
     /// Balanced-bracket decoder over `char` terminals.
@@ -571,8 +592,13 @@ mod tests {
             "inner terminal 'x' must surface through the ε category-entry rule"
         );
         // And we can actually advance over it to an accepting config.
-        let c1 = dec.advance(&c0, &'x').expect("'x' must advance via ε-closure");
-        assert!(dec.is_accepting(&c1), "reading 'x' must reach the final state");
+        let c1 = dec
+            .advance(&c0, &'x')
+            .expect("'x' must advance via ε-closure");
+        assert!(
+            dec.is_accepting(&c1),
+            "reading 'x' must reach the final state"
+        );
     }
 
     #[test]
@@ -684,7 +710,7 @@ mod tests {
         let c0 = dec.initial_config();
         // The empty string is balanced/accepting: weight one (zero tropical cost).
         assert_eq!(dec.acceptance_weight(&c0), TropicalWeight::one());
-        // After a single '(' the string is incomplete: no accepting config → zero.
+        // After a single '(' the prefix is not accepting: no accepting config -> zero.
         let c1 = dec.advance(&c0, &'(').expect("'(' advances");
         assert_eq!(dec.acceptance_weight(&c1), TropicalWeight::zero());
         // Closing it is accepting again.

@@ -23,6 +23,8 @@ pub struct Hypothesis {
     pub score: f32,
     /// Predictor state for continuing this hypothesis.
     pub predictor_state: PredictorState,
+    /// Predictor output corresponding to this hypothesis's emitted label history.
+    predictor_out: Vec<f32>,
     /// LM state if using external LM.
     pub lm_state: Option<StateId>,
     /// Internal state for frame-level tracking.
@@ -36,6 +38,22 @@ impl Hypothesis {
             labels: Vec::new(),
             score: 0.0,
             predictor_state,
+            predictor_out: Vec::new(),
+            lm_state: None,
+            timestep: 0,
+        }
+    }
+
+    /// Create initial hypothesis with a precomputed predictor output.
+    pub fn initial_with_predictor_output(
+        predictor_state: PredictorState,
+        predictor_out: Vec<f32>,
+    ) -> Self {
+        Self {
+            labels: Vec::new(),
+            score: 0.0,
+            predictor_state,
+            predictor_out,
             lm_state: None,
             timestep: 0,
         }
@@ -47,6 +65,23 @@ impl Hypothesis {
             labels: Vec::new(),
             score: 0.0,
             predictor_state,
+            predictor_out: Vec::new(),
+            lm_state: Some(lm_start),
+            timestep: 0,
+        }
+    }
+
+    /// Create initial hypothesis with LM and a precomputed predictor output.
+    pub fn initial_with_lm_output(
+        predictor_state: PredictorState,
+        predictor_out: Vec<f32>,
+        lm_start: StateId,
+    ) -> Self {
+        Self {
+            labels: Vec::new(),
+            score: 0.0,
+            predictor_state,
+            predictor_out,
             lm_state: Some(lm_start),
             timestep: 0,
         }
@@ -59,6 +94,22 @@ impl Hypothesis {
         score_delta: f32,
         new_predictor_state: PredictorState,
     ) -> Self {
+        self.extend_with_predictor_output(
+            label,
+            score_delta,
+            new_predictor_state,
+            self.predictor_out.clone(),
+        )
+    }
+
+    /// Extend hypothesis with a new label and predictor output.
+    pub fn extend_with_predictor_output(
+        &self,
+        label: Label,
+        score_delta: f32,
+        new_predictor_state: PredictorState,
+        new_predictor_out: Vec<f32>,
+    ) -> Self {
         let mut new_labels = self.labels.clone();
         if label != BLANK {
             new_labels.push(label);
@@ -67,6 +118,7 @@ impl Hypothesis {
             labels: new_labels,
             score: self.score + score_delta,
             predictor_state: new_predictor_state,
+            predictor_out: new_predictor_out,
             lm_state: self.lm_state,
             timestep: self.timestep + 1,
         }
@@ -80,6 +132,24 @@ impl Hypothesis {
         new_predictor_state: PredictorState,
         new_lm_state: StateId,
     ) -> Self {
+        self.extend_with_lm_output(
+            label,
+            score_delta,
+            new_predictor_state,
+            self.predictor_out.clone(),
+            new_lm_state,
+        )
+    }
+
+    /// Extend hypothesis with LM state and predictor output updates.
+    pub fn extend_with_lm_output(
+        &self,
+        label: Label,
+        score_delta: f32,
+        new_predictor_state: PredictorState,
+        new_predictor_out: Vec<f32>,
+        new_lm_state: StateId,
+    ) -> Self {
         let mut new_labels = self.labels.clone();
         if label != BLANK {
             new_labels.push(label);
@@ -88,6 +158,7 @@ impl Hypothesis {
             labels: new_labels,
             score: self.score + score_delta,
             predictor_state: new_predictor_state,
+            predictor_out: new_predictor_out,
             lm_state: Some(new_lm_state),
             timestep: self.timestep + 1,
         }
@@ -140,13 +211,8 @@ impl<P: AutoregressivePredictor, J: JointNetwork> TransducerDecoder<P, J> {
     pub fn greedy_decode(&self, encoder_out: &EncoderOutput) -> DecodingResult {
         let mut labels = Vec::new();
         let mut score = 0.0f32;
-        let mut predictor_state = self.predictor.initial_state();
-        let mut predictor_out = vec![0.0f32; self.predictor.output_dim()];
-
-        // Get initial predictor output
-        let (new_state, initial_out) = self.predictor.step(&predictor_state, 0); // BOS token
-        predictor_state = new_state;
-        predictor_out.copy_from_slice(&initial_out);
+        let (mut predictor_state, mut predictor_out) =
+            self.predictor.step(&self.predictor.initial_state(), 0); // BOS token
 
         for t in 0..encoder_out.num_frames {
             let enc_frame = encoder_out.frame(t);
@@ -159,12 +225,14 @@ impl<P: AutoregressivePredictor, J: JointNetwork> TransducerDecoder<P, J> {
                 let log_probs = self.joiner.forward(enc_frame, &predictor_out);
 
                 // Find best label
-                let (best_label, best_prob) = log_probs
+                let Some((best_label, best_prob)) = log_probs
                     .iter()
                     .enumerate()
                     .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal))
                     .map(|(i, &p)| (i as Label, p))
-                    .expect("log_probs must not be empty");
+                else {
+                    break;
+                };
 
                 score += best_prob;
 
@@ -177,7 +245,7 @@ impl<P: AutoregressivePredictor, J: JointNetwork> TransducerDecoder<P, J> {
                 labels.push(best_label);
                 let (new_state, new_out) = self.predictor.step(&predictor_state, best_label);
                 predictor_state = new_state;
-                predictor_out.copy_from_slice(&new_out);
+                predictor_out = new_out;
 
                 symbols_this_frame += 1;
                 if symbols_this_frame >= self.config.max_symbols_per_frame {
@@ -196,40 +264,19 @@ impl<P: AutoregressivePredictor, J: JointNetwork> TransducerDecoder<P, J> {
     /// Decode encoder output using beam search.
     pub fn beam_decode(&self, encoder_out: &EncoderOutput) -> Vec<DecodingResult> {
         let beam_width = self.config.beam_width;
-        let mut hypotheses: Vec<Hypothesis> =
-            vec![Hypothesis::initial(self.predictor.initial_state())];
-
-        // Cache predictor outputs to avoid recomputation
-        let mut predictor_cache: HashMap<Vec<Label>, Vec<f32>> = HashMap::new();
-
-        // Initial predictor output (BOS)
-        let (_, initial_out) = self.predictor.step(&self.predictor.initial_state(), 0);
-        predictor_cache.insert(Vec::new(), initial_out);
+        let (initial_state, initial_out) = self.predictor.step(&self.predictor.initial_state(), 0);
+        let mut hypotheses: Vec<Hypothesis> = vec![Hypothesis::initial_with_predictor_output(
+            initial_state,
+            initial_out,
+        )];
 
         for t in 0..encoder_out.num_frames {
             let enc_frame = encoder_out.frame(t);
             let mut new_hypotheses: Vec<Hypothesis> = Vec::new();
 
             for hyp in &hypotheses {
-                // Get or compute predictor output for this hypothesis
-                let predictor_out =
-                    predictor_cache
-                        .entry(hyp.labels.clone())
-                        .or_insert_with(|| {
-                            let (_, out) = if hyp.labels.is_empty() {
-                                self.predictor.step(&self.predictor.initial_state(), 0)
-                            } else {
-                                let last_label = *hyp
-                                    .labels
-                                    .last()
-                                    .expect("transducer/decoding.rs: required value was None/Err");
-                                self.predictor.step(&hyp.predictor_state, last_label)
-                            };
-                            out
-                        });
-
                 // Compute log-probs via joiner
-                let log_probs = self.joiner.forward(enc_frame, predictor_out);
+                let log_probs = self.joiner.forward(enc_frame, &hyp.predictor_out);
 
                 // Consider all possible extensions
                 for (label, &log_prob) in log_probs.iter().enumerate() {
@@ -241,8 +288,9 @@ impl<P: AutoregressivePredictor, J: JointNetwork> TransducerDecoder<P, J> {
                         new_hypotheses.push(new_hyp);
                     } else {
                         // Non-blank: extend with new label
-                        let (new_state, _) = self.predictor.step(&hyp.predictor_state, label);
-                        let new_hyp = hyp.extend(label, log_prob, new_state);
+                        let (new_state, new_out) = self.predictor.step(&hyp.predictor_state, label);
+                        let new_hyp =
+                            hyp.extend_with_predictor_output(label, log_prob, new_state, new_out);
                         new_hypotheses.push(new_hyp);
                     }
                 }
@@ -279,8 +327,10 @@ impl<P: AutoregressivePredictor, J: JointNetwork> TransducerDecoder<P, J> {
     {
         let beam_width = self.config.beam_width;
         let lm_start = lm.start();
-        let mut hypotheses: Vec<Hypothesis> = vec![Hypothesis::initial_with_lm(
-            self.predictor.initial_state(),
+        let (initial_state, initial_out) = self.predictor.step(&self.predictor.initial_state(), 0);
+        let mut hypotheses: Vec<Hypothesis> = vec![Hypothesis::initial_with_lm_output(
+            initial_state,
+            initial_out,
             lm_start,
         )];
 
@@ -289,25 +339,18 @@ impl<P: AutoregressivePredictor, J: JointNetwork> TransducerDecoder<P, J> {
             let mut new_hypotheses: Vec<Hypothesis> = Vec::new();
 
             for hyp in &hypotheses {
-                // Get predictor output
-                let (_, predictor_out) = if hyp.labels.is_empty() {
-                    self.predictor.step(&self.predictor.initial_state(), 0)
-                } else {
-                    let last_label = *hyp
-                        .labels
-                        .last()
-                        .expect("transducer/decoding.rs: required value was None/Err");
-                    self.predictor.step(&hyp.predictor_state, last_label)
-                };
-
                 // Compute acoustic log-probs
-                let log_probs = self.joiner.forward(enc_frame, &predictor_out);
+                let log_probs = self.joiner.forward(enc_frame, &hyp.predictor_out);
 
                 // Get LM state
-                let lm_state = hyp.lm_state.expect("LM state must exist");
+                let Some(lm_state) = hyp.lm_state else {
+                    continue;
+                };
 
                 // Blank transition (no LM update)
-                let blank_prob = log_probs[BLANK as usize];
+                let Some(&blank_prob) = log_probs.get(BLANK as usize) else {
+                    continue;
+                };
                 let new_hyp = hyp.extend(BLANK, blank_prob, hyp.predictor_state.clone());
                 new_hypotheses.push(new_hyp);
 
@@ -325,8 +368,15 @@ impl<P: AutoregressivePredictor, J: JointNetwork> TransducerDecoder<P, J> {
                     let lm_prob: f32 = tr.weight.clone().into();
                     let combined_prob = acoustic_prob + lm_weight * lm_prob;
 
-                    let (new_pred_state, _) = self.predictor.step(&hyp.predictor_state, label);
-                    let new_hyp = hyp.extend_with_lm(label, combined_prob, new_pred_state, tr.to);
+                    let (new_pred_state, new_pred_out) =
+                        self.predictor.step(&hyp.predictor_state, label);
+                    let new_hyp = hyp.extend_with_lm_output(
+                        label,
+                        combined_prob,
+                        new_pred_state,
+                        new_pred_out,
+                        tr.to,
+                    );
                     new_hypotheses.push(new_hyp);
                 }
             }
@@ -405,7 +455,8 @@ pub struct StreamingTransducerDecoder<P: AutoregressivePredictor, J: JointNetwor
 impl<P: AutoregressivePredictor, J: JointNetwork> StreamingTransducerDecoder<P, J> {
     /// Create a new streaming decoder.
     pub fn new(predictor: P, joiner: J, config: TransducerConfig) -> Self {
-        let initial_hyp = Hypothesis::initial(predictor.initial_state());
+        let (initial_state, initial_out) = predictor.step(&predictor.initial_state(), 0);
+        let initial_hyp = Hypothesis::initial_with_predictor_output(initial_state, initial_out);
         Self {
             predictor,
             joiner,
@@ -423,19 +474,8 @@ impl<P: AutoregressivePredictor, J: JointNetwork> StreamingTransducerDecoder<P, 
         let mut new_hypotheses: Vec<Hypothesis> = Vec::new();
 
         for hyp in &self.hypotheses {
-            // Get predictor output
-            let (_, predictor_out) = if hyp.labels.is_empty() {
-                self.predictor.step(&self.predictor.initial_state(), 0)
-            } else {
-                let last_label = *hyp
-                    .labels
-                    .last()
-                    .expect("transducer/decoding.rs: required value was None/Err");
-                self.predictor.step(&hyp.predictor_state, last_label)
-            };
-
             // Compute log-probs
-            let log_probs = self.joiner.forward(enc_frame, &predictor_out);
+            let log_probs = self.joiner.forward(enc_frame, &hyp.predictor_out);
 
             // Process emissions
             for (label, &log_prob) in log_probs.iter().enumerate() {
@@ -445,8 +485,9 @@ impl<P: AutoregressivePredictor, J: JointNetwork> StreamingTransducerDecoder<P, 
                     let new_hyp = hyp.extend(BLANK, log_prob, hyp.predictor_state.clone());
                     new_hypotheses.push(new_hyp);
                 } else {
-                    let (new_state, _) = self.predictor.step(&hyp.predictor_state, label);
-                    let new_hyp = hyp.extend(label, log_prob, new_state);
+                    let (new_state, new_out) = self.predictor.step(&hyp.predictor_state, label);
+                    let new_hyp =
+                        hyp.extend_with_predictor_output(label, log_prob, new_state, new_out);
                     new_hypotheses.push(new_hyp);
                 }
             }
@@ -505,7 +546,11 @@ impl<P: AutoregressivePredictor, J: JointNetwork> StreamingTransducerDecoder<P, 
 
     /// Reset decoder state for a new utterance.
     pub fn reset(&mut self) {
-        self.hypotheses = vec![Hypothesis::initial(self.predictor.initial_state())];
+        let (initial_state, initial_out) = self.predictor.step(&self.predictor.initial_state(), 0);
+        self.hypotheses = vec![Hypothesis::initial_with_predictor_output(
+            initial_state,
+            initial_out,
+        )];
         self.frames_processed = 0;
         self.finalized.clear();
     }
@@ -518,27 +563,76 @@ fn common_prefix_len(a: &[Label], b: &[Label]) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use super::super::traits::PredictorOutput;
     use super::*;
+
+    #[derive(Debug)]
+    struct CountingPredictor;
+
+    impl AutoregressivePredictor for CountingPredictor {
+        fn output_dim(&self) -> usize {
+            1
+        }
+
+        fn initial_state(&self) -> PredictorState {
+            PredictorState::default()
+        }
+
+        fn step(&self, state: &PredictorState, _token: Label) -> (PredictorState, Vec<f32>) {
+            let mut next = state.clone();
+            next.num_tokens += 1;
+            (next.clone(), vec![next.num_tokens as f32])
+        }
+
+        fn get_output<'a>(&self, predictor_out: &'a PredictorOutput, u: usize) -> &'a [f32] {
+            predictor_out.position(u)
+        }
+    }
+
+    #[derive(Debug)]
+    struct HistorySensitiveJoiner;
+
+    impl JointNetwork for HistorySensitiveJoiner {
+        fn vocab_size(&self) -> usize {
+            3
+        }
+
+        fn forward(&self, _encoder_frame: &[f32], predictor_output: &[f32]) -> Vec<f32> {
+            match predictor_output.first().copied().unwrap_or_default() as usize {
+                0 | 1 => vec![-10.0, 0.0, -10.0],
+                2 => vec![0.0, -10.0, -10.0],
+                _ => vec![-10.0, -10.0, 0.0],
+            }
+        }
+    }
 
     #[test]
     fn test_hypothesis_ordering() {
-        let h1 = Hypothesis {
-            labels: vec![],
-            score: -1.0,
-            predictor_state: PredictorState::default(),
-            lm_state: None,
-            timestep: 0,
-        };
-        let h2 = Hypothesis {
-            labels: vec![],
-            score: -2.0,
-            predictor_state: PredictorState::default(),
-            lm_state: None,
-            timestep: 0,
-        };
+        let h1 = Hypothesis::initial_with_predictor_output(PredictorState::default(), vec![])
+            .extend(BLANK, -1.0, PredictorState::default());
+        let h2 = Hypothesis::initial_with_predictor_output(PredictorState::default(), vec![])
+            .extend(BLANK, -2.0, PredictorState::default());
 
         // Higher score should come first in max-heap
         assert!(h1 < h2); // -1.0 > -2.0, so h1 has priority
+    }
+
+    #[test]
+    fn beam_decode_reuses_stored_predictor_output() {
+        let decoder = TransducerDecoder::new(
+            CountingPredictor,
+            HistorySensitiveJoiner,
+            TransducerConfig {
+                beam_width: 1,
+                ..Default::default()
+            },
+        );
+        let encoder_out = EncoderOutput::new(vec![0.0, 0.0], 2, 1);
+
+        let results = decoder.beam_decode(&encoder_out);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].labels, vec![1]);
     }
 
     #[test]

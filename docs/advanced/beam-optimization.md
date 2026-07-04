@@ -659,7 +659,7 @@ forward log-probability, not the forward score of the FB algorithm):
   (IEEE SPL 28:703–707) — the token-grouping + lazy-evaluation strategy and the
   `α`-stable property used here.
 
-## Next Steps
+## Related Topics
 
 - [Log-Semiring](../architecture/semirings.md#log-semiring): Understanding the semiring
 - [Weight Pushing](../algorithms/weight-pushing.md): General weight pushing algorithm

@@ -2,7 +2,9 @@
 
 use std::fmt::Debug;
 
-use super::{StateId, WeightedTransition, WfstState};
+use super::state::WfstState;
+use super::transition::WeightedTransition;
+use super::types::{StateId, NO_STATE};
 use crate::semiring::Semiring;
 
 /// Core trait for immutable WFST access.
@@ -88,6 +90,10 @@ pub trait MutableWfst<L, W: Semiring>: Wfst<L, W> {
 
     /// Add multiple states and return the first state's ID.
     fn add_states(&mut self, count: usize) -> StateId {
+        if count == 0 {
+            return NO_STATE;
+        }
+
         let first = self.add_state();
         for _ in 1..count {
             self.add_state();
@@ -148,7 +154,8 @@ pub trait MutableWfst<L, W: Semiring>: Wfst<L, W> {
         L: Clone,
     {
         self.clear_transitions(state);
-        for trans in transitions {
+        for mut trans in transitions {
+            trans.from = state;
             self.add_transition(trans);
         }
     }

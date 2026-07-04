@@ -435,9 +435,9 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::super::assertions::{has_no_epsilon, is_acyclic, is_deterministic};
     use super::*;
     use crate::semiring::TropicalWeight;
-    use crate::test_utils::assertions::{has_no_epsilon, is_acyclic, is_deterministic};
     use crate::wfst::Wfst;
 
     #[test]

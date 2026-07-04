@@ -389,7 +389,7 @@ Need substring matching?
       └─ No → DoubleArrayTrie / DoubleArrayTrieChar
 ```
 
-## Next Steps
+## Related Topics
 
 - [Overview](overview.md): Architecture overview
 - [Transducers](transducers.md): Fuzzy matching API

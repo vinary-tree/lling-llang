@@ -436,15 +436,14 @@ MORK rules can use MeTTaIL types:
 
 ## Current Status
 
-**Status**: Planned
+**Status**: External adapter boundary
 
-The `MorkRuleLayer` is planned but not yet implemented. Current blockers:
+`MorkRuleLayer` is documented as an adapter pattern around the stable
+`CorrectionLayer` trait. Keeping MORK-specific storage and evaluation at the
+adapter boundary preserves the core crate's lattice abstractions while allowing a
+MORK runtime to supply rule evaluation through the same layer pipeline.
 
-1. MORK Rust bindings not yet available
-2. Rule compilation pipeline not finalized
-3. Incremental evaluation strategy needs design
-
-## Next Steps
+## Related Integration Points
 
 - [Vision](vision.md): F1R3FLY.io integration overview
 - [MeTTaIL Layer](mettail-layer.md): Type-based filtering

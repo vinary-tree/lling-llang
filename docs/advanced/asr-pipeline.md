@@ -538,7 +538,7 @@ let factored = chain_factor(&hclg, &ChainFactorConfig::default());
   Finite-State Transducer Library.* The reference implementation of the composition,
   determinization, and minimization operators used throughout the cascade.
 
-## Next Steps
+## Related Topics
 
 - [Beam Optimization](beam-optimization.md): Efficient pruned search
 - [CTC Topologies](ctc-topologies.md): CTC graph construction

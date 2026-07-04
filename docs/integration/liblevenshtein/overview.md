@@ -221,7 +221,7 @@ liblevenshtein = { version = "1.0", features = [
 4. **Thread safety**: Concurrent access by default
 5. **Generic operations**: OperationSet for runtime configuration
 
-## Next Steps
+## Related Topics
 
 - [Dictionaries](dictionaries.md): Dictionary implementations
 - [Transducers](transducers.md): Query API and algorithms

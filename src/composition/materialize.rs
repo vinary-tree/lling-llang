@@ -9,7 +9,7 @@ use std::hash::Hash;
 
 use rustc_hash::FxHashMap;
 
-use super::{LazyComposition, ProductStateId};
+use super::fst_fst::{LazyComposition, ProductStateId};
 use crate::semiring::Semiring;
 use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst};
 
@@ -76,9 +76,9 @@ where
 
     // BFS traversal
     while let Some(product_state) = queue.pop_front() {
-        let current_id = *state_map
-            .get(&product_state)
-            .expect("state should be in map");
+        let Some(&current_id) = state_map.get(&product_state) else {
+            continue;
+        };
 
         // Check if this is a final state
         if lazy.is_final(product_state) {
@@ -88,6 +88,7 @@ where
 
         // Get transitions and add them
         let transitions = lazy.transitions(product_state);
+        result.reserve_transitions(current_id, transitions.len());
         for trans in transitions {
             // Get or create target state
             let target_id = if let Some(&id) = state_map.get(&trans.target) {
@@ -115,8 +116,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::super::fst_fst::compose;
     use super::*;
-    use crate::composition::compose;
     use crate::semiring::TropicalWeight;
     use crate::wfst::VectorWfstBuilder;
 

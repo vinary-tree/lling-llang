@@ -397,10 +397,7 @@ where
     W: Semiring + From<f64> + Clone,
 {
     if let Some(lm) = phone_lm {
-        // Use phone LM for better denominator estimation
-        // Clone LM structure but add HMM expansions
-        // (Simplified: just return the LM directly for now)
-        return lm.clone();
+        return expand_phone_lm_with_hmm(num_phones, hmm_topo, lm);
     }
 
     let mut fst: VectorWfst<u32, W> = VectorWfst::new();
@@ -429,6 +426,135 @@ where
     }
 
     fst
+}
+
+fn expand_phone_lm_with_hmm<W>(
+    num_phones: usize,
+    hmm_topo: &HmmTopology,
+    lm: &VectorWfst<u32, W>,
+) -> VectorWfst<u32, W>
+where
+    W: Semiring + From<f64> + Clone,
+{
+    if lm.is_empty() {
+        return VectorWfst::new();
+    }
+
+    let extra_states: usize = (0..lm.num_states() as StateId)
+        .flat_map(|state| lm.transitions(state).iter())
+        .filter_map(|tr| phone_label_for_lm_arc(tr))
+        .filter(|&phone| (phone as usize) < num_phones)
+        .map(|phone| hmm_topo.num_states_for_phone(phone).saturating_sub(1))
+        .sum();
+
+    let mut fst = VectorWfst::with_capacity(lm.num_states() + extra_states);
+    let mut state_map = Vec::with_capacity(lm.num_states());
+
+    for _ in 0..lm.num_states() {
+        state_map.push(fst.add_state());
+    }
+
+    if !lm.is_valid_state(lm.start()) {
+        return fst;
+    }
+    fst.set_start(state_map[lm.start() as usize]);
+
+    for old_state in 0..lm.num_states() as StateId {
+        let new_state = state_map[old_state as usize];
+        if lm.is_final(old_state) {
+            fst.set_final(new_state, lm.final_weight(old_state));
+        }
+    }
+
+    for old_state in 0..lm.num_states() as StateId {
+        let from = state_map[old_state as usize];
+        for tr in lm.transitions(old_state) {
+            if !lm.is_valid_state(tr.to) {
+                continue;
+            }
+
+            let to = state_map[tr.to as usize];
+            if let Some(phone) = phone_label_for_lm_arc(tr) {
+                if (phone as usize) >= num_phones {
+                    continue;
+                }
+                add_lm_phone_expansion(
+                    &mut fst,
+                    from,
+                    to,
+                    phone,
+                    tr.output.or(tr.input),
+                    tr.weight,
+                    hmm_topo,
+                );
+            } else {
+                fst.add_transition(WeightedTransition {
+                    from,
+                    input: None,
+                    output: None,
+                    to,
+                    weight: tr.weight,
+                });
+            }
+        }
+    }
+
+    fst
+}
+
+fn phone_label_for_lm_arc<W: Semiring>(tr: &WeightedTransition<u32, W>) -> Option<u32> {
+    tr.input.or(tr.output)
+}
+
+fn add_lm_phone_expansion<W>(
+    fst: &mut VectorWfst<u32, W>,
+    from: StateId,
+    to: StateId,
+    phone: u32,
+    output: Option<u32>,
+    lm_weight: W,
+    hmm_topo: &HmmTopology,
+) where
+    W: Semiring + From<f64>,
+{
+    let num_hmm_states = hmm_topo.num_states_for_phone(phone);
+    if num_hmm_states == 0 {
+        return;
+    }
+
+    let mut current = from;
+    for hmm_state in 0..num_hmm_states {
+        let pdf = hmm_topo.pdf_for_state(phone, hmm_state);
+        let self_loop_weight = W::from(hmm_topo.self_loop_prob(phone, hmm_state).ln());
+        fst.add_transition(WeightedTransition {
+            from: current,
+            input: Some(pdf),
+            output: None,
+            to: current,
+            weight: self_loop_weight,
+        });
+
+        let is_last_hmm_state = hmm_state + 1 == num_hmm_states;
+        let next = if is_last_hmm_state {
+            to
+        } else {
+            fst.add_state()
+        };
+        let mut forward_weight = W::from(hmm_topo.forward_prob(phone, hmm_state).ln());
+        if is_last_hmm_state {
+            forward_weight = forward_weight.times(&lm_weight);
+        }
+
+        fst.add_transition(WeightedTransition {
+            from: current,
+            input: Some(pdf),
+            output: if is_last_hmm_state { output } else { None },
+            to: next,
+            weight: forward_weight,
+        });
+
+        current = next;
+    }
 }
 
 /// HMM topology specification.
@@ -525,6 +651,42 @@ mod tests {
         assert!(graph.is_final(0));
         // Should have transitions for all PDFs
         assert_eq!(graph.transitions(0).len(), 30); // 10 phones * 3 states
+    }
+
+    #[test]
+    fn test_denominator_graph_expands_phone_lm_arcs_with_hmm_topology() {
+        let topo = HmmTopology::new(3, 2);
+        let mut lm: VectorWfst<u32, TropicalWeight> = VectorWfst::new();
+        let s0 = lm.add_state();
+        let s1 = lm.add_state();
+        lm.set_start(s0);
+        lm.set_final(s1, TropicalWeight::one());
+        lm.add_arc(s0, Some(1), Some(10), s1, TropicalWeight::new(2.0));
+
+        let graph: VectorWfst<u32, TropicalWeight> = build_denominator_graph(3, &topo, Some(&lm));
+
+        assert_eq!(graph.start(), 0);
+        assert!(graph.is_final(1));
+        assert_eq!(graph.num_states(), 3);
+
+        let first_pdf = topo.pdf_for_state(1, 0);
+        let second_pdf = topo.pdf_for_state(1, 1);
+        let first_state_forward = graph
+            .transitions(0)
+            .iter()
+            .find(|tr| tr.input == Some(first_pdf) && tr.to != 0)
+            .expect("first HMM state should forward to an expanded state");
+
+        let expanded_state = first_state_forward.to;
+        assert_ne!(expanded_state, 1, "phone arc should not stay raw LM-sized");
+        assert!(graph
+            .transitions(expanded_state)
+            .iter()
+            .any(|tr| tr.input == Some(second_pdf) && tr.to == expanded_state));
+        assert!(graph
+            .transitions(expanded_state)
+            .iter()
+            .any(|tr| tr.input == Some(second_pdf) && tr.output == Some(10) && tr.to == 1));
     }
 
     #[test]

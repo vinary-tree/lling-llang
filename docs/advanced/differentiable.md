@@ -547,7 +547,7 @@ if score.value().is_nan() || score.value().is_infinite() {
 - [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, M. *Weighted Automata Algorithms.*
   Shortest-distance and forward/backward over semirings.
 
-## Next Steps
+## Related Topics
 
 - [Deep Learning Integration](deep-learning.md): Using differentiable WFSTs with neural networks
 - [CTC Topologies](ctc-topologies.md): Building CTC loss functions

@@ -17,7 +17,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::symbolic::BooleanAlgebra;
+use super::BooleanAlgebra;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // SymTerm
@@ -310,7 +310,7 @@ impl<A: BooleanAlgebra> SymbolicTreeAutomaton<A> {
                             continue;
                         }
                         Some(g)
-                    },
+                    }
                     _ => continue, // incompatible payload-ness
                 };
                 let child_states: Vec<usize> = ta
@@ -397,7 +397,7 @@ impl<A: BooleanAlgebra> SymbolicTreeAutomaton<A> {
                     .iter()
                     .filter_map(|t| t.payload_guard.clone())
                     .collect();
-                crate::symbolic::collection_algebra::minterms(&self.algebra, &guards)
+                super::collection_algebra::minterms(&self.algebra, &guards)
                     .into_iter()
                     .map(Some)
                     .collect()
@@ -563,7 +563,11 @@ pub struct TreeAlgebra<A: BooleanAlgebra> {
 impl<A: BooleanAlgebra> TreeAlgebra<A> {
     /// Construct a tree algebra over the given alphabet.
     pub fn new(elem: A, arities: HashMap<String, usize>, payloaded: HashSet<String>) -> Self {
-        TreeAlgebra { elem, arities, payloaded }
+        TreeAlgebra {
+            elem,
+            arities,
+            payloaded,
+        }
     }
 
     /// The universal automaton accepting every well-formed term.
@@ -644,9 +648,11 @@ impl<A: BooleanAlgebra> TreeAlgebra<A> {
         match p {
             TreePred::True | TreePred::Wild => self.universal(),
             TreePred::False => self.empty_automaton(),
-            TreePred::Node { constructor, payload_guard, children } => {
-                self.compile_node(constructor, payload_guard, children)
-            },
+            TreePred::Node {
+                constructor,
+                payload_guard,
+                children,
+            } => self.compile_node(constructor, payload_guard, children),
             TreePred::And(a, b) => self.compile(a).intersect(&self.compile(b)),
             TreePred::Or(a, b) => self.compile(a).union(&self.compile(b)),
             TreePred::Not(x) => self.compile(x).complement(),
@@ -701,8 +707,8 @@ impl<A: BooleanAlgebra> BooleanAlgebra for TreeAlgebra<A> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::{IntervalAlgebra, IntervalPred};
     use super::*;
-    use crate::symbolic::{IntervalAlgebra, IntervalPred};
 
     // A tiny term language: Lit[int] (scalar leaf) and Pair(a, b) (binary).
     fn lit(n: i64) -> SymTerm<i64> {
@@ -830,8 +836,8 @@ mod tests {
 
 #[cfg(test)]
 mod tree_algebra_tests {
+    use super::super::{IntervalAlgebra, IntervalPred};
     use super::*;
-    use crate::symbolic::{IntervalAlgebra, IntervalPred};
 
     fn lit(n: i64) -> SymTerm<i64> {
         SymTerm::leaf("Lit", n)

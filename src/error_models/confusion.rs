@@ -249,6 +249,44 @@ impl<W: Semiring> ConfusionTransducer<W> {
         &self.config
     }
 
+    fn limited_substitutions_by_char(&self) -> HashMap<char, Vec<(char, f64)>> {
+        let mut substitutions: HashMap<char, Vec<(char, f64)>> = HashMap::new();
+
+        for (&(intended, observed), &cost) in &self.matrix.substitutions {
+            if intended != observed {
+                substitutions
+                    .entry(intended)
+                    .or_default()
+                    .push((observed, cost));
+            }
+        }
+
+        for subs in substitutions.values_mut() {
+            subs.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+            if let Some(max) = self.config.max_confusions_per_char {
+                subs.truncate(max);
+            }
+        }
+
+        substitutions
+    }
+
+    fn transposition_entries(&self) -> Vec<(char, char, f64)> {
+        let mut transpositions: Vec<_> = self
+            .matrix
+            .transpositions
+            .iter()
+            .filter_map(|(&(a, b), &cost)| (a != b).then_some((a, b, cost)))
+            .collect();
+
+        transpositions.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| a.1.cmp(&b.1))
+                .then_with(|| a.2.total_cmp(&b.2))
+        });
+        transpositions
+    }
+
     /// Build the confusion WFST.
     ///
     /// Creates a single-state transducer where:
@@ -261,12 +299,24 @@ impl<W: Semiring> ConfusionTransducer<W> {
     where
         W: From<TropicalWeight>,
     {
-        let mut fst = VectorWfst::new();
+        let substitutions = self.limited_substitutions_by_char();
+        let transpositions = self.transposition_entries();
+        let mut fst = VectorWfst::with_capacity(1 + transpositions.len());
         let state = fst.add_state();
         fst.set_start(state);
         fst.set_final(state, W::one());
 
         let alphabet = self.matrix.alphabet();
+        let substitution_count: usize = substitutions.values().map(Vec::len).sum();
+        fst.reserve_transitions(
+            state,
+            if self.config.include_identity {
+                alphabet.len()
+            } else {
+                0
+            } + substitution_count
+                + transpositions.len(),
+        );
 
         // Add identity and substitution arcs
         for &c in &alphabet {
@@ -277,24 +327,20 @@ impl<W: Semiring> ConfusionTransducer<W> {
             }
 
             // Substitutions for this character
-            let mut subs: Vec<_> = self.matrix.substitutions_for(c).collect();
-
-            // Sort by cost and optionally limit
-            subs.sort_by(|a, b| {
-                a.1.partial_cmp(&b.1)
-                    .expect("error_models/confusion.rs: required value was None/Err")
-            });
-            if let Some(max) = self.config.max_confusions_per_char {
-                subs.truncate(max);
-            }
-
-            for (observed, cost) in subs {
-                if observed != c {
-                    // Skip identity since we handled it above
+            if let Some(subs) = substitutions.get(&c) {
+                for &(observed, cost) in subs {
                     let weight = W::from(TropicalWeight::new(cost));
                     fst.add_arc(state, Some(c), Some(observed), state, weight);
                 }
             }
+        }
+
+        for (a, b, cost) in transpositions {
+            let pending = fst.add_state();
+            fst.reserve_transitions(pending, 1);
+            let weight = W::from(TropicalWeight::new(cost));
+            fst.add_arc(state, Some(a), Some(b), pending, weight);
+            fst.add_arc(pending, Some(b), Some(a), state, W::one());
         }
 
         fst
@@ -309,12 +355,27 @@ impl<W: Semiring> ConfusionTransducer<W> {
     where
         W: From<TropicalWeight>,
     {
-        let mut fst: VectorWfst<Option<char>, W> = VectorWfst::new();
+        let substitutions = self.limited_substitutions_by_char();
+        let transpositions = self.transposition_entries();
+        let mut fst: VectorWfst<Option<char>, W> =
+            VectorWfst::with_capacity(1 + transpositions.len());
         let state = fst.add_state();
         fst.set_start(state);
         fst.set_final(state, W::one());
 
         let alphabet = self.matrix.alphabet();
+        let substitution_count: usize = substitutions.values().map(Vec::len).sum();
+        fst.reserve_transitions(
+            state,
+            if self.config.include_identity {
+                alphabet.len()
+            } else {
+                0
+            } + substitution_count
+                + alphabet.len() // deletions
+                + alphabet.len() // insertions
+                + transpositions.len(),
+        );
 
         // Add identity and substitution arcs
         for &c in &alphabet {
@@ -325,8 +386,8 @@ impl<W: Semiring> ConfusionTransducer<W> {
             }
 
             // Substitutions
-            for (observed, cost) in self.matrix.substitutions_for(c) {
-                if observed != c {
+            if let Some(subs) = substitutions.get(&c) {
+                for &(observed, cost) in subs {
                     let weight = W::from(TropicalWeight::new(cost));
                     fst.add_arc(state, Some(Some(c)), Some(Some(observed)), state, weight);
                 }
@@ -349,6 +410,14 @@ impl<W: Semiring> ConfusionTransducer<W> {
                 .unwrap_or(self.config.default_insertion_cost);
             let weight = W::from(TropicalWeight::new(ins_cost));
             fst.add_arc(state, Some(None), Some(Some(c)), state, weight);
+        }
+
+        for (a, b, cost) in transpositions {
+            let pending = fst.add_state();
+            fst.reserve_transitions(pending, 1);
+            let weight = W::from(TropicalWeight::new(cost));
+            fst.add_arc(state, Some(Some(a)), Some(Some(b)), pending, weight);
+            fst.add_arc(pending, Some(Some(b)), Some(Some(a)), state, W::one());
         }
 
         fst
@@ -670,6 +739,32 @@ mod tests {
     }
 
     #[test]
+    fn test_build_transducer_emits_transposition_path() {
+        let mut matrix = ConfusionMatrix::new();
+        matrix.add_transposition('a', 'b', 0.4);
+
+        let transducer = ConfusionTransducer::<TropicalWeight>::from_matrix(matrix);
+        let fst = transducer.build();
+        let start = fst.start();
+
+        assert_eq!(fst.num_states(), 3);
+
+        let pending = fst
+            .transitions(start)
+            .iter()
+            .find(|t| t.input == Some('a') && t.output == Some('b') && t.to != start)
+            .map(|t| t.to)
+            .expect("expected first half of a,b transposition");
+
+        assert!(fst.transitions(pending).iter().any(|t| {
+            t.input == Some('b')
+                && t.output == Some('a')
+                && t.to == start
+                && t.weight == TropicalWeight::one()
+        }));
+    }
+
+    #[test]
     fn test_qwerty_matrix() {
         let matrix = qwerty_confusion_matrix();
 
@@ -747,5 +842,58 @@ mod tests {
 
         let start = fst.start();
         assert!(fst.is_final(start));
+    }
+
+    #[test]
+    fn test_build_with_indels_honors_max_confusions_per_char() {
+        let mut matrix = ConfusionMatrix::new();
+        matrix.add_substitution('a', 'b', 0.1);
+        matrix.add_substitution('a', 'c', 0.2);
+        let config = ConfusionConfig {
+            include_identity: false,
+            max_confusions_per_char: Some(1),
+            ..Default::default()
+        };
+
+        let transducer = ConfusionTransducer::<TropicalWeight>::with_config(matrix, config);
+        let fst = transducer.build_with_indels();
+        let start = fst.start();
+
+        let substitution_outputs: Vec<_> = fst
+            .transitions(start)
+            .iter()
+            .filter_map(|t| match (t.input, t.output) {
+                (Some(Some('a')), Some(Some(observed))) => Some(observed),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(substitution_outputs, vec!['b']);
+    }
+
+    #[test]
+    fn test_build_with_indels_emits_transposition_path() {
+        let mut matrix = ConfusionMatrix::new();
+        matrix.add_transposition('a', 'b', 0.4);
+
+        let transducer = ConfusionTransducer::<TropicalWeight>::from_matrix(matrix);
+        let fst = transducer.build_with_indels();
+        let start = fst.start();
+
+        assert_eq!(fst.num_states(), 3);
+
+        let pending = fst
+            .transitions(start)
+            .iter()
+            .find(|t| t.input == Some(Some('a')) && t.output == Some(Some('b')) && t.to != start)
+            .map(|t| t.to)
+            .expect("expected first half of optional-label a,b transposition");
+
+        assert!(fst.transitions(pending).iter().any(|t| {
+            t.input == Some(Some('b'))
+                && t.output == Some(Some('a'))
+                && t.to == start
+                && t.weight == TropicalWeight::one()
+        }));
     }
 }

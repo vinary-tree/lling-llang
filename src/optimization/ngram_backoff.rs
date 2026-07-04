@@ -231,10 +231,7 @@ impl NgramLmBuilder {
 
         // Second pass: add n-gram arcs
         for ngram in &ngrams {
-            let source = *self
-                .context_to_state
-                .get(&ngram.context)
-                .expect("context exists");
+            let source = self.get_or_create_state(&mut fst, &ngram.context);
 
             // Target context after seeing this word
             let mut new_context = ngram.context.clone();
@@ -242,10 +239,7 @@ impl NgramLmBuilder {
             if new_context.len() > self.config.order - 1 {
                 new_context.remove(0);
             }
-            let target = *self
-                .context_to_state
-                .get(&new_context)
-                .expect("target exists");
+            let target = self.get_or_create_state(&mut fst, &new_context);
 
             fst.add_arc(
                 source,
@@ -270,10 +264,7 @@ impl NgramLmBuilder {
             }
 
             let backoff_context = Self::backoff_context(context);
-            let backoff_state = *self
-                .context_to_state
-                .get(&backoff_context)
-                .expect("backoff context exists");
+            let backoff_state = self.get_or_create_state(&mut fst, &backoff_context);
 
             // Back-off weight
             let backoff_weight = self.backoff_weights.get(context).copied().unwrap_or(0.0); // Default: no penalty for back-off
@@ -719,6 +710,29 @@ mod tests {
         assert_eq!(stats.order_counts[3], 2); // 2 trigrams
 
         let _fst = builder.build();
+    }
+
+    #[test]
+    fn test_sparse_trigram_builder_creates_implicit_backoff_states() {
+        let config = NgramLmConfig {
+            order: 3,
+            use_backoff_symbol: true,
+            vocab_size: 32,
+            prune_threshold: None,
+        };
+
+        let mut builder = NgramLmBuilder::new(config);
+        builder.add_ngram(&[10, 20], 30, 0.5);
+        builder.add_backoff(&[10, 20], 0.1);
+
+        let fst = builder.build();
+
+        assert!(fst.num_states() >= 5);
+        for state in 0..fst.num_states() as StateId {
+            for transition in fst.transitions(state) {
+                assert!(transition.to < fst.num_states() as StateId);
+            }
+        }
     }
 
     #[test]

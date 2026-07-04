@@ -28,6 +28,7 @@
 //! // Returns: [("their", w1), ("they're", w2)]
 //! ```
 
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 
@@ -133,6 +134,19 @@ impl PhoneticCode {
         }
         false
     }
+}
+
+fn compare_costs(left: f64, right: f64) -> Ordering {
+    match (left.is_nan(), right.is_nan()) {
+        (true, true) => Ordering::Equal,
+        (true, false) => Ordering::Greater,
+        (false, true) => Ordering::Less,
+        (false, false) => left.total_cmp(&right),
+    }
+}
+
+fn compare_homophone_results(left: &(String, f64), right: &(String, f64)) -> Ordering {
+    compare_costs(left.1, right.1).then_with(|| left.0.cmp(&right.0))
 }
 
 /// Phonetic encoder that computes phonetic codes for words.
@@ -554,12 +568,7 @@ impl PhoneticEncoder {
                     let is_vowel = |c: char| matches!(c, 'A' | 'E' | 'I' | 'O' | 'U');
                     let prev = chars.get(i.saturating_sub(1)).copied();
                     if let Some(p) = prev {
-                        if !is_vowel(p)
-                            || (next.is_some()
-                                && !is_vowel(next.expect(
-                                    "error_models/homophone.rs: required value was None/Err",
-                                )))
-                        {
+                        if !is_vowel(p) || next.map(|n| !is_vowel(n)).unwrap_or(false) {
                             if let Some(p) = prev {
                                 if is_vowel(p) {
                                     code.push('A');
@@ -926,7 +935,7 @@ impl<W: Semiring> HomophoneTransducer<W> {
 
         let query_phonetic = self.encoder.encode(&normalized);
         let mut results: Vec<(String, f64)> = Vec::new();
-        let mut seen: HashSet<String> = HashSet::new();
+        let mut seen: HashSet<&str> = HashSet::new();
 
         // Look up by primary code
         if let Some(entries) = self.phonetic_index.get(&query_phonetic.primary) {
@@ -934,7 +943,7 @@ impl<W: Semiring> HomophoneTransducer<W> {
                 if !self.config.include_self && entry.word == normalized {
                     continue;
                 }
-                if seen.insert(entry.word.clone()) {
+                if seen.insert(entry.word.as_str()) {
                     let cost = self.compute_cost(&normalized, entry);
                     results.push((entry.word.clone(), cost));
                 }
@@ -948,7 +957,7 @@ impl<W: Semiring> HomophoneTransducer<W> {
                     if !self.config.include_self && entry.word == normalized {
                         continue;
                     }
-                    if seen.insert(entry.word.clone()) {
+                    if seen.insert(entry.word.as_str()) {
                         let cost = self.compute_cost(&normalized, entry);
                         results.push((entry.word.clone(), cost));
                     }
@@ -957,22 +966,41 @@ impl<W: Semiring> HomophoneTransducer<W> {
         }
 
         // Sort by cost (lower first)
-        results.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(compare_homophone_results);
         results
     }
 
     /// Compute the cost of a homophone substitution.
     fn compute_cost(&self, query: &str, entry: &HomophoneEntry) -> f64 {
-        let mut cost = self.config.homophone_cost;
+        let mut cost = Self::nonnegative_cost(self.config.homophone_cost);
 
         // Apply length penalty
         let len_diff = (query.len() as f64 - entry.word.len() as f64).abs();
-        cost += len_diff * self.config.length_penalty;
+        let length_penalty = Self::nonnegative_cost(self.config.length_penalty);
+        if len_diff > 0.0 && length_penalty > 0.0 {
+            cost += len_diff * length_penalty;
+        }
 
         // Apply frequency discount (more frequent = lower cost)
-        cost -= entry.frequency.ln().max(-5.0).min(0.0);
+        cost += Self::frequency_penalty(entry.frequency);
 
-        cost.max(0.0)
+        Self::nonnegative_cost(cost)
+    }
+
+    fn nonnegative_cost(cost: f64) -> f64 {
+        if cost.is_nan() || cost.is_sign_negative() {
+            0.0
+        } else {
+            cost
+        }
+    }
+
+    fn frequency_penalty(frequency: f64) -> f64 {
+        if frequency.is_finite() && frequency > 0.0 {
+            (-frequency.ln()).clamp(0.0, 5.0)
+        } else {
+            5.0
+        }
     }
 
     /// Get the phonetic encoder.
@@ -1015,7 +1043,9 @@ impl<W: Semiring> HomophoneTransducer<W> {
         for entry in &self.vocabulary {
             // Add identity arc if configured
             if self.config.include_self {
-                let weight = W::from(TropicalWeight::new(self.config.identity_cost));
+                let weight = W::from(TropicalWeight::new(Self::nonnegative_cost(
+                    self.config.identity_cost,
+                )));
                 fst.add_arc(
                     state,
                     Some(entry.word.clone()),
@@ -1293,6 +1323,48 @@ mod tests {
     }
 
     #[test]
+    fn test_homophones_sort_equal_costs_deterministically() {
+        let config = HomophoneConfig {
+            length_penalty: 0.0,
+            ..Default::default()
+        };
+        let transducer =
+            HomophoneTransducer::<TropicalWeight>::with_config(PhoneticAlgorithm::Soundex, config)
+                .with_vocabulary(&["rupert", "rubert", "robert"]);
+
+        let homophones = transducer.homophones("robert");
+        let words: Vec<&str> = homophones.iter().map(|(word, _)| word.as_str()).collect();
+
+        assert_eq!(words, vec!["rubert", "rupert"]);
+        assert_eq!(homophones[0].1, homophones[1].1);
+    }
+
+    #[test]
+    fn test_homophone_costs_are_nan_safe() {
+        let config = HomophoneConfig {
+            include_self: true,
+            homophone_cost: f64::NAN,
+            length_penalty: f64::NAN,
+            identity_cost: f64::NAN,
+            ..Default::default()
+        };
+        let transducer = HomophoneTransducer::<TropicalWeight>::with_config(
+            PhoneticAlgorithm::Metaphone,
+            config,
+        )
+        .with_vocabulary_frequencies(&[("to".to_string(), f64::NAN), ("too".to_string(), -1.0)]);
+
+        let homophones = transducer.homophones("to");
+        assert_eq!(homophones.len(), 2);
+        assert!(homophones.iter().all(|(_, cost)| !cost.is_nan()));
+        assert_eq!(homophones[0].0, "to");
+        assert_eq!(homophones[1].0, "too");
+
+        let fst = transducer.build();
+        assert_eq!(fst.num_states(), 1);
+    }
+
+    #[test]
     fn test_homophone_transducer_build() {
         let transducer = HomophoneTransducer::<TropicalWeight>::new(PhoneticAlgorithm::Soundex)
             .with_vocabulary(&["to", "too", "two"]);
@@ -1361,6 +1433,12 @@ mod tests {
         let basic_code = basic.encode("Testing");
         // Refined typically produces longer codes
         assert!(refined_code.primary.len() >= basic_code.primary.len() - 1);
+    }
+
+    #[test]
+    fn test_nysiis_trailing_h_does_not_panic() {
+        let encoder = PhoneticEncoder::new(PhoneticAlgorithm::Nysiis);
+        assert!(!encoder.encode("ah").primary.is_empty());
     }
 
     mod property_tests {

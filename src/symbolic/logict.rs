@@ -55,21 +55,8 @@ use std::hash::Hash;
 
 /// Result of evaluating a branch.
 ///
-/// The `Yield` and `Fail` variants are part of the documented LogicT
-/// `msplit` protocol (Kiselyov ICFP 2005 §3.2; see
-/// `prattail/docs/design/constraint-theories/logict-framework.md:158-170`)
-/// but are not currently constructed by `LogicStream::suspend` — that
-/// constructor hard-codes `Fork(...)` since the suspension always
-/// represents a deferred set of branches. The variants are reserved for
-/// future direct-`BranchResult`-producing constructors. Match arms
-/// covering them remain in `msplit` and `fair_conjoin` for
-/// exhaustiveness.
-#[allow(dead_code)]
+/// Suspensions expand to a deferred set of branches.
 enum BranchResult<T> {
-    /// Yield a value, with additional branches to explore.
-    Yield(T, Vec<Branch<T>>),
-    /// No result from this branch.
-    Fail,
     /// Fork into sub-branches (no immediate result).
     Fork(Vec<Branch<T>>),
 }
@@ -112,7 +99,9 @@ impl<T: Send + 'static> LogicStream<T> {
     ///
     /// The identity element for `mplus` and `interleave`.
     pub fn empty() -> Self {
-        LogicStream { branches: VecDeque::new() }
+        LogicStream {
+            branches: VecDeque::new(),
+        }
     }
 
     /// Create a stream with a single result.
@@ -150,33 +139,19 @@ impl<T: Send + 'static> LogicStream<T> {
     ///
     /// Processes branches from the front of the queue:
     /// - `Ready(v)`: return immediately with `v` and remaining branches
-    /// - `Suspended(f)`: evaluate `f()` and handle the result:
-    ///   - `Yield(v, more)`: return `v`, enqueue `more` at back
-    ///   - `Fail`: skip this branch, continue to next
-    ///   - `Fork(branches)`: enqueue all at back, continue to next
+    /// - `Suspended(f)`: evaluate `f()` and enqueue the returned forked branches
     pub fn msplit(mut self) -> Option<(T, LogicStream<T>)> {
         while let Some(branch) = self.branches.pop_front() {
             match branch {
                 Branch::Ready(value) => {
                     return Some((value, self));
-                },
-                Branch::Suspended(f) => match f() {
-                    BranchResult::Yield(value, more) => {
-                        for b in more {
-                            self.branches.push_back(b);
-                        }
-                        return Some((value, self));
-                    },
-                    BranchResult::Fail => {
-                        continue;
-                    },
-                    BranchResult::Fork(more) => {
-                        for b in more {
-                            self.branches.push_back(b);
-                        }
-                        continue;
-                    },
-                },
+                }
+                Branch::Suspended(f) => {
+                    let BranchResult::Fork(more) = f();
+                    for branch in more {
+                        self.branches.push_back(branch);
+                    }
+                }
             }
         }
         None
@@ -212,17 +187,17 @@ impl<T: Send + 'static> LogicStream<T> {
                 (Some(a), Some(b)) => {
                     result.push_back(a);
                     result.push_back(b);
-                },
+                }
                 (Some(a), None) => {
                     result.push_back(a);
                     result.extend(iter_a);
                     break;
-                },
+                }
                 (None, Some(b)) => {
                     result.push_back(b);
                     result.extend(iter_b);
                     break;
-                },
+                }
                 (None, None) => break,
             }
         }
@@ -249,17 +224,6 @@ impl<T: Send + 'static> LogicStream<T> {
                 Branch::Suspended(suspended) => {
                     // Evaluate the suspended computation, then apply f
                     match suspended() {
-                        BranchResult::Yield(value, more) => {
-                            let mut result = f(value);
-                            // Process remaining branches from the suspension
-                            for b in more {
-                                if let Branch::Ready(v) = b {
-                                    result = result.interleave(f(v));
-                                }
-                            }
-                            result
-                        },
-                        BranchResult::Fail => LogicStream::empty(),
                         BranchResult::Fork(branches) => {
                             let mut result = LogicStream::<U>::empty();
                             for b in branches {
@@ -268,9 +232,9 @@ impl<T: Send + 'static> LogicStream<T> {
                                 }
                             }
                             result
-                        },
+                        }
                     }
-                },
+                }
             };
             accumulated = accumulated.interleave(stream);
         }
@@ -296,7 +260,7 @@ impl<T: Send + 'static> LogicStream<T> {
                 let first_results = then_fn(first);
                 let rest_results = rest.fair_conjoin(then_fn);
                 first_results.interleave(rest_results)
-            },
+            }
         }
     }
 
@@ -360,7 +324,7 @@ impl<T: Send + 'static> LogicStream<T> {
                 Some((value, rest)) => {
                     results.push(value);
                     stream = rest;
-                },
+                }
                 None => break,
             }
         }
@@ -376,14 +340,9 @@ impl<T: Send + 'static> LogicStream<T> {
         let mut results = Vec::new();
         let mut stream = self;
 
-        loop {
-            match stream.msplit() {
-                Some((value, rest)) => {
-                    results.push(value);
-                    stream = rest;
-                },
-                None => break,
-            }
+        while let Some((value, rest)) = stream.msplit() {
+            results.push(value);
+            stream = rest;
         }
 
         results
@@ -426,7 +385,7 @@ impl<T: Send + 'static> Iterator for LogicStreamIter<T> {
             Some((value, rest)) => {
                 self.stream = rest;
                 Some(value)
-            },
+            }
             None => None,
         }
     }
@@ -485,7 +444,7 @@ pub trait ConstraintTheory: Clone + fmt::Debug + Send + Sync + 'static {
 
     /// Extract a witness assignment from a consistent store.
     ///
-    /// Returns `None` if store is inconsistent or incomplete (needs labeling).
+    /// Returns `None` if store is inconsistent or still needs labeling.
     fn witness(&self, store: &Self::Store) -> Option<Self::Assignment>;
 
     /// Generate labeling choices for search (used by LogicT).
@@ -575,7 +534,10 @@ pub enum QuantifiedArg {
 impl QuantifiedFormula {
     /// Convenience: create an atom with the given relation and args.
     pub fn atom(relation: impl Into<String>, args: Vec<QuantifiedArg>) -> Self {
-        QuantifiedFormula::Atom { relation: relation.into(), args }
+        QuantifiedFormula::Atom {
+            relation: relation.into(),
+            args,
+        }
     }
 
     /// Convenience: `a ∧ b`
@@ -645,22 +607,22 @@ impl QuantifiedFormula {
                         }
                     }
                 }
-            },
+            }
             QuantifiedFormula::And(a, b)
             | QuantifiedFormula::Or(a, b)
             | QuantifiedFormula::Implies(a, b) => {
                 a.collect_free_vars(free, bound);
                 b.collect_free_vars(free, bound);
-            },
+            }
             QuantifiedFormula::Not(inner) => {
                 inner.collect_free_vars(free, bound);
-            },
+            }
             QuantifiedFormula::ForAll { var, body, .. }
             | QuantifiedFormula::Exists { var, body, .. } => {
                 let mut inner_bound = bound.clone();
                 inner_bound.insert(var.clone());
                 body.collect_free_vars(free, &inner_bound);
-            },
+            }
         }
     }
 }
@@ -689,17 +651,17 @@ impl fmt::Display for QuantifiedFormula {
                     write!(f, "{}", arg)?;
                 }
                 write!(f, ")")
-            },
+            }
             QuantifiedFormula::And(a, b) => write!(f, "({} ∧ {})", a, b),
             QuantifiedFormula::Or(a, b) => write!(f, "({} ∨ {})", a, b),
             QuantifiedFormula::Not(inner) => write!(f, "¬{}", inner),
             QuantifiedFormula::Implies(a, b) => write!(f, "({} ⇒ {})", a, b),
             QuantifiedFormula::ForAll { var, domain, body } => {
                 write!(f, "∀{} ∈ {}. {}", var, domain, body)
-            },
+            }
             QuantifiedFormula::Exists { var, domain, body } => {
                 write!(f, "∃{} ∈ {}. {}", var, domain, body)
-            },
+            }
         }
     }
 }
@@ -710,7 +672,7 @@ impl fmt::Display for QuantifiedDomain {
             QuantifiedDomain::Relation(name) => write!(f, "{}", name),
             QuantifiedDomain::Bounded { relation, limit } => {
                 write!(f, "{}[≤{}]", relation, limit)
-            },
+            }
         }
     }
 }
@@ -801,26 +763,26 @@ where
                 })
                 .collect();
             relation_query(relation, &resolved)
-        },
+        }
 
         QuantifiedFormula::And(a, b) => {
             evaluate_quantified(a, env, relation_query, domain_enumerate, bound)
                 && evaluate_quantified(b, env, relation_query, domain_enumerate, bound)
-        },
+        }
 
         QuantifiedFormula::Or(a, b) => {
             evaluate_quantified(a, env, relation_query, domain_enumerate, bound)
                 || evaluate_quantified(b, env, relation_query, domain_enumerate, bound)
-        },
+        }
 
         QuantifiedFormula::Not(inner) => {
             !evaluate_quantified(inner, env, relation_query, domain_enumerate, bound)
-        },
+        }
 
         QuantifiedFormula::Implies(a, b) => {
             !evaluate_quantified(a, env, relation_query, domain_enumerate, bound)
                 || evaluate_quantified(b, env, relation_query, domain_enumerate, bound)
-        },
+        }
 
         QuantifiedFormula::ForAll { var, domain, body } => {
             let tuples = enumerate_domain(domain, domain_enumerate, bound);
@@ -834,7 +796,7 @@ where
                 }
                 evaluate_quantified(body, &inner_env, relation_query, domain_enumerate, bound)
             })
-        },
+        }
 
         QuantifiedFormula::Exists { var, domain, body } => {
             let tuples = enumerate_domain(domain, domain_enumerate, bound);
@@ -845,7 +807,7 @@ where
                 }
                 evaluate_quantified(body, &inner_env, relation_query, domain_enumerate, bound)
             })
-        },
+        }
     }
 }
 
@@ -864,7 +826,7 @@ where
             let all = domain_enumerate(relation);
             let effective_limit = (*limit).min(default_bound);
             all.into_iter().take(effective_limit).collect()
-        },
+        }
     }
 }
 
@@ -1001,7 +963,7 @@ where
                 })
                 .collect();
             relation_query(relation, &resolved).into()
-        },
+        }
 
         And(a, b) => {
             let ra = evaluate_quantified_with_theory(
@@ -1024,7 +986,7 @@ where
                 bound,
             );
             ra.and(rb)
-        },
+        }
 
         Or(a, b) => {
             let ra = evaluate_quantified_with_theory(
@@ -1047,7 +1009,7 @@ where
                 bound,
             );
             ra.or(rb)
-        },
+        }
 
         Not(inner) => evaluate_quantified_with_theory(
             inner,
@@ -1077,7 +1039,7 @@ where
                 bound,
             );
             ra.implies(rb)
-        },
+        }
 
         ForAll { var, domain, body } => {
             let tuples = enumerate_domain(domain, domain_enumerate, bound);
@@ -1100,7 +1062,7 @@ where
                 ) {
                     TriState::False => return TriState::False,
                     TriState::Unknown => had_unknown = true,
-                    TriState::True => {},
+                    TriState::True => {}
                 }
             }
             if had_unknown {
@@ -1108,7 +1070,7 @@ where
             } else {
                 TriState::True
             }
-        },
+        }
 
         Exists { var, domain, body } => {
             let tuples = enumerate_domain(domain, domain_enumerate, bound);
@@ -1131,7 +1093,7 @@ where
                 ) {
                     TriState::True => return TriState::True,
                     TriState::Unknown => had_unknown = true,
-                    TriState::False => {},
+                    TriState::False => {}
                 }
             }
             if had_unknown {
@@ -1139,7 +1101,7 @@ where
             } else {
                 TriState::False
             }
-        },
+        }
     }
 }
 
@@ -1194,12 +1156,12 @@ where
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         match self {
-            TheoryPred::True | TheoryPred::False => {},
+            TheoryPred::True | TheoryPred::False => {}
             TheoryPred::Atom(c) => c.hash(state),
             TheoryPred::And(a, b) | TheoryPred::Or(a, b) => {
                 a.hash(state);
                 b.hash(state);
-            },
+            }
             TheoryPred::Not(a) => a.hash(state),
         }
     }
@@ -1230,7 +1192,10 @@ pub struct TheoryAlgebra<T: ConstraintTheory> {
 impl<T: ConstraintTheory> TheoryAlgebra<T> {
     /// Create a new TheoryAlgebra with the given theory and search bound.
     pub fn new(theory: T, search_bound: usize) -> Self {
-        TheoryAlgebra { theory, search_bound }
+        TheoryAlgebra {
+            theory,
+            search_bound,
+        }
     }
 
     /// Collect constraints from a `TheoryPred` into a constraint store.
@@ -1254,12 +1219,12 @@ impl<T: ConstraintTheory> TheoryAlgebra<T> {
                 let b_pred = (**b).clone();
                 let algebra_clone = self.clone();
                 a_stores.fair_conjoin(move |s| algebra_clone.collect_constraints(&b_pred, &s))
-            },
+            }
             TheoryPred::Or(a, b) => {
                 let a_stores = self.collect_constraints(a, store);
                 let b_stores = self.collect_constraints(b, store);
                 a_stores.interleave(b_stores)
-            },
+            }
             TheoryPred::Not(inner) => {
                 // Negation in the constraint theory context is subtle.
                 // NOT(P) is satisfiable iff P is not a tautology.
@@ -1287,7 +1252,7 @@ impl<T: ConstraintTheory> TheoryAlgebra<T> {
                         let a_stores = self.collect_constraints(&not_a, store);
                         let b_stores = self.collect_constraints(&not_b, store);
                         a_stores.interleave(b_stores)
-                    },
+                    }
                     TheoryPred::Or(a, b) => {
                         // NOT(A OR B) = NOT(A) AND NOT(B)
                         let not_a = TheoryPred::Not(a.clone());
@@ -1298,7 +1263,7 @@ impl<T: ConstraintTheory> TheoryAlgebra<T> {
                         not_a_stores.fair_conjoin(move |s| {
                             algebra_clone.collect_constraints(&not_b_pred, &s)
                         })
-                    },
+                    }
                     TheoryPred::Atom(_) => {
                         // For atomic negation NOT(c), we can't propagate the
                         // negation through the theory. Instead, return the
@@ -1307,14 +1272,14 @@ impl<T: ConstraintTheory> TheoryAlgebra<T> {
                         // the store's domain that doesn't satisfy c.
                         // The store is unconstrained w.r.t. the negation.
                         LogicStream::unit(store.clone())
-                    },
+                    }
                 }
-            },
+            }
         }
     }
 }
 
-impl<T> crate::symbolic::BooleanAlgebra for TheoryAlgebra<T>
+impl<T> super::BooleanAlgebra for TheoryAlgebra<T>
 where
     T: ConstraintTheory,
     T::Constraint: Hash,
@@ -1450,7 +1415,7 @@ pub struct MultisetPartition<T: Clone + Eq + Hash> {
 /// # Examples
 ///
 /// ```
-/// # use mettail_prattail::logict::{multiset_partitions, MultisetPartition};
+/// # use lling_llang::symbolic::logict::{multiset_partitions, MultisetPartition};
 /// let items = vec![('A', 3), ('B', 2)];
 /// let partitions: Vec<_> = multiset_partitions(&items, 2).collect_all();
 /// assert_eq!(partitions.len(), 3);
@@ -1763,13 +1728,13 @@ mod tests {
                         return None; // Contradiction
                     }
                     new_store.asserted.insert(name.clone());
-                },
+                }
                 PropConstraint::Negate(name) => {
                     if new_store.asserted.contains(name) {
                         return None; // Contradiction
                     }
                     new_store.negated.insert(name.clone());
-                },
+                }
             }
             Some(new_store)
         }
@@ -1850,8 +1815,8 @@ mod tests {
     // ── TheoryAlgebra tests (requires symbolic-automata feature) ────────
 
     mod theory_algebra_tests {
+        use super::super::super::BooleanAlgebra;
         use super::*;
-        use crate::symbolic::BooleanAlgebra;
 
         #[test]
         fn theory_algebra_true_is_satisfiable() {
@@ -1935,16 +1900,19 @@ mod tests {
             "positive" => args.len() == 1 && matches!(args[0].as_str(), "1" | "2" | "3"),
             "reachable" => {
                 args.len() == 2
-                    && matches!((args[0].as_str(), args[1].as_str()), ("1", "2") | ("2", "3"))
-            },
+                    && matches!(
+                        (args[0].as_str(), args[1].as_str()),
+                        ("1", "2") | ("2", "3")
+                    )
+            }
             "safe" => args.len() == 1 && matches!(args[0].as_str(), "1" | "2" | "3"),
             "items" => args.len() == 1 && matches!(args[0].as_str(), "1" | "2" | "3"),
             "greater_than_one" => {
                 args.len() == 1 && args[0].parse::<i32>().map_or(false, |n| n > 1)
-            },
+            }
             "greater_than_two" => {
                 args.len() == 1 && args[0].parse::<i32>().map_or(false, |n| n > 2)
-            },
+            }
             _ => false,
         }
     }
@@ -1954,11 +1922,11 @@ mod tests {
         match rel {
             "positive" | "items" | "safe" => {
                 vec![vec!["1".into()], vec!["2".into()], vec!["3".into()]]
-            },
+            }
             "reachable" => vec![vec!["1".into(), "2".into()], vec!["2".into(), "3".into()]],
             "nodes" => {
                 vec![vec!["1".into()], vec!["2".into()], vec!["3".into()]]
-            },
+            }
             _ => vec![],
         }
     }
@@ -1977,7 +1945,10 @@ mod tests {
     fn quantified_formula_display_bounded() {
         let f = QuantifiedFormula::exists(
             "y",
-            QuantifiedDomain::Bounded { relation: "nodes".into(), limit: 100 },
+            QuantifiedDomain::Bounded {
+                relation: "nodes".into(),
+                limit: 100,
+            },
             QuantifiedFormula::atom("safe", vec![QuantifiedArg::var("y")]),
         );
         assert_eq!(format!("{}", f), "∃y ∈ nodes[≤100]. safe(y)");
@@ -2336,7 +2307,10 @@ mod tests {
         // (If unbounded, item "3" would succeed)
         let f = QuantifiedFormula::exists(
             "x",
-            QuantifiedDomain::Bounded { relation: "items".into(), limit: 2 },
+            QuantifiedDomain::Bounded {
+                relation: "items".into(),
+                limit: 2,
+            },
             QuantifiedFormula::atom("greater_than_two", vec![QuantifiedArg::var("x")]),
         );
         let env = std::collections::HashMap::new();
@@ -2354,7 +2328,10 @@ mod tests {
         // ∃x ∈ items[≤3]. greater_than_two(x) — bound allows item "3" → true
         let f = QuantifiedFormula::exists(
             "x",
-            QuantifiedDomain::Bounded { relation: "items".into(), limit: 3 },
+            QuantifiedDomain::Bounded {
+                relation: "items".into(),
+                limit: 3,
+            },
             QuantifiedFormula::atom("greater_than_two", vec![QuantifiedArg::var("x")]),
         );
         let env = std::collections::HashMap::new();
@@ -2504,9 +2481,18 @@ mod tests {
 
     #[test]
     fn quantified_domain_display() {
-        assert_eq!(format!("{}", QuantifiedDomain::Relation("items".into())), "items");
         assert_eq!(
-            format!("{}", QuantifiedDomain::Bounded { relation: "items".into(), limit: 50 }),
+            format!("{}", QuantifiedDomain::Relation("items".into())),
+            "items"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                QuantifiedDomain::Bounded {
+                    relation: "items".into(),
+                    limit: 50
+                }
+            ),
             "items[≤50]"
         );
     }
@@ -2678,7 +2664,10 @@ mod tests {
             .collect();
         // At least 2 distinct elements should appear in first 3 results
         let distinct: std::collections::HashSet<char> = selected_elems.into_iter().collect();
-        assert!(distinct.len() >= 2, "interleave should mix elements from different positions");
+        assert!(
+            distinct.len() >= 2,
+            "interleave should mix elements from different positions"
+        );
     }
 
     #[test]

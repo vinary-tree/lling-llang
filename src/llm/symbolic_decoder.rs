@@ -111,8 +111,8 @@ impl ConstrainedDecoder for SymbolicConstrainedDecoder {
 
 #[cfg(test)]
 mod tests {
+    use super::super::ConstrainedDecoder;
     use super::*;
-    use crate::llm::ConstrainedDecoder;
     use crate::symbolic::{IntervalAlgebra, IntervalPred};
 
     #[test]
@@ -133,8 +133,13 @@ mod tests {
         assert!(!mask.is_valid(5), "token 5 ∉ [10,20)");
         assert!(!mask.is_valid(25), "token 25 ∉ [10,20)");
 
-        let next = dec.advance(&st, 15).expect("token 15 advances the automaton");
+        let next = dec
+            .advance(&st, 15)
+            .expect("token 15 advances the automaton");
         assert!(dec.is_accepting(&next));
-        assert!(dec.advance(&st, 5).is_none(), "a masked-out token cannot advance");
+        assert!(
+            dec.advance(&st, 5).is_none(),
+            "a masked-out token cannot advance"
+        );
     }
 }

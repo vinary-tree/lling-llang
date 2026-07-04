@@ -5,6 +5,7 @@
 
 use liblevenshtein::prelude::{Dictionary, DictionaryNode};
 use liblevenshtein::transducer::{Algorithm, Candidate, Transducer};
+use rayon::prelude::*;
 
 use crate::semiring::{EditOp, EditSequence, EditWeight, TropicalWeight};
 
@@ -173,10 +174,8 @@ where
             .collect();
     }
 
-    // Use rayon for parallel processing if available
-    // For now, fall back to sequential
     queries
-        .iter()
+        .into_par_iter()
         .map(|q| fuzzy_lookup(dictionary, q.as_ref(), config.clone()))
         .collect()
 }

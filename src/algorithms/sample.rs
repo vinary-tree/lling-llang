@@ -39,7 +39,7 @@ use rand::{Rng, SeedableRng};
 use smallvec::SmallVec;
 
 use crate::semiring::{Semiring, StochasticSemiring};
-use crate::wfst::{StateId, WeightedTransition, Wfst};
+use crate::wfst::{StateId, WeightedTransition, Wfst, NO_STATE};
 
 /// Configuration for path sampling.
 #[derive(Clone, Debug)]
@@ -180,12 +180,16 @@ impl<L, W: Semiring> SampledPath<L, W> {
     }
 
     /// Add a transition to the path.
-    fn extend(&mut self, trans: &WeightedTransition<L, W>)
+    fn extend(&mut self, trans: &WeightedTransition<L, W>, include_epsilon: bool)
     where
         L: Clone,
     {
-        self.input_labels.push(trans.input.clone());
-        self.output_labels.push(trans.output.clone());
+        if include_epsilon || trans.input.is_some() {
+            self.input_labels.push(trans.input.clone());
+        }
+        if include_epsilon || trans.output.is_some() {
+            self.output_labels.push(trans.output.clone());
+        }
         self.weight = self.weight.times(&trans.weight);
         self.states.push(trans.to);
         self.length += 1;
@@ -270,16 +274,25 @@ where
     R: Rng + ?Sized,
 {
     let start = wfst.start();
+    if start == NO_STATE || !wfst.is_valid_state(start) {
+        return Err(SampleError::NoAcceptingPaths);
+    }
+
     let mut path = SampledPath::new(start);
     let mut current = start;
+    let num_states = wfst.num_states();
 
     for _ in 0..config.max_length {
         let transitions = wfst.transitions(current);
         let is_final = wfst.is_final(current);
         let final_weight = wfst.final_weight(current);
+        let valid_transition_count = transitions
+            .iter()
+            .filter(|transition| valid_state_index(transition.to, num_states).is_some())
+            .count();
 
-        // If we're at a final state with no transitions, accept
-        if transitions.is_empty() {
+        // If there are no valid outgoing transitions, accept only at a final state.
+        if valid_transition_count == 0 {
             if is_final {
                 path.finalize(&final_weight);
                 return Ok(path);
@@ -291,7 +304,14 @@ where
         // Decide whether to stop (if final) or continue
         // We treat stopping as an additional "transition" with the final weight
         let should_stop = if is_final {
-            sample_stop_decision(transitions, &final_weight, config.strategy, rng)?
+            sample_stop_decision(
+                transitions,
+                &final_weight,
+                config.strategy,
+                num_states,
+                valid_transition_count,
+                rng,
+            )?
         } else {
             false
         };
@@ -302,9 +322,15 @@ where
         }
 
         // Sample a transition
-        let trans = sample_transition(transitions, config.strategy, rng)?;
-        path.extend(trans);
+        let trans = sample_transition(current, transitions, config.strategy, num_states, rng)?;
+        path.extend(trans, config.include_epsilon);
         current = trans.to;
+    }
+
+    if wfst.is_final(current) {
+        let final_weight = wfst.final_weight(current);
+        path.finalize(&final_weight);
+        return Ok(path);
     }
 
     Err(SampleError::MaxLengthExceeded)
@@ -319,6 +345,8 @@ fn sample_stop_decision<L, W, R>(
     transitions: &[WeightedTransition<L, W>],
     final_weight: &W,
     strategy: SampleStrategy,
+    num_states: usize,
+    valid_transition_count: usize,
     rng: &mut R,
 ) -> Result<bool, SampleError>
 where
@@ -328,16 +356,47 @@ where
     match strategy {
         SampleStrategy::Uniform => {
             // Equal chance of stopping vs each transition
-            let total_options = transitions.len() + 1; // +1 for stop
+            let total_options = valid_transition_count + 1; // +1 for stop
             let stop_index: usize = rng.random_range(0..total_options);
             Ok(stop_index == 0) // Stop if we picked index 0
         }
         SampleStrategy::Proportional => {
-            let final_prob = final_weight.to_probability();
-            let trans_sum: f64 = transitions.iter().map(|t| t.weight.to_probability()).sum();
+            let final_prob = positive_probability(final_weight.to_probability());
+            let infinite_transitions = transitions
+                .iter()
+                .filter(|transition| valid_state_index(transition.to, num_states).is_some())
+                .filter(|transition| {
+                    matches!(
+                        positive_probability(transition.weight.to_probability()),
+                        ProbabilityMass::Infinite
+                    )
+                })
+                .count();
+
+            if matches!(final_prob, ProbabilityMass::Infinite) || infinite_transitions > 0 {
+                let total_options = infinite_transitions
+                    + usize::from(matches!(final_prob, ProbabilityMass::Infinite));
+                return Ok(matches!(final_prob, ProbabilityMass::Infinite)
+                    && rng.random_range(0..total_options) == 0);
+            }
+
+            let final_prob = match final_prob {
+                ProbabilityMass::Finite(probability) => probability,
+                ProbabilityMass::Infinite | ProbabilityMass::Unavailable => 0.0,
+            };
+            let trans_sum: f64 = transitions
+                .iter()
+                .filter(|transition| valid_state_index(transition.to, num_states).is_some())
+                .filter_map(|transition| {
+                    match positive_probability(transition.weight.to_probability()) {
+                        ProbabilityMass::Finite(probability) => Some(probability),
+                        ProbabilityMass::Infinite | ProbabilityMass::Unavailable => None,
+                    }
+                })
+                .sum();
 
             let total = final_prob + trans_sum;
-            if total <= 0.0 {
+            if total <= 0.0 || !total.is_finite() {
                 // Can't sample - this shouldn't happen for well-formed WFSTs
                 return Ok(true); // Default to stopping if everything is zero
             }
@@ -354,50 +413,119 @@ where
 /// Uses `StochasticSemiring::to_probability()` to convert weights for
 /// proportional sampling.
 fn sample_transition<'a, L, W, R>(
+    state: StateId,
     transitions: &'a [WeightedTransition<L, W>],
     strategy: SampleStrategy,
+    num_states: usize,
     rng: &mut R,
 ) -> Result<&'a WeightedTransition<L, W>, SampleError>
 where
     W: Semiring + StochasticSemiring,
     R: Rng + ?Sized,
 {
-    debug_assert!(!transitions.is_empty());
+    if transitions.is_empty() {
+        return Err(SampleError::DeadState(state));
+    }
 
     match strategy {
-        SampleStrategy::Uniform => {
-            let idx: usize = rng.random_range(0..transitions.len());
-            Ok(&transitions[idx])
-        }
+        SampleStrategy::Uniform => sample_uniform_transition(state, transitions, num_states, rng),
         SampleStrategy::Proportional => {
-            // Compute cumulative distribution using to_probability()
-            let weights: SmallVec<[f64; 8]> = transitions
-                .iter()
-                .map(|t| t.weight.to_probability())
-                .collect();
+            let mut infinite_weight_indices: SmallVec<[usize; 8]> = SmallVec::new();
+            let mut finite_weights: SmallVec<[(usize, f64); 8]> = SmallVec::new();
+            let mut total = 0.0;
 
-            let total: f64 = weights.iter().sum();
-            if total <= 0.0 {
-                // All weights are zero - fall back to uniform
-                let idx: usize = rng.random_range(0..transitions.len());
-                return Ok(&transitions[idx]);
+            for (index, transition) in transitions.iter().enumerate() {
+                if valid_state_index(transition.to, num_states).is_none() {
+                    continue;
+                }
+
+                match positive_probability(transition.weight.to_probability()) {
+                    ProbabilityMass::Finite(probability) => {
+                        total += probability;
+                        finite_weights.push((index, probability));
+                    }
+                    ProbabilityMass::Infinite => infinite_weight_indices.push(index),
+                    ProbabilityMass::Unavailable => {}
+                }
+            }
+
+            if !infinite_weight_indices.is_empty() {
+                let idx = rng.random_range(0..infinite_weight_indices.len());
+                return Ok(&transitions[infinite_weight_indices[idx]]);
+            }
+
+            if total <= 0.0 || !total.is_finite() {
+                // All usable weights are zero or numerically unusable - fall back to uniform.
+                return sample_uniform_transition(state, transitions, num_states, rng);
             }
 
             // Sample from cumulative distribution
             let r: f64 = rng.random::<f64>() * total;
             let mut cumulative = 0.0;
 
-            for (i, &w) in weights.iter().enumerate() {
-                cumulative += w;
+            for &(index, probability) in &finite_weights {
+                cumulative += probability;
                 if r < cumulative {
-                    return Ok(&transitions[i]);
+                    return Ok(&transitions[index]);
                 }
             }
 
             // Due to floating point, might reach here - return last
-            Ok(transitions.last().expect("transitions not empty"))
+            finite_weights
+                .last()
+                .map(|(index, _)| &transitions[*index])
+                .ok_or(SampleError::DeadState(state))
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ProbabilityMass {
+    Finite(f64),
+    Infinite,
+    Unavailable,
+}
+
+fn positive_probability(probability: f64) -> ProbabilityMass {
+    if probability.is_finite() && probability > 0.0 {
+        ProbabilityMass::Finite(probability)
+    } else if probability.is_infinite() && probability.is_sign_positive() {
+        ProbabilityMass::Infinite
+    } else {
+        ProbabilityMass::Unavailable
+    }
+}
+
+fn sample_uniform_transition<'a, L, W, R>(
+    state: StateId,
+    transitions: &'a [WeightedTransition<L, W>],
+    num_states: usize,
+    rng: &mut R,
+) -> Result<&'a WeightedTransition<L, W>, SampleError>
+where
+    W: Semiring,
+    R: Rng + ?Sized,
+{
+    let valid_count = transitions
+        .iter()
+        .filter(|transition| valid_state_index(transition.to, num_states).is_some())
+        .count();
+    if valid_count == 0 {
+        return Err(SampleError::DeadState(state));
+    }
+
+    let selected = rng.random_range(0..valid_count);
+    transitions
+        .iter()
+        .filter(|transition| valid_state_index(transition.to, num_states).is_some())
+        .nth(selected)
+        .ok_or(SampleError::DeadState(state))
+}
+
+#[inline]
+fn valid_state_index(state: StateId, num_states: usize) -> Option<usize> {
+    let index = state as usize;
+    (index < num_states).then_some(index)
 }
 
 /// Sample multiple random accepting paths from a WFST.
@@ -563,6 +691,30 @@ mod tests {
         wfst
     }
 
+    fn make_epsilon_wfst() -> VectorWfst<char, TropicalWeight> {
+        let mut wfst = VectorWfst::new();
+        let s0 = wfst.add_state();
+        let s1 = wfst.add_state();
+        let s2 = wfst.add_state();
+
+        wfst.set_start(s0);
+        wfst.set_final(s2, TropicalWeight::one());
+        wfst.add_arc(s0, None, None, s1, TropicalWeight::one());
+        wfst.add_arc(s1, Some('a'), Some('b'), s2, TropicalWeight::one());
+
+        wfst
+    }
+
+    fn make_start_final_wfst() -> VectorWfst<char, TropicalWeight> {
+        let mut wfst = VectorWfst::new();
+        let s0 = wfst.add_state();
+
+        wfst.set_start(s0);
+        wfst.set_final(s0, TropicalWeight::one());
+
+        wfst
+    }
+
     #[test]
     fn test_sample_simple_path() {
         let wfst = make_simple_wfst();
@@ -574,6 +726,41 @@ mod tests {
         assert_eq!(path.output_string(), vec![&'a', &'b']);
         assert_eq!(path.length, 2);
         assert_eq!(path.states.len(), 3);
+    }
+
+    #[test]
+    fn test_sample_accepts_start_final_with_zero_max_length() {
+        let wfst = make_start_final_wfst();
+        let config = SampleConfig::default().max_length(0).seed(42);
+
+        let path = sample_path(&wfst, config).expect("zero-length accepting path should sample");
+
+        assert_eq!(path.length, 0);
+        assert_eq!(path.states, vec![0]);
+        assert!(path.input_labels.is_empty());
+        assert!(path.output_labels.is_empty());
+    }
+
+    #[test]
+    fn test_sample_accepts_final_reached_at_max_length() {
+        let wfst = make_simple_wfst();
+        let config = SampleConfig::default().max_length(2).seed(42);
+
+        let path = sample_path(&wfst, config).expect("path at max length should sample");
+
+        assert_eq!(path.length, 2);
+        assert_eq!(path.states, vec![0, 1, 2]);
+        assert_eq!(path.input_string(), vec![&'a', &'b']);
+    }
+
+    #[test]
+    fn test_sample_rejects_non_final_after_max_length() {
+        let wfst = make_simple_wfst();
+        let config = SampleConfig::default().max_length(1).seed(42);
+
+        let result = sample_path(&wfst, config);
+
+        assert!(matches!(result, Err(SampleError::MaxLengthExceeded)));
     }
 
     #[test]
@@ -635,6 +822,85 @@ mod tests {
         let result = sample_path(&wfst, config);
 
         assert!(matches!(result, Err(SampleError::DeadState(_))));
+    }
+
+    #[test]
+    fn test_sample_transition_empty_slice_reports_dead_state() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(7);
+        let transitions: Vec<WeightedTransition<char, TropicalWeight>> = Vec::new();
+
+        let result = sample_transition(
+            42,
+            &transitions,
+            SampleStrategy::Proportional,
+            100,
+            &mut rng,
+        );
+
+        assert!(matches!(result, Err(SampleError::DeadState(42))));
+    }
+
+    #[test]
+    fn test_sample_invalid_start_reports_no_accepting_paths() {
+        let mut wfst = VectorWfst::<char, TropicalWeight>::new();
+        wfst.add_state();
+
+        let result = sample_path(&wfst, SampleConfig::default().seed(42));
+
+        assert!(matches!(result, Err(SampleError::NoAcceptingPaths)));
+    }
+
+    #[test]
+    fn test_sample_ignores_invalid_transition_targets() {
+        let mut wfst = make_simple_wfst();
+        wfst.add_arc(0, Some('x'), Some('x'), 99, TropicalWeight::new(0.0));
+
+        for seed in 0..32 {
+            let path = sample_path(&wfst, SampleConfig::default().seed(seed))
+                .expect("valid path should remain sampleable");
+
+            assert_eq!(path.states, vec![0, 1, 2]);
+            assert_eq!(path.input_string(), vec![&'a', &'b']);
+        }
+    }
+
+    #[test]
+    fn test_sample_all_invalid_transitions_from_non_final_state_is_dead_state() {
+        let mut wfst = VectorWfst::<char, TropicalWeight>::new();
+        let s0 = wfst.add_state();
+        wfst.set_start(s0);
+        wfst.add_arc(s0, Some('x'), Some('x'), 99, TropicalWeight::one());
+
+        let result = sample_path(&wfst, SampleConfig::default().seed(42));
+
+        assert!(matches!(result, Err(SampleError::DeadState(0))));
+    }
+
+    #[test]
+    fn test_sample_excludes_epsilon_labels_by_default() {
+        let wfst = make_epsilon_wfst();
+
+        let path = sample_path(&wfst, SampleConfig::default().seed(42))
+            .expect("epsilon path should be sampleable");
+
+        assert_eq!(path.length, 2);
+        assert_eq!(path.input_labels, vec![Some('a')]);
+        assert_eq!(path.output_labels, vec![Some('b')]);
+    }
+
+    #[test]
+    fn test_sample_can_include_epsilon_labels() {
+        let wfst = make_epsilon_wfst();
+
+        let path = sample_path(
+            &wfst,
+            SampleConfig::default().include_epsilon(true).seed(42),
+        )
+        .expect("epsilon path should be sampleable");
+
+        assert_eq!(path.length, 2);
+        assert_eq!(path.input_labels, vec![None, Some('a')]);
+        assert_eq!(path.output_labels, vec![None, Some('b')]);
     }
 
     #[test]

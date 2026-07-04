@@ -12,7 +12,7 @@
 //!
 //! [`ConstraintTheory::propagate`] is *two-valued* — `Some(store)` (consistent) or
 //! `None` (inconsistent) — but an SMT solver may return **`Unknown`** (timeout,
-//! incompleteness, non-linear arithmetic). Collapsing `Unknown` to either side is
+//! undecidable fragments, non-linear arithmetic). Collapsing `Unknown` to either side is
 //! unsound: as "consistent" it lets an unsatisfiable guard through; as "inconsistent"
 //! it rejects a satisfiable one. So the [`SmtStore`] carries a [`Sat3`]:
 //!
@@ -41,8 +41,8 @@ use std::sync::OnceLock;
 
 use z3::ast::Ast; // brings `_eq` into scope for Int/BV
 
-use crate::symbolic::algebra_tower::Sat3;
-use crate::symbolic::logict::{ConstraintTheory, LogicStream};
+use super::algebra_tower::Sat3;
+use super::logict::{ConstraintTheory, LogicStream};
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Constraint AST (self-contained: Clone + Eq + Hash, no Z3 Context lifetime)
@@ -501,8 +501,8 @@ mod tests {
 
     #[test]
     fn theory_algebra_is_boolean_algebra() {
-        use crate::symbolic::logict::{TheoryAlgebra, TheoryPred};
-        use crate::symbolic::BooleanAlgebra;
+        use super::super::logict::{TheoryAlgebra, TheoryPred};
+        use super::super::BooleanAlgebra;
         // The whole point of §4-B: TheoryAlgebra<Z3Theory> is a BooleanAlgebra, so the
         // SFA machinery decides SMT guards. Smoke-check is_satisfiable on a guard.
         let alg = TheoryAlgebra::new(Z3Theory::default(), 16);

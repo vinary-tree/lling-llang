@@ -139,11 +139,24 @@ impl ParseForest {
         self.roots.len()
     }
 
-    /// Extract the best parse tree.
+    /// Extract the structurally best parse tree.
     ///
-    /// Returns the first root (for now - could be extended with weights).
+    /// Forest nodes do not carry parse probabilities, so ties are resolved by
+    /// preferring shallower trees, then smaller trees, then stable identifiers.
     pub fn best_parse(&self) -> Option<ParseTree> {
-        self.roots().next().and_then(|root| self.extract_tree(root))
+        self.roots()
+            .filter_map(|root| self.extract_tree(root).map(|tree| (root, tree)))
+            .min_by_key(|(root, tree)| {
+                (
+                    tree.depth(),
+                    tree.size(),
+                    tree.start.0,
+                    tree.end.0,
+                    tree.rule.index(),
+                    root.id(),
+                )
+            })
+            .map(|(_, tree)| tree)
     }
 
     /// Extract all parse trees (up to a limit).
@@ -337,6 +350,30 @@ mod tests {
         let tree = forest.best_parse().expect("should have parse");
         assert_eq!(tree.rule, RuleId::new(0));
         assert_eq!(tree.children.len(), 2);
+    }
+
+    #[test]
+    fn test_best_parse_prefers_shallow_structural_parse() {
+        let mut forest = ParseForest::new();
+
+        let mut child = ForestNode::new(RuleId::new(2), NodeId(0), NodeId(1));
+        child.add_terminal(EdgeId(0));
+        let child_id = forest.add_node(child);
+
+        let mut deep_root = ForestNode::new(RuleId::new(1), NodeId(0), NodeId(1));
+        deep_root.add_derivation(smallvec::smallvec![child_id]);
+        let deep_root_id = forest.add_node(deep_root);
+
+        let mut shallow_root = ForestNode::new(RuleId::new(0), NodeId(0), NodeId(1));
+        shallow_root.add_terminal(EdgeId(0));
+        let shallow_root_id = forest.add_node(shallow_root);
+
+        forest.add_root(deep_root_id);
+        forest.add_root(shallow_root_id);
+
+        let tree = forest.best_parse().expect("should have parse");
+        assert_eq!(tree.rule, RuleId::new(0));
+        assert_eq!(tree.depth(), 1);
     }
 
     #[test]

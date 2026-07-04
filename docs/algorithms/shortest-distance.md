@@ -432,7 +432,7 @@ match single_source_shortest_distance(&fst, config) {
 - [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms* (Handbook of Weighted Automata): the generalized single-source shortest-distance algorithm with the distance/remainder decomposition, queue disciplines, and `k`-closed convergence used here.
 - [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted Finite-State Transducers in Speech Recognition*: shortest-distance as the workhorse behind weight pushing and lattice scoring.
 
-## Next Steps
+## Related Topics
 
 - [Weight Pushing](weight-pushing.md): Uses shortest-distance for normalization
 - [Epsilon Removal](epsilon-removal.md): Uses shortest-distance for `ε`-closures

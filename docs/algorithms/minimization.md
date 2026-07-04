@@ -485,7 +485,7 @@ This means the minimal WFST is optimal in both metrics simultaneously.
 - [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted Finite-State Transducers in Speech Recognition*: minimization as the final stage of the recognition-cascade optimization, with reported state reductions.
 - [Allauzen 2007](../BIBLIOGRAPHY.md#ref-allauzen2007) — *OpenFst*: the `Minimize` operation and equivalence-by-isomorphism testing this implementation mirrors.
 
-## Next Steps
+## Related Topics
 
 - [Determinization](determinization.md): Required before minimization
 - [Weight Pushing](weight-pushing.md): Part of minimization pipeline

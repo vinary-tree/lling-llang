@@ -14,8 +14,8 @@
 //! boolean ops with decidable emptiness/membership, so this is a genuine,
 //! exact EBA.
 
-use crate::symbolic::regex_sfa::{RegexAlgebra, RegexPred};
-use crate::symbolic::{BooleanAlgebra, CharClassAlgebra, CharClassPred};
+use super::regex_sfa::{RegexAlgebra, RegexPred};
+use super::{BooleanAlgebra, CharClassAlgebra, CharClassPred};
 
 // ══════════════════════════════════════════════════════════════════════════════
 // StrPred — char-oriented symbolic regex AST
@@ -72,16 +72,16 @@ impl StrPred {
                     );
                 }
                 acc
-            },
+            }
             StrPred::Length(lo, hi) => RegexPred::Length(*lo, *hi),
             StrPred::Concat(a, b) => {
                 RegexPred::Concat(Box::new(a.to_regex()), Box::new(b.to_regex()))
-            },
+            }
             StrPred::Alt(a, b) => RegexPred::Alt(Box::new(a.to_regex()), Box::new(b.to_regex())),
             StrPred::Star(a) => RegexPred::Star(Box::new(a.to_regex())),
             StrPred::Inter(a, b) => {
                 RegexPred::Inter(Box::new(a.to_regex()), Box::new(b.to_regex()))
-            },
+            }
             StrPred::Compl(a) => RegexPred::Compl(Box::new(a.to_regex())),
         }
     }
@@ -183,7 +183,10 @@ mod tests {
     #[test]
     fn length_and_content_intersection() {
         let alg = StringAlgebra::new();
-        let two_digits = alg.and(&StrPred::Length(2, Some(2)), &StrPred::Star(Box::new(digit())));
+        let two_digits = alg.and(
+            &StrPred::Length(2, Some(2)),
+            &StrPred::Star(Box::new(digit())),
+        );
         assert!(alg.evaluate(&two_digits, &"42".to_string()));
         assert!(!alg.evaluate(&two_digits, &"4".to_string()));
         assert!(!alg.evaluate(&two_digits, &"423".to_string()));

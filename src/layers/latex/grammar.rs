@@ -325,7 +325,7 @@ impl LatexGrammarBuilder {
             // Math content
             .rule("MathContent", &["MathExpr", "MathContent"])
             .epsilon_rule("MathContent")
-            // Math expressions (simplified for standard grammar)
+            // Math expression atoms accepted by the standard grammar
             .rule("MathExpr", &["MathGroup"])
             .rule("MathExpr", &["MathCommand"])
             .rule("MathExpr", &["MathToken"])

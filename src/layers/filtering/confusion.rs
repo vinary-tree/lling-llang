@@ -37,9 +37,9 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use super::super::traits::{CorrectionLayer, LayerResult};
 use crate::backend::LatticeBackend;
 use crate::lattice::{Lattice, LatticeBuilder};
-use crate::layers::{CorrectionLayer, LayerResult};
 use crate::semiring::{Semiring, TropicalWeight};
 
 /// A confusion matrix mapping (observed, intended) character pairs to probabilities.

@@ -427,7 +427,7 @@ let top_10: Vec<_> = transducer.query_ranked("test", 2).take(10).collect();
 - Dynamic data: `DynamicDawg`
 - Substring search: `SuffixAutomaton`
 
-## Next Steps
+## Related Topics
 
 - [Overview](overview.md): Architecture overview
 - [Dictionaries](dictionaries.md): Dictionary implementations

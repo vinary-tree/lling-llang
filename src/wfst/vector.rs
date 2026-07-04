@@ -1,8 +1,46 @@
 //! VectorWfst - Eager WFST implementation using vector storage.
 
+use super::state::{WfstState, WfstStateError};
 use super::traits::{MutableWfst, Wfst};
-use super::{StateId, WeightedTransition, WfstState, NO_STATE};
+use super::transition::WeightedTransition;
+use super::types::{StateId, NO_STATE};
 use crate::semiring::Semiring;
+use std::fmt;
+
+/// Error returned by checked [`VectorWfst`] mutation methods.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VectorWfstError {
+    /// A transition source state is not present in this WFST.
+    InvalidTransitionSource {
+        /// Missing source state.
+        from: StateId,
+        /// Number of states in the WFST.
+        num_states: usize,
+    },
+    /// A transition's source does not match the state that owns it.
+    State(WfstStateError),
+}
+
+impl fmt::Display for VectorWfstError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidTransitionSource { from, num_states } => write!(
+                f,
+                "transition source {} is invalid for WFST with {} states",
+                from, num_states
+            ),
+            Self::State(err) => err.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for VectorWfstError {}
+
+impl From<WfstStateError> for VectorWfstError {
+    fn from(err: WfstStateError) -> Self {
+        Self::State(err)
+    }
+}
 
 /// Eager WFST implementation storing all states in memory.
 ///
@@ -74,6 +112,41 @@ impl<L, W: Semiring> VectorWfst<L, W> {
     #[inline]
     pub fn state_mut(&mut self, state: StateId) -> Option<&mut WfstState<L, W>> {
         self.states.get_mut(state as usize)
+    }
+
+    /// Try to set the start state.
+    ///
+    /// Returns `false` and leaves the existing start state unchanged if the
+    /// supplied state ID is not present in this WFST.
+    #[inline]
+    pub fn try_set_start(&mut self, state: StateId) -> bool {
+        if (state as usize) < self.states.len() {
+            self.start = state;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Try to add a transition.
+    ///
+    /// Returns an error if the transition source is not a valid state. The
+    /// infallible [`MutableWfst::add_transition`] compatibility method keeps
+    /// the historic behavior of ignoring invalid sources.
+    pub fn try_add_transition(
+        &mut self,
+        transition: WeightedTransition<L, W>,
+    ) -> Result<(), VectorWfstError> {
+        let num_states = self.states.len();
+        let Some(state) = self.states.get_mut(transition.from as usize) else {
+            return Err(VectorWfstError::InvalidTransitionSource {
+                from: transition.from,
+                num_states,
+            });
+        };
+
+        state.try_add_transition(transition)?;
+        Ok(())
     }
 
     /// Sort transitions of all states by input label.
@@ -153,12 +226,7 @@ impl<L: Clone + Send + Sync, W: Semiring> MutableWfst<L, W> for VectorWfst<L, W>
 
     #[inline]
     fn set_start(&mut self, state: StateId) {
-        debug_assert!(
-            (state as usize) < self.states.len(),
-            "Invalid start state: {}",
-            state
-        );
-        self.start = state;
+        self.try_set_start(state);
     }
 
     fn set_final(&mut self, state: StateId, weight: W) {
@@ -174,9 +242,7 @@ impl<L: Clone + Send + Sync, W: Semiring> MutableWfst<L, W> for VectorWfst<L, W>
     }
 
     fn add_transition(&mut self, transition: WeightedTransition<L, W>) {
-        if let Some(s) = self.states.get_mut(transition.from as usize) {
-            s.transitions.push(transition);
-        }
+        let _ = self.try_add_transition(transition);
     }
 
     fn reserve_states(&mut self, additional: usize) {
@@ -192,6 +258,18 @@ impl<L: Clone + Send + Sync, W: Semiring> MutableWfst<L, W> for VectorWfst<L, W>
     fn clear_transitions(&mut self, state: StateId) {
         if let Some(s) = self.states.get_mut(state as usize) {
             s.transitions.clear();
+        }
+    }
+
+    fn set_transitions(&mut self, state: StateId, mut transitions: Vec<WeightedTransition<L, W>>)
+    where
+        L: Clone,
+    {
+        if let Some(s) = self.states.get_mut(state as usize) {
+            for transition in &mut transitions {
+                transition.from = state;
+            }
+            s.transitions = transitions.into_iter().collect();
         }
     }
 }
@@ -292,6 +370,15 @@ mod tests {
     }
 
     #[test]
+    fn test_add_zero_states_is_noop() {
+        let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::new();
+        let first = fst.add_states(0);
+
+        assert_eq!(first, NO_STATE);
+        assert_eq!(fst.num_states(), 0);
+    }
+
+    #[test]
     fn test_start_and_final() {
         let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::new();
 
@@ -305,6 +392,19 @@ mod tests {
         assert!(!fst.is_final(s0));
         assert!(fst.is_final(s1));
         assert_eq!(fst.final_weight(s1).value(), 0.5);
+    }
+
+    #[test]
+    fn test_invalid_start_is_ignored() {
+        let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::new();
+        let s0 = fst.add_state();
+
+        assert!(!fst.try_set_start(99));
+        assert_eq!(fst.start(), NO_STATE);
+
+        fst.set_start(s0);
+        fst.set_start(99);
+        assert_eq!(fst.start(), s0);
     }
 
     #[test]
@@ -322,6 +422,91 @@ mod tests {
         assert_eq!(fst.transitions(s0).len(), 2);
         assert_eq!(fst.transitions(s1).len(), 1);
         assert_eq!(fst.transitions(s2).len(), 0);
+    }
+
+    #[test]
+    fn test_try_add_transition_rejects_invalid_source() {
+        let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::new();
+        fst.add_state();
+
+        let transition = WeightedTransition::new(7, Some('a'), Some('b'), 0, TropicalWeight::one());
+
+        assert_eq!(
+            fst.try_add_transition(transition),
+            Err(VectorWfstError::InvalidTransitionSource {
+                from: 7,
+                num_states: 1,
+            })
+        );
+        assert!(fst.transitions(0).is_empty());
+    }
+
+    #[test]
+    fn test_infallible_add_transition_ignores_invalid_source() {
+        let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::new();
+        fst.add_state();
+
+        fst.add_transition(WeightedTransition::new(
+            7,
+            Some('a'),
+            Some('b'),
+            0,
+            TropicalWeight::one(),
+        ));
+
+        assert!(fst.transitions(0).is_empty());
+    }
+
+    #[test]
+    fn test_set_transitions_replaces_state_transitions() {
+        let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::new();
+        let s0 = fst.add_state();
+        let s1 = fst.add_state();
+
+        fst.add_arc(s0, Some('a'), Some('a'), s1, TropicalWeight::new(1.0));
+        fst.set_transitions(
+            s0,
+            vec![WeightedTransition::new(
+                s0,
+                Some('b'),
+                Some('b'),
+                s1,
+                TropicalWeight::new(2.0),
+            )],
+        );
+
+        let transitions = fst.transitions(s0);
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(transitions[0].input, Some('b'));
+        assert_eq!(transitions[0].weight, TropicalWeight::new(2.0));
+    }
+
+    #[test]
+    fn test_set_transitions_uses_state_argument_as_source() {
+        let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::new();
+        let s0 = fst.add_state();
+        let s1 = fst.add_state();
+
+        fst.add_arc(s1, Some('x'), Some('x'), s1, TropicalWeight::new(3.0));
+        fst.set_transitions(
+            s0,
+            vec![WeightedTransition::new(
+                s1,
+                Some('a'),
+                Some('a'),
+                s1,
+                TropicalWeight::new(1.0),
+            )],
+        );
+
+        let s0_transitions = fst.transitions(s0);
+        let s1_transitions = fst.transitions(s1);
+
+        assert_eq!(s0_transitions.len(), 1);
+        assert_eq!(s0_transitions[0].from, s0);
+        assert_eq!(s0_transitions[0].to, s1);
+        assert_eq!(s1_transitions.len(), 1);
+        assert_eq!(s1_transitions[0].input, Some('x'));
     }
 
     #[test]

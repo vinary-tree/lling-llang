@@ -90,7 +90,6 @@
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt;
 
-
 // ══════════════════════════════════════════════════════════════════════════════
 // BooleanAlgebra trait
 // ══════════════════════════════════════════════════════════════════════════════
@@ -208,7 +207,7 @@ impl fmt::Display for IntervalPred {
                     write!(f, "[{}, {})", lo, hi)?;
                 }
                 write!(f, ")")
-            },
+            }
             IntervalPred::Not(inner) => write!(f, "~{}", inner),
         }
     }
@@ -255,7 +254,7 @@ impl IntervalAlgebra {
                 } else {
                     vec![]
                 }
-            },
+            }
             IntervalPred::Union(ranges) => {
                 // Clip and merge ranges into canonical form.
                 let mut clipped: Vec<(i64, i64)> = ranges
@@ -272,11 +271,11 @@ impl IntervalAlgebra {
                     .collect();
                 clipped.sort_unstable();
                 merge_ranges(&clipped)
-            },
+            }
             IntervalPred::Not(inner) => {
                 let inner_ranges = self.normalize(inner);
                 complement_ranges(&inner_ranges, self.min_val, self.max_val)
-            },
+            }
         }
     }
 
@@ -442,7 +441,7 @@ impl fmt::Display for CharClassPred {
                 } else {
                     write!(f, "[{}-{}]", lo.escape_debug(), hi.escape_debug())
                 }
-            },
+            }
             CharClassPred::Union(ranges) => {
                 write!(f, "[")?;
                 for (i, (lo, hi)) in ranges.iter().enumerate() {
@@ -456,7 +455,7 @@ impl fmt::Display for CharClassPred {
                     }
                 }
                 write!(f, "]")
-            },
+            }
             CharClassPred::Not(inner) => write!(f, "~{}", inner),
         }
     }
@@ -489,7 +488,7 @@ impl CharClassAlgebra {
                 } else {
                     vec![]
                 }
-            },
+            }
             CharClassPred::Union(ranges) => {
                 let mut u32_ranges: Vec<(u32, u32)> = ranges
                     .iter()
@@ -503,11 +502,11 @@ impl CharClassAlgebra {
                     .collect();
                 u32_ranges.sort_unstable();
                 merge_u32_ranges(&u32_ranges)
-            },
+            }
             CharClassPred::Not(inner) => {
                 let inner_ranges = Self::normalize_u32(inner);
                 complement_u32_ranges(&inner_ranges, 0, (char::MAX as u32) + 1)
-            },
+            }
         }
     }
 
@@ -653,7 +652,6 @@ impl BooleanAlgebra for CharClassAlgebra {
     }
 }
 
-
 // ══════════════════════════════════════════════════════════════════════════════
 // Symbolic Automaton
 // ══════════════════════════════════════════════════════════════════════════════
@@ -724,7 +722,11 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
     /// Add a state and return its ID.
     pub fn add_state(&mut self, is_accepting: bool, label: Option<String>) -> usize {
         let id = self.states.len();
-        self.states.push(SymbolicState { id, is_accepting, label });
+        self.states.push(SymbolicState {
+            id,
+            is_accepting,
+            label,
+        });
         if is_accepting {
             self.accepting_states.insert(id);
         }
@@ -755,6 +757,37 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
             .push(SymbolicTransition { from, to, guard });
     }
 
+    fn is_valid_state_id(&self, state_id: usize) -> bool {
+        state_id < self.states.len()
+    }
+
+    fn is_valid_transition(&self, trans: &SymbolicTransition<A>) -> bool {
+        self.is_valid_state_id(trans.from) && self.is_valid_state_id(trans.to)
+    }
+
+    fn valid_initial_states(&self) -> impl Iterator<Item = usize> + '_ {
+        self.initial_states
+            .iter()
+            .copied()
+            .filter(|&state_id| self.is_valid_state_id(state_id))
+    }
+
+    fn has_valid_accepting_state(&self) -> bool {
+        self.accepting_states
+            .iter()
+            .any(|&state_id| self.is_valid_state_id(state_id))
+    }
+
+    fn valid_outgoing_transitions(&self) -> Vec<Vec<&SymbolicTransition<A>>> {
+        let mut outgoing = vec![Vec::new(); self.states.len()];
+        for trans in &self.transitions {
+            if self.is_valid_transition(trans) {
+                outgoing[trans.from].push(trans);
+            }
+        }
+        outgoing
+    }
+
     /// Get the number of states.
     pub fn num_states(&self) -> usize {
         self.states.len()
@@ -778,25 +811,25 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
     /// O(|Q| + |delta| * SAT), where SAT is the cost of one satisfiability
     /// check on the algebra.
     pub fn is_empty(&self) -> bool {
-        if self.initial_states.is_empty() {
+        let valid_initials: Vec<usize> = self.valid_initial_states().collect();
+        if valid_initials.is_empty() {
             return true;
         }
-        if self.accepting_states.is_empty() {
+        if !self.has_valid_accepting_state() {
             return true;
         }
-
-        // Pre-build adjacency list filtered by satisfiability.
-        let mut adj: Vec<Vec<usize>> = vec![Vec::new(); self.states.len()];
-        for trans in &self.transitions {
-            if self.algebra.is_satisfiable(&trans.guard) {
-                adj[trans.from].push(trans.to);
-            }
+        if valid_initials
+            .iter()
+            .any(|state| self.accepting_states.contains(state))
+        {
+            return false;
         }
 
         // BFS from initial states.
+        let outgoing = self.valid_outgoing_transitions();
         let mut visited = vec![false; self.states.len()];
-        let mut queue = VecDeque::with_capacity(self.initial_states.len());
-        for &init in &self.initial_states {
+        let mut queue = VecDeque::with_capacity(valid_initials.len());
+        for init in valid_initials {
             if !visited[init] {
                 visited[init] = true;
                 queue.push_back(init);
@@ -807,10 +840,10 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
             if self.accepting_states.contains(&state) {
                 return false; // Found reachable accepting state → non-empty.
             }
-            for &next in &adj[state] {
-                if !visited[next] {
-                    visited[next] = true;
-                    queue.push_back(next);
+            for trans in &outgoing[state] {
+                if self.algebra.is_satisfiable(&trans.guard) && !visited[trans.to] {
+                    visited[trans.to] = true;
+                    queue.push_back(trans.to);
                 }
             }
         }
@@ -827,31 +860,32 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
     /// length-minimal accepted word. Used as the `witness` for derived algebras
     /// (e.g. the string algebra) whose predicates compile to an SFA.
     pub fn shortest_accepted(&self) -> Option<Vec<A::Domain>> {
-        if self.initial_states.is_empty() || self.accepting_states.is_empty() {
+        let valid_initials: Vec<usize> = self.valid_initial_states().collect();
+        if valid_initials.is_empty() || !self.has_valid_accepting_state() {
             return None;
         }
         // The empty word is accepted iff some initial state is accepting.
-        if self
-            .initial_states
+        if valid_initials
             .iter()
             .any(|s| self.accepting_states.contains(s))
         {
             return Some(Vec::new());
         }
+        let outgoing = self.valid_outgoing_transitions();
         let mut visited = vec![false; self.states.len()];
         // pred[state] = (predecessor state, the element consumed on the edge)
         let mut pred: Vec<Option<(usize, A::Domain)>> =
             (0..self.states.len()).map(|_| None).collect();
-        let mut queue = VecDeque::with_capacity(self.initial_states.len());
-        for &init in &self.initial_states {
+        let mut queue = VecDeque::with_capacity(valid_initials.len());
+        for init in valid_initials {
             if !visited[init] {
                 visited[init] = true;
                 queue.push_back(init);
             }
         }
         while let Some(state) = queue.pop_front() {
-            for trans in &self.transitions {
-                if trans.from != state || visited[trans.to] {
+            for trans in &outgoing[state] {
+                if visited[trans.to] {
                     continue;
                 }
                 if let Some(elem) = self.algebra.witness(&trans.guard) {
@@ -886,19 +920,26 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
     ///
     /// # Complexity
     ///
-    /// O(|w| * |Q| * |delta|), where |w| is word length.
+    /// O(|delta| + |w| * |delta_reachable|), where |w| is word length.
     pub fn accepts(&self, word: &[A::Domain]) -> bool {
-        if self.initial_states.is_empty() {
+        let valid_initials: Vec<usize> = self.valid_initial_states().collect();
+        if valid_initials.is_empty() {
             return false;
         }
 
-        let mut current: HashSet<usize> = self.initial_states.clone();
+        let mut current: HashSet<usize> = valid_initials.into_iter().collect();
+        if word.is_empty() {
+            return current
+                .iter()
+                .any(|state| self.accepting_states.contains(state));
+        }
 
+        let outgoing = self.valid_outgoing_transitions();
         for elem in word {
             let mut next = HashSet::new();
             for &state in &current {
-                for trans in &self.transitions {
-                    if trans.from == state && self.algebra.evaluate(&trans.guard, elem) {
+                for trans in &outgoing[state] {
+                    if self.algebra.evaluate(&trans.guard, elem) {
                         next.insert(trans.to);
                     }
                 }
@@ -944,8 +985,8 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
         }
 
         // Set initial states.
-        for &i1 in &self.initial_states {
-            for &i2 in &other.initial_states {
+        for i1 in self.valid_initial_states() {
+            for i2 in other.valid_initial_states() {
                 if let Some(&pid) = state_map.get(&(i1, i2)) {
                     result.set_initial(pid);
                 }
@@ -953,13 +994,22 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
         }
 
         // Create product transitions with conjunctive guards.
-        for t1 in &self.transitions {
-            for t2 in &other.transitions {
+        for t1 in self
+            .transitions
+            .iter()
+            .filter(|t| self.is_valid_transition(t))
+        {
+            for t2 in other
+                .transitions
+                .iter()
+                .filter(|t| other.is_valid_transition(t))
+            {
                 let guard = self.algebra.and(&t1.guard, &t2.guard);
                 if self.algebra.is_satisfiable(&guard) {
-                    if let (Some(&from), Some(&to)) =
-                        (state_map.get(&(t1.from, t2.from)), state_map.get(&(t1.to, t2.to)))
-                    {
+                    if let (Some(&from), Some(&to)) = (
+                        state_map.get(&(t1.from, t2.from)),
+                        state_map.get(&(t1.to, t2.to)),
+                    ) {
                         result.add_transition(from, to, guard);
                     }
                 }
@@ -1009,15 +1059,19 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
         }
 
         // Mark initial states from both sides.
-        for &init in &self.initial_states {
+        for init in self.valid_initial_states() {
             result.set_initial(init + self_offset);
         }
-        for &init in &other.initial_states {
+        for init in other.valid_initial_states() {
             result.set_initial(init + other_offset);
         }
 
         // Copy `self`'s transitions.
-        for trans in &self.transitions {
+        for trans in self
+            .transitions
+            .iter()
+            .filter(|t| self.is_valid_transition(t))
+        {
             result.add_transition(
                 trans.from + self_offset,
                 trans.to + self_offset,
@@ -1026,7 +1080,11 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
         }
 
         // Copy `other`'s transitions with renumbering.
-        for trans in &other.transitions {
+        for trans in other
+            .transitions
+            .iter()
+            .filter(|t| other.is_valid_transition(t))
+        {
             result.add_transition(
                 trans.from + other_offset,
                 trans.to + other_offset,
@@ -1129,7 +1187,7 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
         let mut worklist: VecDeque<BTreeSet<usize>> = VecDeque::new();
 
         // Initial subset state.
-        let initial_set: BTreeSet<usize> = self.initial_states.iter().copied().collect();
+        let initial_set: BTreeSet<usize> = self.valid_initial_states().collect();
         if initial_set.is_empty() {
             // No initial states → empty automaton.
             let q0 = result.add_state(false, Some("empty".to_string()));
@@ -1145,23 +1203,15 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
         state_map.insert(initial_set.clone(), dfa_id);
         worklist.push_back(initial_set);
 
-        // Pre-build outgoing transition index: state -> Vec<(guard, target)>.
-        let mut outgoing: HashMap<usize, Vec<(A::Predicate, usize)>> = HashMap::new();
-        for trans in &self.transitions {
-            outgoing
-                .entry(trans.from)
-                .or_default()
-                .push((trans.guard.clone(), trans.to));
-        }
+        // Pre-build outgoing transition index by valid source state.
+        let outgoing = self.valid_outgoing_transitions();
 
         while let Some(current_set) = worklist.pop_front() {
             // Collect all guard predicates on outgoing transitions from this subset.
             let mut all_guards: Vec<A::Predicate> = Vec::new();
             for &nfa_state in &current_set {
-                if let Some(trans_list) = outgoing.get(&nfa_state) {
-                    for (guard, _) in trans_list {
-                        all_guards.push(guard.clone());
-                    }
+                for trans in &outgoing[nfa_state] {
+                    all_guards.push(trans.guard.clone());
                 }
             }
 
@@ -1177,12 +1227,10 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
                 let mut successor_set = BTreeSet::new();
 
                 for &nfa_state in &current_set {
-                    if let Some(trans_list) = outgoing.get(&nfa_state) {
-                        for (guard, target) in trans_list {
-                            // Does this minterm overlap with the guard?
-                            if self.algebra.overlaps(minterm, guard) {
-                                successor_set.insert(*target);
-                            }
+                    for trans in &outgoing[nfa_state] {
+                        // Does this minterm overlap with the guard?
+                        if self.algebra.overlaps(minterm, &trans.guard) {
+                            successor_set.insert(trans.to);
                         }
                     }
                 }
@@ -1302,7 +1350,11 @@ impl<A: BooleanAlgebra> fmt::Display for SymbolicAutomaton<A> {
         writeln!(f, "  Initial: {:?}", self.initial_states)?;
         writeln!(f, "  Accepting: {:?}", self.accepting_states)?;
         for trans in &self.transitions {
-            writeln!(f, "  q{} --[{:?}]--> q{}", trans.from, trans.guard, trans.to,)?;
+            writeln!(
+                f,
+                "  q{} --[{:?}]--> q{}",
+                trans.from, trans.guard, trans.to,
+            )?;
         }
         Ok(())
     }
@@ -1514,22 +1566,22 @@ impl fmt::Display for PredicateExpr {
             PredicateExpr::Or(a, b) => write!(f, "({} \\/ {})", a, b),
             PredicateExpr::ForallFinite { var, domain, body } => {
                 write!(f, "forall {} in {:?}. {}", var, domain, body)
-            },
+            }
             PredicateExpr::ExistsFinite { var, domain, body } => {
                 write!(f, "exists {} in {:?}. {}", var, domain, body)
-            },
+            }
             PredicateExpr::ForallInfinite { var, body } => {
                 write!(f, "forall {}. {}", var, body)
-            },
+            }
             PredicateExpr::ExistsInfinite { var, body } => {
                 write!(f, "exists {}. {}", var, body)
-            },
+            }
             PredicateExpr::Relation { name, args } => {
                 write!(f, "{}({})", name, args.join(", "))
-            },
+            }
             PredicateExpr::Bounded { body, bound } => {
                 write!(f, "bounded({}, {})", body, bound)
-            },
+            }
         }
     }
 }
@@ -1567,7 +1619,7 @@ fn classify_decidability_inner(expr: &PredicateExpr, in_bounded: bool) -> Decida
     match expr {
         PredicateExpr::True | PredicateExpr::False | PredicateExpr::Atom(_) => {
             DecidabilityTier::CompileTimeDecidable
-        },
+        }
 
         PredicateExpr::Not(inner) => classify_decidability_inner(inner, in_bounded),
 
@@ -1575,13 +1627,13 @@ fn classify_decidability_inner(expr: &PredicateExpr, in_bounded: bool) -> Decida
             let ta = classify_decidability_inner(a, in_bounded);
             let tb = classify_decidability_inner(b, in_bounded);
             ta.max(tb)
-        },
+        }
 
         PredicateExpr::ForallFinite { body, .. } | PredicateExpr::ExistsFinite { body, .. } => {
             // Finite-domain quantification is at most T1 from the quantifier itself.
             // But the body may push it higher.
             classify_decidability_inner(body, in_bounded)
-        },
+        }
 
         PredicateExpr::ForallInfinite { body, .. } | PredicateExpr::ExistsInfinite { body, .. } => {
             if in_bounded {
@@ -1592,14 +1644,14 @@ fn classify_decidability_inner(expr: &PredicateExpr, in_bounded: bool) -> Decida
                 // Unbounded infinite quantification → T4.
                 DecidabilityTier::Undecidable
             }
-        },
+        }
 
         PredicateExpr::Relation { .. } => DecidabilityTier::RuntimeDecidable,
 
         PredicateExpr::Bounded { body, .. } => {
             // The Bounded wrapper enables semi-decidability for infinite quantifiers.
             classify_decidability_inner(body, true)
-        },
+        }
     }
 }
 
@@ -1711,17 +1763,17 @@ impl<A: BooleanAlgebra, B: BooleanAlgebra> std::hash::Hash for ProductPred<A, B>
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         match self {
-            ProductPred::True | ProductPred::False => {},
+            ProductPred::True | ProductPred::False => {}
             ProductPred::Both(a, b) => {
                 a.hash(state);
                 b.hash(state);
-            },
+            }
             ProductPred::LeftOnly(a) => a.hash(state),
             ProductPred::RightOnly(b) => b.hash(state),
             ProductPred::And(l, r) | ProductPred::Or(l, r) => {
                 l.hash(state);
                 r.hash(state);
-            },
+            }
             ProductPred::Not(inner) => inner.hash(state),
         }
     }
@@ -1781,7 +1833,7 @@ impl<A: BooleanAlgebra, B: BooleanAlgebra> ProductAlgebra<A, B> {
         match pred {
             ProductPred::True => {
                 vec![(self.left.true_pred(), self.right.true_pred())]
-            },
+            }
             ProductPred::False => vec![],
             ProductPred::Both(a, b) => vec![(a.clone(), b.clone())],
             ProductPred::LeftOnly(a) => vec![(a.clone(), self.right.true_pred())],
@@ -1798,13 +1850,13 @@ impl<A: BooleanAlgebra, B: BooleanAlgebra> ProductAlgebra<A, B> {
                     }
                 }
                 result
-            },
+            }
             ProductPred::Or(l, r) => {
                 let mut l_dnf = self.to_dnf(l);
                 let r_dnf = self.to_dnf(r);
                 l_dnf.extend(r_dnf);
                 l_dnf
-            },
+            }
             ProductPred::Not(inner) => {
                 // ¬P: push negation down to atoms using De Morgan's laws.
                 // ¬(A ∧ B) = ¬A ∨ ¬B
@@ -1815,7 +1867,7 @@ impl<A: BooleanAlgebra, B: BooleanAlgebra> ProductAlgebra<A, B> {
                 // ¬RightOnly(b) = RightOnly(¬b) (left was True, remains True)
                 let negated = self.negate_pred(inner);
                 self.to_dnf(&negated)
-            },
+            }
         }
     }
 
@@ -1830,17 +1882,17 @@ impl<A: BooleanAlgebra, B: BooleanAlgebra> ProductAlgebra<A, B> {
                     Box::new(ProductPred::LeftOnly(self.left.not(a))),
                     Box::new(ProductPred::RightOnly(self.right.not(b))),
                 )
-            },
+            }
             ProductPred::LeftOnly(a) => ProductPred::LeftOnly(self.left.not(a)),
             ProductPred::RightOnly(b) => ProductPred::RightOnly(self.right.not(b)),
             ProductPred::And(l, r) => {
                 // ¬(L ∧ R) = ¬L ∨ ¬R
                 ProductPred::Or(Box::new(self.negate_pred(l)), Box::new(self.negate_pred(r)))
-            },
+            }
             ProductPred::Or(l, r) => {
                 // ¬(L ∨ R) = ¬L ∧ ¬R
                 ProductPred::And(Box::new(self.negate_pred(l)), Box::new(self.negate_pred(r)))
-            },
+            }
             ProductPred::Not(inner) => (**inner).clone(), // Double negation
         }
     }
@@ -1918,7 +1970,7 @@ impl<A: BooleanAlgebra, B: BooleanAlgebra> BooleanAlgebra for ProductAlgebra<A, 
             ProductPred::False => false,
             ProductPred::Both(a, b) => {
                 self.left.evaluate(a, &elem.0) && self.right.evaluate(b, &elem.1)
-            },
+            }
             ProductPred::LeftOnly(a) => self.left.evaluate(a, &elem.0),
             ProductPred::RightOnly(b) => self.right.evaluate(b, &elem.1),
             ProductPred::And(l, r) => self.evaluate(l, elem) && self.evaluate(r, elem),
@@ -1929,3 +1981,86 @@ impl<A: BooleanAlgebra, B: BooleanAlgebra> BooleanAlgebra for ProductAlgebra<A, 
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn malformed_interval_automaton() -> SymbolicAutomaton<IntervalAlgebra> {
+        let algebra = IntervalAlgebra::new(0, 10);
+        let mut automaton = SymbolicAutomaton::new(algebra);
+        let start = automaton.add_state(false, Some("start".to_string()));
+        let accept = automaton.add_state(true, Some("accept".to_string()));
+        automaton.set_initial(start);
+        automaton.add_transition(start, accept, IntervalPred::Range(1, 2));
+
+        automaton.initial_states.insert(99);
+        automaton.accepting_states.insert(99);
+        automaton.transitions.push(SymbolicTransition {
+            from: 99,
+            to: accept,
+            guard: IntervalPred::True,
+        });
+        automaton.transitions.push(SymbolicTransition {
+            from: start,
+            to: 99,
+            guard: IntervalPred::True,
+        });
+        automaton
+    }
+
+    fn transition_endpoints_are_valid<A: BooleanAlgebra>(automaton: &SymbolicAutomaton<A>) -> bool {
+        automaton
+            .transitions
+            .iter()
+            .all(|trans| trans.from < automaton.num_states() && trans.to < automaton.num_states())
+    }
+
+    #[test]
+    fn malformed_state_ids_are_ignored_by_symbolic_traversals() {
+        let automaton = malformed_interval_automaton();
+
+        assert!(!automaton.is_empty());
+        assert_eq!(automaton.shortest_accepted(), Some(vec![1]));
+        assert!(automaton.accepts(&[1]));
+        assert!(!automaton.accepts(&[0]));
+        assert!(!automaton.accepts(&[]));
+    }
+
+    #[test]
+    fn malformed_state_ids_are_not_copied_into_derived_automata() {
+        let automaton = malformed_interval_automaton();
+
+        let determinized = automaton.determinize();
+        assert!(transition_endpoints_are_valid(&determinized));
+        assert!(determinized.accepts(&[1]));
+        assert!(!determinized.accepts(&[0]));
+
+        let unioned = automaton.union(&automaton);
+        assert!(transition_endpoints_are_valid(&unioned));
+        assert!(unioned.accepts(&[1]));
+        assert!(!unioned.accepts(&[0]));
+    }
+
+    #[test]
+    fn invalid_only_symbolic_automaton_is_empty() {
+        let mut automaton = SymbolicAutomaton::new(IntervalAlgebra::new(0, 10));
+        automaton.add_state(false, Some("valid-but-unreachable".to_string()));
+        automaton.initial_states.insert(99);
+        automaton.accepting_states.insert(99);
+        automaton.transitions.push(SymbolicTransition {
+            from: 99,
+            to: 99,
+            guard: IntervalPred::True,
+        });
+
+        assert!(automaton.is_empty());
+        assert_eq!(automaton.shortest_accepted(), None);
+        assert!(!automaton.accepts(&[]));
+        assert!(!automaton.accepts(&[1]));
+
+        let determinized = automaton.determinize();
+        assert!(determinized.is_empty());
+        assert!(transition_endpoints_are_valid(&determinized));
+    }
+}

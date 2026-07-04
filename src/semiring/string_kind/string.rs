@@ -134,6 +134,12 @@ impl LeftStringWeight {
         self.0.as_deref()
     }
 
+    /// Consume the weight and return its bytes if not infinite.
+    #[inline]
+    pub fn into_bytes(self) -> Option<Vec<u8>> {
+        self.0
+    }
+
     /// Get as a UTF-8 string if valid.
     pub fn as_str(&self) -> Option<&str> {
         self.0
@@ -147,17 +153,19 @@ impl LeftStringWeight {
         self.0.as_ref().map(|v| v.len())
     }
 
+    /// Compute the length of the longest common prefix of two byte slices.
+    #[inline]
+    pub fn longest_common_prefix_len(a: &[u8], b: &[u8]) -> usize {
+        a.iter()
+            .zip(b)
+            .position(|(x, y)| x != y)
+            .unwrap_or_else(|| a.len().min(b.len()))
+    }
+
     /// Compute the longest common prefix of two byte slices.
     pub fn longest_common_prefix(a: &[u8], b: &[u8]) -> Vec<u8> {
-        let mut prefix = Vec::with_capacity(a.len().min(b.len()));
-        for (&x, &y) in a.iter().zip(b.iter()) {
-            if x == y {
-                prefix.push(x);
-            } else {
-                break;
-            }
-        }
-        prefix
+        let end = Self::longest_common_prefix_len(a, b);
+        a[..end].to_vec()
     }
 
     /// Addition: longest common prefix.
@@ -165,6 +173,8 @@ impl LeftStringWeight {
         match (&self.0, &other.0) {
             (None, _) => other.clone(),
             (_, None) => self.clone(),
+            (Some(a), Some(b)) if a == b || b.starts_with(a) => self.clone(),
+            (Some(a), Some(b)) if a.starts_with(b) => other.clone(),
             (Some(a), Some(b)) => LeftStringWeight(Some(Self::longest_common_prefix(a, b))),
         }
     }
@@ -173,8 +183,11 @@ impl LeftStringWeight {
     pub fn times(&self, other: &Self) -> Self {
         match (&self.0, &other.0) {
             (None, _) | (_, None) => LeftStringWeight::infinity(),
+            (Some(a), Some(_)) if a.is_empty() => other.clone(),
+            (Some(_), Some(b)) if b.is_empty() => self.clone(),
             (Some(a), Some(b)) => {
-                let mut result = a.clone();
+                let mut result = Vec::with_capacity(a.len() + b.len());
+                result.extend_from_slice(a);
                 result.extend_from_slice(b);
                 LeftStringWeight(Some(result))
             }
@@ -196,13 +209,17 @@ impl LeftStringWeight {
         self == other
     }
 
-    /// Natural ordering: shorter strings are "better" (more specific).
+    /// Natural ordering: prefixes are "better" because they are selected by
+    /// longest-common-prefix addition.
     pub fn natural_less(&self, other: &Self) -> Option<bool> {
         match (&self.0, &other.0) {
             (None, None) => Some(false),
             (None, Some(_)) => Some(false), // infinity is "worse"
             (Some(_), None) => Some(true),  // finite is "better" than infinity
-            (Some(a), Some(b)) => Some(a.len() < b.len()),
+            (Some(a), Some(b)) if a == b => Some(false),
+            (Some(a), Some(b)) if b.starts_with(a) => Some(true),
+            (Some(a), Some(b)) if a.starts_with(b) => Some(false),
+            (Some(_), Some(_)) => None,
         }
     }
 
@@ -211,7 +228,8 @@ impl LeftStringWeight {
         match &self.0 {
             None => vec![0xFF], // Special marker for infinity
             Some(bytes) => {
-                let mut result = vec![0x00]; // Marker for finite string
+                let mut result = Vec::with_capacity(1 + bytes.len());
+                result.push(0x00); // Marker for finite string
                 result.extend(bytes);
                 result
             }
@@ -360,6 +378,12 @@ impl RightStringWeight {
         self.0.as_deref()
     }
 
+    /// Consume the weight and return its bytes if not infinite.
+    #[inline]
+    pub fn into_bytes(self) -> Option<Vec<u8>> {
+        self.0
+    }
+
     /// Get as a UTF-8 string if valid.
     pub fn as_str(&self) -> Option<&str> {
         self.0
@@ -373,18 +397,20 @@ impl RightStringWeight {
         self.0.as_ref().map(|v| v.len())
     }
 
+    /// Compute the length of the longest common suffix of two byte slices.
+    #[inline]
+    pub fn longest_common_suffix_len(a: &[u8], b: &[u8]) -> usize {
+        a.iter()
+            .rev()
+            .zip(b.iter().rev())
+            .position(|(x, y)| x != y)
+            .unwrap_or_else(|| a.len().min(b.len()))
+    }
+
     /// Compute the longest common suffix of two byte slices.
     pub fn longest_common_suffix(a: &[u8], b: &[u8]) -> Vec<u8> {
-        let mut suffix = Vec::with_capacity(a.len().min(b.len()));
-        for (&x, &y) in a.iter().rev().zip(b.iter().rev()) {
-            if x == y {
-                suffix.push(x);
-            } else {
-                break;
-            }
-        }
-        suffix.reverse();
-        suffix
+        let len = Self::longest_common_suffix_len(a, b);
+        a[a.len() - len..].to_vec()
     }
 
     /// Addition: longest common suffix.
@@ -392,6 +418,8 @@ impl RightStringWeight {
         match (&self.0, &other.0) {
             (None, _) => other.clone(),
             (_, None) => self.clone(),
+            (Some(a), Some(b)) if a == b || b.ends_with(a) => self.clone(),
+            (Some(a), Some(b)) if a.ends_with(b) => other.clone(),
             (Some(a), Some(b)) => RightStringWeight(Some(Self::longest_common_suffix(a, b))),
         }
     }
@@ -400,8 +428,11 @@ impl RightStringWeight {
     pub fn times(&self, other: &Self) -> Self {
         match (&self.0, &other.0) {
             (None, _) | (_, None) => RightStringWeight::infinity(),
+            (Some(a), Some(_)) if a.is_empty() => other.clone(),
+            (Some(_), Some(b)) if b.is_empty() => self.clone(),
             (Some(a), Some(b)) => {
-                let mut result = a.clone();
+                let mut result = Vec::with_capacity(a.len() + b.len());
+                result.extend_from_slice(a);
                 result.extend_from_slice(b);
                 RightStringWeight(Some(result))
             }
@@ -418,13 +449,17 @@ impl RightStringWeight {
         self == other
     }
 
-    /// Natural ordering: shorter strings are "better".
+    /// Natural ordering: suffixes are "better" because they are selected by
+    /// longest-common-suffix addition.
     pub fn natural_less(&self, other: &Self) -> Option<bool> {
         match (&self.0, &other.0) {
             (None, None) => Some(false),
             (None, Some(_)) => Some(false),
             (Some(_), None) => Some(true),
-            (Some(a), Some(b)) => Some(a.len() < b.len()),
+            (Some(a), Some(b)) if a == b => Some(false),
+            (Some(a), Some(b)) if b.ends_with(a) => Some(true),
+            (Some(a), Some(b)) if a.ends_with(b) => Some(false),
+            (Some(_), Some(_)) => None,
         }
     }
 
@@ -433,7 +468,8 @@ impl RightStringWeight {
         match &self.0 {
             None => vec![0xFF],
             Some(bytes) => {
-                let mut result = vec![0x00];
+                let mut result = Vec::with_capacity(1 + bytes.len());
+                result.push(0x00);
                 result.extend(bytes);
                 result
             }
@@ -613,6 +649,39 @@ mod tests {
         assert_eq!(abc.star(), LeftStringWeight::one());
     }
 
+    #[test]
+    fn test_left_natural_order_uses_prefix_order() {
+        let ab = LeftStringWeight::from_str("ab");
+        let abc = LeftStringWeight::from_str("abc");
+        let ac = LeftStringWeight::from_str("ac");
+        let empty = LeftStringWeight::epsilon();
+        let infinity = LeftStringWeight::zero();
+
+        assert_eq!(ab.natural_less(&abc), Some(true));
+        assert_eq!(abc.natural_less(&ab), Some(false));
+        assert_eq!(ab.natural_less(&ab), Some(false));
+        assert_eq!(ab.natural_less(&ac), None);
+        assert_eq!(empty.natural_less(&abc), Some(true));
+        assert_eq!(abc.natural_less(&infinity), Some(true));
+        assert_eq!(infinity.natural_less(&abc), Some(false));
+    }
+
+    #[test]
+    fn test_left_natural_order_matches_plus_selection() {
+        let ab = LeftStringWeight::from_str("ab");
+        let abc = LeftStringWeight::from_str("abc");
+        let ac = LeftStringWeight::from_str("ac");
+
+        assert_eq!(ab.plus(&abc), ab);
+        assert_eq!(ab.natural_less(&abc), Some(true));
+        assert_eq!(abc.natural_less(&ab), Some(false));
+
+        let common = ab.plus(&ac);
+        assert_ne!(common, ab);
+        assert_ne!(common, ac);
+        assert_eq!(ab.natural_less(&ac), None);
+    }
+
     // ========== RightStringWeight Tests ==========
 
     #[test]
@@ -671,6 +740,41 @@ mod tests {
         assert_eq!(abc.star(), RightStringWeight::one());
     }
 
+    #[test]
+    fn test_right_natural_order_uses_suffix_order() {
+        let bc = RightStringWeight::from_str("bc");
+        let abc = RightStringWeight::from_str("abc");
+        let xbc = RightStringWeight::from_str("xbc");
+        let bd = RightStringWeight::from_str("bd");
+        let empty = RightStringWeight::epsilon();
+        let infinity = RightStringWeight::zero();
+
+        assert_eq!(bc.natural_less(&abc), Some(true));
+        assert_eq!(abc.natural_less(&bc), Some(false));
+        assert_eq!(bc.natural_less(&bc), Some(false));
+        assert_eq!(bc.natural_less(&bd), None);
+        assert_eq!(empty.natural_less(&xbc), Some(true));
+        assert_eq!(abc.natural_less(&infinity), Some(true));
+        assert_eq!(infinity.natural_less(&abc), Some(false));
+    }
+
+    #[test]
+    fn test_right_natural_order_matches_plus_selection() {
+        let bc = RightStringWeight::from_str("bc");
+        let abc = RightStringWeight::from_str("abc");
+        let xbc = RightStringWeight::from_str("xbc");
+        let bd = RightStringWeight::from_str("bd");
+
+        assert_eq!(bc.plus(&abc), bc);
+        assert_eq!(bc.natural_less(&abc), Some(true));
+        assert_eq!(abc.natural_less(&bc), Some(false));
+
+        assert_eq!(abc.plus(&xbc), bc);
+        assert_eq!(bc.natural_less(&abc), Some(true));
+        assert_eq!(bc.natural_less(&xbc), Some(true));
+        assert_eq!(bc.natural_less(&bd), None);
+    }
+
     // ========== Shared Property Tests ==========
 
     #[test]
@@ -711,6 +815,38 @@ mod tests {
 
         assert_eq!(left.as_bytes(), Some(bytes.as_slice()));
         assert_eq!(left.as_str(), None); // Not valid UTF-8
+    }
+
+    #[test]
+    fn test_owned_byte_extraction() {
+        let bytes = vec![0xF0, 0x9F, 0xA6, 0x80];
+        let left = LeftStringWeight::new(bytes.clone());
+        let right = RightStringWeight::new(bytes.clone());
+
+        assert_eq!(left.into_bytes(), Some(bytes.clone()));
+        assert_eq!(right.into_bytes(), Some(bytes));
+        assert_eq!(LeftStringWeight::zero().into_bytes(), None);
+        assert_eq!(RightStringWeight::zero().into_bytes(), None);
+    }
+
+    #[test]
+    fn test_common_prefix_suffix_lengths() {
+        assert_eq!(
+            LeftStringWeight::longest_common_prefix_len(b"alphabet", b"alpine"),
+            3
+        );
+        assert_eq!(
+            LeftStringWeight::longest_common_prefix_len(b"same", b"same"),
+            4
+        );
+        assert_eq!(
+            RightStringWeight::longest_common_suffix_len(b"testing", b"nesting"),
+            6
+        );
+        assert_eq!(
+            RightStringWeight::longest_common_suffix_len(b"same", b"same"),
+            4
+        );
     }
 
     #[test]

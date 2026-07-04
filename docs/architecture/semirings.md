@@ -692,7 +692,7 @@ fn test_my_semiring() {
 }
 ```
 
-## Next Steps
+## Related Topics
 
 - [Signed Tropical Semiring](signed-tropical-semiring.md): Extended tropical semiring with negative weights (rewards)
 - [Power Semiring](power-semiring.md): `η`-power semiring for soft path selection and RRWM algorithm

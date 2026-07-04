@@ -593,7 +593,7 @@ use lling_llang::gpu::wgpu::{WgpuRecombinationBuffer, WgpuLoadBalancer};
   *Weighted Finite-State Transducers in Speech Recognition.* The `H ∘ C ∘ L ∘ G` decoding
   graph these kernels traverse, and the log-semiring pushing that feeds beam pruning.
 
-## Next Steps
+## Related Topics
 
 - [Beam Optimization](beam-optimization.md): Log-semiring weight pushing
 - [Token Recombination](../algorithms/shortest-distance.md): Path algorithms

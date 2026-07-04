@@ -25,8 +25,19 @@
 //! - [NeMo Inverse Text Normalization: From Development to Production (arXiv 2104.05055)](https://arxiv.org/abs/2104.05055)
 
 use crate::semiring::Semiring;
-use crate::wfst::{MutableWfst, VectorWfst, WeightedTransition, Wfst};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition, Wfst};
 use std::collections::HashMap;
+
+const WHITELIST_TOKENS: &[&str] = &[
+    "dr.", "mr.", "mrs.", "ms.", "prof.", "st.", "ave.", "rd.", "blvd.", "inc.", "ltd.",
+];
+
+const MEASURE_UNITS: &[&str] = &[
+    "mm", "cm", "m", "km", "in", "ft", "yd", "mi", "mg", "g", "kg", "lb", "oz", "ml", "l", "hz",
+    "khz", "mhz", "gb", "mb", "kb", "tb", "mph", "kmh", "c", "f",
+];
+
+const AM_PM: &[&str] = &["am", "pm", "a.m.", "p.m."];
 
 /// Semiotic class for text normalization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -115,11 +126,16 @@ impl<W: Semiring + Clone + From<f64>> TextNormalizer<W> {
 
     /// Build default classifier WFST.
     fn build_default_classifier() -> VectorWfst<char, W> {
-        // Simplified classifier that recognizes basic patterns
         let mut fst: VectorWfst<char, W> = VectorWfst::new();
         let start = fst.add_state();
         fst.set_start(start);
         fst.set_final(start, W::one());
+
+        add_cardinal_decimal_time_date_paths(&mut fst, start);
+        add_ordinal_paths(&mut fst, start);
+        add_money_paths(&mut fst, start);
+        add_electronic_paths(&mut fst, start);
+
         fst
     }
 
@@ -193,7 +209,12 @@ impl<W: Semiring + Clone + From<f64>> TextNormalizer<W> {
         self.verbalizers.get(&class)
     }
 
-    /// Simple number normalization.
+    /// Tag non-whitespace spans with their semiotic class.
+    pub fn tag(&self, input: &str) -> Vec<TaggedToken> {
+        tag_text(input)
+    }
+
+    /// Number normalization.
     fn normalize_numbers(&self, input: &str) -> String {
         let mut result = String::new();
         let mut chars = input.chars().peekable();
@@ -251,11 +272,7 @@ impl<W: Semiring + Clone + From<f64>> InverseTextNormalizer<W> {
 
     /// Build default classifier WFST.
     fn build_default_classifier() -> VectorWfst<char, W> {
-        let mut fst: VectorWfst<char, W> = VectorWfst::new();
-        let start = fst.add_state();
-        fst.set_start(start);
-        fst.set_final(start, W::one());
-        fst
+        TextNormalizer::<W>::build_default_classifier()
     }
 
     /// Build default verbalizers for each semiotic class.
@@ -285,7 +302,12 @@ impl<W: Semiring + Clone + From<f64>> InverseTextNormalizer<W> {
         self.verbalizers.get(&class)
     }
 
-    /// Simple number denormalization.
+    /// Tag non-whitespace spans with their semiotic class.
+    pub fn tag(&self, input: &str) -> Vec<TaggedToken> {
+        tag_text(input)
+    }
+
+    /// Number denormalization.
     fn denormalize_numbers(&self, input: &str) -> String {
         let words: Vec<&str> = input.split_whitespace().collect();
         let mut result = Vec::new();
@@ -309,6 +331,379 @@ impl<W: Semiring + Clone + From<f64>> Default for InverseTextNormalizer<W> {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn add_transition<W: Semiring>(
+    fst: &mut VectorWfst<char, W>,
+    from: StateId,
+    input: char,
+    to: StateId,
+) {
+    fst.add_transition(WeightedTransition {
+        from,
+        input: Some(input),
+        output: Some(input),
+        to,
+        weight: W::one(),
+    });
+}
+
+fn add_digit_transitions<W: Semiring>(fst: &mut VectorWfst<char, W>, from: StateId, to: StateId) {
+    for digit in '0'..='9' {
+        add_transition(fst, from, digit, to);
+    }
+}
+
+fn add_ascii_word_transitions<W: Semiring>(
+    fst: &mut VectorWfst<char, W>,
+    from: StateId,
+    to: StateId,
+) {
+    for ch in 'a'..='z' {
+        add_transition(fst, from, ch, to);
+    }
+    for ch in 'A'..='Z' {
+        add_transition(fst, from, ch, to);
+    }
+    for ch in '0'..='9' {
+        add_transition(fst, from, ch, to);
+    }
+    for ch in ['.', '-', '_', '+', '/', ':'] {
+        add_transition(fst, from, ch, to);
+    }
+}
+
+fn add_cardinal_decimal_time_date_paths<W: Semiring>(
+    fst: &mut VectorWfst<char, W>,
+    start: StateId,
+) {
+    let number = fst.add_state();
+    fst.set_final(number, W::one());
+    add_digit_transitions(fst, start, number);
+    add_digit_transitions(fst, number, number);
+
+    let decimal_dot = fst.add_state();
+    let decimal = fst.add_state();
+    fst.set_final(decimal, W::one());
+    add_transition(fst, number, '.', decimal_dot);
+    add_digit_transitions(fst, decimal_dot, decimal);
+    add_digit_transitions(fst, decimal, decimal);
+
+    let colon = fst.add_state();
+    let minute_first = fst.add_state();
+    let minute_second = fst.add_state();
+    fst.set_final(minute_second, W::one());
+    add_transition(fst, number, ':', colon);
+    add_digit_transitions(fst, colon, minute_first);
+    add_digit_transitions(fst, minute_first, minute_second);
+
+    let slash = fst.add_state();
+    let slash_number = fst.add_state();
+    let date_second_slash = fst.add_state();
+    let date_year = fst.add_state();
+    fst.set_final(slash_number, W::one());
+    fst.set_final(date_year, W::one());
+    add_transition(fst, number, '/', slash);
+    add_digit_transitions(fst, slash, slash_number);
+    add_digit_transitions(fst, slash_number, slash_number);
+    add_transition(fst, slash_number, '/', date_second_slash);
+    add_digit_transitions(fst, date_second_slash, date_year);
+    add_digit_transitions(fst, date_year, date_year);
+
+    let dash = fst.add_state();
+    let dash_number = fst.add_state();
+    let date_second_dash = fst.add_state();
+    fst.set_final(dash_number, W::one());
+    add_transition(fst, number, '-', dash);
+    add_digit_transitions(fst, dash, dash_number);
+    add_digit_transitions(fst, dash_number, dash_number);
+    add_transition(fst, dash_number, '-', date_second_dash);
+    add_digit_transitions(fst, date_second_dash, date_year);
+}
+
+fn add_ordinal_paths<W: Semiring>(fst: &mut VectorWfst<char, W>, start: StateId) {
+    let number = fst.add_state();
+    add_digit_transitions(fst, start, number);
+    add_digit_transitions(fst, number, number);
+
+    for (first, second) in [('s', 't'), ('n', 'd'), ('r', 'd'), ('t', 'h')] {
+        let suffix_first = fst.add_state();
+        let ordinal = fst.add_state();
+        fst.set_final(ordinal, W::one());
+        add_transition(fst, number, first, suffix_first);
+        add_transition(fst, number, first.to_ascii_uppercase(), suffix_first);
+        add_transition(fst, suffix_first, second, ordinal);
+        add_transition(fst, suffix_first, second.to_ascii_uppercase(), ordinal);
+    }
+}
+
+fn add_money_paths<W: Semiring>(fst: &mut VectorWfst<char, W>, start: StateId) {
+    let prefix = fst.add_state();
+    let amount = fst.add_state();
+    let cents_dot = fst.add_state();
+    let cents = fst.add_state();
+    fst.set_final(amount, W::one());
+    fst.set_final(cents, W::one());
+
+    for symbol in ['$', '£', '€', '¥'] {
+        add_transition(fst, start, symbol, prefix);
+    }
+    add_digit_transitions(fst, prefix, amount);
+    add_digit_transitions(fst, amount, amount);
+    add_transition(fst, amount, '.', cents_dot);
+    add_digit_transitions(fst, cents_dot, cents);
+    add_digit_transitions(fst, cents, cents);
+}
+
+fn add_electronic_paths<W: Semiring>(fst: &mut VectorWfst<char, W>, start: StateId) {
+    let user = fst.add_state();
+    let at = fst.add_state();
+    let domain = fst.add_state();
+    let dot = fst.add_state();
+    let suffix = fst.add_state();
+    fst.set_final(suffix, W::one());
+
+    add_ascii_word_transitions(fst, start, user);
+    add_ascii_word_transitions(fst, user, user);
+    add_transition(fst, user, '@', at);
+    add_ascii_word_transitions(fst, at, domain);
+    add_ascii_word_transitions(fst, domain, domain);
+    add_transition(fst, domain, '.', dot);
+    add_ascii_word_transitions(fst, dot, suffix);
+    add_ascii_word_transitions(fst, suffix, suffix);
+}
+
+fn tag_text(input: &str) -> Vec<TaggedToken> {
+    let spans = lexical_spans(input);
+    spans
+        .iter()
+        .enumerate()
+        .map(|(idx, span)| {
+            let class = classify_span(input, &spans, idx);
+            TaggedToken {
+                text: input[span.start..span.end].to_string(),
+                class,
+                start: span.start,
+                end: span.end,
+            }
+        })
+        .collect()
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TextSpan {
+    start: usize,
+    end: usize,
+}
+
+fn lexical_spans(input: &str) -> Vec<TextSpan> {
+    let mut spans = Vec::new();
+    let mut start = None;
+
+    for (idx, ch) in input.char_indices() {
+        if ch.is_whitespace() {
+            if let Some(span_start) = start.take() {
+                spans.push(TextSpan {
+                    start: span_start,
+                    end: idx,
+                });
+            }
+        } else if start.is_none() {
+            start = Some(idx);
+        }
+    }
+
+    if let Some(span_start) = start {
+        spans.push(TextSpan {
+            start: span_start,
+            end: input.len(),
+        });
+    }
+
+    spans
+}
+
+fn classify_span(input: &str, spans: &[TextSpan], idx: usize) -> SemioticClass {
+    let token = strip_outer_punctuation(&input[spans[idx].start..spans[idx].end]);
+    let lower = token.to_ascii_lowercase();
+    let next_lower = spans
+        .get(idx + 1)
+        .map(|span| strip_outer_punctuation(&input[span.start..span.end]).to_ascii_lowercase());
+
+    if token.is_empty() {
+        return SemioticClass::Plain;
+    }
+    if WHITELIST_TOKENS.contains(&lower.as_str()) {
+        return SemioticClass::Whitelist;
+    }
+    if is_electronic_token(&lower) {
+        return SemioticClass::Electronic;
+    }
+    if is_money_token(token) {
+        return SemioticClass::Money;
+    }
+    if is_time_token(token)
+        || next_lower
+            .as_deref()
+            .is_some_and(|next| AM_PM.contains(&next))
+    {
+        if contains_ascii_digit(token) && token.contains(':') {
+            return SemioticClass::Time;
+        }
+    }
+    if is_date_token(token) {
+        return SemioticClass::Date;
+    }
+    if is_telephone_token(token) {
+        return SemioticClass::Telephone;
+    }
+    if is_ordinal_token(token) {
+        return SemioticClass::Ordinal;
+    }
+    if is_decimal_token(token) {
+        return SemioticClass::Decimal;
+    }
+    if is_fraction_token(token) {
+        return SemioticClass::Fraction;
+    }
+    if is_measure_token(token, next_lower.as_deref()) {
+        return SemioticClass::Measure;
+    }
+    if token.chars().all(|ch| ch.is_ascii_digit()) {
+        return SemioticClass::Cardinal;
+    }
+    if is_verbatim_token(token) {
+        return SemioticClass::Verbatim;
+    }
+
+    SemioticClass::Plain
+}
+
+fn strip_outer_punctuation(token: &str) -> &str {
+    token.trim_matches(|ch: char| {
+        matches!(
+            ch,
+            ',' | ';' | '"' | '\'' | '(' | ')' | '[' | ']' | '{' | '}'
+        )
+    })
+}
+
+fn contains_ascii_digit(token: &str) -> bool {
+    token.chars().any(|ch| ch.is_ascii_digit())
+}
+
+fn is_electronic_token(lower: &str) -> bool {
+    lower.contains('@')
+        || lower.contains("://")
+        || lower.starts_with("www.")
+        || lower.ends_with(".com")
+        || lower.ends_with(".org")
+        || lower.ends_with(".net")
+}
+
+fn is_money_token(token: &str) -> bool {
+    let mut chars = token.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    matches!(first, '$' | '£' | '€' | '¥') && is_decimal_or_integer(chars.as_str())
+}
+
+fn is_time_token(token: &str) -> bool {
+    let Some((hour, minute)) = token.split_once(':') else {
+        return false;
+    };
+    let minute = minute.trim_end_matches(|ch: char| ch.is_ascii_alphabetic() || ch == '.');
+    if !hour.chars().all(|ch| ch.is_ascii_digit())
+        || minute.len() != 2
+        || !minute.chars().all(|ch| ch.is_ascii_digit())
+    {
+        return false;
+    }
+    let hour = hour.parse::<u8>().ok();
+    let minute = minute.parse::<u8>().ok();
+    matches!((hour, minute), (Some(0..=23), Some(0..=59)))
+}
+
+fn is_date_token(token: &str) -> bool {
+    for separator in ['/', '-'] {
+        let parts: Vec<_> = token.split(separator).collect();
+        if parts.len() == 3
+            && parts
+                .iter()
+                .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_telephone_token(token: &str) -> bool {
+    let digit_count = token.chars().filter(|ch| ch.is_ascii_digit()).count();
+    digit_count >= 7
+        && token
+            .chars()
+            .all(|ch| ch.is_ascii_digit() || matches!(ch, '-' | '(' | ')' | '.' | '+'))
+}
+
+fn is_ordinal_token(token: &str) -> bool {
+    if token.len() < 3 {
+        return false;
+    }
+    let (digits, suffix) = token.split_at(token.len() - 2);
+    digits.chars().all(|ch| ch.is_ascii_digit())
+        && matches!(
+            suffix.to_ascii_lowercase().as_str(),
+            "st" | "nd" | "rd" | "th"
+        )
+}
+
+fn is_decimal_token(token: &str) -> bool {
+    token
+        .split_once('.')
+        .is_some_and(|(lhs, rhs)| is_ascii_digits(lhs) && is_ascii_digits(rhs))
+}
+
+fn is_fraction_token(token: &str) -> bool {
+    token
+        .split_once('/')
+        .is_some_and(|(lhs, rhs)| is_ascii_digits(lhs) && is_ascii_digits(rhs))
+}
+
+fn is_measure_token(token: &str, next_lower: Option<&str>) -> bool {
+    let split_at = token
+        .char_indices()
+        .find_map(|(idx, ch)| ch.is_ascii_alphabetic().then_some(idx));
+    if let Some(idx) = split_at {
+        let (value, unit) = token.split_at(idx);
+        return is_decimal_or_integer(value)
+            && MEASURE_UNITS.contains(&unit.to_ascii_lowercase().as_str());
+    }
+
+    token.chars().all(|ch| ch.is_ascii_digit())
+        && next_lower
+            .map(|next| MEASURE_UNITS.contains(&next))
+            .unwrap_or(false)
+}
+
+fn is_verbatim_token(token: &str) -> bool {
+    token.len() <= 5
+        && token.chars().any(|ch| ch.is_ascii_alphabetic())
+        && token
+            .chars()
+            .all(|ch| ch.is_ascii_uppercase() || ch == '.' || ch == '-')
+}
+
+fn is_decimal_or_integer(token: &str) -> bool {
+    is_ascii_digits(token)
+        || token
+            .split_once('.')
+            .is_some_and(|(lhs, rhs)| is_ascii_digits(lhs) && is_ascii_digits(rhs))
+}
+
+fn is_ascii_digits(token: &str) -> bool {
+    !token.is_empty() && token.chars().all(|ch| ch.is_ascii_digit())
 }
 
 /// Convert a number string to words.
@@ -590,11 +985,52 @@ mod tests {
     }
 
     #[test]
+    fn test_text_normalizer_classifier_has_pattern_structure() {
+        let normalizer: TextNormalizer<TropicalWeight> = TextNormalizer::new();
+        assert!(normalizer.classifier().num_states() > 1);
+        assert!(!normalizer.classifier().transitions(0).is_empty());
+    }
+
+    #[test]
+    fn test_text_normalizer_tags_common_semiotic_classes() {
+        let normalizer: TextNormalizer<TropicalWeight> = TextNormalizer::new();
+        let tagged = normalizer.tag("Dr. Smith paid $12.50 on 01/15/2024 at 3:30 PM for 5 km");
+        let classes: Vec<_> = tagged.iter().map(|token| token.class).collect();
+
+        assert!(classes.contains(&SemioticClass::Whitelist));
+        assert!(classes.contains(&SemioticClass::Money));
+        assert!(classes.contains(&SemioticClass::Date));
+        assert!(classes.contains(&SemioticClass::Time));
+        assert!(classes.contains(&SemioticClass::Measure));
+    }
+
+    #[test]
+    fn test_text_normalizer_tags_numeric_variants() {
+        let normalizer: TextNormalizer<TropicalWeight> = TextNormalizer::new();
+        let tagged = normalizer.tag("Call 555-1234 after the 21st with 3.14 or 1/2");
+
+        assert_eq!(tagged[1].class, SemioticClass::Telephone);
+        assert_eq!(tagged[4].class, SemioticClass::Ordinal);
+        assert_eq!(tagged[6].class, SemioticClass::Decimal);
+        assert_eq!(tagged[8].class, SemioticClass::Fraction);
+    }
+
+    #[test]
     fn test_inverse_text_normalizer() {
         let itn: InverseTextNormalizer<TropicalWeight> = InverseTextNormalizer::new();
         let results = itn.denormalize("I have one hundred twenty three apples");
         assert!(!results.is_empty());
         assert!(results[0].0.contains("123"));
+    }
+
+    #[test]
+    fn test_inverse_text_normalizer_reuses_classifier() {
+        let itn: InverseTextNormalizer<TropicalWeight> = InverseTextNormalizer::new();
+        let tagged = itn.tag("www.example.com support@example.com NASA");
+
+        assert_eq!(tagged[0].class, SemioticClass::Electronic);
+        assert_eq!(tagged[1].class, SemioticClass::Electronic);
+        assert_eq!(tagged[2].class, SemioticClass::Verbatim);
     }
 
     #[test]

@@ -13,7 +13,7 @@ use crate::wfst::Wfst;
 
 #[cfg(test)]
 use super::token::TokenKind;
-use super::token::{PatternMatcher, Token, TokenPattern, TokenPredicate};
+use super::token::{PatternMatch, PatternMatcher, Token, TokenPattern, TokenPredicate};
 use super::traits::{Position, Range};
 
 /// Costs for syntax repair operations.
@@ -593,10 +593,19 @@ impl<W: Semiring + Clone> SyntaxRepairTransducer<W> {
                     }
                 }
             }
-            RepairPattern::TokenPattern(_pattern) => {
-                let _matcher = PatternMatcher::new();
-                // Add pattern and find matches
-                // This is simplified - full implementation would use the matcher
+            RepairPattern::TokenPattern(pattern) => {
+                let mut matcher = PatternMatcher::new();
+                matcher.add_pattern(pattern.clone());
+
+                for (_, matched) in matcher.find_all_matches(tokens) {
+                    if let Some(action) = self.generate_action_from_match(rule, &matched) {
+                        candidates.push(RepairCandidate::new(
+                            action,
+                            rule.cost,
+                            rule.description.clone(),
+                        ));
+                    }
+                }
             }
             RepairPattern::InErrorNode => {
                 // Would need syntax tree access
@@ -626,6 +635,41 @@ impl<W: Semiring + Clone> SyntaxRepairTransducer<W> {
             RepairActionTemplate::InsertCapture(_) => {
                 // Would need capture data from pattern match
                 None
+            }
+        }
+    }
+
+    /// Generate a repair action from a token-pattern match.
+    fn generate_action_from_match(
+        &self,
+        rule: &SyntaxRepairRule,
+        matched: &PatternMatch,
+    ) -> Option<RepairAction> {
+        let range = matched.range()?;
+
+        match &rule.action_template {
+            RepairActionTemplate::Insert(text) => Some(RepairAction::Insert {
+                position: range.end,
+                text: text.clone(),
+            }),
+            RepairActionTemplate::Delete => Some(RepairAction::Delete { range }),
+            RepairActionTemplate::Replace(replacement) => Some(RepairAction::Replace {
+                range,
+                replacement: replacement.clone(),
+            }),
+            RepairActionTemplate::ReplaceWithCapture(capture_name, template) => {
+                let capture_text = capture_text(matched.get(capture_name)?);
+                Some(RepairAction::Replace {
+                    range,
+                    replacement: render_capture_template(template, capture_name, &capture_text),
+                })
+            }
+            RepairActionTemplate::InsertCapture(capture_name) => {
+                let capture_text = capture_text(matched.get(capture_name)?);
+                Some(RepairAction::Insert {
+                    position: range.end,
+                    text: capture_text,
+                })
             }
         }
     }
@@ -762,6 +806,38 @@ impl<W: Semiring + Clone> SyntaxRepairTransducer<W> {
     }
 }
 
+fn capture_text(tokens: &[Token]) -> String {
+    let Some(first) = tokens.first() else {
+        return String::new();
+    };
+
+    let mut result = String::new();
+    let mut previous_end = first.range.start.byte_offset;
+
+    for token in tokens {
+        if !result.is_empty() && token.range.start.byte_offset > previous_end {
+            result.push(' ');
+        }
+        result.push_str(&token.text);
+        previous_end = token.range.end.byte_offset;
+    }
+
+    result
+}
+
+fn render_capture_template(template: &str, capture_name: &str, capture_text: &str) -> String {
+    if template.is_empty() {
+        return capture_text.to_string();
+    }
+
+    let braced = format!("{{{}}}", capture_name);
+    let dollar = format!("${}", capture_name);
+    template
+        .replace("{}", capture_text)
+        .replace(&braced, capture_text)
+        .replace(&dollar, capture_text)
+}
+
 impl<W: Semiring + Clone> Default for SyntaxRepairTransducer<W> {
     fn default() -> Self {
         Self::new()
@@ -892,6 +968,63 @@ mod tests {
         let repairs = transducer.find_repairs(&tokens);
         assert!(!repairs.is_empty());
         assert!((repairs[0].cost - 0.1).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_find_repairs_token_pattern_replace_with_capture() {
+        let pattern = TokenPattern::new("let_binding")
+            .then(TokenPredicate::text("let"))
+            .capture("name", TokenPredicate::kind(TokenKind::Identifier));
+        let rule = SyntaxRepairRule::new(
+            RepairPattern::TokenPattern(pattern),
+            RepairActionTemplate::ReplaceWithCapture(
+                "name".to_string(),
+                "const {name}".to_string(),
+            ),
+            0.2,
+            "Promote let binding to const",
+        );
+        let transducer: SyntaxRepairTransducer<TropicalWeight> =
+            SyntaxRepairBuilder::new().add_rule(rule).build();
+        let tokens = vec![
+            Token::new(
+                TokenKind::Keyword,
+                "let",
+                Range::new(Position::start(), Position::new(0, 3, 3)),
+            ),
+            Token::new(
+                TokenKind::Identifier,
+                "answer",
+                Range::new(Position::new(0, 4, 4), Position::new(0, 10, 10)),
+            ),
+        ];
+
+        let repairs = transducer.find_repairs(&tokens);
+        assert_eq!(repairs.len(), 1);
+        assert_eq!(repairs[0].apply("let answer"), "const answer");
+    }
+
+    #[test]
+    fn test_find_repairs_token_pattern_insert_capture() {
+        let pattern = TokenPattern::new("duplicate_identifier")
+            .capture("name", TokenPredicate::kind(TokenKind::Identifier));
+        let rule = SyntaxRepairRule::new(
+            RepairPattern::TokenPattern(pattern),
+            RepairActionTemplate::InsertCapture("name".to_string()),
+            0.4,
+            "Duplicate identifier",
+        );
+        let transducer: SyntaxRepairTransducer<TropicalWeight> =
+            SyntaxRepairBuilder::new().add_rule(rule).build();
+        let tokens = vec![Token::new(
+            TokenKind::Identifier,
+            "value",
+            Range::new(Position::start(), Position::new(0, 5, 5)),
+        )];
+
+        let repairs = transducer.find_repairs(&tokens);
+        assert_eq!(repairs.len(), 1);
+        assert_eq!(repairs[0].apply("value"), "valuevalue");
     }
 
     #[test]

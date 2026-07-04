@@ -55,7 +55,7 @@
 use ordered_float::OrderedFloat;
 use std::fmt::{self, Display};
 
-use crate::semiring::traits::{
+use super::super::traits::{
     CommutativeTimesSemiring, DivisibleSemiring, IdempotentSemiring, QuantizableSemiring, Semiring,
     TotallyOrderedSemiring, WeaklyLeftDivisibleSemiring,
 };
@@ -387,7 +387,7 @@ impl std::ops::SubAssign for SignedTropicalWeight {
 // Conversions
 // ============================================================================
 
-use crate::semiring::basic::TropicalWeight;
+use super::super::basic::TropicalWeight;
 
 impl From<TropicalWeight> for SignedTropicalWeight {
     /// Convert from standard tropical weight.

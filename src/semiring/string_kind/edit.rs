@@ -169,6 +169,8 @@ impl std::fmt::Display for EditOp {
 /// Stored inline for small sequences (up to 8 operations) to avoid heap allocation.
 pub type EditSequence = SmallVec<[EditOp; 8]>;
 
+const MAX_EDIT_ALTERNATIVES: usize = 100;
+
 /// Edit semiring weight tracking both cost and edit operation sequences.
 ///
 /// This weight type enables explainable string transformations by recording
@@ -183,10 +185,10 @@ pub type EditSequence = SmallVec<[EditOp; 8]>;
 ///
 /// # Algebraic Properties
 ///
-/// - **NOT idempotent**: `a ⊕ a` may differ from `a` (doubles alternatives)
+/// - **Idempotent ⊕**: duplicate equal-cost alternatives are retained once
 /// - **Zero-sum-free**: Only zero (∅, ∞) produces zero sums
 /// - **NOT K-closed**: Star may not converge
-/// - **Commutative ⊗**: If edit operations commute (generally yes for independent operations)
+/// - **Generally non-commutative ⊗**: edit sequence order is semantically meaningful
 #[derive(Clone, Debug)]
 pub struct EditWeight {
     /// Alternative edit sequences (all with the same cost).
@@ -293,6 +295,7 @@ impl EditWeight {
                 }
 
                 let mut merged = self.sequences.clone();
+                merged.reserve(other.sequences.len());
                 for seq in &other.sequences {
                     // Only add if not already present (avoid duplicates)
                     if !merged.contains(seq) {
@@ -314,20 +317,24 @@ impl EditWeight {
             return Self::zero();
         }
 
-        // Cartesian product of sequences
-        let mut sequences = SmallVec::new();
+        let product_bound = self
+            .sequences
+            .len()
+            .saturating_mul(other.sequences.len())
+            .min(MAX_EDIT_ALTERNATIVES);
+        let mut sequences = SmallVec::with_capacity(product_bound);
 
-        for seq1 in &self.sequences {
+        'outer: for seq1 in &self.sequences {
             for seq2 in &other.sequences {
                 let mut combined = seq1.clone();
+                combined.reserve(seq2.len());
                 combined.extend(seq2.iter().cloned());
                 sequences.push(combined);
-            }
-        }
 
-        // Limit to avoid explosion
-        if sequences.len() > 100 {
-            sequences.truncate(100);
+                if sequences.len() == MAX_EDIT_ALTERNATIVES {
+                    break 'outer;
+                }
+            }
         }
 
         EditWeight {
@@ -783,6 +790,30 @@ mod tests {
         assert!(matches!(seq[0], EditOp::Copy('a')));
         assert!(matches!(seq[1], EditOp::Substitute { from: 'b', to: 'c' }));
         assert!(matches!(seq[2], EditOp::Delete('x')));
+    }
+
+    #[test]
+    fn test_times_truncates_alternatives_by_prefix_order() {
+        let mut left = EditWeight::zero();
+        let mut right = EditWeight::zero();
+
+        for offset in 0..12 {
+            left = left.plus(&make_insert_weight((b'a' + offset) as char, 1.0));
+            right = right.plus(&make_delete_weight((b'A' + offset) as char, 1.0));
+        }
+
+        let product = left.times(&right);
+
+        assert_eq!(product.num_alternatives(), MAX_EDIT_ALTERNATIVES);
+
+        let first = &product.sequences_slice()[0];
+        assert_eq!(
+            first.as_slice(),
+            &[EditOp::Insert('a'), EditOp::Delete('A')]
+        );
+
+        let last = &product.sequences_slice()[MAX_EDIT_ALTERNATIVES - 1];
+        assert_eq!(last.as_slice(), &[EditOp::Insert('i'), EditOp::Delete('D')]);
     }
 
     #[test]

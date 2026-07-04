@@ -45,9 +45,9 @@
 //!
 //! For very large path counts, consider using the log semiring instead.
 
-use crate::semiring::traits::{
-    CommutativeTimesSemiring, DivisibleSemiring, NonnegativeSemiring, QuantizableSemiring,
-    Semiring, TotallyOrderedSemiring, ZeroSumFreeSemiring,
+use super::super::traits::{
+    CommutativeTimesSemiring, DivisibleSemiring, NonnegativeSemiring, NumericalWeight,
+    QuantizableSemiring, Semiring, TotallyOrderedSemiring, ZeroSumFreeSemiring,
 };
 
 /// Counting semiring weight.
@@ -178,7 +178,7 @@ impl DivisibleSemiring for CountWeight {
     }
 }
 
-impl crate::semiring::traits::NumericalWeight for CountWeight {
+impl NumericalWeight for CountWeight {
     #[inline]
     fn numerical_value(&self) -> f64 {
         self.value() as f64
@@ -278,11 +278,11 @@ impl<'de> serde::Deserialize<'de> for CountWeight {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::semiring::traits::tests::{
+    use super::super::super::traits::tests::{
         verify_commutative_times_semiring, verify_divisible_semiring, verify_quantizable_semiring,
         verify_semiring_axioms, verify_totally_ordered_semiring, verify_zero_sum_free_semiring,
     };
+    use super::*;
     use proptest::prelude::*;
 
     #[test]

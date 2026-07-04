@@ -6,9 +6,15 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use super::{MultiTapeLabel, MultiTapeTransition, MultiTapeWfst, VectorMultiTapeWfst};
+use super::label::MultiTapeLabel;
+use super::traits::MultiTapeWfst;
+use super::transition::MultiTapeTransition;
+use super::vector::VectorMultiTapeWfst;
 use crate::semiring::Semiring;
 use crate::wfst::StateId;
+
+#[cfg(test)]
+use super::builder::MultiTapeWfstBuilder;
 
 /// Configuration for synchronization.
 #[derive(Debug, Clone)]
@@ -282,7 +288,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::multitape::MultiTapeWfstBuilder;
     use crate::semiring::TropicalWeight;
 
     #[test]
@@ -415,7 +420,6 @@ mod tests {
         let mt = make_synchronized_mt();
         let synced = synchronize(&mt, SyncConfig::new(0));
 
-        use crate::multitape::MultiTapeWfst;
         assert_eq!(synced.wfst().num_states(), 3);
         assert_eq!(synced.wfst().num_transitions(), 2);
     }
@@ -425,7 +429,6 @@ mod tests {
         let mt = make_unsynchronized_mt();
         let synced = synchronize(&mt, SyncConfig::new(1));
 
-        use crate::multitape::MultiTapeWfst;
         // With max delay 1, the path should be blocked
         assert_eq!(synced.wfst().num_transitions(), 1);
     }
@@ -435,7 +438,6 @@ mod tests {
         let mt = make_unsynchronized_mt();
         let synced = synchronize(&mt, SyncConfig::new(2));
 
-        use crate::multitape::MultiTapeWfst;
         // With max delay 2, the path should be allowed
         assert_eq!(synced.wfst().num_transitions(), 3);
     }

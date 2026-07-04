@@ -472,7 +472,7 @@ See [Layers](../architecture/layers.md) for pipeline composition.
 - [Earley 1970](../BIBLIOGRAPHY.md#ref-earley1970) — *An Efficient Context-Free Parsing Algorithm*: the predict/scan/complete chart algorithm, its `` `O(∣V∣³)` `` / `` `O(∣V∣²)` `` bounds, and the dotted-item formulation used here (generalized to lattice edges in the scanner).
 - [Goodman 1999](../BIBLIOGRAPHY.md#ref-goodman1999) — *Semiring Parsing*: the semiring view of chart parsing that underpins weighted/PCFG parse forests and `collect_used_edges`-style inside computations.
 
-## Next Steps
+## Related Topics
 
 - [Composition](composition.md): Lazy lattice-grammar composition
 - [Layers](../architecture/layers.md): CFG filter layer

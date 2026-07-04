@@ -42,9 +42,9 @@
 
 use ordered_float::OrderedFloat;
 
-use crate::semiring::traits::{
-    CommutativeTimesSemiring, IdempotentSemiring, NonnegativeSemiring, QuantizableSemiring,
-    Semiring, StochasticSemiring, TotallyOrderedSemiring, ZeroSumFreeSemiring,
+use super::super::traits::{
+    CommutativeTimesSemiring, IdempotentSemiring, NonnegativeSemiring, NumericalWeight,
+    QuantizableSemiring, Semiring, StochasticSemiring, TotallyOrderedSemiring, ZeroSumFreeSemiring,
 };
 
 /// Gödel fuzzy logic semiring weight.
@@ -228,7 +228,7 @@ impl StochasticSemiring for GodelWeight {
     }
 }
 
-impl crate::semiring::traits::NumericalWeight for GodelWeight {
+impl NumericalWeight for GodelWeight {
     #[inline]
     fn numerical_value(&self) -> f64 {
         self.value()
@@ -291,12 +291,12 @@ impl<'de> serde::Deserialize<'de> for GodelWeight {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::semiring::traits::tests::{
+    use super::super::super::traits::tests::{
         verify_commutative_times_semiring, verify_idempotent_semiring, verify_quantizable_semiring,
         verify_semiring_axioms, verify_stochastic_semiring, verify_totally_ordered_semiring,
         verify_zero_sum_free_semiring,
     };
+    use super::*;
     use proptest::prelude::*;
 
     #[test]

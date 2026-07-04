@@ -384,7 +384,7 @@ match remove_epsilon(&mut fst, config) {
 - [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms*: `ε`-removal as `ε`-closure shortest-distance, the star treatment of `ε`-cycles, and the complexity bounds used here.
 - [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted Finite-State Transducers in Speech Recognition*: `ε`-removal as a normalization step preceding determinization in the recognition cascade.
 
-## Next Steps
+## Related Topics
 
 - [Determinization](determinization.md): Often requires `ε`-free input
 - [WFST Operations](../architecture/wfst-operations.md): Operations that create `ε`-transitions

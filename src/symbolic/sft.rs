@@ -35,7 +35,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::sync::Arc;
 
-use crate::symbolic::{BooleanAlgebra, SymbolicAutomaton};
+use super::{BooleanAlgebra, SymbolicAutomaton};
 
 // ══════════════════════════════════════════════════════════════════════════════
 // §1  OutputFunction — closed enum for composable output operations
@@ -242,7 +242,11 @@ impl<A: BooleanAlgebra, B: BooleanAlgebra> SymbolicFiniteTransducer<A, B> {
     /// Add a state and return its ID.
     pub fn add_state(&mut self, is_accepting: bool, label: Option<String>) -> usize {
         let id = self.states.len();
-        self.states.push(SftState { id, is_accepting, label });
+        self.states.push(SftState {
+            id,
+            is_accepting,
+            label,
+        });
         if is_accepting {
             self.accepting_states.insert(id);
         }
@@ -275,8 +279,12 @@ impl<A: BooleanAlgebra, B: BooleanAlgebra> SymbolicFiniteTransducer<A, B> {
             to,
             self.states.len(),
         );
-        self.transitions
-            .push(SftTransition { from, to, guard, output });
+        self.transitions.push(SftTransition {
+            from,
+            to,
+            guard,
+            output,
+        });
     }
 
     /// Get the number of states.
@@ -442,7 +450,7 @@ where
                             t1.guard.clone(),
                             OutputFunction::Epsilon,
                         );
-                    },
+                    }
                     OutputFunction::Constant(vals) => {
                         // Constant output: feed vals through other's transitions.
                         self.compose_constant_output(
@@ -455,7 +463,7 @@ where
                             q2,
                             vals,
                         );
-                    },
+                    }
                     OutputFunction::Identity => {
                         // Identity: for each t₂ from q₂, compose if guards compatible.
                         for t2 in &other.transitions {
@@ -497,7 +505,7 @@ where
                                 result.add_transition(from_pid, to_pid, t1.guard.clone(), adapted);
                             }
                         }
-                    },
+                    }
                     OutputFunction::Map(_) | OutputFunction::FlatMap(_) => {
                         // For computed output functions, conservative approach:
                         // compose with all transitions from q₂ whose guards
@@ -527,7 +535,7 @@ where
                                 );
                             }
                         }
-                    },
+                    }
                 }
             }
         }
@@ -575,7 +583,7 @@ where
             for t2 in &other.transitions {
                 if t2.from == q2_current && other.input_algebra.evaluate(&t2.guard, val) {
                     match &t2.output {
-                        OutputFunction::Epsilon => {}, // produce nothing
+                        OutputFunction::Epsilon => {} // produce nothing
                         OutputFunction::Constant(c) => all_outputs.extend(c.iter().cloned()),
                         OutputFunction::Identity => all_outputs.push(val.clone().into()),
                         OutputFunction::Map(f) => all_outputs.push(f(val)),
@@ -658,7 +666,7 @@ where
                             pid
                         });
                         result.add_transition(from_pid, to_pid, t_sft.guard.clone());
-                    },
+                    }
                     OutputFunction::Constant(vals) => {
                         // Simulate SFA on the constant output.
                         if let Some(final_sfa_state) = simulate_sfa_on_word(acceptor, q_sfa, vals) {
@@ -672,7 +680,7 @@ where
                             });
                             result.add_transition(from_pid, to_pid, t_sft.guard.clone());
                         }
-                    },
+                    }
                     OutputFunction::Identity => {
                         // Identity: output equals input. The SFA guard on B
                         // restricts which outputs are accepted, and since output
@@ -698,7 +706,7 @@ where
                                 result.add_transition(from_pid, to_pid, composed_guard);
                             }
                         }
-                    },
+                    }
                     OutputFunction::Map(_) | OutputFunction::FlatMap(_) => {
                         // Conservative: for computed outputs, connect to all SFA successors.
                         for t_sfa in &acceptor.transitions {
@@ -715,7 +723,7 @@ where
                                 result.add_transition(from_pid, to_pid, t_sft.guard.clone());
                             }
                         }
-                    },
+                    }
                 }
             }
         }
@@ -790,18 +798,18 @@ where
                                 self.output_algebra.true_pred(),
                             );
                             continue;
-                        },
+                        }
                         OutputFunction::Identity => {
                             // Identity: output guard = input guard (projected).
                             // Conservative: TRUE.
                             self.output_algebra.true_pred()
-                        },
+                        }
                         OutputFunction::Constant(_)
                         | OutputFunction::Map(_)
                         | OutputFunction::FlatMap(_) => {
                             // Conservative: TRUE.
                             self.output_algebra.true_pred()
-                        },
+                        }
                     };
 
                     result.add_transition(from_pid, to_pid, out_guard);
@@ -930,7 +938,7 @@ where
         let mut c_vals = Vec::new();
         for b_val in &b_vals {
             match &second {
-                OutputFunction::Epsilon => {}, // produce nothing for this b_val
+                OutputFunction::Epsilon => {} // produce nothing for this b_val
                 OutputFunction::Constant(v) => c_vals.extend(v.iter().cloned()),
                 OutputFunction::Identity => c_vals.push(b_val.clone().into()),
                 OutputFunction::Map(f) => c_vals.push(f(b_val)),
@@ -1117,11 +1125,11 @@ where
                                     if a == b =>
                                 {
                                     return false;
-                                },
+                                }
                                 (OutputFunction::Epsilon, OutputFunction::Epsilon) => {
                                     return false;
-                                },
-                                _ => {}, // Can't determine statically.
+                                }
+                                _ => {} // Can't determine statically.
                             }
                         }
                     }
@@ -1146,7 +1154,7 @@ fn output_structurally_equal<A: BooleanAlgebra, B: BooleanAlgebra>(
             // Compare constant vectors using Debug representation
             // (since B::Domain doesn't require Eq in general).
             format!("{:?}", va) == format!("{:?}", vb)
-        },
+        }
         _ => false,
     }
 }
@@ -1155,7 +1163,7 @@ fn output_structurally_equal<A: BooleanAlgebra, B: BooleanAlgebra>(
 // §6  SFT Sprint 5 — Practical Application Factories
 // ══════════════════════════════════════════════════════════════════════════════
 
-use crate::symbolic::{CharClassAlgebra, CharClassPred};
+use super::{CharClassAlgebra, CharClassPred};
 
 /// Case-fold SFT: A-Z → a-z, pass through everything else.
 pub fn case_fold_sft() -> SymbolicFiniteTransducer<CharClassAlgebra, CharClassAlgebra> {
@@ -1170,7 +1178,9 @@ pub fn case_fold_sft() -> SymbolicFiniteTransducer<CharClassAlgebra, CharClassAl
         q0,
         q0,
         CharClassPred::Range('A', 'Z'),
-        OutputFunction::Map(Arc::new(|c: &char| char::from_u32(*c as u32 + 32).unwrap_or(*c))),
+        OutputFunction::Map(Arc::new(|c: &char| {
+            char::from_u32(*c as u32 + 32).unwrap_or(*c)
+        })),
     );
 
     // Everything else → identity.
@@ -1196,7 +1206,12 @@ pub fn whitespace_normalize_sft() -> SymbolicFiniteTransducer<CharClassAlgebra, 
         ('\x0C', '\x0C'), // form feed
         ('\r', '\r'),     // carriage return
     ]);
-    sft.add_transition(q0, q0, ws_chars.clone(), OutputFunction::Constant(vec![' ']));
+    sft.add_transition(
+        q0,
+        q0,
+        ws_chars.clone(),
+        OutputFunction::Constant(vec![' ']),
+    );
 
     // Everything else → identity.
     let not_ws = CharClassPred::Not(Box::new(ws_chars));
@@ -1224,24 +1239,27 @@ pub fn guard_transform_sft<A: BooleanAlgebra>(
 }
 
 /// Compose a chain of same-algebra SFTs into a single pipeline.
+///
+/// Returns `None` for an empty chain because there is no algebra value from
+/// which to construct an identity transducer.
 pub fn compose_chain<A: BooleanAlgebra>(
     chain: &[SymbolicFiniteTransducer<A, A>],
-) -> SymbolicFiniteTransducer<A, A>
+) -> Option<SymbolicFiniteTransducer<A, A>>
 where
     A::Domain: Clone + Into<A::Domain> + Send + Sync + 'static,
 {
     if chain.is_empty() {
-        panic!("compose_chain requires at least one SFT");
+        return None;
     }
     if chain.len() == 1 {
-        return chain[0].clone();
+        return Some(chain[0].clone());
     }
 
     let mut result = chain[0].clone();
     for sft in &chain[1..] {
         result = result.compose(sft);
     }
-    result
+    Some(result)
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1283,3 +1301,26 @@ impl fmt::Display for SftAnalysis {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compose_chain_empty_returns_none() {
+        let chain: Vec<SymbolicFiniteTransducer<CharClassAlgebra, CharClassAlgebra>> = Vec::new();
+
+        assert!(compose_chain(&chain).is_none());
+    }
+
+    #[test]
+    fn compose_chain_single_stage_returns_equivalent_transducer() {
+        let sft = whitespace_normalize_sft();
+        let composed = compose_chain(std::slice::from_ref(&sft))
+            .expect("single-stage chain should produce a transducer");
+
+        assert_eq!(
+            sft.transduce(&['a', '\t', 'b']),
+            composed.transduce(&['a', '\t', 'b'])
+        );
+    }
+}

@@ -17,7 +17,7 @@
 //! are parameterized by the *inner predicate type* `P = A::Predicate` rather
 //! than `A`, so `derive(Eq, Hash)` works without spurious `A: Eq` bounds.
 
-use crate::symbolic::BooleanAlgebra;
+use super::BooleanAlgebra;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // N-ary product (tuples / records)
@@ -75,14 +75,14 @@ impl<A: BooleanAlgebra> NaryProductAlgebra<A> {
                 } else {
                     True
                 }
-            },
+            }
             False => {
                 if negate {
                     True
                 } else {
                     False
                 }
-            },
+            }
             Field(i, pi) => {
                 if *i >= self.fields.len() {
                     return if negate { True } else { False };
@@ -92,21 +92,21 @@ impl<A: BooleanAlgebra> NaryProductAlgebra<A> {
                 } else {
                     Field(*i, pi.clone())
                 }
-            },
+            }
             And(a, b) => {
                 if negate {
                     Or(Box::new(self.nnf(a, true)), Box::new(self.nnf(b, true)))
                 } else {
                     And(Box::new(self.nnf(a, false)), Box::new(self.nnf(b, false)))
                 }
-            },
+            }
             Or(a, b) => {
                 if negate {
                     And(Box::new(self.nnf(a, true)), Box::new(self.nnf(b, true)))
                 } else {
                     Or(Box::new(self.nnf(a, false)), Box::new(self.nnf(b, false)))
                 }
-            },
+            }
             Not(x) => self.nnf(x, !negate),
         }
     }
@@ -123,7 +123,7 @@ impl<A: BooleanAlgebra> NaryProductAlgebra<A> {
                 let mut out = self.to_dnf(a);
                 out.extend(self.to_dnf(b));
                 out
-            },
+            }
             And(a, b) => {
                 let da = self.to_dnf(a);
                 let db = self.to_dnf(b);
@@ -136,7 +136,7 @@ impl<A: BooleanAlgebra> NaryProductAlgebra<A> {
                     }
                 }
                 out
-            },
+            }
             Not(_) => unreachable!("to_dnf expects NNF (no Not)"),
         }
     }
@@ -234,7 +234,7 @@ impl<A: BooleanAlgebra> BooleanAlgebra for NaryProductAlgebra<A> {
                     None => {
                         ok = false;
                         break;
-                    },
+                    }
                 }
             }
             if ok {
@@ -322,14 +322,14 @@ impl<A: BooleanAlgebra> SumAlgebra<A> {
                 } else {
                     alg.false_pred()
                 }
-            },
+            }
             SumPred::TagIs(i) => {
                 if *i == tag {
                     alg.true_pred()
                 } else {
                     alg.false_pred()
                 }
-            },
+            }
             SumPred::And(a, b) => alg.and(&self.project(a, tag), &self.project(b, tag)),
             SumPred::Or(a, b) => alg.or(&self.project(a, tag), &self.project(b, tag)),
             SumPred::Not(x) => alg.not(&self.project(x, tag)),
@@ -396,7 +396,7 @@ impl<A: BooleanAlgebra> BooleanAlgebra for SumAlgebra<A> {
                         .variants
                         .get(elem.tag)
                         .is_some_and(|alg| alg.evaluate(pi, &elem.payload))
-            },
+            }
             SumPred::TagIs(i) => *i == elem.tag,
             SumPred::And(a, b) => self.evaluate(a, elem) && self.evaluate(b, elem),
             SumPred::Or(a, b) => self.evaluate(a, elem) || self.evaluate(b, elem),
@@ -407,8 +407,8 @@ impl<A: BooleanAlgebra> BooleanAlgebra for SumAlgebra<A> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::{IntervalAlgebra, IntervalPred};
     use super::*;
-    use crate::symbolic::{IntervalAlgebra, IntervalPred};
 
     fn field(lo: i64, hi: i64) -> NaryProductPred<IntervalPred> {
         NaryProductPred::Field(0, IntervalPred::Range(lo, hi))
@@ -464,13 +464,37 @@ mod tests {
 
     #[test]
     fn sum_per_variant_projection() {
-        let alg = SumAlgebra::new(vec![IntervalAlgebra::new(0, 100), IntervalAlgebra::new(0, 100)]);
+        let alg = SumAlgebra::new(vec![
+            IntervalAlgebra::new(0, 100),
+            IntervalAlgebra::new(0, 100),
+        ]);
         // variant 0 with payload in [10,20), OR variant 1 (any payload)
-        let p = alg.or(&SumPred::InVariant(0, IntervalPred::Range(10, 20)), &SumPred::TagIs(1));
+        let p = alg.or(
+            &SumPred::InVariant(0, IntervalPred::Range(10, 20)),
+            &SumPred::TagIs(1),
+        );
         assert!(alg.is_satisfiable(&p));
-        assert!(alg.evaluate(&p, &SumValue { tag: 0, payload: 15 }));
-        assert!(!alg.evaluate(&p, &SumValue { tag: 0, payload: 25 }));
-        assert!(alg.evaluate(&p, &SumValue { tag: 1, payload: 99 }));
+        assert!(alg.evaluate(
+            &p,
+            &SumValue {
+                tag: 0,
+                payload: 15
+            }
+        ));
+        assert!(!alg.evaluate(
+            &p,
+            &SumValue {
+                tag: 0,
+                payload: 25
+            }
+        ));
+        assert!(alg.evaluate(
+            &p,
+            &SumValue {
+                tag: 1,
+                payload: 99
+            }
+        ));
         let w = alg.witness(&p).expect("nonempty");
         assert!(alg.evaluate(&p, &w));
     }
@@ -488,7 +512,10 @@ mod tests {
 
     #[test]
     fn sum_negation() {
-        let alg = SumAlgebra::new(vec![IntervalAlgebra::new(0, 100), IntervalAlgebra::new(0, 100)]);
+        let alg = SumAlgebra::new(vec![
+            IntervalAlgebra::new(0, 100),
+            IntervalAlgebra::new(0, 100),
+        ]);
         let tag0 = SumPred::TagIs(0);
         let not_tag0 = alg.not(&tag0);
         // not-tag0 is satisfiable (variant 1 witnesses it).

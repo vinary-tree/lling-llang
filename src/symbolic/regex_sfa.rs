@@ -22,7 +22,7 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use crate::symbolic::{BooleanAlgebra, SymbolicAutomaton};
+use super::{BooleanAlgebra, SymbolicAutomaton};
 
 // ══════════════════════════════════════════════════════════════════════════════
 // RegexPred — symbolic regex over element predicates of type P
@@ -235,9 +235,9 @@ where
                         acc = EpsNfa::concat(acc, EpsNfa::alt(EpsNfa::epsilon(), sigma()));
                     }
                     acc
-                },
+                }
             }
-        },
+        }
         RegexPred::Concat(a, b) => EpsNfa::concat(compile_eps(algebra, a), compile_eps(algebra, b)),
         RegexPred::Alt(a, b) => EpsNfa::alt(compile_eps(algebra, a), compile_eps(algebra, b)),
         RegexPred::Star(a) => EpsNfa::star(compile_eps(algebra, a)),
@@ -245,11 +245,11 @@ where
             let sa = compile_eps(algebra, a).to_sfa(algebra.clone());
             let sb = compile_eps(algebra, b).to_sfa(algebra.clone());
             EpsNfa::from_sfa(&sa.intersect(&sb))
-        },
+        }
         RegexPred::Compl(a) => {
             let sa = compile_eps(algebra, a).to_sfa(algebra.clone());
             EpsNfa::from_sfa(&sa.complement())
-        },
+        }
     }
 }
 
@@ -298,7 +298,10 @@ impl<A: BooleanAlgebra> RegexAlgebra<A> {
         let sigma_star = self.any();
         RegexPred::Concat(
             Box::new(sigma_star.clone()),
-            Box::new(RegexPred::Concat(Box::new(RegexPred::Elem(p)), Box::new(sigma_star))),
+            Box::new(RegexPred::Concat(
+                Box::new(RegexPred::Elem(p)),
+                Box::new(sigma_star),
+            )),
         )
     }
 }
@@ -342,8 +345,8 @@ impl<A: BooleanAlgebra> BooleanAlgebra for RegexAlgebra<A> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::{IntervalAlgebra, IntervalPred};
     use super::*;
-    use crate::symbolic::{IntervalAlgebra, IntervalPred};
 
     fn list_alg() -> RegexAlgebra<IntervalAlgebra> {
         RegexAlgebra::new(IntervalAlgebra::new(0, 100))
@@ -373,7 +376,10 @@ mod tests {
         let alg = list_alg();
         // exactly 2 elements AND all in [0,10) AND some in [5,10)
         let p = alg.and(
-            &alg.and(&RegexPred::Length(2, Some(2)), &alg.all(IntervalPred::Range(0, 10))),
+            &alg.and(
+                &RegexPred::Length(2, Some(2)),
+                &alg.all(IntervalPred::Range(0, 10)),
+            ),
             &alg.any_elem(IntervalPred::Range(5, 10)),
         );
         assert!(alg.is_satisfiable(&p));
@@ -395,7 +401,10 @@ mod tests {
         assert!(alg.evaluate(&not_all_small, &vec![1, 50])); // has a big one
         assert!(!alg.is_satisfiable(&alg.and(&all_small, &not_all_small)));
         // unsatisfiable conjunction of disjoint length constraints
-        let p = alg.and(&RegexPred::Length(1, Some(1)), &RegexPred::Length(2, Some(2)));
+        let p = alg.and(
+            &RegexPred::Length(1, Some(1)),
+            &RegexPred::Length(2, Some(2)),
+        );
         assert!(!alg.is_satisfiable(&p));
     }
 

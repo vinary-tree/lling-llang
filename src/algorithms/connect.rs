@@ -96,18 +96,17 @@ where
         return removed;
     }
 
-    // Compute accessible states (reachable from start)
-    let accessible = compute_accessible(fst);
-
-    // Compute coaccessible states (can reach final)
-    let coaccessible = compute_coaccessible(fst);
+    // Compute dense reachability masks. Public helpers still expose HashSets,
+    // but connect itself is a hot path and benefits from direct indexing.
+    let accessible = compute_accessible_mask(fst);
+    let coaccessible = compute_coaccessible_mask(fst);
 
     // Determine which states to keep
-    let mut keep: HashSet<StateId> = HashSet::new();
+    let mut keep = vec![false; n];
+    let mut keep_count = 0usize;
     for state in 0..n {
-        let state_id = state as StateId;
-        let is_accessible = accessible.contains(&state_id);
-        let is_coaccessible = coaccessible.contains(&state_id);
+        let is_accessible = accessible[state];
+        let is_coaccessible = coaccessible[state];
 
         let should_keep = match (is_accessible, is_coaccessible) {
             (true, true) => true,
@@ -117,15 +116,24 @@ where
         };
 
         if should_keep {
-            keep.insert(state_id);
+            keep[state] = true;
+            keep_count += 1;
         }
     }
 
     // Count removed states
-    let removed = n - keep.len();
+    let removed = n - keep_count;
+    let has_prunable_transitions = (0..n).any(|state| {
+        let state_id = state as StateId;
+        fst.transitions(state_id).iter().any(|transition| {
+            valid_state_index(transition.to, n)
+                .map(|target| !keep[target])
+                .unwrap_or(true)
+        })
+    });
 
     // If nothing to remove, return early
-    if removed == 0 {
+    if removed == 0 && !has_prunable_transitions {
         return 0;
     }
 
@@ -133,7 +141,7 @@ where
     for state in 0..n {
         let state_id = state as StateId;
 
-        if !keep.contains(&state_id) {
+        if !keep[state] {
             // Clear this state completely
             fst.clear_transitions(state_id);
             fst.set_final(state_id, W::zero());
@@ -142,7 +150,11 @@ where
             let transitions: Vec<_> = fst
                 .transitions(state_id)
                 .iter()
-                .filter(|t| keep.contains(&t.to))
+                .filter(|t| {
+                    valid_state_index(t.to, n)
+                        .map(|target| keep[target])
+                        .unwrap_or(false)
+                })
                 .cloned()
                 .collect();
 
@@ -163,21 +175,34 @@ where
     W: Semiring,
     F: Wfst<L, W>,
 {
-    let mut accessible = HashSet::new();
+    mask_to_set(&compute_accessible_mask(fst))
+}
+
+fn compute_accessible_mask<L, W, F>(fst: &F) -> Vec<bool>
+where
+    L: Clone,
+    W: Semiring,
+    F: Wfst<L, W>,
+{
+    let n = fst.num_states();
+    let mut accessible = vec![false; n];
     let start = fst.start();
 
-    if start == NO_STATE {
+    let Some(start_idx) = valid_state_index(start, n) else {
         return accessible;
-    }
+    };
 
     let mut queue = VecDeque::new();
     queue.push_back(start);
-    accessible.insert(start);
+    accessible[start_idx] = true;
 
     while let Some(state) = queue.pop_front() {
         for trans in fst.transitions(state) {
-            if !accessible.contains(&trans.to) {
-                accessible.insert(trans.to);
+            let Some(target_idx) = valid_state_index(trans.to, n) else {
+                continue;
+            };
+            if !accessible[target_idx] {
+                accessible[target_idx] = true;
                 queue.push_back(trans.to);
             }
         }
@@ -193,33 +218,48 @@ where
     W: Semiring,
     F: Wfst<L, W>,
 {
+    mask_to_set(&compute_coaccessible_mask(fst))
+}
+
+fn compute_coaccessible_mask<L, W, F>(fst: &F) -> Vec<bool>
+where
+    L: Clone,
+    W: Semiring,
+    F: Wfst<L, W>,
+{
     let n = fst.num_states();
+    let mut coaccessible = vec![false; n];
 
     // Build reverse graph
     let mut reverse: Vec<Vec<StateId>> = vec![Vec::new(); n];
     for state in 0..n {
         let state_id = state as StateId;
         for trans in fst.transitions(state_id) {
-            reverse[trans.to as usize].push(state_id);
+            if let Some(target_idx) = valid_state_index(trans.to, n) {
+                reverse[target_idx].push(state_id);
+            }
         }
     }
 
     // Start from final states and traverse backwards
-    let mut coaccessible = HashSet::new();
     let mut queue = VecDeque::new();
 
     for state in 0..n {
         let state_id = state as StateId;
         if fst.is_final(state_id) {
-            coaccessible.insert(state_id);
+            coaccessible[state] = true;
             queue.push_back(state_id);
         }
     }
 
     while let Some(state) = queue.pop_front() {
-        for &predecessor in &reverse[state as usize] {
-            if !coaccessible.contains(&predecessor) {
-                coaccessible.insert(predecessor);
+        let Some(state_idx) = valid_state_index(state, n) else {
+            continue;
+        };
+        for &predecessor in &reverse[state_idx] {
+            let predecessor_idx = predecessor as usize;
+            if !coaccessible[predecessor_idx] {
+                coaccessible[predecessor_idx] = true;
                 queue.push_back(predecessor);
             }
         }
@@ -240,12 +280,11 @@ where
         return true;
     }
 
-    let accessible = compute_accessible(fst);
-    let coaccessible = compute_coaccessible(fst);
+    let accessible = compute_accessible_mask(fst);
+    let coaccessible = compute_coaccessible_mask(fst);
 
     for state in 0..n {
-        let state_id = state as StateId;
-        if !accessible.contains(&state_id) || !coaccessible.contains(&state_id) {
+        if !accessible[state] || !coaccessible[state] {
             return false;
         }
     }
@@ -260,10 +299,30 @@ where
     W: Semiring,
     F: Wfst<L, W>,
 {
-    let accessible = compute_accessible(fst);
-    let coaccessible = compute_coaccessible(fst);
+    let accessible = compute_accessible_mask(fst);
+    let coaccessible = compute_coaccessible_mask(fst);
 
-    accessible.intersection(&coaccessible).count()
+    accessible
+        .iter()
+        .zip(coaccessible.iter())
+        .filter(|(is_accessible, is_coaccessible)| **is_accessible && **is_coaccessible)
+        .count()
+}
+
+#[inline]
+fn valid_state_index(state: StateId, num_states: usize) -> Option<usize> {
+    let idx = state as usize;
+    (idx < num_states).then_some(idx)
+}
+
+fn mask_to_set(mask: &[bool]) -> HashSet<StateId> {
+    let mut states = HashSet::with_capacity(mask.iter().filter(|&&is_set| is_set).count());
+    for (state, is_set) in mask.iter().enumerate() {
+        if *is_set && state <= StateId::MAX as usize {
+            states.insert(state as StateId);
+        }
+    }
+    states
 }
 
 #[cfg(test)]
@@ -502,6 +561,21 @@ mod tests {
         // Check that transition to state 3 was removed
         let trans_from_0: Vec<_> = fst.transitions(0).iter().map(|t| t.to).collect();
         assert!(!trans_from_0.contains(&3));
+    }
+
+    #[test]
+    fn test_connect_prunes_malformed_transition_targets() {
+        let mut fst = build_connected_fst();
+        fst.add_arc(0, Some('x'), Some('x'), 99, TropicalWeight::one());
+
+        let removed = connect(&mut fst, ConnectConfig::trim());
+
+        assert_eq!(removed, 0);
+        assert!(fst
+            .transitions(0)
+            .iter()
+            .all(|transition| transition.to < 3));
+        assert!(is_connected(&fst));
     }
 
     #[test]

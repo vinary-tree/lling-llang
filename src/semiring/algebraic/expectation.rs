@@ -47,7 +47,7 @@
 
 use ordered_float::OrderedFloat;
 
-use crate::semiring::traits::{
+use super::super::traits::{
     CommutativeTimesSemiring, DivisibleSemiring, KClosedSemiring, QuantizableSemiring, Semiring,
     StarSemiring, TotallyOrderedSemiring, WeaklyLeftDivisibleSemiring, ZeroSumFreeSemiring,
 };
@@ -442,13 +442,13 @@ impl<'de> serde::Deserialize<'de> for ExpectationWeight {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::semiring::traits::tests::{
+    use super::super::super::traits::tests::{
         verify_commutative_times_semiring, verify_divisible_semiring, verify_k_closed_semiring,
         verify_quantizable_semiring, verify_semiring_axioms, verify_star_semiring,
         verify_totally_ordered_semiring, verify_weakly_left_divisible_semiring,
         verify_zero_sum_free_semiring,
     };
+    use super::*;
     use proptest::prelude::*;
 
     #[test]

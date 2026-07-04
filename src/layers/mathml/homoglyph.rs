@@ -6,6 +6,7 @@
 //! - `0` (zero) vs `O` (capital O) vs `o` (lowercase o)
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// A meaning that a glyph can have in context.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -124,7 +125,7 @@ pub enum MathDomain {
 /// Disambiguator for homoglyphs.
 pub struct HomoglyphDisambiguator {
     /// Confusion sets indexed by character.
-    confusion_sets: HashMap<char, HomoglyphSet>,
+    confusion_sets: HashMap<char, Arc<HomoglyphSet>>,
     /// Configuration.
     config: DisambiguatorConfig,
 }
@@ -157,10 +158,12 @@ impl Default for HomoglyphDisambiguator {
 }
 
 impl HomoglyphDisambiguator {
+    const STANDARD_CONFUSION_GLYPH_CAPACITY: usize = 96;
+
     /// Create a new disambiguator with standard confusion sets.
     pub fn new() -> Self {
         let mut disambiguator = Self {
-            confusion_sets: HashMap::new(),
+            confusion_sets: HashMap::with_capacity(Self::STANDARD_CONFUSION_GLYPH_CAPACITY),
             config: DisambiguatorConfig::default(),
         };
         disambiguator.register_standard_confusions();
@@ -170,7 +173,7 @@ impl HomoglyphDisambiguator {
     /// Create with custom configuration.
     pub fn with_config(config: DisambiguatorConfig) -> Self {
         let mut disambiguator = Self {
-            confusion_sets: HashMap::new(),
+            confusion_sets: HashMap::with_capacity(Self::STANDARD_CONFUSION_GLYPH_CAPACITY),
             config,
         };
         disambiguator.register_standard_confusions();
@@ -355,8 +358,9 @@ impl HomoglyphDisambiguator {
 
     /// Register a confusion set.
     pub fn register(&mut self, set: HomoglyphSet) {
+        let set = Arc::new(set);
         for &glyph in &set.glyphs {
-            self.confusion_sets.insert(glyph, set.clone());
+            self.confusion_sets.insert(glyph, Arc::clone(&set));
         }
     }
 
@@ -367,7 +371,7 @@ impl HomoglyphDisambiguator {
 
     /// Get the confusion set for a character.
     pub fn get_confusion_set(&self, c: char) -> Option<&HomoglyphSet> {
-        self.confusion_sets.get(&c)
+        self.confusion_sets.get(&c).map(Arc::as_ref)
     }
 
     /// Disambiguate a glyph based on context.
@@ -503,9 +507,14 @@ impl HomoglyphDisambiguator {
 
     /// Get all characters that could be confused with the given character.
     pub fn get_confusables(&self, c: char) -> Vec<char> {
+        self.confusables(c).to_vec()
+    }
+
+    /// Borrow all characters that could be confused with the given character.
+    pub fn confusables(&self, c: char) -> &[char] {
         self.confusion_sets
             .get(&c)
-            .map(|set| set.glyphs.clone())
+            .map(|set| set.glyphs.as_slice())
             .unwrap_or_default()
     }
 }
@@ -531,6 +540,20 @@ mod tests {
         assert!(set.is_some());
         let set = set.expect("layers/mathml/homoglyph.rs: required value was None/Err");
         assert!(set.contains('×'));
+    }
+
+    #[test]
+    fn test_confusion_set_storage_is_shared_between_aliases() {
+        let disambiguator = HomoglyphDisambiguator::new();
+
+        let x_set = disambiguator
+            .get_confusion_set('x')
+            .expect("layers/mathml/homoglyph.rs: required value was None/Err");
+        let multiply_set = disambiguator
+            .get_confusion_set('×')
+            .expect("layers/mathml/homoglyph.rs: required value was None/Err");
+
+        assert!(std::ptr::eq(x_set, multiply_set));
     }
 
     #[test]
@@ -607,6 +630,16 @@ mod tests {
         let confusables = disambiguator.get_confusables('x');
         assert!(confusables.contains(&'×'));
         assert!(confusables.contains(&'X'));
+    }
+
+    #[test]
+    fn test_borrow_confusables() {
+        let disambiguator = HomoglyphDisambiguator::new();
+
+        let confusables = disambiguator.confusables('x');
+        assert!(confusables.contains(&'×'));
+        assert!(confusables.contains(&'X'));
+        assert!(disambiguator.confusables('q').is_empty());
     }
 
     #[test]

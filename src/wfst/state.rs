@@ -1,9 +1,40 @@
 //! WFST state type with transitions.
 
 use smallvec::SmallVec;
+use std::fmt;
 
-use super::{StateId, WeightedTransition};
+use super::transition::WeightedTransition;
+use super::types::StateId;
 use crate::semiring::Semiring;
+
+/// Error returned by checked WFST state transition insertion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WfstStateError {
+    /// The transition source does not match the state that owns it.
+    TransitionSourceMismatch {
+        /// State receiving the transition.
+        state: StateId,
+        /// Source encoded in the transition.
+        transition_from: StateId,
+    },
+}
+
+impl fmt::Display for WfstStateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TransitionSourceMismatch {
+                state,
+                transition_from,
+            } => write!(
+                f,
+                "transition source {} does not match WFST state {}",
+                transition_from, state
+            ),
+        }
+    }
+}
+
+impl std::error::Error for WfstStateError {}
 
 /// A state in a WFST with its outgoing transitions.
 ///
@@ -53,11 +84,28 @@ impl<L, W: Semiring> WfstState<L, W> {
     /// Add a transition from this state.
     #[inline]
     pub fn add_transition(&mut self, transition: WeightedTransition<L, W>) {
-        debug_assert_eq!(
-            transition.from, self.id,
-            "Transition source must match state ID"
-        );
+        self.try_add_transition(transition)
+            .unwrap_or_else(|err| panic!("{err}"));
+    }
+
+    /// Try to add a transition from this state.
+    ///
+    /// The transition's `from` state must match this state's ID. Use
+    /// [`WfstState::add_arc`] when the source should be filled in
+    /// automatically.
+    #[inline]
+    pub fn try_add_transition(
+        &mut self,
+        transition: WeightedTransition<L, W>,
+    ) -> Result<(), WfstStateError> {
+        if transition.from != self.id {
+            return Err(WfstStateError::TransitionSourceMismatch {
+                state: self.id,
+                transition_from: transition.from,
+            });
+        }
         self.transitions.push(transition);
+        Ok(())
     }
 
     /// Add a transition with the given parameters.
@@ -167,6 +215,30 @@ mod tests {
 
         assert_eq!(state.num_transitions(), 2);
         assert!(state.has_transitions());
+    }
+
+    #[test]
+    fn test_try_add_transition_rejects_source_mismatch() {
+        let mut state: WfstState<char, TropicalWeight> = WfstState::new(0);
+        let transition = WeightedTransition::new(1, Some('a'), Some('b'), 2, TropicalWeight::one());
+
+        assert_eq!(
+            state.try_add_transition(transition),
+            Err(WfstStateError::TransitionSourceMismatch {
+                state: 0,
+                transition_from: 1,
+            })
+        );
+        assert!(state.transitions.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "transition source 1 does not match WFST state 0")]
+    fn test_add_transition_preserves_panic_contract() {
+        let mut state: WfstState<char, TropicalWeight> = WfstState::new(0);
+        let transition = WeightedTransition::new(1, Some('a'), Some('b'), 2, TropicalWeight::one());
+
+        state.add_transition(transition);
     }
 
     #[test]

@@ -190,6 +190,83 @@ impl EditDistanceTransducer {
         self
     }
 
+    fn general_transpose_state_count(&self, alphabet_len: usize) -> usize {
+        if self.config.include_transpositions && self.config.max_distance > 0 && alphabet_len > 1 {
+            self.config.max_distance * alphabet_len * (alphabet_len - 1)
+        } else {
+            0
+        }
+    }
+
+    fn general_transpose_state_index(
+        err: usize,
+        first_idx: usize,
+        second_idx: usize,
+        alphabet_len: usize,
+    ) -> Option<usize> {
+        if first_idx == second_idx || alphabet_len <= 1 {
+            return None;
+        }
+
+        let compact_second = if second_idx < first_idx {
+            second_idx
+        } else {
+            second_idx - 1
+        };
+        Some(
+            err * alphabet_len * (alphabet_len - 1)
+                + first_idx * (alphabet_len - 1)
+                + compact_second,
+        )
+    }
+
+    fn general_transition_capacity(
+        alphabet_len: usize,
+        can_edit: bool,
+        include_transpositions: bool,
+    ) -> usize {
+        if !can_edit {
+            return alphabet_len;
+        }
+
+        let distinct_pairs = alphabet_len * alphabet_len.saturating_sub(1);
+        alphabet_len       // matches
+            + alphabet_len // deletions
+            + alphabet_len // insertions
+            + distinct_pairs // substitutions
+            + if include_transpositions {
+                distinct_pairs
+            } else {
+                0
+            }
+    }
+
+    fn query_transpose_state_count(&self, query_len: usize) -> usize {
+        if self.config.include_transpositions && self.config.max_distance > 0 && query_len > 1 {
+            (query_len - 1) * self.config.max_distance
+        } else {
+            0
+        }
+    }
+
+    fn query_transpose_state_index(
+        &self,
+        pos: usize,
+        err: usize,
+        query_len: usize,
+    ) -> Option<usize> {
+        if !self.config.include_transpositions
+            || self.config.max_distance == 0
+            || query_len <= 1
+            || pos + 1 >= query_len
+            || err >= self.config.max_distance
+        {
+            return None;
+        }
+
+        Some(pos * self.config.max_distance + err)
+    }
+
     /// Build the WFST.
     ///
     /// The resulting transducer accepts (input, output) character pairs
@@ -208,11 +285,37 @@ impl EditDistanceTransducer {
             return self.build_identity_transducer();
         }
 
-        let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::new();
+        let alphabet_len = alphabet.len();
+        let base_state_count = k + 1;
+        let transpose_state_count = self.general_transpose_state_count(alphabet_len);
+        let mut fst: VectorWfst<char, TropicalWeight> =
+            VectorWfst::with_capacity(base_state_count + transpose_state_count);
 
         // Create states for error counts 0..=k
         // State i represents "we've used i edits so far"
-        let states: Vec<StateId> = (0..=k).map(|_| fst.add_state()).collect();
+        let states: Vec<StateId> = (0..=k)
+            .map(|err| {
+                let state = fst.add_state();
+                fst.reserve_transitions(
+                    state,
+                    Self::general_transition_capacity(
+                        alphabet_len,
+                        err < k,
+                        self.config.include_transpositions,
+                    ),
+                );
+                state
+            })
+            .collect();
+
+        let mut transpose_states = Vec::with_capacity(transpose_state_count);
+        if transpose_state_count > 0 {
+            for _ in 0..transpose_state_count {
+                let state = fst.add_state();
+                fst.reserve_transitions(state, 1);
+                transpose_states.push(state);
+            }
+        }
 
         fst.set_start(states[0]);
 
@@ -223,7 +326,7 @@ impl EditDistanceTransducer {
 
         // Add transitions
         for (i, &from_state) in states.iter().enumerate() {
-            for &c in alphabet {
+            for (c_idx, &c) in alphabet.iter().enumerate() {
                 // Match: input=c, output=c, no cost, stay at same error count
                 fst.add_arc(
                     from_state,
@@ -256,7 +359,7 @@ impl EditDistanceTransducer {
                     );
 
                     // Substitution: consume c, produce each other character
-                    for &d in alphabet {
+                    for (d_idx, &d) in alphabet.iter().enumerate() {
                         if c != d {
                             fst.add_arc(
                                 from_state,
@@ -265,6 +368,29 @@ impl EditDistanceTransducer {
                                 next_state,
                                 TropicalWeight::new(costs.substitute),
                             );
+
+                            let transpose_idx = if self.config.include_transpositions {
+                                Self::general_transpose_state_index(i, c_idx, d_idx, alphabet_len)
+                            } else {
+                                None
+                            };
+                            if let Some(transpose_idx) = transpose_idx {
+                                let transpose_state = transpose_states[transpose_idx];
+                                fst.add_arc(
+                                    from_state,
+                                    Some(c),
+                                    Some(d),
+                                    transpose_state,
+                                    TropicalWeight::new(costs.transpose),
+                                );
+                                fst.add_arc(
+                                    transpose_state,
+                                    Some(d),
+                                    Some(c),
+                                    next_state,
+                                    TropicalWeight::one(),
+                                );
+                            }
                         }
                     }
                 }
@@ -294,18 +420,21 @@ impl EditDistanceTransducer {
         let query_chars: Vec<char> = query.chars().collect();
         let n = query_chars.len();
 
-        let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::new();
-
         // States: (position, error_count)
         // position: 0..=n (how many query chars consumed)
         // error_count: 0..=k
         //
         // State ID = position * (k + 1) + error_count
 
-        let num_states = (n + 1) * (k + 1);
+        let normal_state_count = (n + 1) * (k + 1);
+        let transpose_state_count = self.query_transpose_state_count(n);
+        let num_states = normal_state_count + transpose_state_count;
+        let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::with_capacity(num_states);
         fst.add_states(num_states);
 
         let state_id = |pos: usize, err: usize| -> StateId { (pos * (k + 1) + err) as StateId };
+        let transpose_state_id =
+            |transpose_idx: usize| -> StateId { (normal_state_count + transpose_idx) as StateId };
 
         fst.set_start(state_id(0, 0));
 
@@ -323,6 +452,33 @@ impl EditDistanceTransducer {
         } else {
             self.config.alphabet.clone()
         };
+        let alphabet_len = alphabet.len();
+
+        for pos in 0..=n {
+            for err in 0..=k {
+                let mut capacity = 0;
+                if pos < n {
+                    capacity += 1;
+                    if err < k {
+                        capacity += 1 + alphabet_len.saturating_sub(1);
+                    }
+                }
+                if err < k {
+                    capacity += alphabet_len;
+                    if self.config.include_transpositions
+                        && pos + 1 < n
+                        && query_chars[pos] != query_chars[pos + 1]
+                    {
+                        capacity += 1;
+                    }
+                }
+                fst.reserve_transitions(state_id(pos, err), capacity);
+            }
+        }
+
+        for transpose_idx in 0..transpose_state_count {
+            fst.reserve_transitions(transpose_state_id(transpose_idx), 1);
+        }
 
         // Add transitions
         for pos in 0..=n {
@@ -363,6 +519,29 @@ impl EditDistanceTransducer {
                                     TropicalWeight::new(costs.substitute),
                                 );
                             }
+                        }
+
+                        let transpose_idx = if pos + 1 < n && query_char != query_chars[pos + 1] {
+                            self.query_transpose_state_index(pos, err, n)
+                        } else {
+                            None
+                        };
+                        if let Some(transpose_idx) = transpose_idx {
+                            let transpose_state = transpose_state_id(transpose_idx);
+                            fst.add_arc(
+                                from,
+                                Some(query_char),
+                                Some(query_chars[pos + 1]),
+                                transpose_state,
+                                TropicalWeight::new(costs.transpose),
+                            );
+                            fst.add_arc(
+                                transpose_state,
+                                Some(query_chars[pos + 1]),
+                                Some(query_char),
+                                state_id(pos + 2, err + 1),
+                                TropicalWeight::one(),
+                            );
                         }
                     }
                 }
@@ -537,6 +716,39 @@ mod tests {
     }
 
     #[test]
+    fn test_levenshtein_transducer_does_not_add_transposition_states() {
+        let transducer = EditDistanceTransducer::levenshtein(1).with_alphabet("ab");
+
+        let fst = transducer.build();
+
+        assert_eq!(fst.num_states(), 2);
+    }
+
+    #[test]
+    fn test_damerau_transducer_adds_transposition_path() {
+        let transducer = EditDistanceTransducer::damerau_levenshtein(1).with_alphabet("ab");
+
+        let fst = transducer.build();
+
+        assert_eq!(fst.num_states(), 4);
+
+        let substitute_state = 1;
+        let transpose_state = fst
+            .transitions(0)
+            .iter()
+            .find(|t| t.input == Some('a') && t.output == Some('b') && t.to != substitute_state)
+            .map(|t| t.to)
+            .expect("expected first half of a->b, b->a transposition");
+
+        assert!(fst.transitions(transpose_state).iter().any(|t| {
+            t.input == Some('b')
+                && t.output == Some('a')
+                && t.to == substitute_state
+                && t.weight == TropicalWeight::one()
+        }));
+    }
+
+    #[test]
     fn test_edit_distance_transducer_transitions() {
         let transducer = EditDistanceTransducer::levenshtein(1).with_alphabet("ab");
 
@@ -562,6 +774,31 @@ mod tests {
 
         // Query has 4 chars, max distance 2, so (4+1) * (2+1) = 15 states
         assert_eq!(fst.num_states(), 15);
+    }
+
+    #[test]
+    fn test_damerau_build_for_query_adds_transposition_path() {
+        let transducer = EditDistanceTransducer::damerau_levenshtein(1).with_alphabet("ab");
+
+        let fst = transducer.build_for_query("ab");
+
+        assert_eq!(fst.num_states(), 7);
+
+        let substitute_state = 3;
+        let completed_transposition_state = 5;
+        let transpose_state = fst
+            .transitions(0)
+            .iter()
+            .find(|t| t.input == Some('a') && t.output == Some('b') && t.to != substitute_state)
+            .map(|t| t.to)
+            .expect("expected first half of query-specific adjacent transposition");
+
+        assert!(fst.transitions(transpose_state).iter().any(|t| {
+            t.input == Some('b')
+                && t.output == Some('a')
+                && t.to == completed_transposition_state
+                && t.weight == TropicalWeight::one()
+        }));
     }
 
     #[test]

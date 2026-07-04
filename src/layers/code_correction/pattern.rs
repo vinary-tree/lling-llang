@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::backend::LatticeBackend;
+use crate::backend::{LatticeBackend, VocabId};
 use crate::lattice::{EdgeMetadata, Lattice, LatticeBuilder};
 use crate::semiring::{Semiring, TropicalWeight};
 
@@ -228,6 +228,26 @@ impl PatternAwareConfig {
         best
     }
 
+    fn exact_matching_patterns(&self, tokens: &[&str]) -> Vec<&PatternBoost> {
+        if tokens.is_empty()
+            || tokens.len() < self.min_pattern_length
+            || tokens.len() > self.max_pattern_length
+        {
+            return Vec::new();
+        }
+
+        self.patterns_starting_with(tokens[0])
+            .filter(|pattern| pattern.len() == tokens.len())
+            .filter(|pattern| {
+                pattern
+                    .pattern
+                    .iter()
+                    .zip(tokens.iter())
+                    .all(|(p, t)| p.as_ref() == *t)
+            })
+            .collect()
+    }
+
     /// Create common patterns for Python.
     pub fn python_patterns() -> Self {
         Self::new()
@@ -273,6 +293,17 @@ impl PatternAwareConfig {
             .with_pattern(vec!["(", "let", "_", "_", "_", ")"], 0.8)
             .with_pattern(vec!["!", "(", "_", ")"], 0.7)
     }
+}
+
+#[derive(Clone)]
+struct LatticeToken<W: Semiring> {
+    edge_id: usize,
+    source: usize,
+    target: usize,
+    label: VocabId,
+    word: String,
+    weight: W,
+    metadata: EdgeMetadata,
 }
 
 /// Pattern-aware correction layer.
@@ -342,76 +373,101 @@ impl PatternAwareLayer {
             return Ok(lattice.clone());
         }
 
-        // Collect tokens from the lattice for pattern matching
-        let tokens: Vec<(usize, usize, String, W, EdgeMetadata)> = lattice
+        // Collect lattice edges with their token strings for path-local matching.
+        let tokens: Vec<LatticeToken<W>> = lattice
             .edges()
             .iter()
             .filter_map(|edge| {
                 let word = lattice.word(edge.label)?;
-                Some((
-                    edge.source.value() as usize,
-                    edge.target.value() as usize,
-                    word.to_string(),
-                    edge.weight.clone(),
-                    edge.metadata.clone(),
-                ))
+                Some(LatticeToken {
+                    edge_id: edge.id.value() as usize,
+                    source: edge.source.value() as usize,
+                    target: edge.target.value() as usize,
+                    label: edge.label,
+                    word: word.to_string(),
+                    weight: edge.weight.clone(),
+                    metadata: edge.metadata.clone(),
+                })
             })
             .collect();
 
-        // Build token sequence for pattern matching
-        // Note: This is a simplified approach - a full implementation would
-        // enumerate paths through the lattice
-        let token_strings: Vec<&str> = tokens.iter().map(|(_, _, t, _, _)| t.as_str()).collect();
+        let mut outgoing: HashMap<usize, Vec<usize>> = HashMap::new();
+        for (idx, token) in tokens.iter().enumerate() {
+            outgoing.entry(token.source).or_default().push(idx);
+        }
 
-        // Find patterns that match in this token sequence
-        let mut boosts: HashMap<(usize, usize), f64> = HashMap::new();
-
-        for i in 0..token_strings.len() {
-            let remaining = &token_strings[i..];
-            if let Some(pattern) = self.config.find_best_pattern(remaining) {
-                // Apply boost to all edges in this pattern
-                for j in 0..pattern.len().min(remaining.len()) {
-                    if let Some((source, target, _, _, _)) = tokens.get(i + j) {
-                        let key = (*source, *target);
-                        let current = boosts.entry(key).or_insert(0.0);
-                        *current = (*current + pattern.boost).min(self.config.max_boost);
-                    }
-                }
-            }
+        let mut boosts: HashMap<usize, f64> = HashMap::new();
+        for start_idx in 0..tokens.len() {
+            self.accumulate_path_boosts(&tokens, &outgoing, start_idx, &mut boosts);
         }
 
         // Rebuild the lattice with boosted weights
         let backend = lattice.backend().clone();
         let mut builder = LatticeBuilder::new(backend);
 
-        for (source, target, _, weight, metadata) in &tokens {
-            let boost = boosts.get(&(*source, *target)).copied().unwrap_or(0.0);
+        for token in &tokens {
+            let boost = boosts.get(&token.edge_id).copied().unwrap_or(0.0);
 
             // Apply boost as negative cost (in tropical semiring)
             let boosted_weight = if boost > 0.0 {
                 let boost_weight = W::from(TropicalWeight::new(-boost));
-                weight.clone().times(&boost_weight)
+                token.weight.clone().times(&boost_weight)
             } else {
-                weight.clone()
+                token.weight.clone()
             };
 
-            // Re-add the token with its original label
-            if let Some(edge) = lattice.edges().iter().find(|e| {
-                e.source.value() as usize == *source && e.target.value() as usize == *target
-            }) {
-                builder.add_correction_by_id(
-                    *source,
-                    *target,
-                    edge.label,
-                    boosted_weight,
-                    metadata.clone(),
-                );
-            }
+            builder.add_correction_by_id(
+                token.source,
+                token.target,
+                token.label,
+                boosted_weight,
+                token.metadata.clone(),
+            );
         }
 
         // Build the new lattice
         let num_nodes = lattice.num_nodes();
         Ok(builder.build(num_nodes))
+    }
+
+    fn accumulate_path_boosts<W>(
+        &self,
+        tokens: &[LatticeToken<W>],
+        outgoing: &HashMap<usize, Vec<usize>>,
+        start_idx: usize,
+        boosts: &mut HashMap<usize, f64>,
+    ) where
+        W: Semiring,
+    {
+        let max_len = self.config.max_pattern_length.max(1);
+        let mut stack = vec![vec![start_idx]];
+
+        while let Some(path) = stack.pop() {
+            let words: Vec<&str> = path.iter().map(|idx| tokens[*idx].word.as_str()).collect();
+
+            for pattern in self.config.exact_matching_patterns(&words) {
+                for &edge_idx in &path {
+                    let edge_id = tokens[edge_idx].edge_id;
+                    let current = boosts.entry(edge_id).or_insert(0.0);
+                    *current = (*current + pattern.boost).min(self.config.max_boost);
+                }
+            }
+
+            if path.len() >= max_len {
+                continue;
+            }
+
+            if let Some(last_idx) = path.last().copied() {
+                let target = tokens[last_idx].target;
+                if let Some(next_edges) = outgoing.get(&target) {
+                    for &next_idx in next_edges.iter().rev() {
+                        let mut next_path = path.clone();
+                        next_path.push(next_idx);
+                        stack.push(next_path);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -458,6 +514,17 @@ mod tests {
         builder.add_correction_by_id(3, 4, rparen, TropicalWeight::one(), EdgeMetadata::default());
         builder.add_correction_by_id(4, 5, colon, TropicalWeight::one(), EdgeMetadata::default());
         builder.build(5)
+    }
+
+    fn build_branching_lattice() -> Lattice<TropicalWeight, HashMapBackend> {
+        let mut backend = HashMapBackend::new();
+        let foo = backend.intern("foo");
+        let bar = backend.intern("bar");
+
+        let mut builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
+        builder.add_correction_by_id(0, 1, foo, TropicalWeight::one(), EdgeMetadata::default());
+        builder.add_correction_by_id(0, 2, bar, TropicalWeight::one(), EdgeMetadata::default());
+        builder.build(2)
     }
 
     #[test]
@@ -630,6 +697,23 @@ mod tests {
 
         let unchanged = result.expect("should apply");
         assert_eq!(unchanged.num_edges(), lattice.num_edges());
+    }
+
+    #[test]
+    fn test_layer_does_not_boost_tokens_from_different_paths() {
+        let layer =
+            PatternAwareLayer::new(PatternAwareConfig::new().with_pattern(vec!["foo", "bar"], 1.0));
+        let lattice = build_branching_lattice();
+
+        let rescored =
+            <PatternAwareLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(
+                &layer, &lattice,
+            )
+            .expect("should apply");
+
+        for edge in rescored.edges() {
+            assert_eq!(edge.weight.value(), 0.0);
+        }
     }
 
     #[test]

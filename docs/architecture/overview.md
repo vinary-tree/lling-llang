@@ -330,7 +330,7 @@ Where:
 
 See [ASR Pipeline](../advanced/asr-pipeline.md) for details.
 
-## Next Steps
+## Related Topics
 
 ### Core Concepts
 - [Semirings](semirings.md): Understand the algebraic foundation

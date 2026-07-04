@@ -25,7 +25,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::sync::Arc;
 
-use crate::symbolic::algebra_tower::{HeytingAlgebra, RejectSafeAlgebra, Sat3};
+use super::algebra_tower::{HeytingAlgebra, RejectSafeAlgebra, Sat3};
 
 /// Default cap on the number of free-variable assignments searched before
 /// `is_satisfiable_3v` returns `DontKnow`.
@@ -48,7 +48,7 @@ pub trait HostTerm: Clone + Debug + Eq + Hash + Send + Sync + 'static {
 
 /// A degenerate host term with no transitions — for relational-only use (the
 /// relational fragment never inspects the term). A real, total LTS (the
-/// single-state, no-edge system), not a stub.
+/// single-state, no-edge system).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct NoTerm;
 
@@ -74,7 +74,9 @@ pub struct FactBase {
 impl FactBase {
     /// An empty fact base.
     pub fn new() -> Self {
-        FactBase { relations: HashMap::new() }
+        FactBase {
+            relations: HashMap::new(),
+        }
     }
 
     /// Add a fact `relation(tuple)`.
@@ -199,7 +201,7 @@ impl BehavioralFormula {
     /// Collect the free variables (not bound by an enclosing quantifier).
     fn free_vars(&self, bound: &mut BTreeSet<String>, acc: &mut BTreeSet<String>) {
         match self {
-            BehavioralFormula::Top | BehavioralFormula::Bot => {},
+            BehavioralFormula::Top | BehavioralFormula::Bot => {}
             BehavioralFormula::Relation { args, .. } => {
                 for a in args {
                     if let Arg::Var(v) = a {
@@ -208,7 +210,7 @@ impl BehavioralFormula {
                         }
                     }
                 }
-            },
+            }
             BehavioralFormula::Forall { var, body, .. }
             | BehavioralFormula::Exists { var, body, .. } => {
                 let fresh = bound.insert(var.clone());
@@ -216,16 +218,16 @@ impl BehavioralFormula {
                 if fresh {
                     bound.remove(var);
                 }
-            },
+            }
             BehavioralFormula::And(a, b) | BehavioralFormula::Or(a, b) => {
                 a.free_vars(bound, acc);
                 b.free_vars(bound, acc);
-            },
+            }
             BehavioralFormula::Not(x) => x.free_vars(bound, acc),
             // Modal arms: fixpoint variables are a separate namespace (state
             // sets), not relational vars; recurse into bodies for relational
             // free vars; Atom/FixVar contribute no relational vars.
-            BehavioralFormula::Atom(_) | BehavioralFormula::FixVar(_) => {},
+            BehavioralFormula::Atom(_) | BehavioralFormula::FixVar(_) => {}
             BehavioralFormula::Diamond(_, body)
             | BehavioralFormula::BoxAll(_, body)
             | BehavioralFormula::Mu(_, body)
@@ -245,11 +247,11 @@ impl BehavioralFormula {
             | BehavioralFormula::FixVar(_) => true,
             BehavioralFormula::And(a, b) | BehavioralFormula::Or(a, b) => {
                 a.has_modal() || b.has_modal()
-            },
+            }
             BehavioralFormula::Not(x) => x.has_modal(),
             BehavioralFormula::Forall { body, .. } | BehavioralFormula::Exists { body, .. } => {
                 body.has_modal()
-            },
+            }
             BehavioralFormula::Top
             | BehavioralFormula::Bot
             | BehavioralFormula::Relation { .. } => false,
@@ -275,7 +277,10 @@ pub struct BehavioralWorld<H: HostTerm> {
 impl<H: HostTerm> BehavioralWorld<H> {
     /// A world with the given term and no bindings.
     pub fn new(term: H) -> Self {
-        BehavioralWorld { term, env: BTreeMap::new() }
+        BehavioralWorld {
+            term,
+            env: BTreeMap::new(),
+        }
     }
 
     /// A world with the given term and bindings.
@@ -335,13 +340,13 @@ impl<H: HostTerm> BehavioralAlgebra<H> {
                     }
                 }
                 (vals.into_iter().collect(), true)
-            },
+            }
             QDomain::Bounded(inner, limit) => {
                 let (mut vals, exact) = self.domain_values(inner);
                 let truncated = vals.len() > *limit;
                 vals.truncate(*limit);
                 (vals, exact && !truncated)
-            },
+            }
         }
     }
 
@@ -359,7 +364,7 @@ impl<H: HostTerm> BehavioralAlgebra<H> {
                     Some(t) => (self.facts.holds(name, &t), true),
                     None => (false, true), // unbound var ⇒ not satisfied with this env
                 }
-            },
+            }
             BehavioralFormula::Forall { var, domain, body } => {
                 let (vals, dom_exact) = self.domain_values(domain);
                 let mut env2 = env.clone();
@@ -377,7 +382,7 @@ impl<H: HostTerm> BehavioralAlgebra<H> {
                 env2.remove(var);
                 // If `all` held only over a truncated domain, the result is inexact.
                 (all, exact)
-            },
+            }
             BehavioralFormula::Exists { var, domain, body } => {
                 let (vals, dom_exact) = self.domain_values(domain);
                 let mut env2 = env.clone();
@@ -394,7 +399,7 @@ impl<H: HostTerm> BehavioralAlgebra<H> {
                 }
                 env2.remove(var);
                 (any, exact)
-            },
+            }
             BehavioralFormula::And(a, b) => {
                 let (ra, ea) = self.eval(a, env);
                 if !ra {
@@ -402,7 +407,7 @@ impl<H: HostTerm> BehavioralAlgebra<H> {
                 }
                 let (rb, eb) = self.eval(b, env);
                 (rb, ea && eb)
-            },
+            }
             BehavioralFormula::Or(a, b) => {
                 let (ra, ea) = self.eval(a, env);
                 if ra {
@@ -410,11 +415,11 @@ impl<H: HostTerm> BehavioralAlgebra<H> {
                 }
                 let (rb, eb) = self.eval(b, env);
                 (rb, ea && eb)
-            },
+            }
             BehavioralFormula::Not(x) => {
                 let (r, e) = self.eval(x, env);
                 (!r, e)
-            },
+            }
             // Invariant: `eval` is the relational-only evaluator; modal formulas
             // are routed to the model checker by `evaluate`/`is_satisfiable_3v`,
             // and the relational fast path runs only when `has_modal()` is false,
@@ -426,7 +431,7 @@ impl<H: HostTerm> BehavioralAlgebra<H> {
             | BehavioralFormula::Nu(..)
             | BehavioralFormula::FixVar(_) => {
                 unreachable!("modal formula reached the relational evaluator")
-            },
+            }
         }
     }
 
@@ -452,7 +457,7 @@ impl<H: HostTerm> BehavioralAlgebra<H> {
                         adj.push(Vec::new());
                         queue.push_back(j);
                         j
-                    },
+                    }
                 };
                 adj[i].push((action, j));
             }
@@ -485,7 +490,7 @@ impl<H: HostTerm> BehavioralAlgebra<H> {
                 } else {
                     HashSet::new()
                 }
-            },
+            }
             BehavioralFormula::Forall { var, domain, body } => {
                 let (vals, _exact) = self.domain_values(domain);
                 let mut acc = all();
@@ -497,7 +502,7 @@ impl<H: HostTerm> BehavioralAlgebra<H> {
                 }
                 env2.remove(var);
                 acc
-            },
+            }
             BehavioralFormula::Exists { var, domain, body } => {
                 let (vals, _exact) = self.domain_values(domain);
                 let mut acc = HashSet::new();
@@ -509,21 +514,21 @@ impl<H: HostTerm> BehavioralAlgebra<H> {
                 }
                 env2.remove(var);
                 acc
-            },
+            }
             BehavioralFormula::And(a, b) => {
                 let da = self.denote(a, states, adj, env, fix);
                 let db = self.denote(b, states, adj, env, fix);
                 da.intersection(&db).copied().collect()
-            },
+            }
             BehavioralFormula::Or(a, b) => {
                 let da = self.denote(a, states, adj, env, fix);
                 let db = self.denote(b, states, adj, env, fix);
                 da.union(&db).copied().collect()
-            },
+            }
             BehavioralFormula::Not(x) => {
                 let d = self.denote(x, states, adj, env, fix);
                 (0..states.len()).filter(|i| !d.contains(i)).collect()
-            },
+            }
             BehavioralFormula::Diamond(ap, body) => {
                 let b = self.denote(body, states, adj, env, fix);
                 (0..states.len())
@@ -533,7 +538,7 @@ impl<H: HostTerm> BehavioralAlgebra<H> {
                             .any(|(act, j)| ap.matches(act) && b.contains(j))
                     })
                     .collect()
-            },
+            }
             BehavioralFormula::BoxAll(ap, body) => {
                 let b = self.denote(body, states, adj, env, fix);
                 (0..states.len())
@@ -543,7 +548,7 @@ impl<H: HostTerm> BehavioralAlgebra<H> {
                             .all(|(act, j)| !ap.matches(act) || b.contains(j))
                     })
                     .collect()
-            },
+            }
             BehavioralFormula::Mu(x, body) => {
                 // least fixpoint: start ∅, iterate (monotone; ≤ |states| steps).
                 let mut cur: HashSet<usize> = HashSet::new();
@@ -557,7 +562,7 @@ impl<H: HostTerm> BehavioralAlgebra<H> {
                     cur = next;
                 }
                 cur
-            },
+            }
             BehavioralFormula::Nu(x, body) => {
                 // greatest fixpoint: start ⊤, iterate (monotone; ≤ |states| steps).
                 let mut cur: HashSet<usize> = all();
@@ -571,7 +576,7 @@ impl<H: HostTerm> BehavioralAlgebra<H> {
                     cur = next;
                 }
                 cur
-            },
+            }
             BehavioralFormula::FixVar(x) => fix.get(x).cloned().unwrap_or_default(),
         }
     }
@@ -637,7 +642,7 @@ impl<H: HostTerm> RejectSafeAlgebra for BehavioralAlgebra<H> {
         // Budget: |domain|^|free| assignments.
         let assignments = (domain.len().max(1)).checked_pow(free.len() as u32);
         match assignments {
-            Some(n) if n <= self.search_budget => {},
+            Some(n) if n <= self.search_budget => {}
             _ => return Sat3::DontKnow, // search space too large
         }
 
@@ -778,7 +783,10 @@ pub fn af(phi: BehavioralFormula) -> BehavioralFormula {
 /// `EG φ` — some maximal run keeps `φ` true throughout.
 pub fn eg(phi: BehavioralFormula) -> BehavioralFormula {
     // φ ∧ (⟨-⟩X ∨ deadlock); deadlock = [-]⊥.
-    nu(and(phi, or(diamond_any(fixvar()), box_any(BehavioralFormula::Bot))))
+    nu(and(
+        phi,
+        or(diamond_any(fixvar()), box_any(BehavioralFormula::Bot)),
+    ))
 }
 /// `A(φ U ψ)` — on every maximal run, `φ` holds until `ψ`.
 pub fn au(phi: BehavioralFormula, psi: BehavioralFormula) -> BehavioralFormula {
@@ -880,10 +888,12 @@ mod tests {
             var: "y".into(),
             domain: QDomain::Active,
             body: Box::new(BehavioralFormula::Or(
-                Box::new(BehavioralFormula::Not(Box::new(BehavioralFormula::Relation {
-                    name: "edge".into(),
-                    args: vec![lit("a"), var("y")],
-                }))),
+                Box::new(BehavioralFormula::Not(Box::new(
+                    BehavioralFormula::Relation {
+                        name: "edge".into(),
+                        args: vec![lit("a"), var("y")],
+                    },
+                ))),
                 Box::new(BehavioralFormula::Relation {
                     name: "safe".into(),
                     args: vec![var("y")],
@@ -1055,7 +1065,9 @@ mod tests {
         assert!(!alg.evaluate(&ag(done()), &s0()));
         assert!(alg.evaluate(&ag(done()), &s2()));
         // AG ¬bad — safety with no 'bad' states → true.
-        let no_bad = ag(BehavioralFormula::Not(Box::new(BehavioralFormula::Atom("bad".into()))));
+        let no_bad = ag(BehavioralFormula::Not(Box::new(BehavioralFormula::Atom(
+            "bad".into(),
+        ))));
         assert!(alg.evaluate(&no_bad, &s0()));
         // E(¬done U done) — some run stays ¬done until done.
         let until = eu(BehavioralFormula::Not(Box::new(done())), done());

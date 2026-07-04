@@ -24,7 +24,7 @@ use crate::backend::LatticeBackend;
 use crate::lattice::{Lattice, LatticeBuilder, NodeId};
 use crate::semiring::{NumericalWeight, Semiring};
 
-use crate::layers::traits::{CorrectionLayer, LayerError, LayerResult};
+use super::super::traits::{CorrectionLayer, LayerError, LayerResult};
 
 /// Default phonetic weight (50% phonetic, 50% original).
 pub const DEFAULT_PHONETIC_WEIGHT: f64 = 0.5;

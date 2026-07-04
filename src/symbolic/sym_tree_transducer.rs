@@ -20,8 +20,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::symbolic::sym_tree::{SymTerm, SymbolicTreeAutomaton, TreeTrans};
-use crate::symbolic::BooleanAlgebra;
+use super::sym_tree::{SymTerm, SymbolicTreeAutomaton, TreeTrans};
+use super::BooleanAlgebra;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Output builders
@@ -139,7 +139,11 @@ impl<A: BooleanAlgebra, B: BooleanAlgebra> SymbolicTreeTransducer<A, B> {
     ) -> Option<SymTerm<B::Domain>> {
         match builder {
             OutputBuilder::Project(i) => child_outputs.get(*i).cloned(),
-            OutputBuilder::Build { constructor, payload, children } => {
+            OutputBuilder::Build {
+                constructor,
+                payload,
+                children,
+            } => {
                 let pl = match payload {
                     PayloadOut::Structural => None,
                     PayloadOut::Const(d) => Some(d.clone()),
@@ -154,7 +158,7 @@ impl<A: BooleanAlgebra, B: BooleanAlgebra> SymbolicTreeTransducer<A, B> {
                     payload: pl,
                     children: kids?,
                 })
-            },
+            }
         }
     }
 
@@ -264,8 +268,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::super::{IntervalAlgebra, IntervalPred};
     use super::*;
-    use crate::symbolic::{IntervalAlgebra, IntervalPred};
 
     fn lit(n: i64) -> SymTerm<i64> {
         SymTerm::leaf("Lit", n)

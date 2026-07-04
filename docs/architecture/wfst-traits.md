@@ -411,7 +411,7 @@ fn is_reachable<L, W: Semiring>(
 }
 ```
 
-## Next Steps
+## Related Topics
 
 - [Composition](../algorithms/composition.md): Lazy composition operators
 - [Path Extraction](../algorithms/path-extraction.md): Finding paths through WFSTs

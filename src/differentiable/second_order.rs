@@ -415,7 +415,7 @@ pub fn compute_diagonal_fisher(gradients: &GradientAccumulator) -> HessianMatrix
 /// # Arguments
 ///
 /// * `gradients` - Standard gradients
-/// * `fisher` - Fisher information matrix (diagonal)
+/// * `fisher` - Fisher information matrix
 /// * `damping` - Damping factor for numerical stability
 ///
 /// # Returns
@@ -426,25 +426,92 @@ pub fn natural_gradient(
     fisher: &HessianMatrix,
     damping: f64,
 ) -> Vec<f64> {
+    let gradient_values: Vec<f64> = gradients
+        .arc_gradients
+        .iter()
+        .map(|grad| grad.gradient)
+        .collect();
+
     if !fisher.is_diagonal {
-        // For full Fisher, would need to solve linear system
-        // For now, just return standard gradients
-        return gradients.arc_gradients.iter().map(|g| g.gradient).collect();
+        return solve_damped_linear_system(fisher, &gradient_values, damping)
+            .unwrap_or_else(|| diagonal_natural_gradient(&gradient_values, fisher, damping));
     }
 
+    diagonal_natural_gradient(&gradient_values, fisher, damping)
+}
+
+fn diagonal_natural_gradient(gradients: &[f64], fisher: &HessianMatrix, damping: f64) -> Vec<f64> {
     gradients
-        .arc_gradients
         .iter()
         .enumerate()
         .map(|(i, grad)| {
             let f_ii = fisher.get(i, i) + damping;
             if f_ii.abs() > 1e-10 {
-                grad.gradient / f_ii
+                *grad / f_ii
             } else {
-                grad.gradient
+                *grad
             }
         })
         .collect()
+}
+
+fn solve_damped_linear_system(
+    fisher: &HessianMatrix,
+    rhs: &[f64],
+    damping: f64,
+) -> Option<Vec<f64>> {
+    let n = rhs.len();
+    if n == 0 {
+        return Some(Vec::new());
+    }
+
+    let mut matrix = vec![vec![0.0; n + 1]; n];
+    for row in 0..n {
+        for col in 0..n {
+            matrix[row][col] = fisher.get(row, col);
+        }
+        matrix[row][row] += damping;
+        matrix[row][n] = rhs[row];
+    }
+
+    for col in 0..n {
+        let pivot = (col..n).max_by(|&a, &b| {
+            matrix[a][col]
+                .abs()
+                .partial_cmp(&matrix[b][col].abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })?;
+
+        if matrix[pivot][col].abs() <= 1e-12 {
+            return None;
+        }
+
+        if pivot != col {
+            matrix.swap(pivot, col);
+        }
+
+        let pivot_value = matrix[col][col];
+        for entry in col..=n {
+            matrix[col][entry] /= pivot_value;
+        }
+
+        for row in 0..n {
+            if row == col {
+                continue;
+            }
+
+            let factor = matrix[row][col];
+            if factor == 0.0 {
+                continue;
+            }
+
+            for entry in col..=n {
+                matrix[row][entry] -= factor * matrix[col][entry];
+            }
+        }
+    }
+
+    Some((0..n).map(|row| matrix[row][n]).collect())
 }
 
 /// Count arcs in a gradient WFST.
@@ -722,6 +789,25 @@ mod property_tests {
             let expected = grad_val / damping;
             prop_assert!((nat_grad[0] - expected).abs() < 1e-6,
                 "Damped natural grad {} != expected {}", nat_grad[0], expected);
+        }
+
+        /// Full Fisher natural gradient solves the damped linear system.
+        #[test]
+        fn natural_gradient_full_fisher_solves_coupled_system(scale in 0.5f64..5.0) {
+            let mut grads = GradientAccumulator::new();
+            grads.add_gradient(super::super::gradient::ArcIndex::new(0, 0), 3.0 * scale);
+            grads.add_gradient(super::super::gradient::ArcIndex::new(0, 1), 3.0 * scale);
+
+            let mut fisher = HessianMatrix::full(2);
+            fisher.set(0, 0, 2.0);
+            fisher.set(0, 1, 1.0);
+            fisher.set(1, 0, 1.0);
+            fisher.set(1, 1, 2.0);
+
+            let nat_grad = natural_gradient(&grads, &fisher, 0.0);
+
+            prop_assert!((nat_grad[0] - scale).abs() < 1e-6);
+            prop_assert!((nat_grad[1] - scale).abs() < 1e-6);
         }
 
         /// SecondOrderWfst reset clears state.

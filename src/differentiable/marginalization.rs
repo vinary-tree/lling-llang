@@ -41,6 +41,7 @@
 
 use std::collections::HashMap;
 
+use crate::composition::{compose, materialize};
 use crate::semiring::{LogWeight, Semiring};
 #[cfg(test)]
 use crate::wfst::Wfst;
@@ -289,28 +290,22 @@ impl MarginalizationContext {
 /// The marginalized log probability.
 pub fn marginalized_loss(
     emissions: &VectorWfst<WordPieceId, LogWeight>,
-    _lexicon: &VectorWfst<WordPieceId, LogWeight>,
+    lexicon: &VectorWfst<WordPieceId, LogWeight>,
     target: &[GraphemeId],
 ) -> f64 {
-    // Build target graph
-    let _target_graph = build_target_graph(target);
+    let target_graph = build_target_graph(target);
+    let emission_lexicon = materialize(compose(emissions.clone(), lexicon.clone()));
+    let constrained = materialize(compose(emission_lexicon, target_graph));
 
-    // In full implementation:
-    // 1. Compose: L ∘ Y (lexicon with target)
-    // 2. Compose with token graphs: (T₁ + ... + T_C)* ∘ (L ∘ Y)
-    // 3. Compose with emissions: E ∘ ...
-    // 4. Compute forward score (marginalization)
-
-    // For now, return a placeholder based on emissions
-    compute_emission_score(emissions)
+    compute_forward_score(&constrained)
 }
 
-/// Compute simple forward score from emissions.
-fn compute_emission_score(emissions: &VectorWfst<WordPieceId, LogWeight>) -> f64 {
+/// Compute the log-domain forward score of a constrained graph.
+fn compute_forward_score(fst: &VectorWfst<WordPieceId, LogWeight>) -> f64 {
     use super::forward_score::forward_score;
     use super::gradient::GradientWfst;
 
-    let grad_fst = GradientWfst::from_wfst(emissions);
+    let grad_fst = GradientWfst::from_wfst(fst);
     let score = forward_score(&grad_fst);
     score.value()
 }
@@ -485,5 +480,58 @@ mod tests {
         let stats = MarginalizationStats::default();
         assert_eq!(stats.num_decompositions, 0);
         assert!(stats.best_decomposition.is_empty());
+    }
+
+    #[test]
+    fn test_marginalized_loss_filters_by_target() {
+        let mut emissions = VectorWfst::new();
+        let start = emissions.add_state();
+        let final_state = emissions.add_state();
+        emissions.set_start(start);
+        emissions.set_final(final_state, LogWeight::one());
+        emissions.add_arc(start, Some(1), Some(1), final_state, LogWeight::new(0.3));
+        emissions.add_arc(start, Some(2), Some(2), final_state, LogWeight::new(0.7));
+
+        let entries = vec![
+            LexiconEntry::new(1, vec![10]),
+            LexiconEntry::new(2, vec![20]),
+        ];
+        let lexicon = build_lexicon_transducer(&entries, &LexiconConfig::default());
+
+        let loss = marginalized_loss(&emissions, &lexicon, &[10]);
+        assert!((loss - 0.3).abs() < 1e-9);
+
+        let impossible = marginalized_loss(&emissions, &lexicon, &[30]);
+        assert!(impossible.is_infinite());
+    }
+
+    #[test]
+    fn test_marginalized_loss_sums_decompositions() {
+        let mut emissions = VectorWfst::new();
+        let s0 = emissions.add_state();
+        let s1 = emissions.add_state();
+        let s2 = emissions.add_state();
+        let sf = emissions.add_state();
+        emissions.set_start(s0);
+        emissions.set_final(sf, LogWeight::one());
+        emissions.add_arc(s0, Some(1), Some(1), sf, LogWeight::new(1.0));
+        emissions.add_arc(s0, Some(2), Some(2), s1, LogWeight::new(2.0));
+        emissions.add_arc(s1, Some(3), Some(3), sf, LogWeight::new(3.0));
+        emissions.add_arc(s0, Some(4), Some(4), s2, LogWeight::new(0.1));
+        emissions.add_arc(s2, Some(5), Some(5), sf, LogWeight::new(0.1));
+
+        let entries = vec![
+            LexiconEntry::new(1, vec![10, 11]),
+            LexiconEntry::new(2, vec![10]),
+            LexiconEntry::new(3, vec![11]),
+            LexiconEntry::new(4, vec![10]),
+            LexiconEntry::new(5, vec![12]),
+        ];
+        let lexicon = build_lexicon_transducer(&entries, &LexiconConfig::default());
+
+        let expected = LogWeight::new(1.0).plus(&LogWeight::new(5.0)).value();
+        let loss = marginalized_loss(&emissions, &lexicon, &[10, 11]);
+
+        assert!((loss - expected).abs() < 1e-9);
     }
 }

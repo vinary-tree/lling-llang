@@ -21,11 +21,53 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::collections::VecDeque;
 
-use ordered_float::OrderedFloat;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::semiring::Semiring;
+use crate::semiring::{Semiring, TropicalWeight};
 use crate::wfst::StateId;
+
+#[derive(Clone, Debug)]
+enum StatePositionIndex {
+    Dense(Vec<usize>),
+    Sparse(FxHashMap<StateId, usize>),
+}
+
+impl StatePositionIndex {
+    fn with_capacity(capacity: usize) -> Self {
+        Self::Dense(Vec::with_capacity(capacity))
+    }
+
+    fn from_order(order: &[StateId]) -> Self {
+        let Some(max_state) = order.iter().map(|&state| state as usize).max() else {
+            return Self::Dense(Vec::new());
+        };
+
+        if max_state < order.len().saturating_mul(4).max(1) {
+            let mut state_to_pos = vec![usize::MAX; max_state + 1];
+            for (pos, &state) in order.iter().enumerate() {
+                state_to_pos[state as usize] = pos;
+            }
+            Self::Dense(state_to_pos)
+        } else {
+            let mut state_to_pos =
+                FxHashMap::with_capacity_and_hasher(order.len(), Default::default());
+            for (pos, &state) in order.iter().enumerate() {
+                state_to_pos.insert(state, pos);
+            }
+            Self::Sparse(state_to_pos)
+        }
+    }
+
+    fn get(&self, state: StateId) -> Option<usize> {
+        match self {
+            StatePositionIndex::Dense(positions) => positions
+                .get(state as usize)
+                .copied()
+                .filter(|&pos| pos != usize::MAX),
+            StatePositionIndex::Sparse(positions) => positions.get(&state).copied(),
+        }
+    }
+}
 
 /// Queue type enumeration for configuration.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -217,7 +259,7 @@ pub struct TopologicalQueue {
     /// Current position in the topological order
     current_pos: usize,
     /// Reverse mapping: state -> position in order
-    state_to_pos: Vec<usize>,
+    state_to_pos: StatePositionIndex,
     /// States that have been enqueued (ready to process)
     enqueued: Vec<bool>,
     /// Number of states currently in queue
@@ -235,7 +277,7 @@ impl TopologicalQueue {
         Self {
             order: Vec::with_capacity(capacity),
             current_pos: 0,
-            state_to_pos: Vec::with_capacity(capacity),
+            state_to_pos: StatePositionIndex::with_capacity(capacity),
             enqueued: Vec::with_capacity(capacity),
             count: 0,
         }
@@ -243,11 +285,7 @@ impl TopologicalQueue {
 
     /// Create a topological queue initialized with the given order.
     pub fn from_order(order: Vec<StateId>) -> Self {
-        let n = order.iter().map(|&s| s as usize + 1).max().unwrap_or(0);
-        let mut state_to_pos = vec![usize::MAX; n];
-        for (pos, &state) in order.iter().enumerate() {
-            state_to_pos[state as usize] = pos;
-        }
+        let state_to_pos = StatePositionIndex::from_order(&order);
 
         Self {
             enqueued: vec![false; order.len()],
@@ -260,10 +298,8 @@ impl TopologicalQueue {
 
     /// Insert a state into the queue.
     pub fn insert_state(&mut self, state: StateId) {
-        let idx = state as usize;
-        if idx < self.state_to_pos.len() {
-            let pos = self.state_to_pos[idx];
-            if pos < self.enqueued.len() && !self.enqueued[pos] {
+        if let Some(pos) = self.state_to_pos.get(state) {
+            if pos >= self.current_pos && !self.enqueued[pos] {
                 self.enqueued[pos] = true;
                 self.count += 1;
             }
@@ -302,13 +338,9 @@ impl TopologicalQueue {
 
     /// Check if a state is currently in the queue.
     pub fn contains(&self, state: StateId) -> bool {
-        let idx = state as usize;
-        if idx < self.state_to_pos.len() {
-            let pos = self.state_to_pos[idx];
-            pos < self.enqueued.len() && self.enqueued[pos]
-        } else {
-            false
-        }
+        self.state_to_pos
+            .get(state)
+            .is_some_and(|pos| pos >= self.current_pos && self.enqueued[pos])
     }
 
     /// Clear all states from the queue.
@@ -363,36 +395,49 @@ impl<W: Semiring> ShortestDistanceQueue<W> for TopologicalQueue {
 
 /// Entry in the shortest-first priority queue.
 #[derive(Clone, Debug)]
-struct ShortestFirstEntry {
+struct ShortestFirstEntry<W: Semiring> {
     state: StateId,
-    /// Negated distance for max-heap to act as min-heap
-    neg_distance: OrderedFloat<f64>,
+    distance: W,
+    sequence: u64,
 }
 
-impl PartialEq for ShortestFirstEntry {
+impl<W: Semiring> PartialEq for ShortestFirstEntry<W> {
     fn eq(&self, other: &Self) -> bool {
-        self.neg_distance == other.neg_distance
+        self.state == other.state
+            && self.distance == other.distance
+            && self.sequence == other.sequence
     }
 }
 
-impl Eq for ShortestFirstEntry {}
+impl<W: Semiring> Eq for ShortestFirstEntry<W> {}
 
-impl PartialOrd for ShortestFirstEntry {
+impl<W: Semiring> PartialOrd for ShortestFirstEntry<W> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for ShortestFirstEntry {
+impl<W: Semiring> Ord for ShortestFirstEntry<W> {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.neg_distance.cmp(&other.neg_distance)
+        match (
+            self.distance.natural_less(&other.distance),
+            other.distance.natural_less(&self.distance),
+        ) {
+            (Some(true), _) => Ordering::Greater,
+            (_, Some(true)) => Ordering::Less,
+            _ => other
+                .sequence
+                .cmp(&self.sequence)
+                .then_with(|| other.state.cmp(&self.state)),
+        }
     }
 }
 
-/// Shortest-first (Dijkstra-style) queue for tropical semiring.
+/// Shortest-first (Dijkstra-style) queue for naturally ordered semirings.
 ///
-/// Processes states in order of increasing distance, which is optimal
-/// for the tropical semiring (min, +).
+/// Processes states in semiring-natural priority order. This is optimal for
+/// the tropical semiring (min, +) and remains a deterministic priority
+/// discipline for other semirings that expose a natural order.
 ///
 /// # Requirements
 ///
@@ -402,6 +447,8 @@ impl Ord for ShortestFirstEntry {
 ///   its distance is final and cannot be improved by negative-weight paths.
 ///
 /// - Best performance with tropical semiring where weights are guaranteed non-negative.
+/// - Semirings with partial orders use insertion order as a deterministic
+///   tie-break for incomparable weights.
 ///
 /// # Complexity
 ///
@@ -411,14 +458,15 @@ impl Ord for ShortestFirstEntry {
 ///
 /// [`NonnegativeSemiring`]: crate::semiring::NonnegativeSemiring
 #[derive(Clone, Debug)]
-pub struct ShortestFirstQueue {
-    heap: BinaryHeap<ShortestFirstEntry>,
+pub struct ShortestFirstQueue<W: Semiring = TropicalWeight> {
+    heap: BinaryHeap<ShortestFirstEntry<W>>,
     in_queue: FxHashSet<StateId>,
     /// Track current best distance for each state to handle stale entries
-    distances: Vec<OrderedFloat<f64>>,
+    distances: Vec<W>,
+    next_sequence: u64,
 }
 
-impl ShortestFirstQueue {
+impl<W: Semiring> ShortestFirstQueue<W> {
     /// Create a new empty shortest-first queue.
     pub fn new() -> Self {
         Self::with_capacity(0)
@@ -430,40 +478,75 @@ impl ShortestFirstQueue {
             heap: BinaryHeap::with_capacity(capacity),
             in_queue: FxHashSet::with_capacity_and_hasher(capacity, Default::default()),
             distances: Vec::with_capacity(capacity),
+            next_sequence: 0,
         }
     }
 
     /// Initialize the distance tracking array for a given number of states.
     pub fn init_distances(&mut self, num_states: usize) {
-        self.distances
-            .resize(num_states, OrderedFloat(f64::INFINITY));
+        self.distances.resize(num_states, W::zero());
     }
 
-    /// Insert a state with the given distance (as f64).
-    pub fn insert_with_distance(&mut self, state: StateId, dist: f64) {
+    fn ensure_state_capacity(&mut self, state: StateId) -> usize {
         let idx = state as usize;
         if idx >= self.distances.len() {
-            self.distances.resize(idx + 1, OrderedFloat(f64::INFINITY));
+            self.distances.resize(idx + 1, W::zero());
+        }
+        idx
+    }
+
+    /// Set the current distance for a state and enqueue it for processing.
+    pub fn set_distance(&mut self, state: StateId, distance: W) {
+        if distance.is_zero() {
+            return;
         }
 
-        let ord_dist = OrderedFloat(dist);
-        if ord_dist < self.distances[idx] {
-            self.distances[idx] = ord_dist;
-            self.heap.push(ShortestFirstEntry {
-                state,
-                neg_distance: OrderedFloat(-dist),
-            });
-            self.in_queue.insert(state);
+        let idx = self.ensure_state_capacity(state);
+        if self.in_queue.contains(&state) && self.distances[idx] == distance {
+            return;
         }
+
+        self.distances[idx] = distance;
+        let sequence = self.next_sequence;
+        self.next_sequence = self.next_sequence.wrapping_add(1);
+        self.heap.push(ShortestFirstEntry {
+            state,
+            distance,
+            sequence,
+        });
+        self.in_queue.insert(state);
+    }
+
+    /// Insert a candidate distance, keeping the best known ordered distance.
+    ///
+    /// Incomparable but distinct candidates are still enqueued so semirings
+    /// with partial natural orders continue to make progress.
+    pub fn insert_with_weight(&mut self, state: StateId, distance: W) {
+        if distance.is_zero() {
+            return;
+        }
+
+        let idx = self.ensure_state_capacity(state);
+        let current = self.distances[idx];
+        if !current.is_zero() {
+            let candidate_better = distance.natural_less(&current);
+            let current_better = current.natural_less(&distance);
+            if candidate_better != Some(true) && current_better == Some(true) {
+                return;
+            }
+        }
+
+        self.set_distance(state, distance);
     }
 
     /// Extract the next state to process.
     pub fn pop(&mut self) -> Option<StateId> {
         while let Some(entry) = self.heap.pop() {
             let idx = entry.state as usize;
-            let expected_dist = OrderedFloat(-entry.neg_distance.0);
-
-            if idx < self.distances.len() && expected_dist == self.distances[idx] {
+            if idx < self.distances.len()
+                && self.in_queue.contains(&entry.state)
+                && entry.distance == self.distances[idx]
+            {
                 self.in_queue.remove(&entry.state);
                 return Some(entry.state);
             }
@@ -491,30 +574,34 @@ impl ShortestFirstQueue {
         self.heap.clear();
         self.in_queue.clear();
         for d in &mut self.distances {
-            *d = OrderedFloat(f64::INFINITY);
+            *d = W::zero();
         }
+        self.next_sequence = 0;
     }
 }
 
-impl Default for ShortestFirstQueue {
+impl<W: Semiring> Default for ShortestFirstQueue<W> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<W: Semiring> ShortestDistanceQueue<W> for ShortestFirstQueue {
+impl ShortestFirstQueue<TropicalWeight> {
+    /// Insert a tropical candidate distance from a raw `f64`.
+    pub fn insert_with_distance(&mut self, state: StateId, dist: f64) {
+        if let Some(weight) = TropicalWeight::try_new(dist) {
+            self.insert_with_weight(state, weight);
+        }
+    }
+}
+
+impl<W: Semiring> ShortestDistanceQueue<W> for ShortestFirstQueue<W> {
     fn with_capacity(capacity: usize) -> Self {
         ShortestFirstQueue::with_capacity(capacity)
     }
 
     fn insert(&mut self, state: StateId, distance: &W) {
-        let bytes = distance.to_bytes();
-        let dist = if bytes.len() >= 8 {
-            f64::from_le_bytes(bytes[..8].try_into().unwrap_or([0; 8]))
-        } else {
-            0.0
-        };
-        self.insert_with_distance(state, dist);
+        self.set_distance(state, *distance);
     }
 
     fn pop(&mut self) -> Option<StateId> {
@@ -522,7 +609,7 @@ impl<W: Semiring> ShortestDistanceQueue<W> for ShortestFirstQueue {
     }
 
     fn update(&mut self, state: StateId, distance: &W) {
-        self.insert(state, distance);
+        self.set_distance(state, *distance);
     }
 
     fn is_empty(&self) -> bool {
@@ -547,22 +634,22 @@ impl<W: Semiring> ShortestDistanceQueue<W> for ShortestFirstQueue {
 /// This wrapper chooses the appropriate queue implementation at runtime
 /// based on whether the graph is acyclic and the semiring type.
 #[derive(Clone, Debug)]
-pub enum AutoQueue {
+pub enum AutoQueue<W: Semiring = TropicalWeight> {
     /// FIFO queue (fallback)
     Fifo(FifoQueue),
     /// Topological queue (for acyclic graphs)
     Topological(TopologicalQueue),
     /// Shortest-first queue (for tropical semiring)
-    ShortestFirst(ShortestFirstQueue),
+    ShortestFirst(ShortestFirstQueue<W>),
 }
 
-impl Default for AutoQueue {
+impl<W: Semiring> Default for AutoQueue<W> {
     fn default() -> Self {
         AutoQueue::Fifo(FifoQueue::default())
     }
 }
 
-impl AutoQueue {
+impl<W: Semiring> AutoQueue<W> {
     /// Create an automatic queue using topological order if available.
     pub fn with_topological_order(order: Option<Vec<StateId>>) -> Self {
         match order {
@@ -573,7 +660,7 @@ impl AutoQueue {
 
     /// Create a shortest-first queue for Dijkstra-style processing.
     pub fn shortest_first(num_states: usize) -> Self {
-        let mut queue = ShortestFirstQueue::with_capacity(num_states);
+        let mut queue = ShortestFirstQueue::<W>::with_capacity(num_states);
         queue.init_distances(num_states);
         AutoQueue::ShortestFirst(queue)
     }
@@ -624,7 +711,7 @@ impl AutoQueue {
     }
 }
 
-impl<W: Semiring> ShortestDistanceQueue<W> for AutoQueue {
+impl<W: Semiring> ShortestDistanceQueue<W> for AutoQueue<W> {
     fn with_capacity(capacity: usize) -> Self {
         AutoQueue::Fifo(FifoQueue::with_capacity(capacity))
     }
@@ -669,7 +756,44 @@ impl<W: Semiring> ShortestDistanceQueue<W> for AutoQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::semiring::TropicalWeight;
+    use crate::semiring::{Semiring, TropicalWeight};
+
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    struct TestPriorityWeight(u8);
+
+    impl Semiring for TestPriorityWeight {
+        fn zero() -> Self {
+            Self(u8::MAX)
+        }
+
+        fn one() -> Self {
+            Self(0)
+        }
+
+        fn plus(&self, other: &Self) -> Self {
+            Self(self.0.min(other.0))
+        }
+
+        fn times(&self, other: &Self) -> Self {
+            Self(self.0.saturating_add(other.0))
+        }
+
+        fn is_zero(&self) -> bool {
+            self.0 == u8::MAX
+        }
+
+        fn approx_eq(&self, other: &Self, _epsilon: f64) -> bool {
+            self == other
+        }
+
+        fn natural_less(&self, other: &Self) -> Option<bool> {
+            Some(self.0 < other.0)
+        }
+
+        fn to_bytes(&self) -> Vec<u8> {
+            vec![u8::MAX - self.0]
+        }
+    }
 
     #[test]
     fn test_fifo_queue_basic() {
@@ -727,6 +851,33 @@ mod tests {
     }
 
     #[test]
+    fn test_topological_queue_ignores_already_passed_reinsert() {
+        let mut queue = TopologicalQueue::from_order(vec![0, 1]);
+
+        queue.insert_state(0);
+        assert_eq!(queue.pop(), Some(0));
+
+        queue.insert_state(0);
+        assert!(!queue.contains(0));
+        assert_eq!(queue.len(), 0);
+        assert_eq!(queue.pop(), None);
+        assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn test_topological_queue_handles_sparse_large_state_ids() {
+        let large_state: StateId = u32::MAX;
+        let mut queue = TopologicalQueue::from_order(vec![large_state]);
+
+        queue.insert_state(large_state);
+        assert!(queue.contains(large_state));
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue.pop(), Some(large_state));
+        assert_eq!(queue.pop(), None);
+        assert!(queue.is_empty());
+    }
+
+    #[test]
     fn test_shortest_first_queue_basic() {
         let mut queue = ShortestFirstQueue::new();
         queue.init_distances(10);
@@ -757,6 +908,33 @@ mod tests {
         // Now state 1 should come first
         assert_eq!(queue.pop(), Some(1)); // 2.0 (updated)
         assert_eq!(queue.pop(), Some(0)); // 5.0
+    }
+
+    #[test]
+    fn test_shortest_first_queue_uses_typed_natural_order() {
+        let mut queue = ShortestFirstQueue::<TestPriorityWeight>::new();
+        queue.init_distances(4);
+
+        queue.set_distance(0, TestPriorityWeight(3));
+        queue.set_distance(1, TestPriorityWeight(1));
+        queue.set_distance(2, TestPriorityWeight(2));
+
+        assert_eq!(queue.pop(), Some(1));
+        assert_eq!(queue.pop(), Some(2));
+        assert_eq!(queue.pop(), Some(0));
+        assert_eq!(queue.pop(), None);
+    }
+
+    #[test]
+    fn test_shortest_first_queue_ignores_invalid_raw_tropical_distance() {
+        let mut queue = ShortestFirstQueue::new();
+        queue.init_distances(2);
+
+        queue.insert_with_distance(0, f64::NAN);
+        queue.insert_with_distance(1, f64::NEG_INFINITY);
+
+        assert!(queue.is_empty());
+        assert_eq!(queue.pop(), None);
     }
 
     #[test]

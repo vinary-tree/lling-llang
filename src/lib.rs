@@ -262,6 +262,7 @@ pub mod prelude {
         ChainId,
         ContextDependencyBuilder,
         ContextDependencyConfig,
+        ContextDependencyError,
         ContextState,
         DysfluencyConfig,
         DysfluencyDetector,

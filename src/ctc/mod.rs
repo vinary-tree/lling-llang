@@ -70,13 +70,14 @@ mod decoder;
 mod topologies;
 
 pub use topologies::{
-    compact_ctc, correct_ctc, minimal_ctc, selfless_compact_ctc, selfless_correct_ctc, CtcLabel,
-    CtcTopology, CtcTopologyInfo, BLANK,
+    compact_ctc, correct_ctc, minimal_ctc, selfless_compact_ctc, selfless_correct_ctc,
+    try_compact_ctc, try_correct_ctc, try_minimal_ctc, try_selfless_compact_ctc,
+    try_selfless_correct_ctc, CtcLabel, CtcTopology, CtcTopologyError, CtcTopologyInfo, BLANK,
 };
 
 pub use decoder::{
     CtcDecoder, CtcDecoderConfig, DecoderToken, DecodingError, DecodingResult, DecodingStats,
-    ObservationFst, StreamingCtcDecoder,
+    ObservationFst, ObservationFstError, StreamingCtcDecoder,
 };
 
 #[cfg(test)]

@@ -13,7 +13,7 @@ use crate::backend::LatticeBackend;
 use crate::lattice::{Lattice, LatticeBuilder, NodeId};
 use crate::semiring::{NumericalWeight, Semiring};
 
-use crate::layers::traits::{CorrectionLayer, LayerError, LayerResult};
+use super::super::traits::{CorrectionLayer, LayerError, LayerResult};
 
 /// Maximum number of words to keep in LM context.
 /// This is typically set to the LM order minus 1 (e.g., 4 for a 5-gram LM).
@@ -323,11 +323,10 @@ mod tests {
     use crate::lattice::{EdgeMetadata, LatticeBuilder};
     use crate::semiring::TropicalWeight;
 
-    struct MockLanguageModel;
+    struct UniformPenaltyLanguageModel;
 
-    impl LanguageModel for MockLanguageModel {
+    impl LanguageModel for UniformPenaltyLanguageModel {
         fn score_sequence(&self, tokens: &[&str]) -> f64 {
-            // Simple mock: -1.0 per token
             -(tokens.len() as f64)
         }
 
@@ -365,15 +364,15 @@ mod tests {
     }
 
     #[test]
-    fn test_mock_lm() {
-        let lm = MockLanguageModel;
+    fn test_uniform_penalty_lm() {
+        let lm = UniformPenaltyLanguageModel;
         assert_eq!(lm.score_sequence(&["the", "dog"]), -2.0);
         assert_eq!(lm.score_continuation(&["the"], "dog"), -1.0);
     }
 
     #[test]
     fn test_layer_name() {
-        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel));
+        let layer = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel));
         // Use explicit trait method call with concrete types
         let name =
             <LanguageModelLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::name(&layer);
@@ -382,7 +381,7 @@ mod tests {
 
     #[test]
     fn test_layer_builder() {
-        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel))
+        let layer = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel))
             .with_weight(0.7)
             .with_length_normalization(false);
 
@@ -392,14 +391,14 @@ mod tests {
 
     #[test]
     fn test_weight_clamping() {
-        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel)).with_weight(1.5); // Should clamp to 1.0
+        let layer = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel)).with_weight(1.5); // Should clamp to 1.0
 
         assert!((layer.weight - 1.0).abs() < 0.001);
     }
 
     #[test]
     fn test_estimated_reduction() {
-        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel));
+        let layer = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel));
         // Use explicit trait method call with concrete types
         let reduction = <LanguageModelLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::estimated_reduction(&layer);
         assert!((reduction - 1.0).abs() < 0.001);
@@ -407,7 +406,7 @@ mod tests {
 
     #[test]
     fn test_apply_empty_lattice() {
-        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel));
+        let layer = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel));
         let backend = HashMapBackend::new();
         let builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
         let lattice = builder.build(0);
@@ -422,7 +421,7 @@ mod tests {
 
     #[test]
     fn test_apply_single_edge() {
-        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel)).with_weight(0.5);
+        let layer = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel)).with_weight(0.5);
 
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
@@ -461,7 +460,7 @@ mod tests {
 
     #[test]
     fn test_apply_preserves_structure() {
-        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel));
+        let layer = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel));
 
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
@@ -496,7 +495,7 @@ mod tests {
     #[test]
     fn test_weight_interpolation_formula() {
         // Test the interpolation formula directly
-        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel)).with_weight(0.3); // 30% LM, 70% original
+        let layer = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel)).with_weight(0.3); // 30% LM, 70% original
 
         let orig_weight = TropicalWeight::new(4.0);
         let lm_log_prob = -2.0; // Cost = 2.0
@@ -513,7 +512,7 @@ mod tests {
 
     #[test]
     fn test_lambda_zero_ignores_lm() {
-        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel)).with_weight(0.0); // Ignore LM completely
+        let layer = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel)).with_weight(0.0); // Ignore LM completely
 
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
@@ -543,7 +542,7 @@ mod tests {
 
     #[test]
     fn test_lambda_one_uses_only_lm() {
-        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel)).with_weight(1.0); // Use only LM scores
+        let layer = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel)).with_weight(1.0); // Use only LM scores
 
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
@@ -630,7 +629,7 @@ mod tests {
 
     #[test]
     fn test_can_apply_always_true() {
-        let layer = LanguageModelLayer::new(Box::new(MockLanguageModel));
+        let layer = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel));
         let backend = HashMapBackend::new();
         let builder: LatticeBuilder<TropicalWeight, _> = LatticeBuilder::new(backend);
         let lattice = builder.build(0);

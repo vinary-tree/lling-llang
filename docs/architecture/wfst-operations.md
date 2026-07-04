@@ -418,7 +418,7 @@ States 1..=n: Reversed states from T (offset by 1)
 | Project | `` `O(1)` `` | `` `O(1)` `` |
 | Reverse | `` `O(∣Q∣ + ∣E∣)` `` | `` `O(1)` `` |
 
-## Next Steps
+## Related Topics
 
 - [Semirings](semirings.md): Weight algebra for WFSTs
 - [Composition](../algorithms/composition.md): Composing two transducers

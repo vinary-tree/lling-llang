@@ -132,7 +132,7 @@ Qed.
 (* ===================================================================== *)
 
 (* Whether a tier's decision procedure is sound / complete w.r.t. the guard's
-   true denotation. T1/T2 are exact; T3 is bounded (sound, may be incomplete);
+   true denotation. T1/T2 are exact; T3 is bounded and non-exhaustive;
    T4 is an asserted/trusted guard (no static guarantee). *)
 Definition tsound (t : Tier) : bool :=
   match t with T1 | T2 | T3 => true | T4 => false end.

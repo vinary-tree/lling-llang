@@ -245,9 +245,8 @@ Section Paths.
 
   (** ** Path Enumeration *)
 
-  (** All paths of length n from state s *)
-  (* Note: This is a simplified version; actual implementation would
-     need to handle cycles carefully *)
+  (** All paths of length n from state s. The length index bounds recursion, so
+      cyclic automata still yield a finite relation at each fixed n. *)
 
   (** ** Path Extension *)
 

@@ -526,7 +526,7 @@ match determinize(&fst, config) {
 - [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted Finite-State Transducers in Speech Recognition*: determinization as a stage of the standard recognition-cascade optimization pipeline.
 - [Allauzen 2007](../BIBLIOGRAPHY.md#ref-allauzen2007) — *OpenFst*: the reference library whose `Determinize` operation and `DivisibleSemiring`-style weight API this implementation mirrors.
 
-## Next Steps
+## Related Topics
 
 - [Epsilon Removal](epsilon-removal.md): Required before determinization
 - [Minimization](minimization.md): Uses determinization as prerequisite

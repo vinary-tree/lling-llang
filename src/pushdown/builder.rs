@@ -38,10 +38,16 @@ impl std::fmt::Display for BuildError {
                 write!(f, "transition references unknown stack symbol {s}")
             }
             BuildError::BottomPop => {
-                write!(f, "transition pops the bottom-of-stack marker Z₀ (would underflow)")
+                write!(
+                    f,
+                    "transition pops the bottom-of-stack marker Z₀ (would underflow)"
+                )
             }
             BuildError::NoFinalState => {
-                write!(f, "acceptance mode requires a final state, but none was declared")
+                write!(
+                    f,
+                    "acceptance mode requires a final state, but none was declared"
+                )
             }
         }
     }
@@ -687,7 +693,14 @@ mod tests {
         builder.set_start(s0);
         let z0 = builder.initial_stack();
         let marker = builder.add_stack_symbol();
-        builder.add_push_transition(s0, Some('a'), z0, vec![z0, marker], s1, TropicalWeight::one());
+        builder.add_push_transition(
+            s0,
+            Some('a'),
+            z0,
+            vec![z0, marker],
+            s1,
+            TropicalWeight::one(),
+        );
 
         assert!(builder.validate().is_ok());
         assert!(builder.try_build().is_ok());
@@ -716,7 +729,10 @@ mod tests {
         // State 99 was never allocated.
         builder.add_read_transition(s0, 'a', z0, 99, TropicalWeight::one());
 
-        assert_eq!(builder.try_build().unwrap_err(), BuildError::UnknownState(99));
+        assert_eq!(
+            builder.try_build().unwrap_err(),
+            BuildError::UnknownState(99)
+        );
     }
 
     #[test]
@@ -731,7 +747,7 @@ mod tests {
             s0,
             Some('a'),
             z0,
-            vec![z0, crate::pushdown::StackSymbol::new(99)],
+            vec![z0, StackSymbol::new(99)],
             s1,
             TropicalWeight::one(),
         );

@@ -160,10 +160,7 @@ impl TokenPredicate {
             TokenPredicate::StartsWith(prefix) => token.text.starts_with(prefix),
             TokenPredicate::EndsWith(suffix) => token.text.ends_with(suffix),
             TokenPredicate::Contains(sub) => token.text.contains(sub),
-            TokenPredicate::Regex(pattern) => {
-                // Simple regex matching - in production, use regex crate
-                regex_matches(&token.text, pattern)
-            }
+            TokenPredicate::Regex(pattern) => regex_matches(&token.text, pattern),
             TokenPredicate::Any_(preds) => preds.iter().any(|p| p.matches(token)),
             TokenPredicate::All(preds) => preds.iter().all(|p| p.matches(token)),
             TokenPredicate::Not(pred) => !pred.matches(token),
@@ -171,25 +168,11 @@ impl TokenPredicate {
     }
 }
 
-/// Simple regex matching (placeholder - use regex crate in production).
+/// Regex matching with invalid patterns treated as non-matches.
 fn regex_matches(text: &str, pattern: &str) -> bool {
-    // Very simple pattern matching for common cases
-    if pattern == ".*" {
-        return true;
-    }
-    if pattern.starts_with('^') && pattern.ends_with('$') {
-        let inner = &pattern[1..pattern.len() - 1];
-        return text == inner;
-    }
-    if pattern.starts_with('^') {
-        let prefix = &pattern[1..];
-        return text.starts_with(prefix);
-    }
-    if pattern.ends_with('$') {
-        let suffix = &pattern[..pattern.len() - 1];
-        return text.ends_with(suffix);
-    }
-    text.contains(pattern)
+    regex::Regex::new(pattern)
+        .map(|regex| regex.is_match(text))
+        .unwrap_or(false)
 }
 
 /// A pattern for matching sequences of tokens.
@@ -595,6 +578,15 @@ mod tests {
         let token = Token::simple(TokenKind::Identifier, "fooBar");
         assert!(TokenPredicate::StartsWith("foo".to_string()).matches(&token));
         assert!(!TokenPredicate::StartsWith("bar".to_string()).matches(&token));
+    }
+
+    #[test]
+    fn test_token_predicate_regex() {
+        let token = Token::simple(TokenKind::Identifier, "foo123");
+
+        assert!(TokenPredicate::Regex(r"^[a-z]+\d+$".to_string()).matches(&token));
+        assert!(!TokenPredicate::Regex(r"^\d+$".to_string()).matches(&token));
+        assert!(!TokenPredicate::Regex("[".to_string()).matches(&token));
     }
 
     #[test]

@@ -254,15 +254,17 @@ let paths = nbest(&mut lattice, 10);
 
 ## Current Status
 
-**Status**: Planned
+**Status**: Implemented
 
-The `PathMapBackend` is planned but not yet implemented. Current blockers:
+`PathMapBackend` is available behind the `f1r3fly` feature and uses the
+`pathmap` crate for structurally shared vocabulary storage. The backend provides:
 
-1. PathMap Rust bindings not yet available
-2. Content-addressing scheme for lattices not finalized
-3. Caching strategy needs benchmarking
+1. Vocabulary interning with stable `VocabId` handles.
+2. Metadata-backed frequency and last-access tracking.
+3. Copy-on-write sharing through `PathMapSharingBackend`.
+4. Prefix sharing queries for vocabulary families.
 
-## Next Steps
+## Related Integration Guides
 
 - [Vision](vision.md): Overall F1R3FLY.io integration
 - [MeTTaIL Layer](mettail-layer.md): Type-based filtering

@@ -30,10 +30,89 @@
 //! - **Coalesced access**: Sequential arcs in memory
 //! - **GPU-friendly**: Direct indexing without pointer chasing
 
+use std::fmt;
 use std::marker::PhantomData;
 
 use crate::semiring::LogWeight;
-use crate::wfst::{StateId, VectorWfst, Wfst};
+use crate::wfst::{StateId, VectorWfst, Wfst, NO_STATE};
+
+const INVALID_CSR_STATE: CsrState = CsrState {
+    arc_offset: 0,
+    num_arcs: 0,
+    final_weight: f32::INFINITY,
+    flags: 0,
+};
+
+/// Error returned by checked CSR builder operations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CsrBuilderError {
+    /// The builder cannot represent another state with the `u32` state ID type.
+    StateCountOverflow {
+        /// Number of states already present in the builder.
+        num_states: usize,
+    },
+    /// The builder cannot represent another arc with `u32` CSR offsets.
+    ArcCountOverflow {
+        /// Number of arcs already present in the builder.
+        num_arcs: usize,
+    },
+    /// States were not begun in ascending order.
+    StateOutOfOrder {
+        /// State ID expected by the builder.
+        expected: StateId,
+        /// State ID supplied by the caller.
+        actual: StateId,
+    },
+    /// The builder's current state cursor does not refer to an existing state.
+    InvalidCurrentState {
+        /// State cursor currently held by the builder.
+        current_state: StateId,
+        /// Number of states present in the builder.
+        num_states: usize,
+    },
+    /// A single state cannot represent another outgoing arc in `u32` metadata.
+    StateArcCountOverflow {
+        /// State whose outgoing arc count overflowed.
+        state: StateId,
+    },
+}
+
+impl fmt::Display for CsrBuilderError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::StateCountOverflow { num_states } => write!(
+                f,
+                "CSR builder cannot represent {} states with u32 state IDs",
+                num_states
+            ),
+            Self::ArcCountOverflow { num_arcs } => write!(
+                f,
+                "CSR builder cannot represent arc index {} with u32 offsets",
+                num_arcs
+            ),
+            Self::StateOutOfOrder { expected, actual } => write!(
+                f,
+                "CSR builder state {} is out of order; expected {}",
+                actual, expected
+            ),
+            Self::InvalidCurrentState {
+                current_state,
+                num_states,
+            } => write!(
+                f,
+                "CSR builder current state {} is invalid for {} states",
+                current_state, num_states
+            ),
+            Self::StateArcCountOverflow { state } => write!(
+                f,
+                "CSR builder state {} has too many arcs for u32 metadata",
+                state
+            ),
+        }
+    }
+}
+
+impl std::error::Error for CsrBuilderError {}
 
 /// A single arc in CSR format.
 #[derive(Clone, Copy, Debug)]
@@ -80,7 +159,7 @@ impl<L: Clone> CsrArc<L> {
 }
 
 /// State metadata in CSR format.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 #[repr(C)]
 pub struct CsrState {
     /// Index into arc array where this state's arcs begin.
@@ -114,6 +193,12 @@ impl CsrState {
     /// Check if this state has emitting arcs.
     pub fn has_emitting_arcs(&self) -> bool {
         self.flags & Self::FLAG_HAS_EMITTING != 0
+    }
+}
+
+impl Default for CsrState {
+    fn default() -> Self {
+        INVALID_CSR_STATE
     }
 }
 
@@ -157,15 +242,25 @@ impl<L: Clone> CsrWfst<L> {
 
     /// Get state metadata.
     pub fn state(&self, state: StateId) -> &CsrState {
-        &self.states[state as usize]
+        self.get_state(state).unwrap_or(&INVALID_CSR_STATE)
+    }
+
+    /// Get state metadata if the state exists.
+    pub fn get_state(&self, state: StateId) -> Option<&CsrState> {
+        self.states.get(state as usize)
     }
 
     /// Get arcs for a state.
     pub fn arcs(&self, state: StateId) -> &[CsrArc<L>] {
-        let s = &self.states[state as usize];
+        self.get_arcs(state).unwrap_or(&[])
+    }
+
+    /// Get arcs for a state if the state exists and its CSR range is valid.
+    pub fn get_arcs(&self, state: StateId) -> Option<&[CsrArc<L>]> {
+        let s = self.get_state(state)?;
         let start = s.arc_offset as usize;
-        let end = start + s.num_arcs as usize;
-        &self.arcs[start..end]
+        let end = start.checked_add(s.num_arcs as usize)?;
+        self.arcs.get(start..end)
     }
 
     /// Get all arcs (for GPU transfer).
@@ -185,20 +280,36 @@ impl<L: Clone> CsrWfst<L> {
 
     /// Check if a state is final.
     pub fn is_final(&self, state: StateId) -> bool {
-        self.states[state as usize].is_final()
+        self.state(state).is_final()
     }
 
     /// Get final weight for a state.
     pub fn final_weight(&self, state: StateId) -> f32 {
-        self.states[state as usize].final_weight
+        self.state(state).final_weight
+    }
+
+    /// Compute memory size in bytes, returning `None` on overflow.
+    pub fn checked_memory_size(&self) -> Option<usize> {
+        let states_size = self
+            .states
+            .len()
+            .checked_mul(std::mem::size_of::<CsrState>())?;
+        let arcs_size = self
+            .arcs
+            .len()
+            .checked_mul(std::mem::size_of::<CsrArc<L>>())?;
+        let emitting_size = self
+            .emitting_arc_indices
+            .len()
+            .checked_mul(std::mem::size_of::<u32>())?;
+        states_size
+            .checked_add(arcs_size)?
+            .checked_add(emitting_size)
     }
 
     /// Compute memory size in bytes.
     pub fn memory_size(&self) -> usize {
-        let states_size = self.states.len() * std::mem::size_of::<CsrState>();
-        let arcs_size = self.arcs.len() * std::mem::size_of::<CsrArc<L>>();
-        let emitting_size = self.emitting_arc_indices.len() * std::mem::size_of::<u32>();
-        states_size + arcs_size + emitting_size
+        self.checked_memory_size().unwrap_or(usize::MAX)
     }
 }
 
@@ -220,7 +331,7 @@ impl<L: Clone> CsrBuilder<L> {
             arcs: Vec::new(),
             emitting_arc_indices: Vec::new(),
             current_state: 0,
-            start_state: 0,
+            start_state: NO_STATE,
         }
     }
 
@@ -231,12 +342,13 @@ impl<L: Clone> CsrBuilder<L> {
             arcs: Vec::with_capacity(num_arcs),
             emitting_arc_indices: Vec::with_capacity(num_arcs / 2),
             current_state: 0,
-            start_state: 0,
+            start_state: NO_STATE,
         }
     }
 
     /// Set the start state.
     pub fn set_start(&mut self, state: StateId) {
+        self.clear_start_flags();
         self.start_state = state;
         if (state as usize) < self.states.len() {
             self.states[state as usize].flags |= CsrState::FLAG_START;
@@ -245,74 +357,199 @@ impl<L: Clone> CsrBuilder<L> {
 
     /// Add a new state and return its ID.
     pub fn add_state(&mut self) -> StateId {
-        let id = self.states.len() as StateId;
+        self.try_add_state().unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Try to add a new state and return its ID.
+    pub fn try_add_state(&mut self) -> Result<StateId, CsrBuilderError> {
+        let id = usize_to_state_id(self.states.len())?;
         self.states.push(CsrState {
-            arc_offset: self.arcs.len() as u32,
+            arc_offset: usize_to_arc_index(self.arcs.len())?,
             num_arcs: 0,
             final_weight: f32::INFINITY,
             flags: 0,
         });
-        id
+        Ok(id)
     }
 
     /// Set a state as final with the given weight.
     pub fn set_final(&mut self, state: StateId, weight: f32) {
-        let s = &mut self.states[state as usize];
-        s.final_weight = weight;
-        s.flags |= CsrState::FLAG_FINAL;
+        if let Some(s) = self.states.get_mut(state as usize) {
+            s.final_weight = weight;
+            s.flags |= CsrState::FLAG_FINAL;
+        }
     }
 
     /// Begin adding arcs for a state.
     ///
     /// States must be finalized in order (0, 1, 2, ...).
     pub fn begin_state(&mut self, state: StateId) {
-        assert_eq!(state, self.current_state, "States must be added in order");
-        if (state as usize) < self.states.len() {
-            self.states[state as usize].arc_offset = self.arcs.len() as u32;
+        match self.try_begin_state(state) {
+            Ok(()) | Err(CsrBuilderError::InvalidCurrentState { .. }) => {}
+            Err(err) => panic!("{err}"),
         }
+    }
+
+    /// Try to begin adding arcs for a state.
+    ///
+    /// States must be finalized in order (0, 1, 2, ...).
+    pub fn try_begin_state(&mut self, state: StateId) -> Result<(), CsrBuilderError> {
+        if state != self.current_state {
+            return Err(CsrBuilderError::StateOutOfOrder {
+                expected: self.current_state,
+                actual: state,
+            });
+        }
+
+        let offset = usize_to_arc_index(self.arcs.len())?;
+        let num_states = self.states.len();
+        let Some(state_data) = self.states.get_mut(state as usize) else {
+            return Err(CsrBuilderError::InvalidCurrentState {
+                current_state: state,
+                num_states,
+            });
+        };
+
+        state_data.arc_offset = offset;
+        Ok(())
     }
 
     /// Add an arc to the current state.
     pub fn add_arc(&mut self, to: StateId, input: u32, output: u32, weight: f32) {
-        let arc_idx = self.arcs.len() as u32;
+        match self.try_add_arc(to, input, output, weight) {
+            Ok(()) | Err(CsrBuilderError::InvalidCurrentState { .. }) => {}
+            Err(err) => panic!("{err}"),
+        }
+    }
+
+    /// Try to add an arc to the current state.
+    pub fn try_add_arc(
+        &mut self,
+        to: StateId,
+        input: u32,
+        output: u32,
+        weight: f32,
+    ) -> Result<(), CsrBuilderError> {
+        let arc_idx = usize_to_arc_index(self.arcs.len())?;
+        let num_states = self.states.len();
+        let Some(state) = self.states.get_mut(self.current_state as usize) else {
+            return Err(CsrBuilderError::InvalidCurrentState {
+                current_state: self.current_state,
+                num_states,
+            });
+        };
+
+        if state.num_arcs == u32::MAX {
+            return Err(CsrBuilderError::StateArcCountOverflow {
+                state: self.current_state,
+            });
+        }
+
         let arc = CsrArc::new(to, input, output, weight);
 
         if arc.is_emitting() {
             self.emitting_arc_indices.push(arc_idx);
-            if (self.current_state as usize) < self.states.len() {
-                self.states[self.current_state as usize].flags |= CsrState::FLAG_HAS_EMITTING;
-            }
+            state.flags |= CsrState::FLAG_HAS_EMITTING;
         }
 
         self.arcs.push(arc);
-
-        if (self.current_state as usize) < self.states.len() {
-            self.states[self.current_state as usize].num_arcs += 1;
-        }
+        state.num_arcs += 1;
+        Ok(())
     }
 
     /// End the current state and move to the next.
     pub fn end_state(&mut self) {
-        self.current_state += 1;
+        self.current_state = self.current_state.saturating_add(1);
     }
 
     /// Build the CSR WFST.
     pub fn build(mut self) -> CsrWfst<L> {
+        self.try_retain_valid_arcs()
+            .unwrap_or_else(|err| panic!("{err}"));
+
+        self.finish_build()
+    }
+
+    /// Try to build the CSR WFST.
+    pub fn try_build(mut self) -> Result<CsrWfst<L>, CsrBuilderError> {
+        self.try_retain_valid_arcs()?;
+        Ok(self.finish_build())
+    }
+
+    fn finish_build(mut self) -> CsrWfst<L> {
+        let num_states = self.states.len();
+        let start_state = if (self.start_state as usize) < num_states {
+            self.start_state
+        } else {
+            NO_STATE
+        };
+
         // Mark start state
-        if (self.start_state as usize) < self.states.len() {
-            self.states[self.start_state as usize].flags |= CsrState::FLAG_START;
+        self.clear_start_flags();
+        if (start_state as usize) < self.states.len() {
+            self.states[start_state as usize].flags |= CsrState::FLAG_START;
         }
 
-        let num_states = self.states.len();
         let num_arcs = self.arcs.len();
 
         CsrWfst {
             states: self.states,
             arcs: self.arcs,
             emitting_arc_indices: self.emitting_arc_indices,
-            start_state: self.start_state,
+            start_state,
             num_states,
             num_arcs,
+        }
+    }
+
+    fn try_retain_valid_arcs(&mut self) -> Result<(), CsrBuilderError> {
+        let num_states = self.states.len();
+        let old_arcs = std::mem::take(&mut self.arcs);
+        self.emitting_arc_indices.clear();
+        self.arcs.reserve(old_arcs.len());
+
+        for (state_id, state) in self.states.iter_mut().enumerate() {
+            let start = state.arc_offset as usize;
+            let end = start
+                .saturating_add(state.num_arcs as usize)
+                .min(old_arcs.len());
+
+            state.arc_offset = usize_to_arc_index(self.arcs.len())?;
+            state.num_arcs = 0;
+            state.flags &= !CsrState::FLAG_HAS_EMITTING;
+
+            if start >= end {
+                continue;
+            }
+
+            for arc in &old_arcs[start..end] {
+                if (arc.to as usize) >= num_states {
+                    continue;
+                }
+
+                if state.num_arcs == u32::MAX {
+                    return Err(CsrBuilderError::StateArcCountOverflow {
+                        state: state_id as StateId,
+                    });
+                }
+
+                if arc.is_emitting() {
+                    self.emitting_arc_indices
+                        .push(usize_to_arc_index(self.arcs.len())?);
+                    state.flags |= CsrState::FLAG_HAS_EMITTING;
+                }
+
+                self.arcs.push(arc.clone());
+                state.num_arcs += 1;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn clear_start_flags(&mut self) {
+        for state in &mut self.states {
+            state.flags &= !CsrState::FLAG_START;
         }
     }
 }
@@ -388,7 +625,7 @@ where
     builder.build()
 }
 
-/// Compute memory size for a CSR WFST.
+/// Compute memory size for a CSR WFST, returning `None` on overflow.
 ///
 /// # Arguments
 ///
@@ -398,19 +635,50 @@ where
 ///
 /// # Returns
 ///
-/// Memory size in bytes.
+/// Memory size in bytes, or `None` if the calculation overflows `usize`.
+pub fn checked_csr_memory_size(
+    num_states: usize,
+    num_arcs: usize,
+    num_emitting: usize,
+) -> Option<usize> {
+    let states_size = num_states.checked_mul(std::mem::size_of::<CsrState>())?;
+    let arcs_size = num_arcs.checked_mul(std::mem::size_of::<CsrArc<()>>())?;
+    let emitting_size = num_emitting.checked_mul(std::mem::size_of::<u32>())?;
+    states_size
+        .checked_add(arcs_size)?
+        .checked_add(emitting_size)
+}
+
+/// Compute memory size for a CSR WFST.
+///
+/// Returns `usize::MAX` if the size calculation overflows. Use
+/// [`checked_csr_memory_size`] when overflow needs to be distinguished from a
+/// very large valid size.
 pub fn csr_memory_size(num_states: usize, num_arcs: usize, num_emitting: usize) -> usize {
-    let states_size = num_states * std::mem::size_of::<CsrState>();
-    let arcs_size = num_arcs * 16; // CsrArc is 16 bytes (to, input, output, weight)
-    let emitting_size = num_emitting * std::mem::size_of::<u32>();
-    states_size + arcs_size + emitting_size
+    checked_csr_memory_size(num_states, num_arcs, num_emitting).unwrap_or(usize::MAX)
+}
+
+fn usize_to_state_id(value: usize) -> Result<StateId, CsrBuilderError> {
+    if value <= StateId::MAX as usize {
+        Ok(value as StateId)
+    } else {
+        Err(CsrBuilderError::StateCountOverflow { num_states: value })
+    }
+}
+
+fn usize_to_arc_index(value: usize) -> Result<u32, CsrBuilderError> {
+    if value <= u32::MAX as usize {
+        Ok(value as u32)
+    } else {
+        Err(CsrBuilderError::ArcCountOverflow { num_arcs: value })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::semiring::Semiring;
-    use crate::wfst::MutableWfst;
+    use crate::wfst::{MutableWfst, WeightedTransition};
 
     #[test]
     fn test_csr_arc_creation() {
@@ -436,6 +704,7 @@ mod tests {
         let mut state = CsrState::default();
         assert!(!state.is_start());
         assert!(!state.is_final());
+        assert!(state.final_weight.is_infinite());
 
         state.flags |= CsrState::FLAG_START;
         assert!(state.is_start());
@@ -477,6 +746,143 @@ mod tests {
     }
 
     #[test]
+    fn test_empty_builder_has_no_start_state() {
+        let csr: CsrWfst<u32> = CsrBuilder::new().build();
+
+        assert_eq!(csr.start_state(), NO_STATE);
+        assert_eq!(csr.num_states(), 0);
+        assert_eq!(csr.num_arcs(), 0);
+    }
+
+    #[test]
+    fn test_csr_builder_replaces_start_state_flag() {
+        let mut builder: CsrBuilder<u32> = CsrBuilder::new();
+        let s0 = builder.add_state();
+        let s1 = builder.add_state();
+
+        builder.set_start(s0);
+        builder.set_start(s1);
+
+        builder.begin_state(s0);
+        builder.end_state();
+        builder.begin_state(s1);
+        builder.end_state();
+
+        let csr = builder.build();
+
+        assert_eq!(csr.start_state(), s1);
+        assert!(!csr.state(s0).is_start());
+        assert!(csr.state(s1).is_start());
+    }
+
+    #[test]
+    fn test_csr_builder_invalid_start_clears_stale_flag() {
+        let mut builder: CsrBuilder<u32> = CsrBuilder::new();
+        let s0 = builder.add_state();
+
+        builder.set_start(s0);
+        builder.set_start(99);
+
+        builder.begin_state(s0);
+        builder.end_state();
+
+        let csr = builder.build();
+
+        assert_eq!(csr.start_state(), NO_STATE);
+        assert!(!csr.state(s0).is_start());
+    }
+
+    #[test]
+    fn test_csr_invalid_state_access_is_total() {
+        let mut builder: CsrBuilder<u32> = CsrBuilder::new();
+        let s0 = builder.add_state();
+        builder.begin_state(s0);
+        builder.end_state();
+        let csr = builder.build();
+
+        assert!(csr.get_state(99).is_none());
+        assert!(csr.get_arcs(99).is_none());
+        assert_eq!(csr.arcs(99).len(), 0);
+        assert!(!csr.is_final(99));
+        assert!(csr.final_weight(99).is_infinite());
+        assert!(!csr.state(99).is_final());
+    }
+
+    #[test]
+    fn test_csr_builder_ignores_arcs_without_current_state() {
+        let mut builder: CsrBuilder<u32> = CsrBuilder::new();
+
+        builder.add_arc(0, 1, 1, 0.5);
+        let csr = builder.build();
+
+        assert_eq!(csr.num_states(), 0);
+        assert_eq!(csr.num_arcs(), 0);
+        assert!(csr.emitting_arc_indices().is_empty());
+    }
+
+    #[test]
+    fn test_csr_builder_try_add_arc_reports_missing_current_state() {
+        let mut builder: CsrBuilder<u32> = CsrBuilder::new();
+
+        assert_eq!(
+            builder.try_add_arc(0, 1, 1, 0.5),
+            Err(CsrBuilderError::InvalidCurrentState {
+                current_state: 0,
+                num_states: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn test_csr_builder_try_begin_state_rejects_out_of_order_state() {
+        let mut builder: CsrBuilder<u32> = CsrBuilder::new();
+        let s0 = builder.add_state();
+        let s1 = builder.add_state();
+
+        assert_eq!(
+            builder.try_begin_state(s1),
+            Err(CsrBuilderError::StateOutOfOrder {
+                expected: s0,
+                actual: s1,
+            })
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "CSR builder state 1 is out of order; expected 0")]
+    fn test_csr_builder_begin_state_preserves_panic_contract() {
+        let mut builder: CsrBuilder<u32> = CsrBuilder::new();
+        let _s0 = builder.add_state();
+        let s1 = builder.add_state();
+
+        builder.begin_state(s1);
+    }
+
+    #[test]
+    fn test_csr_builder_prunes_malformed_arc_targets() {
+        let mut builder: CsrBuilder<u32> = CsrBuilder::new();
+
+        let s0 = builder.add_state();
+        let s1 = builder.add_state();
+
+        builder.begin_state(s0);
+        builder.add_arc(s1, 1, 1, 0.5);
+        builder.add_arc(99, 2, 2, 1.0);
+        builder.end_state();
+
+        builder.begin_state(s1);
+        builder.end_state();
+
+        let csr = builder.build();
+        let arcs = csr.arcs(s0);
+
+        assert_eq!(csr.num_arcs(), 1);
+        assert_eq!(arcs.len(), 1);
+        assert_eq!(arcs[0].to, s1);
+        assert_eq!(csr.emitting_arc_indices(), &[0]);
+    }
+
+    #[test]
     fn test_csr_from_vector_wfst() {
         let mut fst = VectorWfst::<char, LogWeight>::new();
         let s0 = fst.add_state();
@@ -500,6 +906,30 @@ mod tests {
     }
 
     #[test]
+    fn test_csr_from_vector_wfst_prunes_malformed_targets() {
+        let mut fst = VectorWfst::<char, LogWeight>::new();
+        let s0 = fst.add_state();
+        let s1 = fst.add_state();
+        fst.set_start(s0);
+        fst.set_final(s1, LogWeight::one());
+        fst.set_transitions(
+            s0,
+            vec![
+                WeightedTransition::new(s0, Some('a'), Some('a'), s1, LogWeight::new(1.0)),
+                WeightedTransition::new(s0, Some('x'), Some('x'), 99, LogWeight::new(2.0)),
+            ],
+        );
+
+        let csr = csr_from_vector_wfst(&fst, |c| *c as u32);
+        let arcs = csr.arcs(s0);
+
+        assert_eq!(csr.num_arcs(), 1);
+        assert_eq!(arcs.len(), 1);
+        assert_eq!(arcs[0].input, 'a' as u32);
+        assert_eq!(arcs[0].to, s1);
+    }
+
+    #[test]
     fn test_csr_memory_size() {
         let size = csr_memory_size(1000, 5000, 2500);
         // states: 1000 * 16 = 16000
@@ -507,6 +937,12 @@ mod tests {
         // emitting: 2500 * 4 = 10000
         // total: 106000
         assert!(size > 100000);
+    }
+
+    #[test]
+    fn test_csr_memory_size_overflow_is_explicit() {
+        assert_eq!(checked_csr_memory_size(usize::MAX, 1, 1), None);
+        assert_eq!(csr_memory_size(usize::MAX, 1, 1), usize::MAX);
     }
 
     #[test]

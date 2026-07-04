@@ -92,7 +92,7 @@ pub use viterbi::{viterbi_path_with_grad, viterbi_score, ViterbiGradResult};
 // WFST convolutional layers
 pub use layers::{
     wfst_conv_backward, wfst_conv_forward, wfst_conv_forward_with_gradients, PaddingMode,
-    ReceptiveField, WfstConvConfig, WfstConvLayer, WfstConvOutput, WfstKernel,
+    ReceptiveField, WfstConvConfig, WfstConvLabel, WfstConvLayer, WfstConvOutput, WfstKernel,
 };
 
 // Token graph variants for CTC-like training

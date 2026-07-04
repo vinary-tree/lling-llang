@@ -4,6 +4,11 @@ use super::types::{Edge, EdgeId, Node, NodeId};
 use crate::backend::{LatticeBackend, VocabId};
 use crate::semiring::Semiring;
 
+#[cfg(test)]
+use super::builder::LatticeBuilder;
+#[cfg(test)]
+use super::types::EdgeMetadata;
+
 /// A weighted directed acyclic graph (DAG) representing correction alternatives.
 ///
 /// A lattice provides:
@@ -219,8 +224,6 @@ impl<W: Semiring, B: LatticeBackend> Lattice<W, B> {
 mod tests {
     use super::*;
     use crate::backend::HashMapBackend;
-    use crate::lattice::builder::LatticeBuilder;
-    use crate::lattice::types::EdgeMetadata;
     use crate::semiring::TropicalWeight;
 
     fn sample_lattice() -> Lattice<TropicalWeight, HashMapBackend> {

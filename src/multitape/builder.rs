@@ -2,7 +2,10 @@
 
 use std::hash::Hash;
 
-use super::{MultiTapeLabel, MultiTapeTransition, MultiTapeWfst, VectorMultiTapeWfst};
+use super::label::MultiTapeLabel;
+use super::traits::MultiTapeWfst;
+use super::transition::MultiTapeTransition;
+use super::vector::VectorMultiTapeWfst;
 use crate::semiring::Semiring;
 use crate::wfst::StateId;
 

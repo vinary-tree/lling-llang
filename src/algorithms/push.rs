@@ -35,6 +35,7 @@
 use crate::semiring::{DivisibleSemiring, Semiring};
 use crate::wfst::{MutableWfst, StateId, WeightedTransition, Wfst, NO_STATE};
 
+use super::connect::{connect, ConnectConfig};
 use super::shortest_distance::{
     reverse_shortest_distance, single_source_shortest_distance, ShortestDistanceConfig,
 };
@@ -133,7 +134,8 @@ where
         return Ok(());
     }
 
-    if fst.start() == NO_STATE {
+    let start = fst.start();
+    if start == NO_STATE || !fst.is_valid_state(start) {
         return Err(PushError::NoStartState);
     }
 
@@ -156,13 +158,21 @@ where
     match config.direction {
         PushDirection::Forward => push_forward_impl(fst, &potentials),
         PushDirection::Backward => push_backward_impl(fst, &potentials),
+    }?;
+
+    if config.remove_non_coaccessible {
+        connect(fst, ConnectConfig::coaccessible_only());
     }
 
     Ok(())
 }
 
+fn inverse<W: DivisibleSemiring>(weight: &W) -> Result<W, PushError> {
+    W::one().divide(weight).ok_or(PushError::DivisionByZero)
+}
+
 /// Forward push implementation.
-fn push_forward_impl<L, W, F>(fst: &mut F, potentials: &[W])
+fn push_forward_impl<L, W, F>(fst: &mut F, potentials: &[W]) -> Result<(), PushError>
 where
     L: Clone,
     W: DivisibleSemiring,
@@ -170,8 +180,9 @@ where
 {
     let n = fst.num_states();
 
-    // Collect all transitions and reweight them
+    // Stage all updates before mutating so division failure leaves the WFST unchanged.
     let mut new_transitions: Vec<Vec<WeightedTransition<L, W>>> = vec![Vec::new(); n];
+    let mut new_final_weights: Vec<Option<W>> = vec![None; n];
 
     for state in 0..n {
         let state_id = state as StateId;
@@ -182,56 +193,62 @@ where
             continue;
         }
 
-        for trans in fst.transitions(state_id).to_vec() {
-            let to_idx = trans.to as usize;
-            if to_idx >= potentials.len() {
-                continue;
-            }
+        let is_final = fst.is_final(state_id);
+        let transitions = fst.transitions(state_id);
+        if transitions.is_empty() && !is_final {
+            continue;
+        }
 
-            let p_to = &potentials[to_idx];
+        let p_from_inv = inverse(p_from)?;
+
+        let reweighted = &mut new_transitions[state];
+        reweighted.reserve(transitions.len());
+        for trans in transitions {
+            let Some(p_to) = potentials.get(trans.to as usize) else {
+                continue;
+            };
 
             // New weight: p_from^{-1} ⊗ w ⊗ p_to
-            // Inverse is computed as one / p_from
-            let p_from_inv = W::one().divide(p_from).unwrap_or_else(W::one);
             let new_weight = p_from_inv.times(&trans.weight).times(p_to);
 
-            new_transitions[state].push(WeightedTransition {
+            reweighted.push(WeightedTransition {
                 from: trans.from,
                 to: trans.to,
-                input: trans.input,
-                output: trans.output,
+                input: trans.input.clone(),
+                output: trans.output.clone(),
                 weight: new_weight,
             });
+        }
+
+        if is_final {
+            let old_final = fst.final_weight(state_id);
+            let new_final = p_from_inv.times(&old_final);
+            new_final_weights[state] = Some(new_final);
         }
     }
 
     // Apply new transitions
-    for state in 0..n {
+    for (state, transitions) in new_transitions.into_iter().enumerate() {
         let state_id = state as StateId;
         // Clear existing transitions and add reweighted transitions
         fst.clear_transitions(state_id);
-        for trans in new_transitions[state].drain(..) {
+        for trans in transitions {
             fst.add_transition(trans);
         }
     }
 
     // Reweight final states
-    for state in 0..n {
-        let state_id = state as StateId;
-        if fst.is_final(state_id) {
-            let p = &potentials[state];
-            if !p.is_zero() {
-                let old_final = fst.final_weight(state_id);
-                let p_inv = W::one().divide(p).unwrap_or_else(W::one);
-                let new_final = p_inv.times(&old_final);
-                fst.set_final(state_id, new_final);
-            }
+    for (state, final_weight) in new_final_weights.into_iter().enumerate() {
+        if let Some(final_weight) = final_weight {
+            fst.set_final(state as StateId, final_weight);
         }
     }
+
+    Ok(())
 }
 
 /// Backward push implementation.
-fn push_backward_impl<L, W, F>(fst: &mut F, potentials: &[W])
+fn push_backward_impl<L, W, F>(fst: &mut F, potentials: &[W]) -> Result<(), PushError>
 where
     L: Clone,
     W: DivisibleSemiring,
@@ -239,7 +256,7 @@ where
 {
     let n = fst.num_states();
 
-    // Collect all transitions and reweight them
+    // Stage all updates before mutating so division failure leaves the WFST unchanged.
     let mut new_transitions: Vec<Vec<WeightedTransition<L, W>>> = vec![Vec::new(); n];
 
     for state in 0..n {
@@ -251,13 +268,15 @@ where
             continue;
         }
 
-        for trans in fst.transitions(state_id).to_vec() {
-            let to_idx = trans.to as usize;
-            if to_idx >= potentials.len() {
-                continue;
-            }
+        let mut p_from_inv: Option<W> = None;
 
-            let p_to = &potentials[to_idx];
+        let transitions = fst.transitions(state_id);
+        let reweighted = &mut new_transitions[state];
+        reweighted.reserve(transitions.len());
+        for trans in transitions {
+            let Some(p_to) = potentials.get(trans.to as usize) else {
+                continue;
+            };
 
             // Skip if destination has no path to final
             if p_to.is_zero() {
@@ -265,25 +284,31 @@ where
             }
 
             // New weight: w ⊗ p_to ⊗ p_from^{-1}
-            // Inverse is computed as one / p_from
-            let p_from_inv = W::one().divide(p_from).unwrap_or_else(W::one);
+            let p_from_inv = match p_from_inv {
+                Some(inv) => inv,
+                None => {
+                    let inv = inverse(p_from)?;
+                    p_from_inv = Some(inv);
+                    inv
+                }
+            };
             let new_weight = trans.weight.times(p_to).times(&p_from_inv);
 
-            new_transitions[state].push(WeightedTransition {
+            reweighted.push(WeightedTransition {
                 from: trans.from,
                 to: trans.to,
-                input: trans.input,
-                output: trans.output,
+                input: trans.input.clone(),
+                output: trans.output.clone(),
                 weight: new_weight,
             });
         }
     }
 
     // Apply new transitions
-    for state in 0..n {
+    for (state, transitions) in new_transitions.into_iter().enumerate() {
         let state_id = state as StateId;
         fst.clear_transitions(state_id);
-        for trans in new_transitions[state].drain(..) {
+        for trans in transitions {
             fst.add_transition(trans);
         }
     }
@@ -311,6 +336,8 @@ where
             let _ = start_potential; // Suppress warning; potential used for verification
         }
     }
+
+    Ok(())
 }
 
 /// Errors that can occur during weight pushing.
@@ -367,7 +394,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::semiring::TropicalWeight;
+    use crate::semiring::{DivisibleSemiring, Semiring, TropicalWeight};
     use crate::wfst::{VectorWfst, VectorWfstBuilder};
 
     // Property-based tests
@@ -484,6 +511,103 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct FragileWeight(u8);
+
+    impl Semiring for FragileWeight {
+        fn zero() -> Self {
+            Self(u8::MAX)
+        }
+
+        fn one() -> Self {
+            Self(0)
+        }
+
+        fn plus(&self, other: &Self) -> Self {
+            Self(self.0.min(other.0))
+        }
+
+        fn times(&self, other: &Self) -> Self {
+            Self(self.0.saturating_add(other.0))
+        }
+
+        fn approx_eq(&self, other: &Self, _epsilon: f64) -> bool {
+            self == other
+        }
+
+        fn natural_less(&self, other: &Self) -> Option<bool> {
+            Some(self.0 < other.0)
+        }
+
+        fn to_bytes(&self) -> Vec<u8> {
+            vec![self.0]
+        }
+    }
+
+    impl DivisibleSemiring for FragileWeight {
+        fn divide(&self, other: &Self) -> Option<Self> {
+            (other.0 != 0).then_some(Self(self.0.saturating_sub(other.0)))
+        }
+    }
+
+    #[derive(Clone)]
+    struct OverrideStartWfst {
+        inner: VectorWfst<char, TropicalWeight>,
+        start: StateId,
+    }
+
+    impl Wfst<char, TropicalWeight> for OverrideStartWfst {
+        fn start(&self) -> StateId {
+            self.start
+        }
+
+        fn is_final(&self, state: StateId) -> bool {
+            self.inner.is_final(state)
+        }
+
+        fn final_weight(&self, state: StateId) -> TropicalWeight {
+            self.inner.final_weight(state)
+        }
+
+        fn transitions(&self, state: StateId) -> &[WeightedTransition<char, TropicalWeight>] {
+            self.inner.transitions(state)
+        }
+
+        fn num_states(&self) -> usize {
+            self.inner.num_states()
+        }
+    }
+
+    impl MutableWfst<char, TropicalWeight> for OverrideStartWfst {
+        fn add_state(&mut self) -> StateId {
+            self.inner.add_state()
+        }
+
+        fn set_start(&mut self, state: StateId) {
+            self.start = state;
+        }
+
+        fn set_final(&mut self, state: StateId, weight: TropicalWeight) {
+            self.inner.set_final(state, weight);
+        }
+
+        fn add_transition(&mut self, transition: WeightedTransition<char, TropicalWeight>) {
+            self.inner.add_transition(transition);
+        }
+
+        fn reserve_states(&mut self, additional: usize) {
+            self.inner.reserve_states(additional);
+        }
+
+        fn reserve_transitions(&mut self, state: StateId, additional: usize) {
+            self.inner.reserve_transitions(state, additional);
+        }
+
+        fn clear_transitions(&mut self, state: StateId) {
+            self.inner.clear_transitions(state);
+        }
+    }
+
     fn build_simple_chain() -> VectorWfst<char, TropicalWeight> {
         // 0 --a/1.0--> 1 --b/2.0--> 2 (final, weight 0.5)
         VectorWfstBuilder::new()
@@ -508,6 +632,17 @@ mod tests {
             .build()
     }
 
+    fn build_chain_with_dead_branch() -> VectorWfst<char, TropicalWeight> {
+        VectorWfstBuilder::new()
+            .add_states(4)
+            .start(0)
+            .arc(0, Some('a'), Some('a'), 1, TropicalWeight::new(1.0))
+            .arc(0, Some('x'), Some('x'), 2, TropicalWeight::new(2.0))
+            .arc(2, Some('y'), Some('y'), 3, TropicalWeight::new(1.0))
+            .final_state(1, TropicalWeight::one())
+            .build()
+    }
+
     #[test]
     fn test_push_empty_fst() {
         let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::new();
@@ -522,6 +657,26 @@ mod tests {
         // No start state set
         let result = push_weights(&mut fst, PushConfig::backward());
         assert_eq!(result, Err(PushError::NoStartState));
+    }
+
+    #[test]
+    fn test_push_invalid_start_fails_for_both_directions() {
+        let inner = build_simple_chain();
+        let invalid_start = inner.num_states() as StateId + 10;
+
+        let mut forward = OverrideStartWfst {
+            inner: inner.clone(),
+            start: invalid_start,
+        };
+        let forward_result = push_weights(&mut forward, PushConfig::forward());
+        assert_eq!(forward_result, Err(PushError::NoStartState));
+
+        let mut backward = OverrideStartWfst {
+            inner,
+            start: invalid_start,
+        };
+        let backward_result = push_weights(&mut backward, PushConfig::backward());
+        assert_eq!(backward_result, Err(PushError::NoStartState));
     }
 
     #[test]
@@ -592,6 +747,59 @@ mod tests {
         assert_eq!(fst.num_states(), 4);
         assert_ne!(fst.start(), NO_STATE);
         assert!(fst.is_final(3));
+    }
+
+    #[test]
+    fn test_push_forward_respects_remove_non_coaccessible() {
+        let mut pruned = build_chain_with_dead_branch();
+        push_weights(&mut pruned, PushConfig::forward()).expect("forward push should succeed");
+
+        let start_transitions = pruned.transitions(0);
+        assert_eq!(start_transitions.len(), 1);
+        assert_eq!(start_transitions[0].to, 1);
+        assert!(pruned.transitions(2).is_empty());
+
+        let mut retained = build_chain_with_dead_branch();
+        push_weights(
+            &mut retained,
+            PushConfig {
+                direction: PushDirection::Forward,
+                remove_non_coaccessible: false,
+                distance_config: ShortestDistanceConfig::default(),
+            },
+        )
+        .expect("forward push should succeed without pruning");
+
+        assert!(retained.transitions(0).iter().any(|trans| trans.to == 2));
+        assert_eq!(retained.transitions(2).len(), 1);
+    }
+
+    #[test]
+    fn test_push_division_failure_is_reported_without_mutation() {
+        let mut fst: VectorWfst<char, FragileWeight> = VectorWfst::new();
+        fst.add_states(2);
+        fst.set_start(0);
+        fst.add_arc(0, Some('a'), Some('a'), 1, FragileWeight(1));
+        fst.set_final(1, FragileWeight(1));
+
+        let original_start = fst.start();
+        let original_transitions = fst.transitions(0).to_vec();
+        let original_final = fst.final_weight(1);
+
+        let result = push_weights(
+            &mut fst,
+            PushConfig {
+                direction: PushDirection::Forward,
+                remove_non_coaccessible: false,
+                distance_config: ShortestDistanceConfig::default(),
+            },
+        );
+
+        assert_eq!(result, Err(PushError::DivisionByZero));
+        assert_eq!(fst.start(), original_start);
+        assert_eq!(fst.transitions(0), original_transitions.as_slice());
+        assert_eq!(fst.final_weight(1), original_final);
+        assert!(fst.is_final(1));
     }
 
     #[test]

@@ -105,12 +105,21 @@ impl BehavioralPred {
         use BehavioralPred::*;
         match self {
             Top => Top,
-            RelationQuery { relation_name, args, negated } => RelationQuery {
+            RelationQuery {
+                relation_name,
+                args,
+                negated,
+            } => RelationQuery {
                 relation_name: relation_name.clone(),
                 args: args.iter().map(|a| a.substitute_var(old, new)).collect(),
                 negated: *negated,
             },
-            Quantified { quantifier, var, domain, body } => {
+            Quantified {
+                quantifier,
+                var,
+                domain,
+                body,
+            } => {
                 // Shadowed: bound variable names do not undergo substitution.
                 if var == old {
                     self.clone()
@@ -122,8 +131,12 @@ impl BehavioralPred {
                         body: Box::new(body.substitute_var(old, new)),
                     }
                 }
-            },
-            AcMatch { bag, elements, rest } => AcMatch {
+            }
+            AcMatch {
+                bag,
+                elements,
+                rest,
+            } => AcMatch {
                 bag: bag.substitute_var(old, new),
                 elements: elements
                     .iter()
@@ -131,16 +144,19 @@ impl BehavioralPred {
                     .collect(),
                 rest: rest.clone(),
             },
-            And(a, b) => {
-                And(Box::new(a.substitute_var(old, new)), Box::new(b.substitute_var(old, new)))
-            },
-            Or(a, b) => {
-                Or(Box::new(a.substitute_var(old, new)), Box::new(b.substitute_var(old, new)))
-            },
+            And(a, b) => And(
+                Box::new(a.substitute_var(old, new)),
+                Box::new(b.substitute_var(old, new)),
+            ),
+            Or(a, b) => Or(
+                Box::new(a.substitute_var(old, new)),
+                Box::new(b.substitute_var(old, new)),
+            ),
             Not(inner) => Not(Box::new(inner.substitute_var(old, new))),
-            Implies(p, c) => {
-                Implies(Box::new(p.substitute_var(old, new)), Box::new(c.substitute_var(old, new)))
-            },
+            Implies(p, c) => Implies(
+                Box::new(p.substitute_var(old, new)),
+                Box::new(c.substitute_var(old, new)),
+            ),
         }
     }
 
@@ -158,7 +174,7 @@ impl BehavioralPred {
     ) {
         use BehavioralPred::*;
         match self {
-            Top => {},
+            Top => {}
             RelationQuery { args, .. } => {
                 for a in args {
                     if let PredArg::Var(v) = a {
@@ -167,8 +183,10 @@ impl BehavioralPred {
                         }
                     }
                 }
-            },
-            Quantified { var, domain, body, .. } => {
+            }
+            Quantified {
+                var, domain, body, ..
+            } => {
                 if let Some(d) = domain {
                     d.collect_free_vars(acc, bound);
                 }
@@ -177,7 +195,7 @@ impl BehavioralPred {
                 if inserted {
                     bound.remove(var);
                 }
-            },
+            }
             AcMatch { bag, elements, .. } => {
                 if let PredArg::Var(v) = bag {
                     if !bound.contains(v) {
@@ -191,11 +209,11 @@ impl BehavioralPred {
                         }
                     }
                 }
-            },
+            }
             And(a, b) | Or(a, b) | Implies(a, b) => {
                 a.collect_free_vars(acc, bound);
                 b.collect_free_vars(acc, bound);
-            },
+            }
             Not(inner) => inner.collect_free_vars(acc, bound),
         }
     }
@@ -296,7 +314,11 @@ impl fmt::Display for BehavioralPred {
             // re-display as "true()" after one parse round, breaking the
             // strong-roundtrip check in generated proptest strategies.
             Top => write!(f, "true()"),
-            RelationQuery { relation_name, args, negated } => {
+            RelationQuery {
+                relation_name,
+                args,
+                negated,
+            } => {
                 if *negated {
                     write!(f, "not ")?;
                 }
@@ -308,8 +330,13 @@ impl fmt::Display for BehavioralPred {
                     write!(f, "{}", a)?;
                 }
                 write!(f, ")")
-            },
-            Quantified { quantifier, var, domain, body } => {
+            }
+            Quantified {
+                quantifier,
+                var,
+                domain,
+                body,
+            } => {
                 let q = match quantifier {
                     Quantifier::ForAll => "forall",
                     Quantifier::Exists => "exists",
@@ -319,8 +346,12 @@ impl fmt::Display for BehavioralPred {
                     write!(f, ", {}", d)?;
                 }
                 write!(f, ", {})", body)
-            },
-            AcMatch { bag, elements, rest } => {
+            }
+            AcMatch {
+                bag,
+                elements,
+                rest,
+            } => {
                 write!(f, "ac_match({}, [", bag)?;
                 for (i, e) in elements.iter().enumerate() {
                     if i > 0 {
@@ -332,7 +363,7 @@ impl fmt::Display for BehavioralPred {
                     write!(f, ", ...{}", r)?;
                 }
                 write!(f, "])")
-            },
+            }
             And(a, b) => write!(f, "({} and {})", a, b),
             Or(a, b) => write!(f, "({} or {})", a, b),
             Not(inner) => write!(f, "(not {})", inner),
@@ -365,7 +396,7 @@ impl fmt::Display for QuantifiedDomain {
                     write!(f, "{}", e)?;
                 }
                 write!(f, "}}")
-            },
+            }
         }
     }
 }
@@ -396,7 +427,7 @@ mod tests {
             BehavioralPred::RelationQuery { args, .. } => {
                 assert!(matches!(&args[0], PredArg::Var(v) if v == "z"));
                 assert!(matches!(&args[1], PredArg::Var(v) if v == "y"));
-            },
+            }
             _ => panic!(),
         }
     }

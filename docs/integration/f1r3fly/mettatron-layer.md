@@ -398,15 +398,15 @@ Compiled code typically achieves:
 
 ## Current Status
 
-**Status**: Planned
+**Status**: External compiler boundary
 
-The `MeTTaTronLayer` is planned but not yet implemented. Current blockers:
+`MeTTaTronLayer` is documented as a compiler boundary: generated code should
+target `CorrectionLayer`, lattice builders, and semiring operations rather than
+introducing compiler-specific APIs into the core crate. This keeps the core API
+stable while allowing generated transformations to be compiled and linked by the
+F1R3FLY integration stack.
 
-1. MeTTaTron compiler not yet integrated
-2. Lattice-specific optimizations need design
-3. Hot reload mechanism needs implementation
-
-## Next Steps
+## Related Integration Points
 
 - [Vision](vision.md): F1R3FLY.io integration overview
 - [MeTTaIL Layer](mettail-layer.md): Type inference

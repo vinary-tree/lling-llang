@@ -23,7 +23,7 @@
 //! assert_eq!(a.times(&b), BoolWeight::from(false));
 //! ```
 
-use crate::semiring::traits::{
+use super::super::traits::{
     CommutativeTimesSemiring, IdempotentSemiring, KClosedSemiring, Semiring, StarSemiring,
     ZeroSumFreeSemiring,
 };
@@ -244,11 +244,11 @@ impl<'de> serde::Deserialize<'de> for BoolWeight {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::semiring::traits::tests::{
+    use super::super::super::traits::tests::{
         verify_commutative_times_semiring, verify_idempotent_semiring, verify_k_closed_semiring,
         verify_semiring_axioms, verify_star_semiring, verify_zero_sum_free_semiring,
     };
+    use super::*;
 
     #[test]
     fn test_basic_operations() {

@@ -428,9 +428,9 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::super::fixtures::{diamond_wfst, epsilon_wfst, linear_wfst};
     use super::*;
     use crate::semiring::TropicalWeight;
-    use crate::test_utils::fixtures::{diamond_wfst, epsilon_wfst, linear_wfst};
 
     #[test]
     fn test_enumerate_paths_linear() {

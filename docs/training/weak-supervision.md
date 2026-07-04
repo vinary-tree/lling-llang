@@ -206,12 +206,12 @@ let graph: VectorWfst<Label, LogWeight> = build_wst_graph_uniform(
 );
 ```
 
-**With Insertions** (for incomplete transcripts):
+**With Insertions** (for transcripts with omissions):
 
 ```rust
 use lling_llang::training::build_wst_graph_with_insertions;
 
-// When transcript may be missing words
+// When the transcript may be missing words
 let graph: VectorWfst<Label, LogWeight> = build_wst_graph_with_insertions(
     &targets,
     vocab_size,        // Allow inserting any vocabulary item

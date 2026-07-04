@@ -488,7 +488,7 @@ fn process_batch(lattices: &mut [Lattice<TropicalWeight, HashMapBackend>]) -> Ve
 }
 ```
 
-## Next Steps
+## Related Topics
 
 - [Composition](composition.md): Lazy lattice-grammar composition
 - [Topological Sort](topological-sort.md): DAG ordering algorithm

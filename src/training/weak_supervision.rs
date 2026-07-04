@@ -357,6 +357,8 @@ where
     alpha[0][wst_graph.start() as usize] = 0.0;
 
     for t in 0..num_frames {
+        propagate_forward_epsilon(&mut alpha[t], wst_graph);
+
         for s in 0..num_states {
             if alpha[t][s] <= f64::NEG_INFINITY {
                 continue;
@@ -364,7 +366,10 @@ where
 
             let state = s as StateId;
             for tr in wst_graph.transitions(state) {
-                let label = tr.input.unwrap_or(0) as usize;
+                let Some(label) = tr.input else {
+                    continue;
+                };
+                let label = label as usize;
                 let acoustic = if label < acoustic_scores[t].len() {
                     acoustic_scores[t][label]
                 } else {
@@ -382,18 +387,10 @@ where
                 alpha[t + 1][next_state] =
                     log_add(alpha[t + 1][next_state], alpha[t][s] + arc_score);
             }
-
-            // Handle epsilon transitions (don't consume frame)
-            for tr in wst_graph.transitions(state) {
-                if tr.input.is_none() && tr.output.is_none() {
-                    let graph_weight: f64 = tr.weight.clone().into();
-                    let next_state = tr.to as usize;
-                    alpha[t][next_state] =
-                        log_add(alpha[t][next_state], alpha[t][s] - graph_weight);
-                }
-            }
         }
     }
+
+    propagate_forward_epsilon(&mut alpha[num_frames], wst_graph);
 
     // Compute total log-probability
     let mut total_log_prob = f64::NEG_INFINITY;
@@ -420,6 +417,28 @@ where
         loss: -total_log_prob,
         alignment,
         bypass_ratio,
+    }
+}
+
+/// Propagate epsilon transitions within a single forward row.
+fn propagate_forward_epsilon<W>(row: &mut [f64], wst_graph: &VectorWfst<Label, W>)
+where
+    W: Semiring + Into<f64> + Clone,
+{
+    for s in 0..row.len() {
+        if row[s] <= f64::NEG_INFINITY {
+            continue;
+        }
+
+        let state_score = row[s];
+        let state = s as StateId;
+        for tr in wst_graph.transitions(state) {
+            if tr.input.is_none() && tr.output.is_none() {
+                let graph_weight: f64 = tr.weight.clone().into();
+                let next_state = tr.to as usize;
+                row[next_state] = log_add(row[next_state], state_score - graph_weight);
+            }
+        }
     }
 }
 
@@ -788,6 +807,24 @@ mod tests {
 
         // With cheap bypass and expensive acoustics, Viterbi may prefer bypasses
         // The alignment should exist
+        assert!(result.loss.is_finite(), "Loss should be finite");
+    }
+
+    #[test]
+    fn test_wst_loss_zero_frames_can_use_epsilon_bypass() {
+        use crate::semiring::LogWeight;
+
+        let targets = vec![ConfidentToken::new(1, 0.1)];
+        let config = WstConfig {
+            confidence_threshold: 0.5,
+            token_bypass_weight: 0.1,
+            ..Default::default()
+        };
+        let graph: VectorWfst<Label, LogWeight> = build_wst_graph(&targets, &config);
+        let acoustic_scores: Vec<Vec<f64>> = Vec::new();
+
+        let result = wst_loss(&acoustic_scores, &graph);
+
         assert!(result.loss.is_finite(), "Loss should be finite");
     }
 }

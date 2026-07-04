@@ -35,7 +35,7 @@
 //! assert!((recovered.value() - (-3.5)).abs() < 0.1); // Within quantization error
 //! ```
 
-use crate::semiring::basic::{LogWeight, TropicalWeight};
+use super::super::basic::{LogWeight, TropicalWeight};
 use std::fmt;
 
 /// Parameters for quantization/dequantization.

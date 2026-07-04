@@ -15,10 +15,7 @@ pub struct MultiTapeLabel<L, const N: usize> {
 
 impl<L, const N: usize> MultiTapeLabel<L, N> {
     /// Create a new multi-tape label with all epsilon.
-    pub fn epsilon() -> Self
-    where
-        L: Clone,
-    {
+    pub fn epsilon() -> Self {
         Self {
             labels: std::array::from_fn(|_| None),
         }
@@ -30,10 +27,7 @@ impl<L, const N: usize> MultiTapeLabel<L, N> {
     }
 
     /// Create a label from concrete values (all non-epsilon).
-    pub fn from_values(values: [L; N]) -> Self
-    where
-        L: Clone,
-    {
+    pub fn from_values(values: [L; N]) -> Self {
         Self {
             labels: values.map(Some),
         }
@@ -80,7 +74,6 @@ impl<L, const N: usize> MultiTapeLabel<L, N> {
     pub fn map<F, M>(&self, f: F) -> MultiTapeLabel<M, N>
     where
         F: Fn(&L) -> M,
-        L: Clone,
     {
         MultiTapeLabel {
             labels: std::array::from_fn(|i| self.labels[i].as_ref().map(&f)),
@@ -105,7 +98,7 @@ impl<L, const N: usize> MultiTapeLabel<L, N> {
     }
 }
 
-impl<L: Clone, const N: usize> MultiTapeLabel<L, N> {
+impl<L, const N: usize> MultiTapeLabel<L, N> {
     /// Create a label with a single non-epsilon tape.
     pub fn single(tape: usize, label: L) -> Self {
         let mut result = Self::epsilon();
@@ -160,10 +153,7 @@ impl<L: Display, const N: usize> Display for MultiTapeLabel<L, N> {
     }
 }
 
-impl<L, const N: usize> Default for MultiTapeLabel<L, N>
-where
-    L: Clone,
-{
+impl<L, const N: usize> Default for MultiTapeLabel<L, N> {
     fn default() -> Self {
         Self::epsilon()
     }
@@ -172,6 +162,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct NonClone(i32);
 
     #[test]
     fn test_epsilon_label() {
@@ -288,5 +281,27 @@ mod tests {
         let mut set = HashSet::new();
         set.insert(label1.clone());
         assert!(set.contains(&label2));
+    }
+
+    #[test]
+    fn test_constructors_do_not_require_clone_labels() {
+        let epsilon: MultiTapeLabel<NonClone, 2> = MultiTapeLabel::epsilon();
+        assert!(epsilon.is_epsilon());
+
+        let default: MultiTapeLabel<NonClone, 2> = MultiTapeLabel::default();
+        assert!(default.is_epsilon());
+
+        let single = MultiTapeLabel::<NonClone, 2>::single(1, NonClone(7));
+        assert_eq!(single.tape(0), None);
+        assert_eq!(single.tape(1), Some(&NonClone(7)));
+
+        let pair = MultiTapeLabel::<NonClone, 3>::pair(0, NonClone(1), 2, NonClone(2));
+        assert_eq!(pair.non_epsilon_count(), 2);
+        assert_eq!(pair.tape(0), Some(&NonClone(1)));
+        assert_eq!(pair.tape(2), Some(&NonClone(2)));
+
+        let values = MultiTapeLabel::from_values([NonClone(3), NonClone(4)]);
+        let mapped = values.map(|value| value.0 + 1);
+        assert_eq!(mapped, MultiTapeLabel::from_values([4, 5]));
     }
 }

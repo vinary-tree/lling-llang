@@ -42,7 +42,7 @@
 
 use ordered_float::OrderedFloat;
 
-use crate::semiring::traits::{
+use super::super::traits::{
     CommutativeTimesSemiring, DivisibleSemiring, KClosedSemiring, NonnegativeSemiring,
     NumericalWeight, QuantizableSemiring, Semiring, StarSemiring, StochasticSemiring,
     TotallyOrderedSemiring, ZeroSumFreeSemiring,
@@ -172,6 +172,16 @@ impl PowerWeight {
         }
     }
 
+    /// Re-express this weight with another η through probability space.
+    #[inline]
+    pub fn with_eta(&self, eta: f64) -> Self {
+        if (self.eta.into_inner() - eta).abs() < 1e-10 {
+            *self
+        } else {
+            Self::from_probability(self.to_probability(), eta)
+        }
+    }
+
     /// Compute the power semiring addition: x ⊕_η y = (x^{1/η} + y^{1/η})^η
     #[inline]
     fn power_plus(&self, other: &Self) -> Self {
@@ -195,18 +205,10 @@ impl PowerWeight {
         Self::new(sum.powf(eta), eta)
     }
 
-    /// Ensure both weights have compatible η values.
-    ///
-    /// For now, we require exact η match. In a more sophisticated implementation,
-    /// we could convert between different η values using the isomorphism.
+    /// Convert another weight into this weight's η parameter.
     #[inline]
-    fn check_eta_compatibility(&self, other: &Self) {
-        debug_assert!(
-            (self.eta.into_inner() - other.eta.into_inner()).abs() < 1e-10,
-            "η values must match: {} vs {}",
-            self.eta,
-            other.eta
-        );
+    fn align_eta(&self, other: &Self) -> Self {
+        other.with_eta(self.eta.into_inner())
     }
 }
 
@@ -277,16 +279,16 @@ impl Semiring for PowerWeight {
     /// Addition: x ⊕_η y = (x^{1/η} + y^{1/η})^η
     #[inline]
     fn plus(&self, other: &Self) -> Self {
-        self.check_eta_compatibility(other);
-        self.power_plus(other)
+        let aligned = self.align_eta(other);
+        self.power_plus(&aligned)
     }
 
     /// Multiplication: x ⊗ y = x × y
     #[inline]
     fn times(&self, other: &Self) -> Self {
-        self.check_eta_compatibility(other);
+        let aligned = self.align_eta(other);
         Self::new(
-            self.value.into_inner() * other.value.into_inner(),
+            self.value.into_inner() * aligned.value.into_inner(),
             self.eta.into_inner(),
         )
     }
@@ -334,12 +336,12 @@ impl Semiring for PowerWeight {
 impl DivisibleSemiring for PowerWeight {
     /// Division: x / y (standard division since multiplication is standard).
     fn divide(&self, other: &Self) -> Option<Self> {
-        self.check_eta_compatibility(other);
-        if other.is_zero() {
+        let aligned = self.align_eta(other);
+        if aligned.is_zero() {
             None
         } else {
             Some(Self::new(
-                self.value.into_inner() / other.value.into_inner(),
+                self.value.into_inner() / aligned.value.into_inner(),
                 self.eta.into_inner(),
             ))
         }
@@ -523,11 +525,11 @@ impl<'de> serde::Deserialize<'de> for PowerWeight {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::semiring::traits::tests::{
+    use super::super::super::traits::tests::{
         verify_commutative_times_semiring, verify_k_closed_semiring, verify_quantizable_semiring,
         verify_stochastic_semiring, verify_totally_ordered_semiring, verify_zero_sum_free_semiring,
     };
+    use super::*;
     use proptest::prelude::*;
 
     #[test]
@@ -668,6 +670,29 @@ mod tests {
             pw.value(),
             recovered
         );
+    }
+
+    #[test]
+    fn test_cross_eta_conversion() {
+        let weight = PowerWeight::from_probability(0.25, 2.0);
+        let converted = weight.with_eta(3.0);
+
+        assert!((converted.eta() - 3.0).abs() < 1e-10);
+        assert!((converted.to_probability() - 0.25).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_cross_eta_operations_align_to_left_operand() {
+        let left = PowerWeight::from_probability(0.25, 2.0);
+        let right = PowerWeight::from_probability(0.5, 3.0);
+
+        let sum = left.plus(&right);
+        let product = left.times(&right);
+
+        assert!((sum.eta() - left.eta()).abs() < 1e-10);
+        assert!((product.eta() - left.eta()).abs() < 1e-10);
+        assert!((sum.to_probability() - 0.75).abs() < 1e-10);
+        assert!((product.to_probability() - 0.125).abs() < 1e-10);
     }
 
     #[test]

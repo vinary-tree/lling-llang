@@ -363,8 +363,7 @@ where
         }
     }
 
-    // All reachable states from start should be coaccessible
-    // For now, just check all states
+    // Coaccessibility is a whole-graph property: every state must reach a final state.
     visited.iter().all(|&v| v)
 }
 

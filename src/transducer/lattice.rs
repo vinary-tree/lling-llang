@@ -1,5 +1,7 @@
 //! Transducer lattice construction and manipulation.
 
+use std::fmt;
+
 use super::{
     EncoderOutput, JointNetwork, Label, PredictorOutput, TransducerConfig, TransducerLattice,
 };
@@ -146,39 +148,221 @@ pub struct DenseFsa<W: Semiring> {
     _phantom: std::marker::PhantomData<W>,
 }
 
+/// Error returned by fallible [`DenseFsa`] constructors and accessors.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DenseFsaError {
+    /// `num_frames * vocab_size` overflowed `usize`.
+    ShapeSizeOverflow {
+        /// Number of time frames.
+        num_frames: usize,
+        /// Number of labels per frame.
+        vocab_size: usize,
+    },
+    /// The flattened score buffer does not match the declared shape.
+    ScoreLengthMismatch {
+        /// Number of time frames.
+        num_frames: usize,
+        /// Number of labels per frame.
+        vocab_size: usize,
+        /// Required flattened score count.
+        expected: usize,
+        /// Actual flattened score count.
+        actual: usize,
+    },
+    /// A posterior frame has a different vocabulary width from the first frame.
+    InconsistentFrameSize {
+        /// Zero-based frame index.
+        frame: usize,
+        /// Number of labels in this frame.
+        actual: usize,
+        /// Expected number of labels.
+        expected: usize,
+    },
+    /// Requested frame is outside the dense FSA.
+    FrameOutOfBounds {
+        /// Requested frame index.
+        frame: usize,
+        /// Number of available frames.
+        num_frames: usize,
+    },
+    /// Requested label is outside the dense FSA vocabulary.
+    LabelOutOfBounds {
+        /// Requested label.
+        label: Label,
+        /// Number of labels per frame.
+        vocab_size: usize,
+    },
+}
+
+impl fmt::Display for DenseFsaError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ShapeSizeOverflow {
+                num_frames,
+                vocab_size,
+            } => write!(
+                f,
+                "dense FSA shape overflows usize: {} frames x {} labels",
+                num_frames, vocab_size
+            ),
+            Self::ScoreLengthMismatch {
+                num_frames,
+                vocab_size,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "dense FSA scores length {} does not match shape {} x {} = {}",
+                actual, num_frames, vocab_size, expected
+            ),
+            Self::InconsistentFrameSize {
+                frame,
+                actual,
+                expected,
+            } => write!(
+                f,
+                "posterior frame {} has {} labels, expected {}",
+                frame, actual, expected
+            ),
+            Self::FrameOutOfBounds { frame, num_frames } => write!(
+                f,
+                "dense FSA frame {} is out of bounds for {} frames",
+                frame, num_frames
+            ),
+            Self::LabelOutOfBounds { label, vocab_size } => write!(
+                f,
+                "dense FSA label {} is out of bounds for vocabulary size {}",
+                label, vocab_size
+            ),
+        }
+    }
+}
+
+impl std::error::Error for DenseFsaError {}
+
 impl<W: Semiring> DenseFsa<W> {
     /// Create a new dense FSA.
     pub fn new(num_frames: usize, vocab_size: usize, scores: Vec<f64>) -> Self {
-        debug_assert_eq!(scores.len(), num_frames * vocab_size);
-        Self {
+        Self::try_new(num_frames, vocab_size, scores).unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Try to create a new dense FSA.
+    ///
+    /// The flattened score buffer must have exactly
+    /// `num_frames * vocab_size` entries. Empty shapes such as `0 x 0` remain
+    /// valid so callers can represent an empty lattice explicitly.
+    pub fn try_new(
+        num_frames: usize,
+        vocab_size: usize,
+        scores: Vec<f64>,
+    ) -> Result<Self, DenseFsaError> {
+        let expected =
+            num_frames
+                .checked_mul(vocab_size)
+                .ok_or(DenseFsaError::ShapeSizeOverflow {
+                    num_frames,
+                    vocab_size,
+                })?;
+
+        if scores.len() != expected {
+            return Err(DenseFsaError::ScoreLengthMismatch {
+                num_frames,
+                vocab_size,
+                expected,
+                actual: scores.len(),
+            });
+        }
+
+        Ok(Self {
             num_frames,
             vocab_size,
             scores,
             _phantom: std::marker::PhantomData,
-        }
+        })
     }
 
     /// Get scores at time frame `t`.
     #[inline]
     pub fn frame_scores(&self, t: usize) -> &[f64] {
+        self.try_frame_scores(t)
+            .unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Try to get scores at time frame `t`.
+    #[inline]
+    pub fn try_frame_scores(&self, t: usize) -> Result<&[f64], DenseFsaError> {
+        if t >= self.num_frames {
+            return Err(DenseFsaError::FrameOutOfBounds {
+                frame: t,
+                num_frames: self.num_frames,
+            });
+        }
+
         let start = t * self.vocab_size;
-        &self.scores[start..start + self.vocab_size]
+        Ok(&self.scores[start..start + self.vocab_size])
     }
 
     /// Get score for label at time `t`.
     #[inline]
     pub fn score(&self, t: usize, label: Label) -> f64 {
-        self.scores[t * self.vocab_size + label as usize]
+        self.try_score(t, label)
+            .unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Try to get score for label at time `t`.
+    #[inline]
+    pub fn try_score(&self, t: usize, label: Label) -> Result<f64, DenseFsaError> {
+        if t >= self.num_frames {
+            return Err(DenseFsaError::FrameOutOfBounds {
+                frame: t,
+                num_frames: self.num_frames,
+            });
+        }
+        if (label as usize) >= self.vocab_size {
+            return Err(DenseFsaError::LabelOutOfBounds {
+                label,
+                vocab_size: self.vocab_size,
+            });
+        }
+
+        Ok(self.scores[t * self.vocab_size + label as usize])
     }
 
     /// Convert from CTC-style posteriors.
     ///
     /// Takes frame-level log-posteriors and creates a dense FSA.
     pub fn from_posteriors(posteriors: &[Vec<f64>]) -> Self {
+        Self::try_from_posteriors(posteriors).unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Try to convert from CTC-style posteriors.
+    ///
+    /// The posterior matrix must be rectangular. Empty input is accepted and
+    /// produces an empty `0 x 0` dense FSA.
+    pub fn try_from_posteriors(posteriors: &[Vec<f64>]) -> Result<Self, DenseFsaError> {
         let num_frames = posteriors.len();
         let vocab_size = posteriors.first().map_or(0, |v| v.len());
-        let scores: Vec<f64> = posteriors.iter().flat_map(|v| v.iter().copied()).collect();
-        Self::new(num_frames, vocab_size, scores)
+        let expected =
+            num_frames
+                .checked_mul(vocab_size)
+                .ok_or(DenseFsaError::ShapeSizeOverflow {
+                    num_frames,
+                    vocab_size,
+                })?;
+        let mut scores: Vec<f64> = Vec::with_capacity(expected);
+
+        for (frame, values) in posteriors.iter().enumerate() {
+            if values.len() != vocab_size {
+                return Err(DenseFsaError::InconsistentFrameSize {
+                    frame,
+                    actual: values.len(),
+                    expected: vocab_size,
+                });
+            }
+            scores.extend(values.iter().copied());
+        }
+
+        Self::try_new(num_frames, vocab_size, scores)
     }
 }
 
@@ -401,5 +585,95 @@ mod tests {
         assert_eq!(lattice.num_frames, 3);
         assert_eq!(lattice.num_positions, 2);
         assert_eq!(lattice.vocab_size, 5);
+    }
+
+    #[test]
+    fn test_dense_fsa_try_new_rejects_score_length_mismatch() {
+        let err = DenseFsa::<TropicalWeight>::try_new(2, 3, vec![0.0, -1.0]).unwrap_err();
+
+        assert_eq!(
+            err,
+            DenseFsaError::ScoreLengthMismatch {
+                num_frames: 2,
+                vocab_size: 3,
+                expected: 6,
+                actual: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn test_dense_fsa_try_new_rejects_shape_overflow() {
+        let err = DenseFsa::<TropicalWeight>::try_new(usize::MAX, 2, Vec::new()).unwrap_err();
+
+        assert_eq!(
+            err,
+            DenseFsaError::ShapeSizeOverflow {
+                num_frames: usize::MAX,
+                vocab_size: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn test_dense_fsa_try_from_posteriors_rejects_jagged_rows() {
+        let posteriors = vec![vec![0.0, -1.0], vec![-2.0]];
+        let err = DenseFsa::<TropicalWeight>::try_from_posteriors(&posteriors).unwrap_err();
+
+        assert_eq!(
+            err,
+            DenseFsaError::InconsistentFrameSize {
+                frame: 1,
+                actual: 1,
+                expected: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn test_dense_fsa_try_from_posteriors_allows_empty() {
+        let dense = DenseFsa::<TropicalWeight>::try_from_posteriors(&[]).unwrap();
+
+        assert_eq!(dense.num_frames, 0);
+        assert_eq!(dense.vocab_size, 0);
+        assert!(dense.scores.is_empty());
+    }
+
+    #[test]
+    fn test_dense_fsa_checked_accessors_return_values() {
+        let dense =
+            DenseFsa::<TropicalWeight>::try_new(2, 3, vec![0.0, -1.0, -2.0, -3.0, -4.0, -5.0])
+                .unwrap();
+
+        assert_eq!(dense.try_frame_scores(1).unwrap(), &[-3.0, -4.0, -5.0]);
+        assert_eq!(dense.try_score(1, 2), Ok(-5.0));
+    }
+
+    #[test]
+    fn test_dense_fsa_checked_accessors_reject_out_of_bounds() {
+        let dense = DenseFsa::<TropicalWeight>::try_new(1, 2, vec![0.0, -1.0]).unwrap();
+
+        assert_eq!(
+            dense.try_frame_scores(1),
+            Err(DenseFsaError::FrameOutOfBounds {
+                frame: 1,
+                num_frames: 1,
+            })
+        );
+        assert_eq!(
+            dense.try_score(0, 2),
+            Err(DenseFsaError::LabelOutOfBounds {
+                label: 2,
+                vocab_size: 2,
+            })
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "posterior frame 1 has 1 labels, expected 2")]
+    fn test_dense_fsa_infallible_from_posteriors_preserves_panic_contract() {
+        let posteriors = vec![vec![0.0, -1.0], vec![-2.0]];
+
+        DenseFsa::<TropicalWeight>::from_posteriors(&posteriors);
     }
 }

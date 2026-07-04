@@ -9,10 +9,10 @@ use crate::backend::LatticeBackend;
 use crate::lattice::{Lattice, LatticeBuilder};
 use crate::semiring::Semiring;
 
+use super::super::traits::{CorrectionLayer, LayerError, LayerResult};
 use super::checker::{MathTypeChecker, TypeCheckerConfig};
 use super::homoglyph::{DisambiguatorConfig, GlyphMeaning, HomoglyphDisambiguator, MathContext};
-use super::types::{MathType, TypeErrorKind};
-use crate::layers::traits::{CorrectionLayer, LayerError, LayerResult};
+use super::types::{MathType, TypeErrorKind, TypeWarningKind};
 
 /// Configuration for the MathML semantic layer.
 #[derive(Clone)]
@@ -336,12 +336,7 @@ impl MathMLSemanticLayer {
                 if self.disambiguator.is_ambiguous(c) {
                     let meaning = self.disambiguator.disambiguate(c, context);
 
-                    // Calculate confidence (simplified - would be more sophisticated in practice)
-                    let confidence = if matches!(meaning, GlyphMeaning::Unknown) {
-                        0.3
-                    } else {
-                        0.8
-                    };
+                    let confidence = self.disambiguation_confidence(c, &meaning, context);
 
                     // Record decision
                     result.add_disambiguation(DisambiguationDecision {
@@ -418,11 +413,9 @@ impl MathMLSemanticLayer {
         // Convert type warnings
         if self.config.track_warnings {
             for warning in &type_result.warnings {
-                let mut issue = SemanticIssue::new(
-                    SemanticIssueKind::AmbiguousGlyph, // Generalize for now
-                    &warning.message,
-                )
-                .with_severity(IssueSeverity::Warning);
+                let mut issue =
+                    SemanticIssue::new(warning_issue_kind(warning.kind), &warning.message)
+                        .with_severity(IssueSeverity::Warning);
                 if let Some(pos) = warning.position {
                     issue = issue.at(pos);
                 }
@@ -436,6 +429,92 @@ impl MathMLSemanticLayer {
         self.config.prune_type_errors && result.has_errors()
     }
 
+    fn disambiguation_confidence(
+        &self,
+        glyph: char,
+        meaning: &GlyphMeaning,
+        context: &MathContext,
+    ) -> f32 {
+        if matches!(meaning, GlyphMeaning::Unknown) {
+            return 0.15;
+        }
+
+        let Some(set) = self.disambiguator.get_confusion_set(glyph) else {
+            return 1.0;
+        };
+
+        if set.meanings.len() == 1 {
+            return 0.95;
+        }
+
+        let mut confidence = 0.55f32;
+        confidence -= ((set.meanings.len().saturating_sub(2)) as f32 * 0.05).min(0.20);
+
+        match meaning {
+            GlyphMeaning::Multiplication => {
+                if matches!(glyph, '×' | '⋅' | '∙' | '✕' | '✖' | '⨯') {
+                    confidence += 0.25;
+                }
+                if context.prev_was_number || context.prev_token.as_deref() == Some(")") {
+                    confidence += 0.15;
+                }
+                if context.in_math_mode {
+                    confidence += 0.10;
+                }
+            }
+            GlyphMeaning::Variable(_) => {
+                if glyph.is_alphabetic() {
+                    confidence += 0.20;
+                }
+                if context.prev_was_operator || context.prev_token.is_none() {
+                    confidence += 0.10;
+                }
+            }
+            GlyphMeaning::Subtraction => {
+                if context.prev_was_number || context.prev_token.as_deref() == Some(")") {
+                    confidence += 0.25;
+                }
+            }
+            GlyphMeaning::UnaryMinus => {
+                if context.prev_was_operator || context.prev_token.is_none() {
+                    confidence += 0.25;
+                }
+            }
+            GlyphMeaning::Digit(_) => {
+                if glyph.is_ascii_digit() {
+                    confidence += 0.20;
+                }
+                if context.prev_was_number {
+                    confidence += 0.15;
+                }
+            }
+            GlyphMeaning::DecimalPoint => {
+                if context.prev_was_number
+                    && context
+                        .next_token
+                        .as_deref()
+                        .and_then(|next| next.chars().next())
+                        .map(|c| c.is_ascii_digit())
+                        .unwrap_or(false)
+                {
+                    confidence += 0.30;
+                }
+            }
+            GlyphMeaning::Prime => {
+                if context.in_math_mode && !context.prev_was_number && !context.prev_was_operator {
+                    confidence += 0.25;
+                }
+            }
+            _ => {
+                if context.in_math_mode {
+                    confidence += 0.05;
+                }
+            }
+        }
+
+        confidence.clamp(0.05, 0.99)
+    }
+
     /// Normalize a token by replacing homoglyphs with canonical forms.
     pub fn normalize_token(&self, token: &str) -> String {
         if self.config.normalize_homoglyphs {
@@ -446,15 +525,20 @@ impl MathMLSemanticLayer {
     }
 }
 
+fn warning_issue_kind(kind: TypeWarningKind) -> SemanticIssueKind {
+    match kind {
+        TypeWarningKind::ImplicitCoercion => SemanticIssueKind::TypeMismatch,
+        TypeWarningKind::UnusedVariable => SemanticIssueKind::UndefinedVariable,
+        TypeWarningKind::Ambiguity => SemanticIssueKind::AmbiguousGlyph,
+        TypeWarningKind::Deprecated => SemanticIssueKind::InvalidStructure,
+    }
+}
+
 impl Default for MathMLSemanticLayer {
     fn default() -> Self {
         Self::new()
     }
 }
-
-// Implement Send + Sync for thread safety
-unsafe impl Send for MathMLSemanticLayer {}
-unsafe impl Sync for MathMLSemanticLayer {}
 
 impl<W: Semiring, B: LatticeBackend> CorrectionLayer<W, B> for MathMLSemanticLayer {
     fn name(&self) -> &str {
@@ -790,5 +874,45 @@ mod tests {
 
         assert_eq!(decision.original, 'x');
         assert!(matches!(decision.meaning, GlyphMeaning::Multiplication));
+    }
+
+    #[test]
+    fn test_disambiguation_confidence_uses_context() {
+        let layer = MathMLSemanticLayer::new();
+        let numeric_context = MathContext {
+            in_math_mode: true,
+            prev_was_number: true,
+            prev_token: Some("2".to_string()),
+            ..Default::default()
+        };
+        let operator_context = MathContext {
+            in_math_mode: true,
+            prev_was_operator: true,
+            prev_token: Some("+".to_string()),
+            ..Default::default()
+        };
+
+        let multiplication =
+            layer.disambiguation_confidence('×', &GlyphMeaning::Multiplication, &numeric_context);
+        let variable = layer.disambiguation_confidence(
+            'x',
+            &GlyphMeaning::Variable("x".into()),
+            &operator_context,
+        );
+
+        assert!(multiplication > 0.8);
+        assert!(variable > 0.7);
+    }
+
+    #[test]
+    fn test_warning_issue_kind_mapping() {
+        assert_eq!(
+            warning_issue_kind(TypeWarningKind::ImplicitCoercion),
+            SemanticIssueKind::TypeMismatch
+        );
+        assert_eq!(
+            warning_issue_kind(TypeWarningKind::Deprecated),
+            SemanticIssueKind::InvalidStructure
+        );
     }
 }

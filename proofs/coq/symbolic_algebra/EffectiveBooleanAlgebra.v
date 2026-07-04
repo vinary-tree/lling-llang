@@ -76,8 +76,8 @@ Record EBA_Laws (A : EBA) : Prop := {
 (** The weak law contract that the behavioral / Heyting leg satisfies. It
     deliberately drops [sat_complete], the classical involutive [eval_neg], and
     excluded middle. In their place, negation is only required to be a *sound
-    under-approximation* of the classical complement: whenever the (possibly
-    incomplete) complement accepts an element, that element is genuinely outside
+    under-approximation* of the classical complement: whenever the
+    non-exhaustive complement accepts an element, that element is genuinely outside
     the predicate. The converse may fail — that gap is precisely the
     [Sat3::DontKnow] boundary of a semi-decidable predicate.
 

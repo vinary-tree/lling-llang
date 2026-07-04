@@ -488,7 +488,7 @@ The delay is the difference in "head positions" on these tapes.
 - **Synchronization**: Computable for bounded-delay transducers
 - **Unbounded delay**: Synchronization does not terminate (infinite state space)
 
-## Next Steps
+## Related Topics
 
 - [Determinization](determinization.md): Often used with synchronization
 - [Epsilon Removal](epsilon-removal.md): Can affect delay patterns

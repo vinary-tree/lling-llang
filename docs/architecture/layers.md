@@ -386,10 +386,21 @@ struct CachingLayer {
 }
 
 impl<W: Semiring, B: LatticeBackend> CorrectionLayer<W, B> for CachingLayer {
+    fn name(&self) -> &str {
+        "caching-layer"
+    }
+
     fn apply(&self, lattice: &Lattice<W, B>) -> LayerResult<Lattice<W, B>> {
+        {
+            let cache = self.cache.read().unwrap();
+            if cache.contains_key("shape-signature") {
+                return Ok(lattice.clone());
+            }
+        }
+
         let mut cache = self.cache.write().unwrap();
-        // Use cache...
-        todo!()
+        cache.insert("shape-signature".to_owned(), Vec::new());
+        Ok(lattice.clone())
     }
 }
 ```
@@ -544,7 +555,7 @@ impl PipelineMetrics {
 }
 ```
 
-## Next Steps
+## Related Topics
 
 - [Path Extraction](../algorithms/path-extraction.md): Find optimal paths through filtered lattices
 - [Composition](../algorithms/composition.md): Lazy lattice-grammar composition

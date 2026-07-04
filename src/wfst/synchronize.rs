@@ -67,13 +67,21 @@
 
 use std::collections::VecDeque;
 use std::hash::Hash;
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
 use super::lazy::{LazyState, LazyWfstWrapper, StateSource};
-use super::{StateId, WeightedTransition, Wfst, NO_STATE};
+use super::traits::Wfst;
+use super::transition::WeightedTransition;
+use super::types::{StateId, NO_STATE};
 use crate::semiring::Semiring;
+
+#[cfg(test)]
+use super::traits::LazyWfst;
+#[cfg(test)]
+use super::vector::{VectorWfst, VectorWfstBuilder};
 
 // =============================================================================
 // String Delay Type
@@ -91,7 +99,7 @@ pub struct StringDelay<L> {
     pub output: SmallVec<[L; 4]>,
 }
 
-impl<L: Clone> StringDelay<L> {
+impl<L> StringDelay<L> {
     /// Create an empty delay (synchronized state).
     #[inline]
     pub fn empty() -> Self {
@@ -112,7 +120,9 @@ impl<L: Clone> StringDelay<L> {
     pub fn len(&self) -> usize {
         self.input.len() + self.output.len()
     }
+}
 
+impl<L: Clone> StringDelay<L> {
     /// Get the first symbol from the delay (car operation).
     ///
     /// Returns the first input symbol if input delay is non-empty,
@@ -146,21 +156,28 @@ impl<L: Clone> StringDelay<L> {
     }
 }
 
-impl<L: Clone + Eq> StringDelay<L> {
+impl<L: Eq> StringDelay<L> {
     /// Synchronize accumulated input and output.
     ///
     /// Cancels common prefix between input and output delays,
     /// leaving only the residual difference.
     pub fn sync(mut input: SmallVec<[L; 4]>, mut output: SmallVec<[L; 4]>) -> Self {
-        // Cancel common prefix
-        while !input.is_empty() && !output.is_empty() && input[0] == output[0] {
-            input.remove(0);
-            output.remove(0);
+        let common_prefix_len = input
+            .iter()
+            .zip(output.iter())
+            .take_while(|(input_symbol, output_symbol)| input_symbol == output_symbol)
+            .count();
+
+        if common_prefix_len > 0 {
+            drop(input.drain(0..common_prefix_len));
+            drop(output.drain(0..common_prefix_len));
         }
 
         Self { input, output }
     }
+}
 
+impl<L: Clone + Eq> StringDelay<L> {
     /// Extend input delay with new symbols.
     pub fn extend_input(&self, symbols: impl IntoIterator<Item = L>) -> Self {
         let mut input: SmallVec<[L; 4]> = self.input.clone();
@@ -173,6 +190,45 @@ impl<L: Clone + Eq> StringDelay<L> {
         let mut output: SmallVec<[L; 4]> = self.output.clone();
         output.extend(symbols);
         Self::sync(self.input.clone(), output)
+    }
+}
+
+fn synchronized_transition_step<L: Clone + Eq>(
+    delay: &StringDelay<L>,
+    input_label: Option<&L>,
+    output_label: Option<&L>,
+) -> (Option<L>, Option<L>, StringDelay<L>) {
+    let mut queued_input: SmallVec<[L; 4]> = delay.input.clone();
+    let mut queued_output: SmallVec<[L; 4]> = delay.output.clone();
+
+    if let Some(label) = input_label {
+        queued_input.push(label.clone());
+    }
+    if let Some(label) = output_label {
+        queued_output.push(label.clone());
+    }
+
+    let out_input = if queued_input.is_empty() {
+        None
+    } else {
+        Some(queued_input.remove(0))
+    };
+    let out_output = if queued_output.is_empty() {
+        None
+    } else {
+        Some(queued_output.remove(0))
+    };
+
+    let next_delay = StringDelay::sync(queued_input, queued_output);
+    (out_input, out_output, next_delay)
+}
+
+#[inline]
+fn next_state_id(len: usize) -> Option<StateId> {
+    if len < NO_STATE as usize {
+        Some(len as StateId)
+    } else {
+        None
     }
 }
 
@@ -217,6 +273,14 @@ impl<L: Clone> SyncState<L> {
 // Synchronization Source (Lazy Implementation)
 // =============================================================================
 
+#[derive(Clone)]
+struct SyncRegistry<L> {
+    /// Mapping from SyncState to StateId in the synchronized transducer.
+    state_map: FxHashMap<SyncState<L>, StateId>,
+    /// Reverse mapping from StateId to SyncState.
+    state_index: Vec<SyncState<L>>,
+}
+
 /// Lazy synchronization of a WFST.
 ///
 /// Computes synchronized states on demand, following Mohri's algorithm.
@@ -228,10 +292,8 @@ where
 {
     /// The original transducer.
     fst: T,
-    /// Mapping from SyncState to StateId in the synchronized transducer.
-    state_map: FxHashMap<SyncState<L>, StateId>,
-    /// Reverse mapping from StateId to SyncState.
-    state_index: Vec<SyncState<L>>,
+    /// Shared registry for synchronized states created during lazy expansion.
+    registry: Arc<RwLock<SyncRegistry<L>>>,
     /// Maximum delay bound (for detecting unbounded delays).
     max_delay: usize,
     _phantom: std::marker::PhantomData<W>,
@@ -250,12 +312,14 @@ where
     /// * `fst` - The input transducer to synchronize
     /// * `max_delay` - Maximum allowed delay (for bounded delay check)
     pub fn new(fst: T, max_delay: usize) -> Self {
-        let mut state_map = FxHashMap::default();
-        let mut state_index = Vec::new();
+        let initial_capacity = fst.num_states().max(1);
+        let mut state_map =
+            FxHashMap::with_capacity_and_hasher(initial_capacity, Default::default());
+        let mut state_index = Vec::with_capacity(initial_capacity);
 
         // Register the initial state
         let start = fst.start();
-        if start != NO_STATE {
+        if fst.is_valid_state(start) {
             let initial = SyncState::initial(start);
             state_map.insert(initial.clone(), 0);
             state_index.push(initial);
@@ -263,16 +327,47 @@ where
 
         Self {
             fst,
-            state_map,
-            state_index,
+            registry: Arc::new(RwLock::new(SyncRegistry {
+                state_map,
+                state_index,
+            })),
             max_delay,
             _phantom: std::marker::PhantomData,
         }
     }
 
+    fn read_registry(&self) -> RwLockReadGuard<'_, SyncRegistry<L>> {
+        self.registry
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn write_registry(&self) -> RwLockWriteGuard<'_, SyncRegistry<L>> {
+        self.registry
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     /// Get the synchronized state for a state ID.
-    fn get_sync_state(&self, state: StateId) -> Option<&SyncState<L>> {
-        self.state_index.get(state as usize)
+    fn get_sync_state(&self, state: StateId) -> Option<SyncState<L>> {
+        self.read_registry()
+            .state_index
+            .get(state as usize)
+            .cloned()
+    }
+
+    /// Get or create a state ID for a synchronized state.
+    fn get_or_create_state(&self, sync_state: SyncState<L>) -> Option<StateId> {
+        let mut registry = self.write_registry();
+
+        if let Some(&id) = registry.state_map.get(&sync_state) {
+            return Some(id);
+        }
+
+        let id = next_state_id(registry.state_index.len())?;
+        registry.state_map.insert(sync_state.clone(), id);
+        registry.state_index.push(sync_state);
+        Some(id)
     }
 }
 
@@ -288,7 +383,18 @@ where
             None => return LazyState::non_final(SmallVec::new()),
         };
 
-        let mut transitions = SmallVec::new();
+        if !sync_state.draining && !self.fst.is_valid_state(sync_state.original) {
+            return LazyState::non_final(SmallVec::new());
+        }
+
+        let mut transitions: SmallVec<[WeightedTransition<L, W>; 4]> = if sync_state.draining {
+            SmallVec::with_capacity(1)
+        } else {
+            let original = sync_state.original;
+            let transition_count = self.fst.transitions(original).len();
+            let final_drain = self.fst.is_final(original) && !sync_state.delay.is_empty();
+            SmallVec::with_capacity(transition_count.saturating_add(usize::from(final_drain)))
+        };
 
         if sync_state.draining {
             // Draining state: emit one symbol from residual delay
@@ -302,45 +408,17 @@ where
             let output_label = sync_state.delay.car_output();
             let next_delay = sync_state.delay.cdr();
 
-            // Create next draining state (used for reference in comments)
-            let _next_state = SyncState::draining(next_delay.clone());
-
-            // We need to look up or note that this state needs to be created
-            // For a truly lazy implementation, we'd need interior mutability here
-            // For now, we return what we can compute
-
-            // Since we're in a const context, we can't mutate state_map
-            // We'll use a workaround: encode draining states specially
-
-            let next_id = if next_delay.is_empty() {
-                // Final draining state
-                NO_STATE // Special marker
-            } else {
-                // We need the caller to handle state creation
-                // This is a limitation of the pure StateSource pattern
-                state + 1 // Assume linear draining sequence
+            let Some(next_id) = self.get_or_create_state(SyncState::draining(next_delay)) else {
+                return LazyState::non_final(transitions);
             };
-
-            if next_id != NO_STATE {
-                transitions.push(WeightedTransition::new(
-                    state,
-                    input_label,
-                    output_label,
-                    next_id,
-                    W::one(),
-                ));
-                LazyState::non_final(transitions)
-            } else {
-                // Transition to implicit final
-                transitions.push(WeightedTransition::new(
-                    state,
-                    input_label,
-                    output_label,
-                    state, // Self-loop that will be handled specially
-                    W::one(),
-                ));
-                LazyState::final_state(W::one(), transitions)
-            }
+            transitions.push(WeightedTransition::new(
+                state,
+                input_label,
+                output_label,
+                next_id,
+                W::one(),
+            ));
+            LazyState::non_final(transitions)
         } else {
             // Normal state: process transitions from original transducer
             let original = sync_state.original;
@@ -350,7 +428,7 @@ where
                 let final_weight = self.fst.final_weight(original);
                 // Process outgoing transitions
                 for trans in self.fst.transitions(original) {
-                    if let Some(next_trans) = self.compute_transition(state, sync_state, trans) {
+                    if let Some(next_trans) = self.compute_transition(state, &sync_state, trans) {
                         transitions.push(next_trans);
                     }
                 }
@@ -361,29 +439,24 @@ where
             if self.fst.is_final(original) && !sync_state.delay.is_empty() {
                 let final_weight = self.fst.final_weight(original);
 
-                // Add transition to start draining
                 let input_label = sync_state.delay.car_input();
                 let output_label = sync_state.delay.car_output();
+                let next_delay = sync_state.delay.cdr();
 
-                // For draining, we need to create special states
-                // This transition leads to the draining sequence
-                // We encode draining state IDs at a high offset
-
-                // Add draining transition
-                // Note: In a full implementation, we'd need to track draining states
-                // For simplicity, we add an epsilon transition weighted by final weight
-                transitions.push(WeightedTransition::new(
-                    state,
-                    input_label,
-                    output_label,
-                    state, // Placeholder - needs proper state management
-                    final_weight,
-                ));
+                if let Some(next_id) = self.get_or_create_state(SyncState::draining(next_delay)) {
+                    transitions.push(WeightedTransition::new(
+                        state,
+                        input_label,
+                        output_label,
+                        next_id,
+                        final_weight,
+                    ));
+                }
             }
 
             // Process outgoing transitions
             for trans in self.fst.transitions(original) {
-                if let Some(next_trans) = self.compute_transition(state, sync_state, trans) {
+                if let Some(next_trans) = self.compute_transition(state, &sync_state, trans) {
                     transitions.push(next_trans);
                 }
             }
@@ -393,17 +466,17 @@ where
     }
 
     fn start(&self) -> StateId {
-        if self.fst.start() == NO_STATE {
-            NO_STATE
-        } else {
+        if self.fst.is_valid_state(self.fst.start()) {
             0
+        } else {
+            NO_STATE
         }
     }
 
     fn num_states_hint(&self) -> Option<usize> {
         // Upper bound: original states * delay combinations
         // In practice, much smaller due to path constraints
-        Some(self.state_index.len())
+        Some(self.read_registry().state_index.len())
     }
 }
 
@@ -420,55 +493,30 @@ where
         sync_state: &SyncState<L>,
         trans: &WeightedTransition<L, W>,
     ) -> Option<WeightedTransition<L, W>> {
-        // Extend delays with transition labels
-        let mut new_input: SmallVec<[L; 4]> = sync_state.delay.input.clone();
-        let mut new_output: SmallVec<[L; 4]> = sync_state.delay.output.clone();
-
-        if let Some(ref i) = trans.input {
-            new_input.push(i.clone());
-        }
-        if let Some(ref o) = trans.output {
-            new_output.push(o.clone());
+        if !self.fst.is_valid_state(trans.to) {
+            return None;
         }
 
-        // Synchronize the delays
-        let new_delay = StringDelay::sync(new_input, new_output);
+        let (out_input, out_output, next_delay) = synchronized_transition_step(
+            &sync_state.delay,
+            trans.input.as_ref(),
+            trans.output.as_ref(),
+        );
 
         // Check delay bound
-        if new_delay.len() > self.max_delay {
+        if next_delay.len() > self.max_delay {
             // Delay exceeded - this path is invalid for bounded-delay transducers
             return None;
         }
 
-        // Get output labels (first symbols from synchronized delay)
-        let out_input = if !sync_state.delay.input.is_empty() || trans.input.is_some() {
-            new_delay
-                .car_input()
-                .or_else(|| sync_state.delay.car_input())
-        } else {
-            None
-        };
-
-        let out_output = if !sync_state.delay.output.is_empty() || trans.output.is_some() {
-            new_delay
-                .car_output()
-                .or_else(|| sync_state.delay.car_output())
-        } else {
-            None
-        };
-
         // Create the target synchronized state
         let next_sync = SyncState {
             original: trans.to,
-            delay: new_delay.cdr(),
+            delay: next_delay,
             draining: false,
         };
 
-        // Look up or estimate target state ID
-        let next_id = self.state_map.get(&next_sync).copied().unwrap_or(
-            // Estimate: this state will need to be created
-            self.state_index.len() as StateId,
-        );
+        let next_id = self.get_or_create_state(next_sync)?;
 
         Some(WeightedTransition::new(
             from_state,
@@ -516,12 +564,14 @@ where
 {
     /// Create a new mutable synchronization source.
     pub fn new(fst: T, max_delay: usize) -> Self {
-        let mut state_map = FxHashMap::default();
-        let mut state_index = Vec::new();
+        let initial_capacity = fst.num_states().max(1);
+        let mut state_map =
+            FxHashMap::with_capacity_and_hasher(initial_capacity, Default::default());
+        let mut state_index = Vec::with_capacity(initial_capacity);
 
         // Register the initial state
         let start = fst.start();
-        if start != NO_STATE {
+        if fst.is_valid_state(start) {
             let initial = SyncState::initial(start);
             state_map.insert(initial.clone(), 0);
             state_index.push(initial);
@@ -532,22 +582,29 @@ where
             state_map,
             state_index,
             max_delay,
-            computed_transitions: FxHashMap::default(),
-            final_states: FxHashMap::default(),
+            computed_transitions: FxHashMap::with_capacity_and_hasher(
+                initial_capacity,
+                Default::default(),
+            ),
+            final_states: FxHashMap::with_capacity_and_hasher(initial_capacity, Default::default()),
             _phantom: std::marker::PhantomData,
         }
     }
 
-    /// Get or create a state ID for a synchronized state.
-    pub fn get_or_create_state(&mut self, sync_state: SyncState<L>) -> StateId {
+    fn try_get_or_create_state(&mut self, sync_state: SyncState<L>) -> Option<StateId> {
         if let Some(&id) = self.state_map.get(&sync_state) {
-            return id;
+            return Some(id);
         }
 
-        let id = self.state_index.len() as StateId;
+        let id = next_state_id(self.state_index.len())?;
         self.state_map.insert(sync_state.clone(), id);
         self.state_index.push(sync_state);
-        id
+        Some(id)
+    }
+
+    /// Get or create a state ID for a synchronized state.
+    pub fn get_or_create_state(&mut self, sync_state: SyncState<L>) -> StateId {
+        self.try_get_or_create_state(sync_state).unwrap_or(NO_STATE)
     }
 
     /// Expand a state, computing its transitions and final status.
@@ -561,7 +618,19 @@ where
             None => return,
         };
 
-        let mut transitions = SmallVec::new();
+        if !sync_state.draining && !self.fst.is_valid_state(sync_state.original) {
+            self.computed_transitions.insert(state, SmallVec::new());
+            return;
+        }
+
+        let mut transitions: SmallVec<[WeightedTransition<L, W>; 4]> = if sync_state.draining {
+            SmallVec::with_capacity(1)
+        } else {
+            let original = sync_state.original;
+            let transition_count = self.fst.transitions(original).len();
+            let final_drain = self.fst.is_final(original) && !sync_state.delay.is_empty();
+            SmallVec::with_capacity(transition_count.saturating_add(usize::from(final_drain)))
+        };
 
         if sync_state.draining {
             // Handle draining state
@@ -575,15 +644,15 @@ where
                 let next_delay = sync_state.delay.cdr();
 
                 let next_sync = SyncState::draining(next_delay);
-                let next_id = self.get_or_create_state(next_sync);
-
-                transitions.push(WeightedTransition::new(
-                    state,
-                    input_label,
-                    output_label,
-                    next_id,
-                    W::one(),
-                ));
+                if let Some(next_id) = self.try_get_or_create_state(next_sync) {
+                    transitions.push(WeightedTransition::new(
+                        state,
+                        input_label,
+                        output_label,
+                        next_id,
+                        W::one(),
+                    ));
+                }
             }
         } else {
             let original = sync_state.original;
@@ -601,15 +670,15 @@ where
                     let next_delay = sync_state.delay.cdr();
 
                     let next_sync = SyncState::draining(next_delay);
-                    let next_id = self.get_or_create_state(next_sync);
-
-                    transitions.push(WeightedTransition::new(
-                        state,
-                        input_label,
-                        output_label,
-                        next_id,
-                        self.fst.final_weight(original),
-                    ));
+                    if let Some(next_id) = self.try_get_or_create_state(next_sync) {
+                        transitions.push(WeightedTransition::new(
+                            state,
+                            input_label,
+                            output_label,
+                            next_id,
+                            self.fst.final_weight(original),
+                        ));
+                    }
                 }
             }
 
@@ -634,37 +703,29 @@ where
         sync_state: &SyncState<L>,
         trans: &WeightedTransition<L, W>,
     ) -> Option<WeightedTransition<L, W>> {
-        // Build new delays
-        let mut new_input: SmallVec<[L; 4]> = sync_state.delay.input.clone();
-        let mut new_output: SmallVec<[L; 4]> = sync_state.delay.output.clone();
-
-        if let Some(ref i) = trans.input {
-            new_input.push(i.clone());
-        }
-        if let Some(ref o) = trans.output {
-            new_output.push(o.clone());
-        }
-
-        // Synchronize
-        let new_delay = StringDelay::sync(new_input, new_output);
-
-        // Check bound
-        if new_delay.len() > self.max_delay {
+        if !self.fst.is_valid_state(trans.to) {
             return None;
         }
 
-        // Compute output labels
-        let out_input = new_delay.car_input();
-        let out_output = new_delay.car_output();
+        let (out_input, out_output, next_delay) = synchronized_transition_step(
+            &sync_state.delay,
+            trans.input.as_ref(),
+            trans.output.as_ref(),
+        );
+
+        // Check bound
+        if next_delay.len() > self.max_delay {
+            return None;
+        }
 
         // Create target state
         let next_sync = SyncState {
             original: trans.to,
-            delay: new_delay.cdr(),
+            delay: next_delay,
             draining: false,
         };
 
-        let next_id = self.get_or_create_state(next_sync);
+        let next_id = self.try_get_or_create_state(next_sync)?;
 
         Some(WeightedTransition::new(
             from_state,
@@ -698,10 +759,10 @@ where
 
     /// Get start state.
     pub fn start(&self) -> StateId {
-        if self.fst.start() == NO_STATE {
-            NO_STATE
-        } else {
+        if self.fst.is_valid_state(self.fst.start()) {
             0
+        } else {
+            NO_STATE
         }
     }
 
@@ -719,6 +780,276 @@ where
 // =============================================================================
 // Bounded Delay Check
 // =============================================================================
+
+#[derive(Clone, Copy, Debug)]
+struct DelayArc {
+    to: StateId,
+    delta: i64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ComponentArc {
+    to: usize,
+    delta: i64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct DelayAnalysis {
+    max_delay: usize,
+}
+
+#[inline]
+fn transition_delay<L, W>(trans: &WeightedTransition<L, W>) -> i64
+where
+    W: Semiring,
+{
+    i64::from(trans.output.is_some()) - i64::from(trans.input.is_some())
+}
+
+#[inline]
+fn checked_abs_usize(value: i64) -> Option<usize> {
+    usize::try_from(value.unsigned_abs()).ok()
+}
+
+fn analyze_delay_graph<L, W, T>(fst: &T) -> Option<DelayAnalysis>
+where
+    W: Semiring,
+    L: Clone + Eq + Hash + Send + Sync,
+    T: Wfst<L, W>,
+{
+    let start = fst.start();
+    if start == NO_STATE || !fst.is_valid_state(start) {
+        return Some(DelayAnalysis { max_delay: 0 });
+    }
+
+    let num_states = fst.num_states();
+    if num_states > NO_STATE as usize {
+        return None;
+    }
+
+    let mut reachable = vec![false; num_states];
+    let mut forward: Vec<SmallVec<[DelayArc; 4]>> =
+        (0..num_states).map(|_| SmallVec::new()).collect();
+    let mut reverse: Vec<SmallVec<[StateId; 4]>> =
+        (0..num_states).map(|_| SmallVec::new()).collect();
+
+    let mut stack = vec![start];
+    reachable[start as usize] = true;
+
+    while let Some(state) = stack.pop() {
+        let state_idx = state as usize;
+
+        for trans in fst.transitions(state) {
+            if !fst.is_valid_state(trans.to) {
+                continue;
+            }
+
+            let to_idx = trans.to as usize;
+            let delta = transition_delay(trans);
+            forward[state_idx].push(DelayArc {
+                to: trans.to,
+                delta,
+            });
+            reverse[to_idx].push(state);
+
+            if !reachable[to_idx] {
+                reachable[to_idx] = true;
+                stack.push(trans.to);
+            }
+        }
+    }
+
+    let reachable_count = reachable
+        .iter()
+        .filter(|&&is_reachable| is_reachable)
+        .count();
+    let mut seen = vec![false; num_states];
+    let mut finish_order = Vec::with_capacity(reachable_count);
+
+    for (state_idx, &is_reachable) in reachable.iter().enumerate() {
+        if !is_reachable || seen[state_idx] {
+            continue;
+        }
+
+        let state = state_idx as StateId;
+        seen[state_idx] = true;
+        let mut dfs_stack = vec![(state, false)];
+
+        while let Some((state, expanded)) = dfs_stack.pop() {
+            let idx = state as usize;
+
+            if expanded {
+                finish_order.push(state);
+                continue;
+            }
+
+            dfs_stack.push((state, true));
+            for arc in forward[idx].iter().rev() {
+                let to_idx = arc.to as usize;
+                if reachable[to_idx] && !seen[to_idx] {
+                    seen[to_idx] = true;
+                    dfs_stack.push((arc.to, false));
+                }
+            }
+        }
+    }
+
+    let unassigned = usize::MAX;
+    let mut component = vec![unassigned; num_states];
+    let mut components: Vec<Vec<StateId>> = Vec::new();
+
+    for &root in finish_order.iter().rev() {
+        let root_idx = root as usize;
+        if component[root_idx] != unassigned {
+            continue;
+        }
+
+        let comp_id = components.len();
+        let mut nodes = Vec::new();
+        let mut stack = vec![root];
+        component[root_idx] = comp_id;
+
+        while let Some(state) = stack.pop() {
+            nodes.push(state);
+            for &pred in &reverse[state as usize] {
+                let pred_idx = pred as usize;
+                if reachable[pred_idx] && component[pred_idx] == unassigned {
+                    component[pred_idx] = comp_id;
+                    stack.push(pred);
+                }
+            }
+        }
+
+        components.push(nodes);
+    }
+
+    let mut potential = vec![0i64; num_states];
+    let mut potential_set = vec![false; num_states];
+
+    for (comp_id, nodes) in components.iter().enumerate() {
+        for &root in nodes {
+            let root_idx = root as usize;
+            if potential_set[root_idx] {
+                continue;
+            }
+
+            potential_set[root_idx] = true;
+            potential[root_idx] = 0;
+            let mut stack = vec![root];
+
+            while let Some(state) = stack.pop() {
+                let state_idx = state as usize;
+                for arc in &forward[state_idx] {
+                    let to_idx = arc.to as usize;
+                    if component[to_idx] != comp_id {
+                        continue;
+                    }
+
+                    let expected = potential[state_idx].checked_add(arc.delta)?;
+                    if potential_set[to_idx] {
+                        if potential[to_idx] != expected {
+                            return None;
+                        }
+                    } else {
+                        potential_set[to_idx] = true;
+                        potential[to_idx] = expected;
+                        stack.push(arc.to);
+                    }
+                }
+            }
+        }
+    }
+
+    let comp_count = components.len();
+    let mut comp_edges: Vec<SmallVec<[ComponentArc; 4]>> =
+        (0..comp_count).map(|_| SmallVec::new()).collect();
+    let mut indegree = vec![0usize; comp_count];
+
+    for (from_idx, arcs) in forward.iter().enumerate() {
+        if !reachable[from_idx] {
+            continue;
+        }
+
+        let from_comp = component[from_idx];
+        for arc in arcs {
+            let to_idx = arc.to as usize;
+            let to_comp = component[to_idx];
+            if from_comp == to_comp {
+                continue;
+            }
+
+            let delta = potential[from_idx]
+                .checked_add(arc.delta)?
+                .checked_sub(potential[to_idx])?;
+
+            comp_edges[from_comp].push(ComponentArc { to: to_comp, delta });
+            indegree[to_comp] += 1;
+        }
+    }
+
+    let start_comp = component[start as usize];
+    let start_offset = 0i64.checked_sub(potential[start as usize])?;
+    let mut min_entry = vec![None; comp_count];
+    let mut max_entry = vec![None; comp_count];
+    min_entry[start_comp] = Some(start_offset);
+    max_entry[start_comp] = Some(start_offset);
+
+    let mut queue = VecDeque::with_capacity(comp_count);
+    for (comp_id, &degree) in indegree.iter().enumerate() {
+        if degree == 0 {
+            queue.push_back(comp_id);
+        }
+    }
+
+    let mut visited_components = 0usize;
+    let mut max_delay = 0usize;
+
+    while let Some(comp_id) = queue.pop_front() {
+        visited_components += 1;
+
+        if let (Some(min_c), Some(max_c)) = (min_entry[comp_id], max_entry[comp_id]) {
+            for &state in &components[comp_id] {
+                let state_potential = potential[state as usize];
+                let min_delay = min_c.checked_add(state_potential)?;
+                let max_candidate = checked_abs_usize(min_delay)?;
+                max_delay = max_delay.max(max_candidate);
+
+                let max_delay_value = max_c.checked_add(state_potential)?;
+                let max_candidate = checked_abs_usize(max_delay_value)?;
+                max_delay = max_delay.max(max_candidate);
+            }
+
+            for edge in &comp_edges[comp_id] {
+                let min_candidate = min_c.checked_add(edge.delta)?;
+                match &mut min_entry[edge.to] {
+                    Some(current) if min_candidate < *current => *current = min_candidate,
+                    None => min_entry[edge.to] = Some(min_candidate),
+                    _ => {}
+                }
+
+                let max_candidate = max_c.checked_add(edge.delta)?;
+                match &mut max_entry[edge.to] {
+                    Some(current) if max_candidate > *current => *current = max_candidate,
+                    None => max_entry[edge.to] = Some(max_candidate),
+                    _ => {}
+                }
+            }
+        }
+
+        for edge in &comp_edges[comp_id] {
+            indegree[edge.to] -= 1;
+            if indegree[edge.to] == 0 {
+                queue.push_back(edge.to);
+            }
+        }
+    }
+
+    if visited_components == comp_count {
+        Some(DelayAnalysis { max_delay })
+    } else {
+        None
+    }
+}
 
 /// Check if a transducer has bounded delay.
 ///
@@ -738,76 +1069,13 @@ where
     L: Clone + Eq + Hash + Send + Sync,
     T: Wfst<L, W>,
 {
-    // Use DFS to find cycles and check their delays
-    let start = fst.start();
-    if start == NO_STATE {
-        return true;
-    }
-
-    let num_states = fst.num_states();
-    let mut visited = vec![false; num_states];
-    let mut on_stack = vec![false; num_states];
-    let mut delays: FxHashMap<StateId, i32> = FxHashMap::default();
-
-    // DFS to detect cycles and compute delays
-    fn dfs<L, W, T>(
-        fst: &T,
-        state: StateId,
-        current_delay: i32,
-        visited: &mut [bool],
-        on_stack: &mut [bool],
-        delays: &mut FxHashMap<StateId, i32>,
-    ) -> bool
-    where
-        W: Semiring,
-        L: Clone + Eq + Hash,
-        T: Wfst<L, W>,
-    {
-        let idx = state as usize;
-        if idx >= visited.len() {
-            return true;
-        }
-
-        if on_stack[idx] {
-            // Found a cycle - check if delay is zero
-            if let Some(&prev_delay) = delays.get(&state) {
-                return current_delay == prev_delay;
-            }
-            return false;
-        }
-
-        if visited[idx] {
-            return true;
-        }
-
-        visited[idx] = true;
-        on_stack[idx] = true;
-        delays.insert(state, current_delay);
-
-        for trans in fst.transitions(state) {
-            let delta = trans.output.is_some() as i32 - trans.input.is_some() as i32;
-            let new_delay = current_delay + delta;
-
-            if !dfs(fst, trans.to, new_delay, visited, on_stack, delays) {
-                return false;
-            }
-        }
-
-        on_stack[idx] = false;
-        true
-    }
-
-    dfs(fst, start, 0, &mut visited, &mut on_stack, &mut delays)
+    analyze_delay_graph(fst).is_some()
 }
-
-/// Maximum number of (state, delay) pairs to visit when computing max delay.
-/// This prevents runaway iteration for FSTs with many paths and accumulated delays.
-const MAX_DELAY_VISIT_LIMIT: usize = 100_000;
 
 /// Compute the maximum delay of a transducer.
 ///
 /// Returns `None` if the transducer has unbounded delay (cycles with non-zero delay)
-/// or if the computation exceeds the visit limit.
+/// or if delay arithmetic overflows.
 ///
 /// # Arguments
 ///
@@ -822,43 +1090,7 @@ where
     L: Clone + Eq + Hash + Send + Sync,
     T: Wfst<L, W>,
 {
-    if !has_bounded_delay(fst) {
-        return None;
-    }
-
-    let start = fst.start();
-    if start == NO_STATE {
-        return Some(0);
-    }
-
-    // BFS to find maximum delay on any path
-    let mut visited = FxHashSet::default();
-    let mut queue = VecDeque::new();
-    let mut max_delay = 0i32;
-
-    queue.push_back((start, 0i32));
-    visited.insert((start, 0i32));
-
-    while let Some((state, delay)) = queue.pop_front() {
-        // Safety limit to prevent runaway iteration
-        if visited.len() > MAX_DELAY_VISIT_LIMIT {
-            return None;
-        }
-
-        max_delay = max_delay.max(delay.abs());
-
-        for trans in fst.transitions(state) {
-            let delta = trans.output.is_some() as i32 - trans.input.is_some() as i32;
-            let new_delay = delay + delta;
-
-            if !visited.contains(&(trans.to, new_delay)) {
-                visited.insert((trans.to, new_delay));
-                queue.push_back((trans.to, new_delay));
-            }
-        }
-    }
-
-    Some(max_delay as usize)
+    analyze_delay_graph(fst).map(|analysis| analysis.max_delay)
 }
 
 // =============================================================================
@@ -924,7 +1156,6 @@ where
 mod tests {
     use super::*;
     use crate::semiring::TropicalWeight;
-    use crate::wfst::{VectorWfst, VectorWfstBuilder};
 
     #[test]
     fn test_string_delay_empty() {
@@ -942,6 +1173,52 @@ mod tests {
         let delay = StringDelay::sync(input, output);
         assert_eq!(delay.input.as_slice(), &['b']);
         assert!(delay.output.is_empty());
+    }
+
+    #[test]
+    fn test_string_delay_sync_cancels_long_prefix_once() {
+        let input: SmallVec<[usize; 4]> = (0..32).chain([100]).collect();
+        let output: SmallVec<[usize; 4]> = (0..32).chain([200, 201]).collect();
+
+        let delay = StringDelay::sync(input, output);
+        assert_eq!(delay.input.as_slice(), &[100]);
+        assert_eq!(delay.output.as_slice(), &[200, 201]);
+    }
+
+    #[test]
+    fn test_string_delay_sync_accepts_non_clone_labels() {
+        #[derive(Debug, PartialEq, Eq)]
+        struct NonCloneLabel(char);
+
+        let input: SmallVec<[NonCloneLabel; 4]> =
+            smallvec::smallvec![NonCloneLabel('a'), NonCloneLabel('b')];
+        let output: SmallVec<[NonCloneLabel; 4]> = smallvec::smallvec![NonCloneLabel('a')];
+
+        let delay = StringDelay::sync(input, output);
+        assert_eq!(delay.input.as_slice(), &[NonCloneLabel('b')]);
+        assert!(delay.output.is_empty());
+    }
+
+    #[test]
+    fn test_string_delay_empty_accepts_non_clone_labels() {
+        #[derive(Debug, PartialEq, Eq)]
+        struct NonCloneLabel;
+
+        let delay: StringDelay<NonCloneLabel> = StringDelay::empty();
+        assert!(delay.is_empty());
+        assert_eq!(delay.len(), 0);
+    }
+
+    #[test]
+    fn test_synchronized_transition_step_preserves_equal_labels() {
+        let delay = StringDelay::empty();
+
+        let (input, output, next_delay) =
+            synchronized_transition_step(&delay, Some(&'a'), Some(&'a'));
+
+        assert_eq!(input, Some('a'));
+        assert_eq!(output, Some('a'));
+        assert!(next_delay.is_empty());
     }
 
     #[test]
@@ -1012,6 +1289,54 @@ mod tests {
     }
 
     #[test]
+    fn test_compute_max_delay_accepts_acyclic_join_with_different_delays() {
+        let fst: VectorWfst<char, TropicalWeight> = VectorWfstBuilder::new()
+            .add_states(4)
+            .start(0)
+            .arc(0, Some('a'), None, 1, TropicalWeight::one())
+            .arc(1, None, None, 3, TropicalWeight::one())
+            .arc(0, None, Some('x'), 2, TropicalWeight::one())
+            .arc(2, None, None, 3, TropicalWeight::one())
+            .final_state(3, TropicalWeight::one())
+            .build();
+
+        assert!(has_bounded_delay(&fst));
+        assert_eq!(compute_max_delay(&fst), Some(1));
+    }
+
+    #[test]
+    fn test_compute_max_delay_handles_zero_delay_scc_linearly() {
+        let fst: VectorWfst<char, TropicalWeight> = VectorWfstBuilder::new()
+            .add_states(3)
+            .start(0)
+            .arc(0, Some('a'), None, 1, TropicalWeight::one())
+            .arc(1, None, Some('x'), 2, TropicalWeight::one())
+            .arc(2, Some('b'), None, 1, TropicalWeight::one())
+            .final_state(2, TropicalWeight::one())
+            .build();
+
+        assert!(has_bounded_delay(&fst));
+        assert_eq!(compute_max_delay(&fst), Some(1));
+    }
+
+    #[test]
+    fn test_synchronize_ignores_malformed_targets() {
+        let fst: VectorWfst<char, TropicalWeight> = VectorWfstBuilder::new()
+            .add_states(1)
+            .start(0)
+            .arc(0, Some('a'), None, 99, TropicalWeight::one())
+            .final_state(0, TropicalWeight::one())
+            .build();
+
+        assert!(has_bounded_delay(&fst));
+        assert_eq!(compute_max_delay(&fst), Some(0));
+
+        let mut synced = synchronize_bounded(&fst, 4);
+        assert!(synced.transitions_lazy(0).is_empty());
+        assert!(synced.is_final(0));
+    }
+
+    #[test]
     fn test_unbounded_delay_cycle() {
         // Transducer with unbounded delay (cycle with non-zero delay)
         let fst: VectorWfst<char, TropicalWeight> = VectorWfstBuilder::new()
@@ -1060,6 +1385,78 @@ mod tests {
     }
 
     #[test]
+    fn test_lazy_synchronize_preserves_identity_arc_labels() {
+        let fst: VectorWfst<char, TropicalWeight> = VectorWfstBuilder::new()
+            .add_states(2)
+            .start(0)
+            .arc(0, Some('a'), Some('a'), 1, TropicalWeight::one())
+            .final_state(1, TropicalWeight::one())
+            .build();
+
+        let mut synced = synchronize(&fst);
+        let transitions = synced.transitions_lazy(0).to_vec();
+
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(transitions[0].input, Some('a'));
+        assert_eq!(transitions[0].output, Some('a'));
+
+        let target = transitions[0].to;
+        synced.expand(target);
+        assert!(synced.is_final(target));
+    }
+
+    #[test]
+    fn test_lazy_synchronize_allocates_distinct_discovered_states() {
+        let fst: VectorWfst<char, TropicalWeight> = VectorWfstBuilder::new()
+            .add_states(3)
+            .start(0)
+            .arc(0, Some('a'), Some('x'), 1, TropicalWeight::one())
+            .arc(0, Some('b'), Some('y'), 2, TropicalWeight::one())
+            .final_state(1, TropicalWeight::one())
+            .final_state(2, TropicalWeight::one())
+            .build();
+
+        let mut synced = synchronize_bounded(&fst, 2);
+        let transitions = synced.transitions_lazy(0).to_vec();
+
+        assert_eq!(transitions.len(), 2);
+        assert_ne!(transitions[0].to, transitions[1].to);
+
+        synced.expand(transitions[0].to);
+        synced.expand(transitions[1].to);
+        assert!(synced.is_final(transitions[0].to));
+        assert!(synced.is_final(transitions[1].to));
+    }
+
+    #[test]
+    fn test_lazy_synchronize_recovers_poisoned_registry() {
+        use std::panic::{catch_unwind, AssertUnwindSafe};
+
+        let fst: VectorWfst<char, TropicalWeight> = VectorWfstBuilder::new()
+            .add_states(2)
+            .start(0)
+            .arc(0, Some('a'), Some('x'), 1, TropicalWeight::one())
+            .final_state(1, TropicalWeight::one())
+            .build();
+
+        let source = SyncSource::new(fst, 2);
+        let poisoning_source = source.clone();
+        assert!(catch_unwind(AssertUnwindSafe(|| {
+            let _guard = match poisoning_source.registry.write() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            std::panic::panic_any("poison synchronization registry");
+        }))
+        .is_err());
+
+        assert!(source.get_sync_state(0).is_some());
+
+        let computed = source.compute_state(0);
+        assert_eq!(computed.transitions().unwrap_or(&[]).len(), 1);
+    }
+
+    #[test]
     fn test_sync_state_initial() {
         let state: SyncState<char> = SyncState::initial(5);
         assert_eq!(state.original, 5);
@@ -1099,6 +1496,28 @@ mod tests {
         // Should have created the next state
         assert!(sync.num_states() >= 1);
         assert!(sync.is_expanded(0));
+    }
+
+    #[test]
+    fn test_mutable_sync_source_preserves_identity_arc_labels() {
+        let fst: VectorWfst<char, TropicalWeight> = VectorWfstBuilder::new()
+            .add_states(2)
+            .start(0)
+            .arc(0, Some('a'), Some('a'), 1, TropicalWeight::one())
+            .final_state(1, TropicalWeight::one())
+            .build();
+
+        let mut sync = MutableSyncSource::new(fst, 10);
+        sync.expand_state(0);
+        let transitions = sync.transitions(0);
+
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(transitions[0].input, Some('a'));
+        assert_eq!(transitions[0].output, Some('a'));
+
+        let target = transitions[0].to;
+        sync.expand_state(target);
+        assert!(sync.is_final(target));
     }
 
     #[test]
@@ -1197,8 +1616,7 @@ mod property_tests {
         }
 
         /// Bounded delay implies max_delay returns Some (for small FSTs).
-        /// Note: compute_max_delay may return None for very complex FSTs that exceed
-        /// the visit limit, even if they have bounded delay.
+        /// Note: compute_max_delay may return None only if delay arithmetic overflows.
         #[test]
         fn bounded_delay_implies_max_delay_some(
             fst in arb_tropical_wfst(3, 1)

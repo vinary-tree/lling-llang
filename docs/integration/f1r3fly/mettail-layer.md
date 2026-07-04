@@ -339,16 +339,17 @@ trait OslfTypeChecker: TypeChecker {
 
 ## Current Status
 
-**Status**: Stub Implementation
+**Status**: Implemented
 
-The `MeTTaILTypeLayer` is partially implemented:
+The `MeTTaILTypeLayer` is available behind the `f1r3fly` feature:
 
-- Type expression data structures: Complete
-- Type constraint data structures: Complete
-- TypeChecker trait: Complete
-- Lattice filtering logic: Not implemented (returns error)
+- Type expression data structures are represented by `TypeExpr`.
+- Type constraints are represented by `TypeConstraint`.
+- Type checking is provided through the `TypeChecker` trait.
+- Lattice filtering applies type checks to tokenized paths and preserves paths
+  accepted by the configured checker.
 
-### Implementation Roadmap
+### Implementation Structure
 
 1. **Path extraction**: Extract all paths from lattice
 2. **Type inference**: Infer types for each path's tokens
@@ -357,7 +358,7 @@ The `MeTTaILTypeLayer` is partially implemented:
 5. **Reweighting**: Downweight paths that fail soft constraints
 6. **Lattice reconstruction**: Build filtered lattice
 
-## Next Steps
+## Related Integration Points
 
 - [Vision](vision.md): F1R3FLY.io integration overview
 - [MORK Layer](mork-layer.md): Rule-based filtering

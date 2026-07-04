@@ -23,9 +23,9 @@ use std::collections::HashSet;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use super::super::traits::{CorrectionLayer, LayerResult};
 use crate::backend::LatticeBackend;
 use crate::lattice::{Lattice, LatticeBuilder};
-use crate::layers::{CorrectionLayer, LayerResult};
 use crate::semiring::{Semiring, TropicalWeight};
 
 /// Configuration for the edit distance correction layer.

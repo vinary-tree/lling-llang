@@ -6,8 +6,10 @@
 //! - Minimal-CTC: Smallest possible graph (1 state, N arcs)
 //! - Selfless variants: Remove non-blank self-loops for wide context models
 
+use std::fmt;
+
 use crate::semiring::Semiring;
-use crate::wfst::{MutableWfst, StateId, VectorWfst};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst, NO_STATE};
 
 /// CTC label type (vocabulary index).
 ///
@@ -16,6 +18,45 @@ pub type CtcLabel = u32;
 
 /// The blank token index (always 0 in CTC).
 pub const BLANK: CtcLabel = 0;
+
+const ARC_COUNT_OVERFLOW: &str = "CTC topology arc count exceeds usize";
+
+/// Error returned by fallible CTC topology constructors.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CtcTopologyError {
+    /// The vocabulary is empty, so it cannot contain the required blank label.
+    EmptyVocabulary,
+    /// The vocabulary would require a state ID reserved for the absent-state sentinel.
+    VocabSizeExceedsStateSpace {
+        /// Requested vocabulary size.
+        vocab_size: usize,
+        /// Largest vocabulary size representable by concrete WFST state IDs.
+        max_vocab_size: usize,
+    },
+    /// The topology's closed-form arc count overflowed `usize`.
+    ArcCountOverflow {
+        /// Human-readable topology name.
+        topology: &'static str,
+        /// Requested vocabulary size.
+        vocab_size: usize,
+    },
+}
+
+impl fmt::Display for CtcTopologyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EmptyVocabulary => write!(f, "vocab_size must be at least 1 (for blank)"),
+            Self::VocabSizeExceedsStateSpace { max_vocab_size, .. } => write!(
+                f,
+                "vocab_size exceeds maximum concrete WFST states ({})",
+                max_vocab_size
+            ),
+            Self::ArcCountOverflow { .. } => write!(f, "{ARC_COUNT_OVERFLOW}"),
+        }
+    }
+}
+
+impl std::error::Error for CtcTopologyError {}
 
 /// Information about a CTC topology.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,7 +67,11 @@ pub struct CtcTopologyInfo {
     pub num_arcs: usize,
     /// Number of vocabulary units (including blank).
     pub vocab_size: usize,
-    /// Whether this is a selfless variant (no non-blank self-loops).
+    /// Whether this topology guarantees no CTC repeat-absorbing non-blank self-loops.
+    ///
+    /// This is a topology-shape guarantee, not a claim that the graph has no
+    /// structural self-loops at all. Arbitrary mutation through [`CtcTopology::fst_mut`]
+    /// clears the guarantee conservatively.
     pub selfless: bool,
 }
 
@@ -51,8 +96,13 @@ impl<W: Semiring> CtcTopology<W> {
     }
 
     /// Get mutable access to the underlying WFST.
+    ///
+    /// Arbitrary graph edits can invalidate topology-shape guarantees, so this
+    /// conservatively clears the `selfless` guarantee. [`Self::info`] recomputes
+    /// state and arc counts from the current WFST after mutation.
     #[inline]
     pub fn fst_mut(&mut self) -> &mut VectorWfst<CtcLabel, W> {
+        self.info.selfless = false;
         &mut self.fst
     }
 
@@ -63,9 +113,15 @@ impl<W: Semiring> CtcTopology<W> {
     }
 
     /// Get topology information.
+    ///
+    /// State and arc counts are derived from the current WFST, so metadata stays
+    /// consistent after supported mutations through [`Self::fst_mut`].
     #[inline]
     pub fn info(&self) -> CtcTopologyInfo {
-        self.info
+        let mut info = self.info;
+        info.num_states = self.fst.num_states();
+        info.num_arcs = self.fst.total_transitions();
+        info
     }
 
     /// Get the vocabulary size (including blank).
@@ -73,6 +129,96 @@ impl<W: Semiring> CtcTopology<W> {
     pub fn vocab_size(&self) -> usize {
         self.info.vocab_size
     }
+}
+
+#[inline]
+fn validate_vocab_size(vocab_size: usize) -> Result<(), CtcTopologyError> {
+    if vocab_size < 1 {
+        return Err(CtcTopologyError::EmptyVocabulary);
+    }
+
+    let max_vocab_size = max_vocab_size();
+    if vocab_size > max_vocab_size {
+        return Err(CtcTopologyError::VocabSizeExceedsStateSpace {
+            vocab_size,
+            max_vocab_size,
+        });
+    }
+
+    Ok(())
+}
+
+#[inline]
+fn max_vocab_size() -> usize {
+    // NO_STATE is reserved as the absent-state sentinel, so concrete state ids
+    // must stay in 0..NO_STATE.
+    NO_STATE as usize
+}
+
+#[inline]
+fn ctc_output(from: StateId, label: CtcLabel) -> Option<CtcLabel> {
+    if label == BLANK || from == label {
+        None
+    } else {
+        Some(label)
+    }
+}
+
+fn initialized_vocab_fst<W: Semiring>(vocab_size: usize) -> VectorWfst<CtcLabel, W> {
+    let mut fst = VectorWfst::with_capacity(vocab_size);
+
+    for _ in 0..vocab_size {
+        fst.add_state();
+    }
+
+    fst.set_start(BLANK);
+    for state in 0..vocab_size as StateId {
+        fst.set_final(state, W::one());
+    }
+
+    fst
+}
+
+#[inline]
+fn correct_arc_count(vocab_size: usize) -> Result<usize, CtcTopologyError> {
+    vocab_size
+        .checked_mul(vocab_size)
+        .ok_or(CtcTopologyError::ArcCountOverflow {
+            topology: "Correct-CTC",
+            vocab_size,
+        })
+}
+
+#[inline]
+fn compact_arc_count(vocab_size: usize) -> Result<usize, CtcTopologyError> {
+    vocab_size
+        .checked_mul(3)
+        .and_then(|count| count.checked_sub(2))
+        .ok_or(CtcTopologyError::ArcCountOverflow {
+            topology: "Compact-CTC",
+            vocab_size,
+        })
+}
+
+#[inline]
+fn selfless_correct_arc_count(vocab_size: usize) -> Result<usize, CtcTopologyError> {
+    correct_arc_count(vocab_size)?
+        .checked_sub(vocab_size - 1)
+        .ok_or(CtcTopologyError::ArcCountOverflow {
+            topology: "Selfless Correct-CTC",
+            vocab_size,
+        })
+}
+
+#[inline]
+fn selfless_compact_arc_count(vocab_size: usize) -> Result<usize, CtcTopologyError> {
+    vocab_size
+        .checked_mul(2)
+        .and_then(|count| count.checked_sub(1))
+        .ok_or(CtcTopologyError::ArcCountOverflow {
+            topology: "Selfless Compact-CTC",
+            vocab_size,
+        })
 }
 
 /// Create a Correct-CTC topology (standard CTC).
@@ -91,10 +237,11 @@ impl<W: Semiring> CtcTopology<W> {
 /// # Transitions
 ///
 /// For each state s and label l:
-/// - Self-loop: s --l:l--> s (emit l and stay)
+/// - Non-blank self-loop: s --l:ε--> s (repeat frame, emit nothing)
 /// - To other: s --l:l--> l (emit l and go to state l)
 ///
-/// Note: Blank (label 0) emits epsilon on output.
+/// Blank (label 0) also emits epsilon on output. These epsilon outputs encode
+/// the CTC collapse operator before downstream language-model composition.
 ///
 /// # Parameters
 ///
@@ -111,23 +258,18 @@ impl<W: Semiring> CtcTopology<W> {
 /// assert_eq!(ctc.info().num_arcs, 25); // 5²
 /// ```
 pub fn correct_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
-    assert!(vocab_size >= 1, "vocab_size must be at least 1 (for blank)");
+    try_correct_ctc(vocab_size).unwrap_or_else(|err| panic!("{err}"))
+}
 
-    let num_arcs = vocab_size * vocab_size;
-    let mut fst = VectorWfst::with_capacity(vocab_size);
+/// Try to create a Correct-CTC topology without panicking.
+///
+/// Returns [`CtcTopologyError`] when `vocab_size` is empty, exceeds the
+/// concrete WFST state-ID space, or its `N²` arc count cannot fit in `usize`.
+pub fn try_correct_ctc<W: Semiring>(vocab_size: usize) -> Result<CtcTopology<W>, CtcTopologyError> {
+    validate_vocab_size(vocab_size)?;
 
-    // Add states (one per vocabulary unit)
-    for _ in 0..vocab_size {
-        fst.add_state();
-    }
-
-    // Set start state (blank state = 0)
-    fst.set_start(0);
-
-    // All states are final
-    for s in 0..vocab_size as StateId {
-        fst.set_final(s, W::one());
-    }
+    let num_arcs = correct_arc_count(vocab_size)?;
+    let mut fst = initialized_vocab_fst(vocab_size);
 
     // Pre-allocate transitions
     for s in 0..vocab_size as StateId {
@@ -138,13 +280,11 @@ pub fn correct_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
     for from in 0..vocab_size as StateId {
         for label in 0..vocab_size as CtcLabel {
             let to = label as StateId;
-            // Blank (0) outputs epsilon, others output themselves
-            let output = if label == BLANK { None } else { Some(label) };
-            fst.add_arc(from, Some(label), output, to, W::one());
+            fst.add_arc(from, Some(label), ctc_output(from, label), to, W::one());
         }
     }
 
-    CtcTopology {
+    Ok(CtcTopology {
         fst,
         info: CtcTopologyInfo {
             num_states: vocab_size,
@@ -152,7 +292,7 @@ pub fn correct_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
             vocab_size,
             selfless: false,
         },
-    }
+    })
 }
 
 /// Create a Compact-CTC topology.
@@ -198,23 +338,19 @@ pub fn correct_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
 /// assert_eq!(ctc.info().num_arcs, 28); // 3*10 - 2
 /// ```
 pub fn compact_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
-    assert!(vocab_size >= 1, "vocab_size must be at least 1 (for blank)");
+    try_compact_ctc(vocab_size).unwrap_or_else(|err| panic!("{err}"))
+}
 
-    let num_arcs = 3 * vocab_size - 2;
-    let mut fst = VectorWfst::with_capacity(vocab_size);
+/// Try to create a Compact-CTC topology without panicking.
+///
+/// Returns [`CtcTopologyError`] when `vocab_size` is empty, exceeds the
+/// concrete WFST state-ID space, or its `3N - 2` arc count cannot fit in
+/// `usize`.
+pub fn try_compact_ctc<W: Semiring>(vocab_size: usize) -> Result<CtcTopology<W>, CtcTopologyError> {
+    validate_vocab_size(vocab_size)?;
 
-    // Add states
-    for _ in 0..vocab_size {
-        fst.add_state();
-    }
-
-    // Set start state (blank = 0)
-    fst.set_start(0);
-
-    // All states are final
-    for s in 0..vocab_size as StateId {
-        fst.set_final(s, W::one());
-    }
+    let num_arcs = compact_arc_count(vocab_size)?;
+    let mut fst = initialized_vocab_fst(vocab_size);
 
     // Pre-allocate transitions
     fst.reserve_transitions(0, vocab_size); // Blank state has N outgoing arcs
@@ -225,8 +361,7 @@ pub fn compact_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
     // Blank state (0) can transition to any label
     for label in 0..vocab_size as CtcLabel {
         let to = label as StateId;
-        let output = if label == BLANK { None } else { Some(label) };
-        fst.add_arc(0, Some(label), output, to, W::one());
+        fst.add_arc(0, Some(label), ctc_output(0, label), to, W::one());
     }
 
     // Non-blank states: self-loop + epsilon back to blank
@@ -234,13 +369,13 @@ pub fn compact_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
         let label = s as CtcLabel;
 
         // Self-loop: stay on same label
-        fst.add_arc(s, Some(label), Some(label), s, W::one());
+        fst.add_arc(s, Some(label), ctc_output(s, label), s, W::one());
 
         // Epsilon back to blank (for transitioning to different label)
         fst.add_epsilon(s, 0, W::one());
     }
 
-    CtcTopology {
+    Ok(CtcTopology {
         fst,
         info: CtcTopologyInfo {
             num_states: vocab_size,
@@ -248,7 +383,7 @@ pub fn compact_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
             vocab_size,
             selfless: false,
         },
-    }
+    })
 }
 
 /// Create a Minimal-CTC topology.
@@ -296,7 +431,15 @@ pub fn compact_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
 /// assert_eq!(ctc.info().num_arcs, 100); // N
 /// ```
 pub fn minimal_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
-    assert!(vocab_size >= 1, "vocab_size must be at least 1 (for blank)");
+    try_minimal_ctc(vocab_size).unwrap_or_else(|err| panic!("{err}"))
+}
+
+/// Try to create a Minimal-CTC topology without panicking.
+///
+/// Returns [`CtcTopologyError`] when `vocab_size` is empty or exceeds the
+/// concrete WFST state-ID space.
+pub fn try_minimal_ctc<W: Semiring>(vocab_size: usize) -> Result<CtcTopology<W>, CtcTopologyError> {
+    validate_vocab_size(vocab_size)?;
 
     let mut fst = VectorWfst::with_capacity(1);
 
@@ -310,11 +453,16 @@ pub fn minimal_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
 
     // All labels loop back to the single state
     for label in 0..vocab_size as CtcLabel {
-        let output = if label == BLANK { None } else { Some(label) };
-        fst.add_arc(state, Some(label), output, state, W::one());
+        fst.add_arc(
+            state,
+            Some(label),
+            ctc_output(state, label),
+            state,
+            W::one(),
+        );
     }
 
-    CtcTopology {
+    Ok(CtcTopology {
         fst,
         info: CtcTopologyInfo {
             num_states: 1,
@@ -322,7 +470,7 @@ pub fn minimal_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
             vocab_size,
             selfless: true, // Minimal-CTC is inherently selfless
         },
-    }
+    })
 }
 
 /// Create a Selfless Correct-CTC topology.
@@ -362,24 +510,22 @@ pub fn minimal_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
 /// assert_eq!(correct.info().num_arcs - selfless.info().num_arcs, 9);
 /// ```
 pub fn selfless_correct_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
-    assert!(vocab_size >= 1, "vocab_size must be at least 1 (for blank)");
+    try_selfless_correct_ctc(vocab_size).unwrap_or_else(|err| panic!("{err}"))
+}
+
+/// Try to create a Selfless Correct-CTC topology without panicking.
+///
+/// Returns [`CtcTopologyError`] when `vocab_size` is empty, exceeds the
+/// concrete WFST state-ID space, or its `N² - N + 1` arc count cannot fit in
+/// `usize`.
+pub fn try_selfless_correct_ctc<W: Semiring>(
+    vocab_size: usize,
+) -> Result<CtcTopology<W>, CtcTopologyError> {
+    validate_vocab_size(vocab_size)?;
 
     // N² - (N-1) = N² - N + 1: remove N-1 non-blank self-loops
-    let num_arcs = vocab_size * vocab_size - (vocab_size - 1);
-    let mut fst = VectorWfst::with_capacity(vocab_size);
-
-    // Add states
-    for _ in 0..vocab_size {
-        fst.add_state();
-    }
-
-    // Set start state (blank = 0)
-    fst.set_start(0);
-
-    // All states are final
-    for s in 0..vocab_size as StateId {
-        fst.set_final(s, W::one());
-    }
+    let num_arcs = selfless_correct_arc_count(vocab_size)?;
+    let mut fst = initialized_vocab_fst(vocab_size);
 
     // Pre-allocate transitions
     for s in 0..vocab_size as StateId {
@@ -398,12 +544,11 @@ pub fn selfless_correct_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
                 continue;
             }
 
-            let output = if label == BLANK { None } else { Some(label) };
-            fst.add_arc(from, Some(label), output, to, W::one());
+            fst.add_arc(from, Some(label), ctc_output(from, label), to, W::one());
         }
     }
 
-    CtcTopology {
+    Ok(CtcTopology {
         fst,
         info: CtcTopologyInfo {
             num_states: vocab_size,
@@ -411,7 +556,7 @@ pub fn selfless_correct_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
             vocab_size,
             selfless: true,
         },
-    }
+    })
 }
 
 /// Create a Selfless Compact-CTC topology.
@@ -442,24 +587,22 @@ pub fn selfless_correct_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
 /// assert_eq!(compact.info().num_arcs - selfless.info().num_arcs, 9);
 /// ```
 pub fn selfless_compact_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
-    assert!(vocab_size >= 1, "vocab_size must be at least 1 (for blank)");
+    try_selfless_compact_ctc(vocab_size).unwrap_or_else(|err| panic!("{err}"))
+}
+
+/// Try to create a Selfless Compact-CTC topology without panicking.
+///
+/// Returns [`CtcTopologyError`] when `vocab_size` is empty, exceeds the
+/// concrete WFST state-ID space, or its `2N - 1` arc count cannot fit in
+/// `usize`.
+pub fn try_selfless_compact_ctc<W: Semiring>(
+    vocab_size: usize,
+) -> Result<CtcTopology<W>, CtcTopologyError> {
+    validate_vocab_size(vocab_size)?;
 
     // 3N - 2 - (N-1) = 2N - 1: remove N-1 non-blank self-loops
-    let num_arcs = 2 * vocab_size - 1;
-    let mut fst = VectorWfst::with_capacity(vocab_size);
-
-    // Add states
-    for _ in 0..vocab_size {
-        fst.add_state();
-    }
-
-    // Set start state (blank = 0)
-    fst.set_start(0);
-
-    // All states are final
-    for s in 0..vocab_size as StateId {
-        fst.set_final(s, W::one());
-    }
+    let num_arcs = selfless_compact_arc_count(vocab_size)?;
+    let mut fst = initialized_vocab_fst(vocab_size);
 
     // Pre-allocate transitions
     fst.reserve_transitions(0, vocab_size); // Blank state has N outgoing arcs
@@ -470,8 +613,7 @@ pub fn selfless_compact_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
     // Blank state (0) can transition to any label
     for label in 0..vocab_size as CtcLabel {
         let to = label as StateId;
-        let output = if label == BLANK { None } else { Some(label) };
-        fst.add_arc(0, Some(label), output, to, W::one());
+        fst.add_arc(0, Some(label), ctc_output(0, label), to, W::one());
     }
 
     // Non-blank states: only epsilon back to blank (no self-loops)
@@ -479,7 +621,7 @@ pub fn selfless_compact_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
         fst.add_epsilon(s, 0, W::one());
     }
 
-    CtcTopology {
+    Ok(CtcTopology {
         fst,
         info: CtcTopologyInfo {
             num_states: vocab_size,
@@ -487,7 +629,7 @@ pub fn selfless_compact_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
             vocab_size,
             selfless: true,
         },
-    }
+    })
 }
 
 #[cfg(test)]
@@ -538,6 +680,26 @@ mod tests {
     }
 
     #[test]
+    fn test_correct_ctc_repeated_label_outputs_epsilon() {
+        let ctc = correct_ctc::<LogWeight>(4);
+        let fst = ctc.fst();
+
+        let repeat_arc = fst
+            .transitions(2)
+            .iter()
+            .find(|t| t.input == Some(2) && t.to == 2)
+            .expect("state 2 should have a repeat self-loop");
+        assert_eq!(repeat_arc.output, None);
+
+        let change_arc = fst
+            .transitions(2)
+            .iter()
+            .find(|t| t.input == Some(3) && t.to == 3)
+            .expect("state 2 should transition to label 3");
+        assert_eq!(change_arc.output, Some(3));
+    }
+
+    #[test]
     fn test_compact_ctc_structure() {
         let ctc = compact_ctc::<LogWeight>(5);
         let fst = ctc.fst();
@@ -569,6 +731,26 @@ mod tests {
 
             assert_eq!(eps_arc.to, 0); // Goes to blank state
         }
+    }
+
+    #[test]
+    fn test_compact_ctc_repeated_label_outputs_epsilon() {
+        let ctc = compact_ctc::<LogWeight>(4);
+        let fst = ctc.fst();
+
+        let repeat_arc = fst
+            .transitions(2)
+            .iter()
+            .find(|t| t.input == Some(2) && t.to == 2)
+            .expect("state 2 should have a repeat self-loop");
+        assert_eq!(repeat_arc.output, None);
+
+        let entry_arc = fst
+            .transitions(0)
+            .iter()
+            .find(|t| t.input == Some(2) && t.to == 2)
+            .expect("blank state should enter label 2");
+        assert_eq!(entry_arc.output, Some(2));
     }
 
     #[test]
@@ -688,9 +870,130 @@ mod tests {
     }
 
     #[test]
+    fn test_info_reflects_mutated_fst_counts() {
+        let mut ctc = correct_ctc::<LogWeight>(3);
+        let original = ctc.info();
+
+        {
+            let fst = ctc.fst_mut();
+            let extra = fst.add_state();
+            fst.set_final(extra, LogWeight::one());
+            fst.add_arc(0, Some(1), Some(1), extra, LogWeight::one());
+        }
+
+        let info = ctc.info();
+        assert_eq!(info.num_states, original.num_states + 1);
+        assert_eq!(info.num_arcs, original.num_arcs + 1);
+        assert_eq!(info.num_states, ctc.fst().num_states());
+        assert_eq!(info.num_arcs, ctc.fst().total_transitions());
+    }
+
+    #[test]
+    fn test_fst_mut_clears_selfless_guarantee() {
+        let mut ctc = selfless_compact_ctc::<LogWeight>(3);
+        assert!(ctc.info().selfless);
+
+        ctc.fst_mut().add_arc(1, Some(1), None, 1, LogWeight::one());
+
+        assert!(!ctc.info().selfless);
+    }
+
+    #[test]
     #[should_panic(expected = "vocab_size must be at least 1")]
     fn test_empty_vocabulary_panics() {
         let _ = correct_ctc::<LogWeight>(0);
+    }
+
+    #[test]
+    fn test_try_topologies_reject_empty_vocabulary() {
+        let results = [
+            try_correct_ctc::<LogWeight>(0),
+            try_compact_ctc::<LogWeight>(0),
+            try_minimal_ctc::<LogWeight>(0),
+            try_selfless_correct_ctc::<LogWeight>(0),
+            try_selfless_compact_ctc::<LogWeight>(0),
+        ];
+
+        for result in results {
+            assert!(matches!(result, Err(CtcTopologyError::EmptyVocabulary)));
+        }
+    }
+
+    #[test]
+    fn test_try_topologies_match_infallible_constructors() {
+        assert_eq!(
+            try_correct_ctc::<LogWeight>(4)
+                .expect("valid topology")
+                .info(),
+            correct_ctc::<LogWeight>(4).info()
+        );
+        assert_eq!(
+            try_compact_ctc::<LogWeight>(4)
+                .expect("valid topology")
+                .info(),
+            compact_ctc::<LogWeight>(4).info()
+        );
+        assert_eq!(
+            try_minimal_ctc::<LogWeight>(4)
+                .expect("valid topology")
+                .info(),
+            minimal_ctc::<LogWeight>(4).info()
+        );
+        assert_eq!(
+            try_selfless_correct_ctc::<LogWeight>(4)
+                .expect("valid topology")
+                .info(),
+            selfless_correct_ctc::<LogWeight>(4).info()
+        );
+        assert_eq!(
+            try_selfless_compact_ctc::<LogWeight>(4)
+                .expect("valid topology")
+                .info(),
+            selfless_compact_ctc::<LogWeight>(4).info()
+        );
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_try_vocabulary_above_state_id_space_returns_error() {
+        let requested = max_vocab_size() + 1;
+        let result = try_minimal_ctc::<LogWeight>(requested);
+
+        match result {
+            Err(CtcTopologyError::VocabSizeExceedsStateSpace {
+                vocab_size,
+                max_vocab_size: max,
+            }) => {
+                assert_eq!(vocab_size, requested);
+                assert_eq!(max, max_vocab_size());
+            }
+            _ => panic!("expected state-space error"),
+        }
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "32")]
+    fn test_try_correct_ctc_reports_arc_count_overflow_before_allocation() {
+        let vocab_size = 65_536;
+        let result = try_correct_ctc::<LogWeight>(vocab_size);
+
+        match result {
+            Err(CtcTopologyError::ArcCountOverflow {
+                topology,
+                vocab_size,
+            }) => {
+                assert_eq!(topology, "Correct-CTC");
+                assert_eq!(vocab_size, 65_536);
+            }
+            _ => panic!("expected arc-count overflow"),
+        }
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    #[should_panic(expected = "vocab_size exceeds maximum concrete WFST states")]
+    fn test_vocabulary_above_state_id_space_panics_before_truncation() {
+        let _ = minimal_ctc::<LogWeight>(max_vocab_size() + 1);
     }
 }
 
@@ -804,9 +1107,9 @@ mod property_tests {
         // Blank Token Properties
         // =====================================================================
 
-        /// Blank (label 0) always outputs epsilon in Correct-CTC.
+        /// Correct-CTC emits epsilon for blanks and non-blank repeats.
         #[test]
-        fn correct_ctc_blank_epsilon(n in 2usize..20) {
+        fn correct_ctc_ctc_collapse_outputs(n in 2usize..20) {
             let ctc = correct_ctc::<LogWeight>(n);
             let fst = ctc.fst();
 
@@ -814,8 +1117,10 @@ mod property_tests {
                 for t in fst.transitions(s) {
                     if t.input == Some(BLANK) {
                         prop_assert_eq!(t.output, None, "Blank should output epsilon");
+                    } else if t.input == Some(s as CtcLabel) {
+                        prop_assert_eq!(t.output, None, "Repeat self-loop should output epsilon");
                     } else {
-                        prop_assert_eq!(t.output, t.input, "Non-blank should output itself");
+                        prop_assert_eq!(t.output, t.input, "Label change should output itself");
                     }
                 }
             }

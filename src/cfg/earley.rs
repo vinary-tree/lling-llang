@@ -131,8 +131,9 @@ impl EarleyState {
 
     /// Check if the rule is complete (dot at end).
     pub fn is_complete(&self, grammar: &Grammar) -> bool {
-        let prod = grammar.production(self.rule).expect("valid rule");
-        self.dot >= prod.rhs_len()
+        grammar
+            .production(self.rule)
+            .is_some_and(|prod| self.dot >= prod.rhs_len())
     }
 
     /// Get the symbol after the dot, if any.
@@ -141,9 +142,9 @@ impl EarleyState {
         prod.rhs_at(self.dot)
     }
 
-    /// Get the LHS of this state's rule.
-    pub fn lhs(&self, grammar: &Grammar) -> NonTerminal {
-        grammar.production(self.rule).expect("valid rule").lhs
+    /// Get the LHS of this state's rule, if the rule exists in the grammar.
+    pub fn lhs(&self, grammar: &Grammar) -> Option<NonTerminal> {
+        grammar.production(self.rule).map(|prod| prod.lhs)
     }
 }
 
@@ -404,7 +405,9 @@ impl<'g> EarleyParser<'g> {
         pos: NodeId,
         completed: &EarleyState,
     ) {
-        let completed_nt = completed.lhs(self.grammar);
+        let Some(completed_nt) = completed.lhs(self.grammar) else {
+            return;
+        };
 
         // Create forest node for completed rule
         let mut node = ForestNode::new(completed.rule, completed.start, pos);
@@ -453,9 +456,10 @@ impl<'g> EarleyParser<'g> {
 mod tests {
     use super::*;
     use crate::backend::HashMapBackend;
-    use crate::cfg::GrammarBuilder;
     use crate::lattice::{EdgeMetadata, LatticeBuilder};
     use crate::semiring::TropicalWeight;
+
+    use super::super::builder::GrammarBuilder;
 
     fn simple_grammar() -> Grammar {
         // S → NP VP
@@ -515,14 +519,27 @@ mod tests {
 
     #[test]
     fn test_earley_state() {
+        let grammar = simple_grammar();
         let state = EarleyState::new(RuleId::new(0), 1, NodeId(0));
         assert_eq!(state.rule, RuleId::new(0));
         assert_eq!(state.dot, 1);
         assert_eq!(state.start, NodeId(0));
         assert!(state.forest_node.is_none());
+        assert_eq!(state.lhs(&grammar), Some(grammar.start()));
 
         let advanced = state.advance();
         assert_eq!(advanced.dot, 2);
+    }
+
+    #[test]
+    fn test_earley_state_invalid_rule_is_safe() {
+        let grammar = simple_grammar();
+        let invalid_rule = RuleId::new(grammar.num_productions() as u32 + 10);
+        let state = EarleyState::new(invalid_rule, 0, NodeId(0));
+
+        assert!(!state.is_complete(&grammar));
+        assert_eq!(state.next_symbol(&grammar), None);
+        assert_eq!(state.lhs(&grammar), None);
     }
 
     #[test]

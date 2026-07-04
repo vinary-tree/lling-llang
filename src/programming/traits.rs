@@ -525,6 +525,8 @@ pub trait ParserBackend: Send + Sync {
 pub struct SimpleParserBackend {
     language: String,
     last_tree: Option<SyntaxNode>,
+    last_source: String,
+    error_tree: SyntaxNode,
 }
 
 impl SimpleParserBackend {
@@ -533,6 +535,8 @@ impl SimpleParserBackend {
         Self {
             language: language.into(),
             last_tree: None,
+            last_source: String::new(),
+            error_tree: SyntaxNode::error(Range::default(), "no tree available"),
         }
     }
 
@@ -544,6 +548,13 @@ impl SimpleParserBackend {
     /// Set the tree directly (for testing).
     pub fn set_tree(&mut self, tree: SyntaxNode) {
         self.last_tree = Some(tree);
+        self.last_source.clear();
+    }
+
+    /// Set the tree and source text directly.
+    pub fn set_tree_with_source(&mut self, tree: SyntaxNode, source: impl Into<String>) {
+        self.last_tree = Some(tree);
+        self.last_source = source.into();
     }
 }
 
@@ -571,9 +582,13 @@ impl<'a> SyntaxNodeRef<'a> for SimpleSyntaxNodeRef<'a> {
     }
 
     fn text(&self) -> &'a str {
-        let start = self.node.range.start.byte_offset;
+        let start = self.node.range.start.byte_offset.min(self.source.len());
         let end = self.node.range.end.byte_offset.min(self.source.len());
-        &self.source[start..end]
+        if start <= end {
+            &self.source[start..end]
+        } else {
+            ""
+        }
     }
 
     fn is_error(&self) -> bool {
@@ -603,14 +618,9 @@ impl<'a> SyntaxNodeRef<'a> for SimpleSyntaxNodeRef<'a> {
     }
 
     fn parent(&self) -> Option<Self> {
-        // Not supported in this simple implementation
         None
     }
 }
-
-// Note: ParserBackend implementation for SimpleParserBackend requires
-// GATs (Generic Associated Types) which have some limitations.
-// For now, we provide a standalone parse function instead.
 
 impl SimpleParserBackend {
     /// Parse input and return a parse result with the simple backend.
@@ -620,14 +630,7 @@ impl SimpleParserBackend {
         } else {
             // Return an error node for missing tree
             ParseResult::with_errors(
-                SimpleSyntaxNodeRef::new(
-                    // This is a workaround - in production we'd want to parse properly
-                    Box::leak(Box::new(SyntaxNode::error(
-                        Range::default(),
-                        "no tree available",
-                    ))),
-                    input,
-                ),
+                SimpleSyntaxNodeRef::new(&self.error_tree, input),
                 vec![ParserError::new("No tree available", Range::default())],
             )
         }
@@ -638,6 +641,24 @@ impl SimpleParserBackend {
         self.last_tree
             .as_ref()
             .map(|t| SimpleSyntaxNodeRef::new(t, source))
+    }
+}
+
+impl ParserBackend for SimpleParserBackend {
+    type NodeRef<'a> = SimpleSyntaxNodeRef<'a>;
+
+    fn parse<'a>(&'a self, input: &'a str) -> ParseResult<Self::NodeRef<'a>> {
+        self.parse_simple(input)
+    }
+
+    fn root<'a>(&'a self) -> Option<Self::NodeRef<'a>> {
+        self.last_tree
+            .as_ref()
+            .map(|tree| SimpleSyntaxNodeRef::new(tree, &self.last_source))
+    }
+
+    fn language(&self) -> &str {
+        &self.language
     }
 }
 

@@ -248,7 +248,7 @@ fn build_english_grammar() -> Grammar {
         // Prepositional phrases
         .rule("PP", &["P", "NP"])
 
-        // Terminals (simplified)
+        // Compact terminal inventory for the example grammar
         .terminal("Det", &["the", "a", "an", "this", "that"])
         .terminal("N", &["dog", "cat", "fox", "man", "woman"])
         .terminal("Adj", &["quick", "brown", "lazy", "big", "small"])
@@ -600,7 +600,7 @@ impl IncrementalCorrector {
 }
 ```
 
-## Next Steps
+## Related Topics
 
 - [Speech/NLP](speech-nlp.md): Speech recognition integration
 - [Library Usage](library-usage.md): Generic integration patterns

@@ -541,7 +541,7 @@ for &node_id in order.iter().rev() {
 }
 ```
 
-## Next Steps
+## Related Topics
 
 - [Path Extraction](path-extraction.md): Viterbi, N-best, beam search
 - [Lattices](../architecture/lattices.md): Lattice data structure

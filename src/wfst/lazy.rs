@@ -12,11 +12,12 @@
 
 use std::collections::VecDeque;
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 
 use super::traits::{CachePolicy, LazyWfst, Wfst};
-use super::{StateId, WeightedTransition};
+use super::transition::WeightedTransition;
+use super::types::StateId;
 use crate::semiring::Semiring;
 
 /// A state that may or may not have been computed yet.
@@ -116,6 +117,9 @@ where
     /// Cache of computed states.
     cache: FxHashMap<StateId, LazyState<L, W>>,
 
+    /// Most recently computed state when caching is disabled.
+    transient_state: Option<(StateId, LazyState<L, W>)>,
+
     /// Access order for LRU eviction.
     access_order: VecDeque<StateId>,
 
@@ -123,7 +127,7 @@ where
     policy: CachePolicy,
 
     /// Counter for computed states.
-    computed_count: u32,
+    computed_count: usize,
 
     /// Start state ID.
     start: StateId,
@@ -139,6 +143,7 @@ where
         Self {
             source: self.source.clone(),
             cache: self.cache.clone(),
+            transient_state: self.transient_state.clone(),
             access_order: self.access_order.clone(),
             policy: self.policy,
             computed_count: self.computed_count,
@@ -161,6 +166,7 @@ where
         Self {
             source,
             cache: FxHashMap::with_capacity_and_hasher(initial_capacity, Default::default()),
+            transient_state: None,
             access_order: VecDeque::with_capacity(initial_capacity),
             policy: CachePolicy::default(),
             computed_count: 0,
@@ -177,6 +183,14 @@ where
 
     /// Ensure a state is computed and cached, returning a reference.
     fn ensure_computed(&mut self, state: StateId) -> &LazyState<L, W> {
+        if self.uses_transient_storage() {
+            if self.state_entry(state).is_none() {
+                let computed = self.source.compute_state(state);
+                self.insert_cached(state, computed);
+            }
+            return self.state_entry(state).unwrap_or(&LazyState::Pending);
+        }
+
         if !self.cache.contains_key(&state) {
             let computed = self.source.compute_state(state);
             self.insert_cached(state, computed);
@@ -185,35 +199,65 @@ where
             self.touch_lru(state);
         }
 
-        self.cache.get(&state).expect("State should be cached")
+        self.state_entry(state).unwrap_or(&LazyState::Pending)
+    }
+
+    /// Return a computed state from the persistent cache or transient no-cache slot.
+    fn state_entry(&self, state: StateId) -> Option<&LazyState<L, W>> {
+        self.cache.get(&state).or_else(|| {
+            self.transient_state
+                .as_ref()
+                .filter(|(transient_state, _)| *transient_state == state)
+                .map(|(_, entry)| entry)
+        })
     }
 
     /// Insert a computed state into the cache.
     fn insert_cached(&mut self, state: StateId, computed: LazyState<L, W>) {
         match self.policy {
             CachePolicy::NoCache => {
-                // Don't cache, but still count
-                self.computed_count += 1;
+                self.transient_state = Some((state, computed));
+                self.record_computation();
             }
             CachePolicy::CacheAll => {
+                self.transient_state = None;
                 self.cache.insert(state, computed);
-                self.computed_count += 1;
+                self.record_computation();
             }
             CachePolicy::Lru { max_states } => {
-                // Evict if at capacity
-                while self.cache.len() >= max_states {
-                    if let Some(evict) = self.access_order.pop_front() {
-                        self.cache.remove(&evict);
-                    } else {
-                        break;
-                    }
+                self.transient_state = None;
+                if max_states == 0 {
+                    self.transient_state = Some((state, computed));
+                    self.record_computation();
+                    return;
+                }
+
+                let replacing_cached_state = self.cache.contains_key(&state);
+                while !replacing_cached_state && self.cache.len() >= max_states {
+                    self.evict_lru();
                 }
 
                 self.cache.insert(state, computed);
+                if let Some(pos) = self.access_order.iter().position(|&s| s == state) {
+                    self.access_order.remove(pos);
+                }
                 self.access_order.push_back(state);
-                self.computed_count += 1;
+                self.record_computation();
             }
         }
+    }
+
+    /// Record a state-source computation without wrapping on extremely long traversals.
+    fn record_computation(&mut self) {
+        self.computed_count = self.computed_count.saturating_add(1);
+    }
+
+    /// Whether the active cache policy keeps only the current computed state.
+    fn uses_transient_storage(&self) -> bool {
+        matches!(
+            self.policy,
+            CachePolicy::NoCache | CachePolicy::Lru { max_states: 0 }
+        )
     }
 
     /// Update LRU access order.
@@ -222,6 +266,37 @@ where
         if let Some(pos) = self.access_order.iter().position(|&s| s == state) {
             self.access_order.remove(pos);
             self.access_order.push_back(state);
+        } else if self.cache.contains_key(&state) {
+            self.access_order.push_back(state);
+        }
+    }
+
+    /// Keep LRU bookkeeping aligned with the current persistent cache contents.
+    fn reconcile_lru_order(&mut self) {
+        let cache = &self.cache;
+        let mut seen = FxHashSet::with_capacity_and_hasher(cache.len(), Default::default());
+        self.access_order
+            .retain(|state| cache.contains_key(state) && seen.insert(*state));
+
+        let mut cached_states: Vec<_> = self.cache.keys().copied().collect();
+        cached_states.sort_unstable();
+        for state in cached_states {
+            if seen.insert(state) {
+                self.access_order.push_back(state);
+            }
+        }
+    }
+
+    /// Evict the least-recently used persistent cached state.
+    fn evict_lru(&mut self) {
+        while let Some(evict) = self.access_order.pop_front() {
+            if self.cache.remove(&evict).is_some() {
+                return;
+            }
+        }
+
+        if let Some(evict) = self.cache.keys().copied().min() {
+            self.cache.remove(&evict);
         }
     }
 
@@ -254,15 +329,13 @@ where
     fn is_final(&self, state: StateId) -> bool {
         // Note: This requires mutable access in practice
         // For immutable access, we check the cache
-        self.cache
-            .get(&state)
+        self.state_entry(state)
             .map(|s| matches!(s, LazyState::Computed { is_final: true, .. }))
             .unwrap_or(false)
     }
 
     fn final_weight(&self, state: StateId) -> W {
-        self.cache
-            .get(&state)
+        self.state_entry(state)
             .map(|s| match s {
                 LazyState::Computed { final_weight, .. } => *final_weight,
                 LazyState::Pending => W::zero(),
@@ -272,8 +345,7 @@ where
 
     fn transitions(&self, state: StateId) -> &[WeightedTransition<L, W>] {
         // For immutable access, return empty if not computed
-        self.cache
-            .get(&state)
+        self.state_entry(state)
             .and_then(|s| s.transitions())
             .unwrap_or(&[])
     }
@@ -290,8 +362,7 @@ where
     W: Semiring,
 {
     fn is_expanded(&self, state: StateId) -> bool {
-        self.cache
-            .get(&state)
+        self.state_entry(state)
             .map(|s| s.is_computed())
             .unwrap_or(false)
     }
@@ -314,14 +385,33 @@ where
 
     fn set_cache_policy(&mut self, policy: CachePolicy) {
         self.policy = policy;
+        match policy {
+            CachePolicy::NoCache | CachePolicy::Lru { max_states: 0 } => {
+                self.cache.clear();
+                self.access_order.clear();
+                self.transient_state = None;
+            }
+            CachePolicy::CacheAll => {
+                self.transient_state = None;
+                self.access_order.clear();
+            }
+            CachePolicy::Lru { max_states } => {
+                self.transient_state = None;
+                self.reconcile_lru_order();
+                while self.cache.len() > max_states {
+                    self.evict_lru();
+                }
+            }
+        }
     }
 
     fn computed_states(&self) -> usize {
-        self.computed_count as usize
+        self.computed_count
     }
 
     fn clear_cache(&mut self) {
         self.cache.clear();
+        self.transient_state = None;
         self.access_order.clear();
         // Don't reset computed_count - it tracks total ever computed
     }
@@ -421,6 +511,130 @@ mod tests {
         // Oldest should be evicted
         assert!(!lazy.is_expanded(0));
         assert!(!lazy.is_expanded(1));
+    }
+
+    #[test]
+    fn test_lru_policy_reconciles_existing_cache_on_policy_change() {
+        let source = LinearChainSource { num_states: 10 };
+        let mut lazy = LazyWfstWrapper::new(source);
+
+        lazy.expand(0);
+        lazy.expand(1);
+        lazy.expand(2);
+        assert_eq!(lazy.cache.len(), 3);
+        assert!(lazy.access_order.is_empty());
+
+        lazy.set_cache_policy(CachePolicy::Lru { max_states: 2 });
+
+        assert_eq!(lazy.cache.len(), 2);
+        assert_eq!(lazy.access_order.len(), 2);
+
+        lazy.expand(3);
+
+        assert_eq!(lazy.cache.len(), 2);
+        assert_eq!(lazy.access_order.len(), 2);
+        assert!(lazy.is_expanded(3));
+    }
+
+    #[test]
+    fn test_lru_hit_restores_missing_access_order_entry() {
+        let source = LinearChainSource { num_states: 10 };
+        let mut lazy =
+            LazyWfstWrapper::with_cache_policy(source, CachePolicy::Lru { max_states: 2 });
+
+        lazy.expand(0);
+        lazy.expand(1);
+        lazy.access_order.clear();
+
+        let transitions = lazy.transitions_lazy(0);
+
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(lazy.cache.len(), 2);
+        assert_eq!(lazy.access_order.back(), Some(&0));
+    }
+
+    #[test]
+    fn test_lru_eviction_preserves_capacity_with_stale_order() {
+        let source = LinearChainSource { num_states: 10 };
+        let mut lazy =
+            LazyWfstWrapper::with_cache_policy(source, CachePolicy::Lru { max_states: 2 });
+
+        lazy.expand(0);
+        lazy.expand(1);
+        lazy.access_order.clear();
+        lazy.access_order.push_back(99);
+
+        lazy.expand(2);
+
+        assert_eq!(lazy.cache.len(), 2);
+        assert!(lazy.is_expanded(2));
+    }
+
+    #[test]
+    fn test_no_cache_policy_returns_transitions_without_retaining_state() {
+        let source = LinearChainSource { num_states: 5 };
+        let mut lazy = LazyWfstWrapper::with_cache_policy(source, CachePolicy::NoCache);
+
+        let transitions = lazy.transitions_lazy(0);
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(transitions[0].to, 1);
+        assert_eq!(lazy.computed_states(), 1);
+        assert_eq!(lazy.cache.len(), 0);
+        assert!(lazy.is_expanded(0));
+
+        let transitions = lazy.transitions_lazy(0);
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(transitions[0].to, 1);
+        assert_eq!(lazy.computed_states(), 1);
+        assert_eq!(lazy.cache.len(), 0);
+        assert!(lazy.is_expanded(0));
+
+        let transitions = lazy.transitions_lazy(1);
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(transitions[0].to, 2);
+        assert_eq!(lazy.computed_states(), 2);
+        assert_eq!(lazy.cache.len(), 0);
+        assert!(!lazy.is_expanded(0));
+        assert!(lazy.is_expanded(1));
+    }
+
+    #[test]
+    fn test_zero_capacity_lru_uses_transient_state() {
+        let source = LinearChainSource { num_states: 5 };
+        let mut lazy =
+            LazyWfstWrapper::with_cache_policy(source, CachePolicy::Lru { max_states: 0 });
+
+        let transitions = lazy.transitions_lazy(0);
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(transitions[0].to, 1);
+        assert_eq!(lazy.computed_states(), 1);
+        assert_eq!(lazy.cache.len(), 0);
+        assert!(lazy.is_expanded(0));
+
+        let transitions = lazy.transitions_lazy(0);
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(transitions[0].to, 1);
+        assert_eq!(lazy.computed_states(), 1);
+        assert_eq!(lazy.cache.len(), 0);
+        assert!(lazy.is_expanded(0));
+    }
+
+    #[test]
+    fn test_switching_to_no_cache_discards_persistent_cache() {
+        let source = LinearChainSource { num_states: 5 };
+        let mut lazy = LazyWfstWrapper::new(source);
+
+        assert_eq!(lazy.transitions_lazy(0).len(), 1);
+        assert_eq!(lazy.computed_states(), 1);
+        assert_eq!(lazy.cache.len(), 1);
+
+        lazy.set_cache_policy(CachePolicy::NoCache);
+        assert_eq!(lazy.cache.len(), 0);
+
+        assert_eq!(lazy.transitions_lazy(0).len(), 1);
+        assert_eq!(lazy.computed_states(), 2);
+        assert_eq!(lazy.cache.len(), 0);
+        assert!(lazy.is_expanded(0));
     }
 
     #[test]

@@ -69,7 +69,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use crate::symbolic::logict::{ConstraintTheory, LogicStream};
+use super::logict::{ConstraintTheory, LogicStream};
 
 // ==============================================================================
 // Type Identifiers
@@ -530,4 +530,3 @@ impl ConstraintTheory for LatticeTheory {
         false
     }
 }
-

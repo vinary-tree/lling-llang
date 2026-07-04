@@ -25,7 +25,7 @@
 //!
 //! - Mohri, M. (2009). "Weighted Automata Algorithms"
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use crate::semiring::{Semiring, StarSemiring};
 use crate::wfst::{MutableWfst, StateId, WeightedTransition, Wfst, NO_STATE};
@@ -103,56 +103,63 @@ where
         return Err(EpsilonRemovalError::NoStartState);
     }
 
-    // Compute epsilon closures for all states
-    let closures = compute_epsilon_closures(fst);
+    let closures = compute_epsilon_closures(fst)?;
+    apply_epsilon_removal(fst, config, closures)
+}
 
-    // Collect new transitions
-    let mut new_transitions: Vec<Vec<WeightedTransition<L, W>>> = vec![Vec::new(); n];
+fn apply_epsilon_removal<L, W, F>(
+    fst: &mut F,
+    config: EpsilonRemovalConfig,
+    closures: Vec<HashMap<StateId, W>>,
+) -> Result<(), EpsilonRemovalError>
+where
+    L: Clone + PartialEq,
+    W: Semiring,
+    F: MutableWfst<L, W> + Wfst<L, W>,
+{
+    let n = fst.num_states();
+    // Collect new transitions. Pre-size each state's bucket to the exact
+    // pre-deduplication expansion count so dense closures do not repeatedly grow.
+    let mut new_transitions: Vec<Vec<WeightedTransition<L, W>>> = (0..n)
+        .map(|state| {
+            let state_id = state as StateId;
+            Vec::with_capacity(expanded_transition_capacity(fst, &closures, state_id))
+        })
+        .collect();
 
     for state in 0..n {
         let state_id = state as StateId;
+        let Some(source_closure) = closures.get(state) else {
+            continue;
+        };
 
-        // Get non-epsilon transitions from this state
-        for trans in fst.transitions(state_id) {
-            if trans.input.is_some() || trans.output.is_some() {
-                // Non-epsilon transition: add transitions through ε-closure of destination
-                let to_closure = &closures[trans.to as usize];
+        for (closure_state, closure_weight) in source_closure {
+            if *closure_state as usize >= n {
+                continue;
+            }
 
-                for (closure_state, closure_weight) in to_closure {
-                    let new_weight = trans.weight.times(closure_weight);
+            for trans in fst.transitions(*closure_state) {
+                if trans.input.is_none() && trans.output.is_none() {
+                    continue;
+                }
+
+                let Some(to_closure) = closures.get(trans.to as usize) else {
+                    continue;
+                };
+
+                for (dest_state, dest_weight) in to_closure {
+                    if *dest_state as usize >= n {
+                        continue;
+                    }
+
+                    let new_weight = closure_weight.times(&trans.weight).times(dest_weight);
                     new_transitions[state].push(WeightedTransition {
                         from: state_id,
-                        to: *closure_state,
+                        to: *dest_state,
                         input: trans.input.clone(),
                         output: trans.output.clone(),
                         weight: new_weight,
                     });
-                }
-            }
-        }
-
-        // Handle transitions from ε-closure of start through this state
-        if state_id == fst.start() {
-            let start_closure = &closures[state];
-            for (closure_state, closure_weight) in start_closure {
-                if *closure_state != state_id {
-                    // Add transitions from closure states as if they were start
-                    for trans in fst.transitions(*closure_state) {
-                        if trans.input.is_some() || trans.output.is_some() {
-                            let to_closure = &closures[trans.to as usize];
-                            for (dest_state, dest_weight) in to_closure {
-                                let new_weight =
-                                    closure_weight.times(&trans.weight).times(dest_weight);
-                                new_transitions[state].push(WeightedTransition {
-                                    from: state_id,
-                                    to: *dest_state,
-                                    input: trans.input.clone(),
-                                    output: trans.output.clone(),
-                                    weight: new_weight,
-                                });
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -172,27 +179,25 @@ where
         }
     }
 
-    // Update final weights based on ε-closure
-    let start = fst.start();
-    let start_closure = &closures[start as usize];
-    for (closure_state, closure_weight) in start_closure {
-        if fst.is_final(*closure_state) && *closure_state != start {
-            // Add final weight contribution from ε-reachable final states
-            let old_final = fst.final_weight(start);
-            let contribution = closure_weight.times(&fst.final_weight(*closure_state));
-            fst.set_final(start, old_final.plus(&contribution));
-        }
-    }
+    let original_final_weights: Vec<W> = (0..n)
+        .map(|state| fst.final_weight(state as StateId))
+        .collect();
 
     // Update final weights for all states based on their ε-closures
     for state in 0..n {
         let state_id = state as StateId;
         let closure = &closures[state];
-        let mut new_final = fst.final_weight(state_id);
+        let mut new_final = original_final_weights[state];
 
         for (closure_state, closure_weight) in closure {
-            if *closure_state != state_id && fst.is_final(*closure_state) {
-                let contribution = closure_weight.times(&fst.final_weight(*closure_state));
+            let closure_index = *closure_state as usize;
+            if closure_index >= n {
+                continue;
+            }
+
+            let closure_final_weight = original_final_weights[closure_index];
+            if *closure_state != state_id && !closure_final_weight.is_zero() {
+                let contribution = closure_weight.times(&closure_final_weight);
                 new_final = new_final.plus(&contribution);
             }
         }
@@ -210,49 +215,191 @@ where
     Ok(())
 }
 
+fn expanded_transition_capacity<L, W, F>(
+    fst: &F,
+    closures: &[HashMap<StateId, W>],
+    state_id: StateId,
+) -> usize
+where
+    L: Clone,
+    W: Semiring,
+    F: Wfst<L, W>,
+{
+    let mut capacity = 0usize;
+
+    let Some(source_closure) = closures.get(state_id as usize) else {
+        return capacity;
+    };
+
+    for &closure_state in source_closure.keys() {
+        if closure_state as usize >= closures.len() {
+            continue;
+        }
+
+        for trans in fst.transitions(closure_state) {
+            if trans.input.is_none() && trans.output.is_none() {
+                continue;
+            }
+
+            capacity =
+                capacity.saturating_add(closures.get(trans.to as usize).map_or(0, HashMap::len));
+        }
+    }
+
+    capacity
+}
+
 /// Compute epsilon closures for all states.
 ///
 /// Returns a vector where `closures[s]` contains all (state, weight) pairs
 /// reachable from state `s` via epsilon transitions only.
-fn compute_epsilon_closures<L, W, F>(fst: &F) -> Vec<HashMap<StateId, W>>
+fn compute_epsilon_closures<L, W, F>(
+    fst: &F,
+) -> Result<Vec<HashMap<StateId, W>>, EpsilonRemovalError>
 where
     L: Clone,
     W: Semiring,
     F: Wfst<L, W>,
 {
     let n = fst.num_states();
-    let mut closures: Vec<HashMap<StateId, W>> = vec![HashMap::new(); n];
+    let mut epsilon_adjacency: Vec<Vec<(StateId, W)>> = vec![Vec::new(); n];
+    let mut in_degree = vec![0usize; n];
 
     for state in 0..n {
-        let state_id = state as StateId;
-        let mut closure: HashMap<StateId, W> = HashMap::new();
-        let mut visited = HashSet::new();
-        let mut queue = vec![(state_id, W::one())];
-
-        while let Some((current, weight)) = queue.pop() {
-            if visited.contains(&current) {
-                // Update weight if we found a better path (for non-idempotent semirings)
-                if let Some(existing) = closure.get(&current) {
-                    closure.insert(current, existing.plus(&weight));
+        for trans in fst.transitions(state as StateId) {
+            if trans.input.is_none() && trans.output.is_none() && !trans.weight.is_zero() {
+                let to = trans.to as usize;
+                if to >= n {
+                    continue;
                 }
-                continue;
+
+                epsilon_adjacency[state].push((trans.to, trans.weight));
+                in_degree[to] += 1;
             }
-            visited.insert(current);
-            closure.insert(current, weight.clone());
+        }
+    }
 
-            // Follow epsilon transitions
-            for trans in fst.transitions(current) {
-                if trans.input.is_none() && trans.output.is_none() {
-                    let new_weight = weight.times(&trans.weight);
-                    queue.push((trans.to, new_weight));
-                }
+    let mut ready = VecDeque::with_capacity(n);
+    for (state, &degree) in in_degree.iter().enumerate() {
+        if degree == 0 {
+            ready.push_back(state);
+        }
+    }
+
+    let mut order = Vec::with_capacity(n);
+    while let Some(state) = ready.pop_front() {
+        order.push(state);
+        for &(next, _) in &epsilon_adjacency[state] {
+            let next = next as usize;
+            in_degree[next] -= 1;
+            if in_degree[next] == 0 {
+                ready.push_back(next);
+            }
+        }
+    }
+
+    if order.len() != n {
+        return Err(EpsilonRemovalError::NonConvergentCycle);
+    }
+
+    let mut closures: Vec<HashMap<StateId, W>> = (0..n)
+        .map(|state| HashMap::with_capacity(epsilon_adjacency[state].len().saturating_add(1)))
+        .collect();
+
+    for &state in order.iter().rev() {
+        let capacity = epsilon_adjacency[state]
+            .iter()
+            .map(|&(next, _)| closures[next as usize].len())
+            .fold(1usize, usize::saturating_add);
+        let mut closure = HashMap::with_capacity(capacity);
+        closure.insert(state as StateId, W::one());
+
+        for &(next, edge_weight) in &epsilon_adjacency[state] {
+            for (&reachable, suffix_weight) in &closures[next as usize] {
+                let candidate = edge_weight.times(suffix_weight);
+                let entry = closure.entry(reachable).or_insert_with(W::zero);
+                *entry = entry.plus(&candidate);
             }
         }
 
         closures[state] = closure;
     }
 
-    closures
+    Ok(closures)
+}
+
+fn compute_epsilon_closures_star<L, W, F>(
+    fst: &F,
+) -> Result<Vec<HashMap<StateId, W>>, EpsilonRemovalError>
+where
+    L: Clone,
+    W: StarSemiring,
+    F: Wfst<L, W>,
+{
+    let n = fst.num_states();
+    let mut closure = vec![vec![W::zero(); n]; n];
+
+    for state in 0..n {
+        for trans in fst.transitions(state as StateId) {
+            if trans.input.is_none() && trans.output.is_none() {
+                let from = state;
+                let to = trans.to as usize;
+                if to >= n {
+                    continue;
+                }
+
+                closure[from][to] = closure[from][to].plus(&trans.weight);
+            }
+        }
+    }
+
+    for pivot in 0..n {
+        let pivot_star = closure[pivot][pivot]
+            .star()
+            .ok_or(EpsilonRemovalError::NonConvergentCycle)?;
+
+        let pivot_row = closure[pivot].clone();
+
+        for source in 0..n {
+            let source_to_pivot = closure[source][pivot];
+            if source_to_pivot.is_zero() {
+                continue;
+            }
+
+            let source_prefix = source_to_pivot.times(&pivot_star);
+            for (target, pivot_to_target) in pivot_row.iter().copied().enumerate() {
+                if pivot_to_target.is_zero() {
+                    continue;
+                }
+
+                let candidate = source_prefix.times(&pivot_to_target);
+                closure[source][target] = closure[source][target].plus(&candidate);
+            }
+        }
+    }
+
+    let mut maps = Vec::with_capacity(n);
+    for source in 0..n {
+        let capacity = closure[source]
+            .iter()
+            .filter(|weight| !weight.is_zero())
+            .count()
+            .saturating_add(1);
+        let mut map = HashMap::with_capacity(capacity);
+        map.insert(source as StateId, W::one());
+
+        for target in 0..n {
+            let weight = closure[source][target];
+            if !weight.is_zero() {
+                let entry = map.entry(target as StateId).or_insert_with(W::zero);
+                *entry = entry.plus(&weight);
+            }
+        }
+
+        maps.push(map);
+    }
+
+    Ok(maps)
 }
 
 /// Deduplicate transitions by combining weights for identical (from, to, input, output) tuples.
@@ -265,39 +412,29 @@ where
         return;
     }
 
-    // Group by (to, input, output) and combine weights
-    let mut groups: HashMap<
-        (StateId, Option<usize>, Option<usize>),
-        (WeightedTransition<L, W>, W),
-    > = HashMap::new();
+    // Bucket by target first, then compare labels within the target bucket.
+    // This avoids requiring Hash/Eq on labels while preserving distinct labels
+    // that share a destination.
+    let mut groups: BTreeMap<StateId, Vec<WeightedTransition<L, W>>> = BTreeMap::new();
 
     for trans in transitions.drain(..) {
-        // Use indices for comparison (we'll store the actual labels separately)
-        let key = (
-            trans.to,
-            trans.input.as_ref().map(|_| 0usize),
-            trans.output.as_ref().map(|_| 0usize),
-        );
+        let bucket = groups.entry(trans.to).or_default();
 
-        // Check if we have a matching transition
-        let mut found = false;
-        for ((to, _, _), (existing, weight)) in groups.iter_mut() {
-            if *to == trans.to && existing.input == trans.input && existing.output == trans.output {
-                *weight = weight.plus(&trans.weight);
-                found = true;
-                break;
-            }
-        }
-
-        if !found {
-            groups.insert(key, (trans.clone(), trans.weight.clone()));
+        if let Some(existing) = bucket.iter_mut().find(|existing| {
+            existing.from == trans.from
+                && existing.to == trans.to
+                && existing.input.as_ref() == trans.input.as_ref()
+                && existing.output.as_ref() == trans.output.as_ref()
+        }) {
+            existing.weight = existing.weight.plus(&trans.weight);
+        } else {
+            bucket.push(trans);
         }
     }
 
     // Rebuild transitions with combined weights
-    for (_, (mut trans, weight)) in groups {
-        trans.weight = weight;
-        transitions.push(trans);
+    for (_, mut bucket) in groups {
+        transitions.append(&mut bucket);
     }
 }
 
@@ -315,13 +452,17 @@ where
     W: StarSemiring,
     F: MutableWfst<L, W> + Wfst<L, W>,
 {
-    // For star semirings, we need to handle cycles using the star operation
-    // This is a more complex algorithm that computes the epsilon closure
-    // matrix and uses matrix star for convergence
+    let n = fst.num_states();
+    if n == 0 {
+        return Ok(());
+    }
 
-    // For now, we use the simple algorithm which works for acyclic graphs
-    // and k-closed semirings
-    remove_epsilon(fst, config)
+    if fst.start() == NO_STATE {
+        return Err(EpsilonRemovalError::NoStartState);
+    }
+
+    let closures = compute_epsilon_closures_star(fst)?;
+    apply_epsilon_removal(fst, config, closures)
 }
 
 /// Errors that can occur during epsilon removal.
@@ -364,7 +505,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::semiring::TropicalWeight;
+    use crate::semiring::{ProbabilityWeight, TropicalWeight};
     use crate::wfst::{MutableWfst, VectorWfst, VectorWfstBuilder};
 
     // Property-based tests
@@ -556,6 +697,130 @@ mod tests {
     }
 
     #[test]
+    fn test_remove_epsilon_final_weight_not_double_counted() {
+        let mut fst: VectorWfst<char, ProbabilityWeight> = VectorWfst::new();
+        fst.add_states(2);
+        fst.set_start(0);
+        fst.add_epsilon(0, 1, ProbabilityWeight::new(0.5));
+        fst.set_final(1, ProbabilityWeight::one());
+
+        let mut config = EpsilonRemovalConfig::default();
+        config.connect = false;
+        remove_epsilon(&mut fst, config).expect("acyclic epsilon removal should succeed");
+
+        assert!(fst.is_final(0));
+        assert!(fst
+            .final_weight(0)
+            .approx_eq(&ProbabilityWeight::new(0.5), 1e-12));
+    }
+
+    #[test]
+    fn test_remove_epsilon_final_weight_uses_original_final_snapshot() {
+        let mut fst: VectorWfst<char, ProbabilityWeight> = VectorWfst::new();
+        fst.add_states(3);
+        fst.set_start(2);
+        fst.add_epsilon(2, 1, ProbabilityWeight::new(0.5));
+        fst.add_epsilon(1, 0, ProbabilityWeight::new(0.5));
+        fst.set_final(0, ProbabilityWeight::one());
+
+        let mut config = EpsilonRemovalConfig::default();
+        config.connect = false;
+        remove_epsilon(&mut fst, config).expect("acyclic epsilon removal should succeed");
+
+        assert!(fst
+            .final_weight(1)
+            .approx_eq(&ProbabilityWeight::new(0.5), 1e-12));
+        assert!(fst
+            .final_weight(2)
+            .approx_eq(&ProbabilityWeight::new(0.25), 1e-12));
+    }
+
+    #[test]
+    fn test_remove_epsilon_propagates_revisited_closure_weights() {
+        let mut fst: VectorWfst<char, ProbabilityWeight> = VectorWfst::new();
+        fst.add_states(4);
+        fst.set_start(0);
+        fst.add_epsilon(0, 1, ProbabilityWeight::new(0.5));
+        fst.add_epsilon(0, 2, ProbabilityWeight::new(0.25));
+        fst.add_epsilon(2, 1, ProbabilityWeight::new(0.5));
+        fst.add_epsilon(1, 3, ProbabilityWeight::new(0.5));
+        fst.set_final(3, ProbabilityWeight::one());
+
+        let mut config = EpsilonRemovalConfig::default();
+        config.connect = false;
+        remove_epsilon(&mut fst, config).expect("acyclic epsilon DAG should close");
+
+        assert!(fst.is_final(0));
+        assert!(fst
+            .final_weight(0)
+            .approx_eq(&ProbabilityWeight::new(0.3125), 1e-12));
+    }
+
+    #[test]
+    fn test_remove_epsilon_expands_non_start_residual_state() {
+        let mut fst: VectorWfst<char, ProbabilityWeight> = VectorWfst::new();
+        fst.add_states(4);
+        fst.set_start(0);
+        fst.add_arc(0, Some('x'), Some('x'), 1, ProbabilityWeight::one());
+        fst.add_epsilon(1, 2, ProbabilityWeight::new(0.5));
+        fst.add_arc(2, Some('a'), Some('a'), 3, ProbabilityWeight::new(0.25));
+        fst.set_final(3, ProbabilityWeight::one());
+
+        let mut config = EpsilonRemovalConfig::default();
+        config.connect = false;
+        remove_epsilon(&mut fst, config).expect("acyclic epsilon removal should succeed");
+
+        let transition = fst
+            .transitions(1)
+            .iter()
+            .find(|transition| transition.input == Some('a') && transition.output == Some('a'))
+            .expect("non-start state should inherit its epsilon successor's labeled arc");
+
+        assert_eq!(transition.to, 3);
+        assert!(transition
+            .weight
+            .approx_eq(&ProbabilityWeight::new(0.125), 1e-12));
+    }
+
+    #[test]
+    fn test_remove_epsilon_star_sums_convergent_cycle() {
+        let mut fst: VectorWfst<char, ProbabilityWeight> = VectorWfst::new();
+        fst.add_states(3);
+        fst.set_start(0);
+        fst.add_epsilon(0, 1, ProbabilityWeight::new(0.5));
+        fst.add_epsilon(1, 1, ProbabilityWeight::new(0.5));
+        fst.add_arc(1, Some('a'), Some('a'), 2, ProbabilityWeight::one());
+        fst.set_final(2, ProbabilityWeight::one());
+
+        let mut config = EpsilonRemovalConfig::default();
+        config.connect = false;
+        remove_epsilon_star(&mut fst, config).expect("convergent epsilon cycle should close");
+
+        let transition = fst
+            .transitions(0)
+            .iter()
+            .find(|transition| transition.input == Some('a') && transition.output == Some('a'))
+            .expect("start should bypass the closed epsilon cycle");
+
+        assert!(transition
+            .weight
+            .approx_eq(&ProbabilityWeight::new(1.0), 1e-12));
+    }
+
+    #[test]
+    fn test_remove_epsilon_star_rejects_nonconvergent_cycle() {
+        let mut fst: VectorWfst<char, ProbabilityWeight> = VectorWfst::new();
+        fst.add_states(2);
+        fst.set_start(0);
+        fst.add_epsilon(0, 0, ProbabilityWeight::one());
+        fst.add_arc(0, Some('a'), Some('a'), 1, ProbabilityWeight::one());
+        fst.set_final(1, ProbabilityWeight::one());
+
+        let result = remove_epsilon_star(&mut fst, EpsilonRemovalConfig::default());
+        assert_eq!(result, Err(EpsilonRemovalError::NonConvergentCycle));
+    }
+
+    #[test]
     fn test_remove_epsilon_no_epsilons() {
         // FST without any epsilon transitions
         let mut fst: VectorWfst<char, TropicalWeight> = VectorWfstBuilder::new()
@@ -575,6 +840,81 @@ mod tests {
         assert_eq!(fst.num_states(), 3);
         assert_eq!(fst.transitions(0).len(), 1);
         assert_eq!(fst.transitions(1).len(), 1);
+    }
+
+    #[test]
+    fn test_remove_epsilon_preserves_distinct_same_target_labels() {
+        let mut fst: VectorWfst<char, TropicalWeight> = VectorWfstBuilder::new()
+            .add_states(2)
+            .start(0)
+            .arc(0, Some('a'), Some('a'), 1, TropicalWeight::new(1.0))
+            .arc(0, Some('b'), Some('b'), 1, TropicalWeight::new(2.0))
+            .final_state(1, TropicalWeight::one())
+            .build();
+
+        let mut config = EpsilonRemovalConfig::default();
+        config.connect = false;
+        remove_epsilon(&mut fst, config).expect("epsilon-free FST should remain valid");
+
+        let transitions = fst.transitions(0);
+        assert_eq!(transitions.len(), 2);
+        assert!(transitions
+            .iter()
+            .any(|transition| transition.input == Some('a') && transition.output == Some('a')));
+        assert!(transitions
+            .iter()
+            .any(|transition| transition.input == Some('b') && transition.output == Some('b')));
+    }
+
+    #[test]
+    fn test_remove_epsilon_skips_malformed_transition_targets() {
+        let mut fst: VectorWfst<char, TropicalWeight> = VectorWfst::new();
+        fst.add_states(3);
+        fst.set_start(0);
+        fst.add_arc(0, Some('a'), Some('a'), 1, TropicalWeight::new(1.0));
+        fst.add_arc(0, Some('x'), Some('x'), 99, TropicalWeight::new(1.0));
+        fst.add_epsilon(0, 99, TropicalWeight::new(1.0));
+        fst.add_epsilon(1, 2, TropicalWeight::new(0.5));
+        fst.set_final(2, TropicalWeight::one());
+
+        let mut config = EpsilonRemovalConfig::default();
+        config.connect = false;
+        remove_epsilon(&mut fst, config).expect("malformed targets should be skipped");
+
+        assert!(!has_epsilon_transitions(&fst));
+        assert!(fst
+            .transitions(0)
+            .iter()
+            .all(|transition| (transition.to as usize) < fst.num_states()));
+        assert!(fst
+            .transitions(0)
+            .iter()
+            .any(|transition| transition.input == Some('a') && transition.to == 2));
+    }
+
+    #[test]
+    fn test_remove_epsilon_star_skips_malformed_epsilon_targets() {
+        let mut fst: VectorWfst<char, ProbabilityWeight> = VectorWfst::new();
+        fst.add_states(3);
+        fst.set_start(0);
+        fst.add_epsilon(0, 1, ProbabilityWeight::new(0.5));
+        fst.add_epsilon(0, 99, ProbabilityWeight::new(0.5));
+        fst.add_arc(1, Some('a'), Some('a'), 2, ProbabilityWeight::one());
+        fst.set_final(2, ProbabilityWeight::one());
+
+        let mut config = EpsilonRemovalConfig::default();
+        config.connect = false;
+        remove_epsilon_star(&mut fst, config).expect("malformed targets should be skipped");
+
+        assert!(!has_epsilon_transitions(&fst));
+        assert!(fst
+            .transitions(0)
+            .iter()
+            .all(|transition| (transition.to as usize) < fst.num_states()));
+        assert!(fst
+            .transitions(0)
+            .iter()
+            .any(|transition| transition.input == Some('a') && transition.to == 2));
     }
 
     #[test]

@@ -509,15 +509,15 @@ match layer.apply(&lattice) {
 
 ## Current Status
 
-**Status**: Planned
+**Status**: External runtime boundary
 
-The `RholangLayer` is planned but not yet implemented. Current blockers:
+`RholangLayer` is documented as a runtime boundary for distributed execution.
+The core crate exposes deterministic lattice operations, serialization-ready
+data structures, and correction-layer traits; a Rholang runtime can orchestrate
+those operations outside the core crate without coupling WFST algorithms to a
+specific process calculus runtime.
 
-1. Rholang runtime integration not complete
-2. Lattice serialization for message passing
-3. Distributed coordination protocol
-
-## Next Steps
+## Related Integration Points
 
 - [Vision](vision.md): F1R3FLY.io integration overview
 - [PathMap Backend](pathmap-backend.md): Distributed storage

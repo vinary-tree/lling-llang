@@ -28,7 +28,10 @@
 
 use std::collections::HashMap;
 
-use crate::symbolic::BooleanAlgebra;
+use super::kat_algebra::BooleanTest;
+use super::ordered_field::{OrderedFieldAlgebra, OrderedFieldPred, OrderedPoint};
+use super::string_algebra::{StrPred, StringAlgebra};
+use super::{BooleanAlgebra, CharClassAlgebra, CharClassPred, IntervalAlgebra, IntervalPred};
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Minterms (shared helper)
@@ -103,12 +106,20 @@ impl<A: BooleanAlgebra> BagAlgebra<A> {
 
     /// `∃ e ∈ bag. e ⊨ p` — at least one element satisfies `p`.
     pub fn any_elem(&self, p: A::Predicate) -> BagPred<A::Predicate> {
-        BagPred::Count { class: p, lo: 1, hi: None }
+        BagPred::Count {
+            class: p,
+            lo: 1,
+            hi: None,
+        }
     }
 
     /// `lo ≤ |bag| ≤ hi` (total cardinality).
     pub fn size(&self, lo: u64, hi: Option<u64>) -> BagPred<A::Predicate> {
-        BagPred::Count { class: self.elem.true_pred(), lo, hi }
+        BagPred::Count {
+            class: self.elem.true_pred(),
+            lo,
+            hi,
+        }
     }
 
     /// Collect every distinct `class` appearing in `Count` atoms.
@@ -118,13 +129,13 @@ impl<A: BooleanAlgebra> BagAlgebra<A> {
                 if !out.iter().any(|c| c == class) {
                     out.push(class.clone());
                 }
-            },
+            }
             BagPred::And(a, b) | BagPred::Or(a, b) => {
                 self.collect_classes(a, out);
                 self.collect_classes(b, out);
-            },
+            }
             BagPred::Not(x) => self.collect_classes(x, out),
-            BagPred::True | BagPred::False => {},
+            BagPred::True | BagPred::False => {}
         }
     }
 
@@ -165,13 +176,13 @@ impl<A: BooleanAlgebra> BagAlgebra<A> {
                     .map(|idxs| idxs.iter().map(|&i| counts[i]).sum())
                     .unwrap_or(0);
                 sum >= *lo && hi.map(|h| sum <= h).unwrap_or(true)
-            },
+            }
             BagPred::And(a, b) => {
                 self.eval_counts(a, counts, cover) && self.eval_counts(b, counts, cover)
-            },
+            }
             BagPred::Or(a, b) => {
                 self.eval_counts(a, counts, cover) || self.eval_counts(b, counts, cover)
-            },
+            }
             BagPred::Not(x) => !self.eval_counts(x, counts, cover),
         }
     }
@@ -186,13 +197,13 @@ impl<A: BooleanAlgebra> BagAlgebra<A> {
                     if let Some(h) = hi {
                         *acc = (*acc).max(*h);
                     }
-                },
+                }
                 BagPred::And(a, b) | BagPred::Or(a, b) => {
                     go(a, acc);
                     go(b, acc);
-                },
+                }
                 BagPred::Not(x) => go(x, acc),
-                BagPred::True | BagPred::False => {},
+                BagPred::True | BagPred::False => {}
             }
         }
         let mut acc = 0;
@@ -293,7 +304,7 @@ impl<A: BooleanAlgebra> BooleanAlgebra for BagAlgebra<A> {
             BagPred::Count { class, lo, hi } => {
                 let count = elem.iter().filter(|e| self.elem.evaluate(class, e)).count() as u64;
                 count >= *lo && hi.map(|h| count <= h).unwrap_or(true)
-            },
+            }
             BagPred::And(a, b) => self.evaluate(a, elem) && self.evaluate(b, elem),
             BagPred::Or(a, b) => self.evaluate(a, elem) || self.evaluate(b, elem),
             BagPred::Not(x) => !self.evaluate(x, elem),
@@ -303,8 +314,8 @@ impl<A: BooleanAlgebra> BooleanAlgebra for BagAlgebra<A> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::{IntervalAlgebra, IntervalPred};
     use super::*;
-    use crate::symbolic::{IntervalAlgebra, IntervalPred};
 
     fn bag_alg() -> BagAlgebra<IntervalAlgebra> {
         BagAlgebra::new(IntervalAlgebra::new(0, 100))
@@ -408,36 +419,33 @@ pub trait Singleton: BooleanAlgebra {
     fn point(&self, value: &Self::Domain) -> Self::Predicate;
 }
 
-impl Singleton for crate::symbolic::IntervalAlgebra {
-    fn point(&self, value: &i64) -> crate::symbolic::IntervalPred {
+impl Singleton for IntervalAlgebra {
+    fn point(&self, value: &i64) -> IntervalPred {
         // {v} = [v, v+1); v < max_val <= i64::MAX for in-universe keys.
-        crate::symbolic::IntervalPred::Range(*value, value.saturating_add(1))
+        IntervalPred::Range(*value, value.saturating_add(1))
     }
 }
 
-impl Singleton for crate::symbolic::CharClassAlgebra {
-    fn point(&self, value: &char) -> crate::symbolic::CharClassPred {
-        crate::symbolic::CharClassPred::Range(*value, *value)
+impl Singleton for CharClassAlgebra {
+    fn point(&self, value: &char) -> CharClassPred {
+        CharClassPred::Range(*value, *value)
     }
 }
 
-impl<P: crate::symbolic::ordered_field::OrderedPoint> Singleton
-    for crate::symbolic::ordered_field::OrderedFieldAlgebra<P>
-{
-    fn point(&self, value: &P) -> crate::symbolic::ordered_field::OrderedFieldPred<P> {
-        crate::symbolic::ordered_field::OrderedFieldPred::point(value.clone())
+impl<P: OrderedPoint> Singleton for OrderedFieldAlgebra<P> {
+    fn point(&self, value: &P) -> OrderedFieldPred<P> {
+        OrderedFieldPred::point(value.clone())
     }
 }
 
-impl Singleton for crate::symbolic::string_algebra::StringAlgebra {
-    fn point(&self, value: &String) -> crate::symbolic::string_algebra::StrPred {
-        crate::symbolic::string_algebra::StrPred::Literal(value.clone())
+impl Singleton for StringAlgebra {
+    fn point(&self, value: &String) -> StrPred {
+        StrPred::Literal(value.clone())
     }
 }
 
-impl Singleton for crate::symbolic::KatBooleanAlgebra {
-    fn point(&self, value: &HashMap<String, bool>) -> crate::symbolic::kat_algebra::BooleanTest {
-        use crate::symbolic::kat_algebra::BooleanTest;
+impl Singleton for super::KatBooleanAlgebra {
+    fn point(&self, value: &HashMap<String, bool>) -> BooleanTest {
         let mut acc = BooleanTest::True;
         for atom in &self.atoms {
             let lit = if *value.get(atom).unwrap_or(&false) {
@@ -480,6 +488,8 @@ pub enum MapPred<KP, VP> {
     /// Negation.
     Not(Box<MapPred<KP, VP>>),
 }
+
+type FeasibleMapCounts<KP, VP> = (Vec<KP>, Vec<VP>, Vec<Vec<u64>>);
 
 /// The effective Boolean algebra of finite key→value maps (unique keys).
 #[derive(Clone, Debug)]
@@ -543,20 +553,24 @@ impl<K: Singleton, V: BooleanAlgebra> MapAlgebra<K, V> {
         vals: &mut Vec<V::Predicate>,
     ) {
         match pred {
-            MapPred::CountEntries { key_class, val_class, .. } => {
+            MapPred::CountEntries {
+                key_class,
+                val_class,
+                ..
+            } => {
                 if !keys.iter().any(|c| c == key_class) {
                     keys.push(key_class.clone());
                 }
                 if !vals.iter().any(|c| c == val_class) {
                     vals.push(val_class.clone());
                 }
-            },
+            }
             MapPred::And(a, b) | MapPred::Or(a, b) => {
                 self.collect_classes(a, keys, vals);
                 self.collect_classes(b, keys, vals);
-            },
+            }
             MapPred::Not(x) => self.collect_classes(x, keys, vals),
-            MapPred::True | MapPred::False => {},
+            MapPred::True | MapPred::False => {}
         }
     }
 
@@ -568,13 +582,13 @@ impl<K: Singleton, V: BooleanAlgebra> MapAlgebra<K, V> {
                     if let Some(h) = hi {
                         *acc = (*acc).max(*h);
                     }
-                },
+                }
                 MapPred::And(a, b) | MapPred::Or(a, b) => {
                     go(a, acc);
                     go(b, acc);
-                },
+                }
                 MapPred::Not(x) => go(x, acc),
-                MapPred::True | MapPred::False => {},
+                MapPred::True | MapPred::False => {}
             }
         }
         let mut acc = 0;
@@ -591,7 +605,7 @@ impl<K: Singleton, V: BooleanAlgebra> MapAlgebra<K, V> {
                 Some(k) => {
                     remaining = self.key.and(&remaining, &self.key.not(&self.key.point(&k)));
                     keys.push(k);
-                },
+                }
                 None => break,
             }
         }
@@ -609,7 +623,12 @@ impl<K: Singleton, V: BooleanAlgebra> MapAlgebra<K, V> {
         match pred {
             MapPred::True => true,
             MapPred::False => false,
-            MapPred::CountEntries { key_class, val_class, lo, hi } => {
+            MapPred::CountEntries {
+                key_class,
+                val_class,
+                lo,
+                hi,
+            } => {
                 let mut sum = 0u64;
                 for (i, km) in key_ms.iter().enumerate() {
                     if !self.key.is_satisfiable(&self.key.and(km, key_class)) {
@@ -622,26 +641,25 @@ impl<K: Singleton, V: BooleanAlgebra> MapAlgebra<K, V> {
                     }
                 }
                 sum >= *lo && hi.map(|h| sum <= h).unwrap_or(true)
-            },
+            }
             MapPred::And(a, b) => {
                 self.eval_counts(a, counts, key_ms, val_ms)
                     && self.eval_counts(b, counts, key_ms, val_ms)
-            },
+            }
             MapPred::Or(a, b) => {
                 self.eval_counts(a, counts, key_ms, val_ms)
                     || self.eval_counts(b, counts, key_ms, val_ms)
-            },
+            }
             MapPred::Not(x) => !self.eval_counts(x, counts, key_ms, val_ms),
         }
     }
 
     /// Search for a feasible (key-minterm × value-minterm) count matrix honoring
     /// the per-key-region distinct-key cap. Returns the matrix and the minterms.
-    #[allow(clippy::type_complexity)]
     fn feasible(
         &self,
         pred: &MapPred<K::Predicate, V::Predicate>,
-    ) -> Option<(Vec<K::Predicate>, Vec<V::Predicate>, Vec<Vec<u64>>)> {
+    ) -> Option<FeasibleMapCounts<K::Predicate, V::Predicate>> {
         let mut key_classes = Vec::new();
         let mut val_classes = Vec::new();
         self.collect_classes(pred, &mut key_classes, &mut val_classes);
@@ -754,7 +772,12 @@ impl<K: Singleton, V: BooleanAlgebra> BooleanAlgebra for MapAlgebra<K, V> {
         match pred {
             MapPred::True => true,
             MapPred::False => false,
-            MapPred::CountEntries { key_class, val_class, lo, hi } => {
+            MapPred::CountEntries {
+                key_class,
+                val_class,
+                lo,
+                hi,
+            } => {
                 let count = elem
                     .iter()
                     .filter(|(k, v)| {
@@ -762,7 +785,7 @@ impl<K: Singleton, V: BooleanAlgebra> BooleanAlgebra for MapAlgebra<K, V> {
                     })
                     .count() as u64;
                 count >= *lo && hi.map(|h| count <= h).unwrap_or(true)
-            },
+            }
             MapPred::And(a, b) => self.evaluate(a, elem) && self.evaluate(b, elem),
             MapPred::Or(a, b) => self.evaluate(a, elem) || self.evaluate(b, elem),
             MapPred::Not(x) => !self.evaluate(x, elem),
@@ -772,8 +795,8 @@ impl<K: Singleton, V: BooleanAlgebra> BooleanAlgebra for MapAlgebra<K, V> {
 
 #[cfg(test)]
 mod map_tests {
+    use super::super::{IntervalAlgebra, IntervalPred};
     use super::*;
-    use crate::symbolic::{IntervalAlgebra, IntervalPred};
 
     fn map_alg() -> MapAlgebra<IntervalAlgebra, IntervalAlgebra> {
         MapAlgebra::new(IntervalAlgebra::new(0, 1000), IntervalAlgebra::new(0, 1000))
@@ -794,7 +817,10 @@ mod map_tests {
     #[test]
     fn size_and_all_values() {
         let alg = map_alg();
-        let p = alg.and(&alg.size(2, Some(2)), &alg.all_values(IntervalPred::Range(0, 10)));
+        let p = alg.and(
+            &alg.size(2, Some(2)),
+            &alg.all_values(IntervalPred::Range(0, 10)),
+        );
         assert!(alg.evaluate(&p, &vec![(1, 5), (2, 9)]));
         assert!(!alg.evaluate(&p, &vec![(1, 5)])); // size 1
         assert!(!alg.evaluate(&p, &vec![(1, 5), (2, 50)])); // value out of range

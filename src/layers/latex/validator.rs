@@ -3,7 +3,7 @@
 //! Provides validation beyond CFG parsing: brace matching, environment
 //! pairing, math delimiter balance, and other structural constraints.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 /// Result of validating a LaTeX token sequence.
 #[derive(Debug, Clone)]
@@ -147,7 +147,20 @@ pub struct LatexValidator {
     /// Whether to allow nested math modes.
     allow_nested_math: bool,
     /// Known environment names.
-    known_environments: Vec<String>,
+    known_environments: HashSet<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CommandSpec {
+    required_args: usize,
+    optional_args: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TokenGroup {
+    start: usize,
+    end: usize,
+    is_empty: bool,
 }
 
 impl Default for LatexValidator {
@@ -187,7 +200,7 @@ impl LatexValidator {
 
     /// Add a known environment name.
     pub fn add_environment(mut self, name: impl Into<String>) -> Self {
-        self.known_environments.push(name.into());
+        self.known_environments.insert(name.into());
         self
     }
 
@@ -203,6 +216,11 @@ impl LatexValidator {
 
         // Check math delimiter matching
         self.validate_math_delimiters(tokens, &mut result);
+
+        // Check command argument counts when requested
+        if self.validate_arguments {
+            self.validate_command_arguments(tokens, &mut result);
+        }
 
         result
     }
@@ -481,10 +499,126 @@ impl LatexValidator {
             ));
         }
     }
+
+    /// Validate required argument groups for known fixed-arity commands.
+    fn validate_command_arguments(&self, tokens: &[&str], result: &mut ValidationResult) {
+        let mut i = 0;
+
+        while i < tokens.len() {
+            let command = tokens[i];
+            let Some(spec) = command_spec(command) else {
+                i += 1;
+                continue;
+            };
+
+            let mut cursor = i + 1;
+            for _ in 0..spec.optional_args {
+                let Some(group) = consume_group(tokens, cursor, "[", "]") else {
+                    break;
+                };
+                cursor = group.end + 1;
+            }
+
+            for _ in 0..spec.required_args {
+                let Some(group) = consume_group(tokens, cursor, "{", "}") else {
+                    result.add_issue(ValidationIssue::error(
+                        IssueKind::InvalidArgumentCount,
+                        Some(i),
+                        format!(
+                            "Command '{}' at position {} expects {} required argument(s)",
+                            command, i, spec.required_args
+                        ),
+                    ));
+                    break;
+                };
+
+                if group.is_empty {
+                    result.add_issue(ValidationIssue::error(
+                        IssueKind::EmptyRequiredArgument,
+                        Some(group.start),
+                        format!(
+                            "Command '{}' has an empty required argument at position {}",
+                            command, group.start
+                        ),
+                    ));
+                }
+
+                cursor = group.end + 1;
+            }
+
+            i += 1;
+        }
+    }
+}
+
+fn command_spec(command: &str) -> Option<CommandSpec> {
+    let required_args = match command {
+        "\\frac" | "\\dfrac" | "\\tfrac" | "\\binom" | "\\href" => 2,
+        "\\textcolor" => {
+            return Some(CommandSpec {
+                required_args: 2,
+                optional_args: 1,
+            });
+        }
+        "\\sqrt" => {
+            return Some(CommandSpec {
+                required_args: 1,
+                optional_args: 1,
+            });
+        }
+        "\\cite" => {
+            return Some(CommandSpec {
+                required_args: 1,
+                optional_args: 2,
+            });
+        }
+        "\\section" | "\\subsection" | "\\subsubsection" | "\\paragraph" | "\\subparagraph"
+        | "\\chapter" | "\\part" | "\\includegraphics" | "\\documentclass" | "\\usepackage"
+        | "\\color" => {
+            return Some(CommandSpec {
+                required_args: 1,
+                optional_args: 1,
+            });
+        }
+        "\\text" | "\\textrm" | "\\textbf" | "\\textit" | "\\texttt" | "\\emph" | "\\mathrm"
+        | "\\mathbf" | "\\mathit" | "\\mathsf" | "\\mathtt" | "\\mathcal" | "\\mathbb"
+        | "\\mathfrak" | "\\underline" | "\\overline" | "\\hat" | "\\bar" | "\\tilde" | "\\vec"
+        | "\\dot" | "\\ddot" | "\\label" | "\\ref" | "\\url" => 1,
+        _ => return None,
+    };
+
+    Some(CommandSpec {
+        required_args,
+        optional_args: 0,
+    })
+}
+
+fn consume_group(tokens: &[&str], start: usize, open: &str, close: &str) -> Option<TokenGroup> {
+    if tokens.get(start).copied() != Some(open) {
+        return None;
+    }
+
+    let mut depth = 0usize;
+    for (pos, token) in tokens.iter().enumerate().skip(start) {
+        if *token == open {
+            depth += 1;
+        } else if *token == close {
+            depth = depth.checked_sub(1)?;
+            if depth == 0 {
+                return Some(TokenGroup {
+                    start,
+                    end: pos,
+                    is_empty: pos == start + 1,
+                });
+            }
+        }
+    }
+
+    None
 }
 
 /// Default list of known LaTeX environments.
-fn default_environments() -> Vec<String> {
+fn default_environments() -> HashSet<String> {
     vec![
         // Document structure
         "document",
@@ -681,5 +815,121 @@ mod tests {
         let tokens = vec!["{", "[", "}", "]"];
         let result = validator.validate(&tokens);
         assert!(!result.is_valid);
+    }
+
+    #[test]
+    fn test_valid_command_arguments() {
+        let validator = LatexValidator::new();
+        let tokens = vec!["\\frac", "{", "1", "}", "{", "x", "}"];
+        let result = validator.validate(&tokens);
+        assert!(result.is_valid);
+        assert!(result
+            .issues
+            .iter()
+            .all(|i| i.kind != IssueKind::InvalidArgumentCount));
+    }
+
+    #[test]
+    fn test_missing_command_argument() {
+        let validator = LatexValidator::new();
+        let tokens = vec!["\\frac", "{", "1", "}"];
+        let result = validator.validate(&tokens);
+        assert!(!result.is_valid);
+        assert!(result
+            .issues
+            .iter()
+            .any(|i| i.kind == IssueKind::InvalidArgumentCount));
+    }
+
+    #[test]
+    fn test_empty_required_command_argument() {
+        let validator = LatexValidator::new();
+        let tokens = vec!["\\textbf", "{", "}"];
+        let result = validator.validate(&tokens);
+        assert!(!result.is_valid);
+        assert!(result
+            .issues
+            .iter()
+            .any(|i| i.kind == IssueKind::EmptyRequiredArgument));
+    }
+
+    #[test]
+    fn test_optional_command_argument() {
+        let validator = LatexValidator::new();
+        let tokens = vec!["\\sqrt", "[", "3", "]", "{", "x", "}"];
+        let result = validator.validate(&tokens);
+        assert!(result.is_valid);
+    }
+
+    #[test]
+    fn test_multiple_optional_command_arguments() {
+        let validator = LatexValidator::new();
+        let tokens = vec![
+            "\\cite", "[", "see", "]", "[", "p.", "3", "]", "{", "key", "}",
+        ];
+        let result = validator.validate(&tokens);
+        assert!(result.is_valid);
+    }
+
+    #[test]
+    fn test_color_optional_argument() {
+        let validator = LatexValidator::new();
+        let tokens = vec!["\\color", "[", "rgb", "]", "{", "1,0,0", "}"];
+        let result = validator.validate(&tokens);
+        assert!(result.is_valid);
+    }
+
+    #[test]
+    fn test_argument_validation_can_be_disabled() {
+        let validator = LatexValidator::new().with_argument_validation(false);
+        let tokens = vec!["\\frac", "{", "1", "}"];
+        let result = validator.validate(&tokens);
+        assert!(result.is_valid);
+        assert!(result
+            .issues
+            .iter()
+            .all(|i| i.kind != IssueKind::InvalidArgumentCount));
+    }
+
+    #[test]
+    fn test_nested_command_arguments_are_validated() {
+        let validator = LatexValidator::new();
+        let tokens = vec!["\\frac", "{", "\\textbf", "{", "}", "}", "{", "x", "}"];
+        let result = validator.validate(&tokens);
+        assert!(!result.is_valid);
+        assert!(result
+            .issues
+            .iter()
+            .any(|i| i.kind == IssueKind::EmptyRequiredArgument));
+    }
+
+    #[test]
+    fn test_unknown_commands_are_not_over_validated() {
+        let validator = LatexValidator::new();
+        let tokens = vec!["\\custommacro"];
+        let result = validator.validate(&tokens);
+        assert!(result.is_valid);
+    }
+
+    #[test]
+    fn test_custom_environment_avoids_unknown_warning() {
+        let validator = LatexValidator::new().add_environment("proofsketch");
+        let tokens = vec![
+            "\\begin",
+            "{",
+            "proofsketch",
+            "}",
+            "x",
+            "\\end",
+            "{",
+            "proofsketch",
+            "}",
+        ];
+        let result = validator.validate(&tokens);
+        assert!(result.is_valid);
+        assert!(result
+            .issues
+            .iter()
+            .all(|i| i.kind != IssueKind::UnknownEnvironment));
     }
 }

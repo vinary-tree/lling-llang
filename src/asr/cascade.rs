@@ -43,7 +43,7 @@ use crate::composition::{compose, materialize};
 use crate::semiring::{
     DivisibleSemiring, NumericalWeight, QuantizableSemiring, Semiring, TotallyOrderedSemiring,
 };
-use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst, NO_STATE};
+use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst};
 
 use super::context::PhoneId;
 use super::ngram::{NgramTransducer, WordId};
@@ -232,7 +232,12 @@ where
     ///
     /// This version outputs WordId for L∘G composition.
     fn build_lexicon_for_composition(&self) -> VectorWfst<u32, W> {
-        let mut fst: VectorWfst<u32, W> = VectorWfst::new();
+        let state_capacity = 1 + self
+            .lexicon
+            .iter()
+            .map(|entry| entry.phones.len().saturating_sub(1))
+            .sum::<usize>();
+        let mut fst: VectorWfst<u32, W> = VectorWfst::with_capacity(state_capacity);
 
         // Create initial state
         let start = fst.add_state();
@@ -242,6 +247,17 @@ where
         // Add each lexicon entry
         for entry in &self.lexicon {
             if entry.phones.is_empty() {
+                continue;
+            }
+
+            if entry.phones.len() == 1 {
+                fst.add_arc(
+                    start,
+                    Some(entry.phones[0] as u32),
+                    Some(entry.word as u32),
+                    start,
+                    entry.weight,
+                );
                 continue;
             }
 
@@ -275,25 +291,14 @@ where
             }
 
             // Last phone: return to start with epsilon output
-            if entry.phones.len() > 1 {
-                let last_phone = entry.phones[entry.phones.len() - 1];
-                fst.add_arc(
-                    current,
-                    Some(last_phone as u32), // Input: last phone
-                    None,                    // Output: epsilon
-                    start,
-                    W::one(),
-                );
-            } else {
-                // Single phone word: return to start
-                fst.add_arc(
-                    current,
-                    None, // epsilon input
-                    None, // epsilon output
-                    start,
-                    W::one(),
-                );
-            }
+            let last_phone = entry.phones[entry.phones.len() - 1];
+            fst.add_arc(
+                current,
+                Some(last_phone as u32), // Input: last phone
+                None,                    // Output: epsilon
+                start,
+                W::one(),
+            );
         }
 
         fst
@@ -365,17 +370,9 @@ where
         };
         stats.det_clg_states = hclg.num_states();
 
-        // Count final arcs
-        let final_arcs: usize = (0..hclg.num_states() as StateId)
-            .map(|s| hclg.transitions(s).len())
-            .sum();
-
-        stats.final_states = hclg.num_states();
+        let (result_fst, final_states, final_arcs) = finalize_cascade_fst(&hclg);
+        stats.final_states = final_states;
         stats.final_arcs = final_arcs;
-
-        // Convert back to PhoneId for the final result
-        // (The actual label type is u32 which equals PhoneId)
-        let result_fst: VectorWfst<PhoneId, W> = convert_label_type(&hclg);
 
         AsrCascade {
             fst: result_fst,
@@ -387,7 +384,7 @@ where
 
 /// Convert a VectorWfst<PhoneId, W> to VectorWfst<u32, W>.
 fn convert_to_u32<W: Semiring + Clone>(fst: &VectorWfst<PhoneId, W>) -> VectorWfst<u32, W> {
-    let mut result: VectorWfst<u32, W> = VectorWfst::new();
+    let mut result: VectorWfst<u32, W> = VectorWfst::with_capacity(fst.num_states());
 
     // Copy states
     for _ in 0..fst.num_states() {
@@ -396,7 +393,7 @@ fn convert_to_u32<W: Semiring + Clone>(fst: &VectorWfst<PhoneId, W>) -> VectorWf
 
     // Set start state
     let start = fst.start();
-    if start != NO_STATE {
+    if fst.is_valid_state(start) {
         result.set_start(start);
     }
 
@@ -410,8 +407,12 @@ fn convert_to_u32<W: Semiring + Clone>(fst: &VectorWfst<PhoneId, W>) -> VectorWf
     // Copy arcs (PhoneId is u32, so direct conversion)
     for state in 0..fst.num_states() as StateId {
         for arc in fst.transitions(state) {
+            if !fst.is_valid_state(arc.to) {
+                continue;
+            }
+
             result.add_arc(
-                arc.from,
+                state,
                 arc.input,  // PhoneId = u32
                 arc.output, // PhoneId = u32
                 arc.to,
@@ -425,7 +426,7 @@ fn convert_to_u32<W: Semiring + Clone>(fst: &VectorWfst<PhoneId, W>) -> VectorWf
 
 /// Convert a VectorWfst<u32, W> to VectorWfst<PhoneId, W>.
 fn convert_label_type<W: Semiring + Clone>(fst: &VectorWfst<u32, W>) -> VectorWfst<PhoneId, W> {
-    let mut result: VectorWfst<PhoneId, W> = VectorWfst::new();
+    let mut result: VectorWfst<PhoneId, W> = VectorWfst::with_capacity(fst.num_states());
 
     // Copy states
     for _ in 0..fst.num_states() {
@@ -434,7 +435,7 @@ fn convert_label_type<W: Semiring + Clone>(fst: &VectorWfst<u32, W>) -> VectorWf
 
     // Set start state
     let start = fst.start();
-    if start != NO_STATE {
+    if fst.is_valid_state(start) {
         result.set_start(start);
     }
 
@@ -448,8 +449,12 @@ fn convert_label_type<W: Semiring + Clone>(fst: &VectorWfst<u32, W>) -> VectorWf
     // Copy arcs (labels are same underlying type: u32 = PhoneId)
     for state in 0..fst.num_states() as StateId {
         for arc in fst.transitions(state) {
+            if !fst.is_valid_state(arc.to) {
+                continue;
+            }
+
             result.add_arc(
-                arc.from,
+                state,
                 arc.input,  // u32 = PhoneId
                 arc.output, // u32 = PhoneId
                 arc.to,
@@ -459,6 +464,22 @@ fn convert_label_type<W: Semiring + Clone>(fst: &VectorWfst<u32, W>) -> VectorWf
     }
 
     result
+}
+
+fn finalize_cascade_fst<W: Semiring + Clone>(
+    fst: &VectorWfst<u32, W>,
+) -> (VectorWfst<PhoneId, W>, usize, usize) {
+    let result = convert_label_type(fst);
+    let final_states = result.num_states();
+    let final_arcs = count_phone_arcs(&result);
+
+    (result, final_states, final_arcs)
+}
+
+fn count_phone_arcs<W: Semiring>(fst: &VectorWfst<PhoneId, W>) -> usize {
+    (0..fst.num_states() as StateId)
+        .map(|state| fst.transitions(state).len())
+        .sum()
 }
 
 impl<W> CascadeBuilder<W>
@@ -557,16 +578,9 @@ where
             hclg
         };
 
-        // Count final arcs
-        let final_arcs: usize = (0..minimized.num_states() as StateId)
-            .map(|s| minimized.transitions(s).len())
-            .sum();
-
-        stats.final_states = minimized.num_states();
+        let (result_fst, final_states, final_arcs) = finalize_cascade_fst(&minimized);
+        stats.final_states = final_states;
         stats.final_arcs = final_arcs;
-
-        // Convert back to PhoneId for the final result
-        let result_fst: VectorWfst<PhoneId, W> = convert_label_type(&minimized);
 
         AsrCascade {
             fst: result_fst,
@@ -662,6 +676,76 @@ mod tests {
         let cascade = builder.build();
 
         assert!(cascade.stats.final_states > 0);
+    }
+
+    #[test]
+    fn test_single_phone_lexicon_uses_direct_self_loop() {
+        let mut builder = CascadeBuilder::<LogWeight>::new();
+        builder.add_lexicon_entry(LexiconEntry::new(7, vec![42], LogWeight::new(0.25)));
+
+        let lexicon = builder.build_lexicon_for_composition();
+
+        assert_eq!(lexicon.num_states(), 1);
+        assert_eq!(lexicon.start(), 0);
+        assert!(lexicon.is_final(0));
+
+        let arcs = lexicon.transitions(0);
+        assert_eq!(arcs.len(), 1);
+        assert_eq!(arcs[0].from, 0);
+        assert_eq!(arcs[0].to, 0);
+        assert_eq!(arcs[0].input, Some(42));
+        assert_eq!(arcs[0].output, Some(7));
+        assert_eq!(arcs[0].weight, LogWeight::new(0.25));
+    }
+
+    #[test]
+    fn test_label_conversion_uses_bucket_source_and_skips_bad_targets() {
+        let mut fst: VectorWfst<PhoneId, LogWeight> = VectorWfst::new();
+        let s0 = fst.add_state();
+        let s1 = fst.add_state();
+        fst.set_start(s0);
+        fst.set_final(s1, LogWeight::one());
+
+        fst.state_mut(s0)
+            .expect("state should exist")
+            .transitions
+            .push(crate::wfst::WeightedTransition::new(
+                s1,
+                Some(10),
+                Some(20),
+                s1,
+                LogWeight::new(0.5),
+            ));
+        fst.add_arc(s0, Some(99), Some(100), 99, LogWeight::new(0.75));
+
+        let converted = convert_to_u32(&fst);
+        let arcs = converted.transitions(s0);
+
+        assert_eq!(arcs.len(), 1);
+        assert_eq!(arcs[0].from, s0);
+        assert_eq!(arcs[0].to, s1);
+        assert_eq!(arcs[0].input, Some(10));
+        assert_eq!(arcs[0].output, Some(20));
+        assert!(converted.transitions(s1).is_empty());
+    }
+
+    #[test]
+    fn test_finalized_stats_match_converted_fst_after_bad_target_drop() {
+        let mut fst: VectorWfst<u32, LogWeight> = VectorWfst::new();
+        let s0 = fst.add_state();
+        let s1 = fst.add_state();
+        fst.set_start(s0);
+        fst.set_final(s1, LogWeight::one());
+        fst.add_arc(s0, Some(10), Some(20), s1, LogWeight::new(0.5));
+        fst.add_arc(s0, Some(30), Some(40), 99, LogWeight::new(0.75));
+
+        let (converted, final_states, final_arcs) = finalize_cascade_fst(&fst);
+
+        assert_eq!(final_states, converted.num_states());
+        assert_eq!(final_arcs, count_phone_arcs(&converted));
+        assert_eq!(final_arcs, 1);
+        assert_eq!(converted.transitions(s0).len(), 1);
+        assert_eq!(converted.transitions(s0)[0].to, s1);
     }
 
     #[test]

@@ -34,6 +34,9 @@ use std::hash::Hash;
 use crate::semiring::{DivisibleSemiring, Semiring, TotallyOrderedSemiring};
 use crate::wfst::{MutableWfst, StateId, WeightedTransition, Wfst, NO_STATE};
 
+use super::connect::{connect, ConnectConfig};
+use super::epsilon_removal::{remove_epsilon, EpsilonRemovalConfig};
+
 /// Configuration for determinization.
 #[derive(Clone, Debug)]
 pub struct DeterminizeConfig {
@@ -125,6 +128,19 @@ fn min_weight<W: TotallyOrderedSemiring + Clone>(subset: &WeightedSubset<W>) -> 
         .unwrap_or_else(W::zero)
 }
 
+fn has_input_epsilon_transitions<L, W, F>(fst: &F) -> bool
+where
+    L: Clone,
+    W: Semiring,
+    F: Wfst<L, W>,
+{
+    (0..fst.num_states() as StateId).any(|state| {
+        fst.transitions(state)
+            .iter()
+            .any(|trans| fst.is_valid_state(trans.to) && trans.input.is_none())
+    })
+}
+
 /// Determinize a WFST.
 ///
 /// This produces a deterministic WFST where for each state, all outgoing
@@ -168,6 +184,24 @@ where
     let start = fst.start();
     if start == NO_STATE {
         return Err(DeterminizeError::NoStartState);
+    }
+
+    if config.remove_epsilon_first && has_input_epsilon_transitions(fst) {
+        let mut epsilon_free = fst.clone();
+        remove_epsilon(
+            &mut epsilon_free,
+            EpsilonRemovalConfig {
+                connect: false,
+                ..EpsilonRemovalConfig::default()
+            },
+        )
+        .map_err(|err| DeterminizeError::NotDeterminizable {
+            reason: format!("epsilon removal before determinization failed: {}", err),
+        })?;
+
+        let mut next_config = config.clone();
+        next_config.remove_epsilon_first = false;
+        return determinize(&epsilon_free, next_config);
     }
 
     // Create the output WFST
@@ -219,6 +253,10 @@ where
 
         for (&state, residual) in &subset {
             for trans in fst.transitions(state) {
+                if !fst.is_valid_state(trans.to) {
+                    continue;
+                }
+
                 // Combined weight = residual ⊗ arc_weight
                 let combined = residual.times(&trans.weight);
 
@@ -231,19 +269,17 @@ where
 
         // Process each input label
         for (input_label, targets) in label_to_targets {
-            // Skip epsilon transitions for now (should be removed beforehand)
-            // In a full implementation, we'd handle epsilon-closure here
-            if input_label.is_none() {
-                continue;
-            }
+            let Some(input_label) = input_label else {
+                return Err(DeterminizeError::NotDeterminizable {
+                    reason: "input-epsilon transitions remain after epsilon preprocessing"
+                        .to_string(),
+                });
+            };
 
             // Build the target weighted subset
             let mut target_subset: WeightedSubset<W> = BTreeMap::new();
 
-            // For transducers, we need to handle output labels
-            // For simplicity, we'll use the first output label seen
-            // (This is correct for acceptors where input == output)
-            let mut output_label: Option<L> = None;
+            let mut output_label: Option<Option<L>> = None;
 
             for (target_state, weight, out) in &targets {
                 // Merge weights for same target state using ⊕
@@ -252,9 +288,17 @@ where
                     .and_modify(|w| *w = w.plus(weight))
                     .or_insert_with(|| weight.clone());
 
-                // Track output label (for transducers)
-                if output_label.is_none() {
-                    output_label = out.clone();
+                match &output_label {
+                    Some(existing) if existing != out => {
+                        return Err(DeterminizeError::NotDeterminizable {
+                            reason: format!(
+                                "conflicting output labels for input {:?}: {:?} and {:?}",
+                                input_label, existing, out
+                            ),
+                        });
+                    }
+                    None => output_label = Some(out.clone()),
+                    _ => {}
                 }
             }
 
@@ -293,8 +337,8 @@ where
             let trans = WeightedTransition {
                 from: output_state,
                 to: target_output_state,
-                input: input_label,
-                output: output_label,
+                input: Some(input_label),
+                output: output_label.unwrap_or(None),
                 weight: min_w,
             };
             result.add_transition(trans);
@@ -303,7 +347,6 @@ where
 
     // Optionally connect (trim) the result
     if config.connect_after {
-        use crate::algorithms::{connect, ConnectConfig};
         connect(&mut result, ConnectConfig::trim());
     }
 
@@ -338,6 +381,10 @@ where
             std::collections::HashSet::new();
 
         for trans in fst.transitions(state_id) {
+            if !fst.is_valid_state(trans.to) {
+                continue;
+            }
+
             // Epsilon input makes it non-deterministic
             if trans.input.is_none() {
                 return false;
@@ -375,6 +422,10 @@ where
         let mut label_counts: HashMap<Option<&L>, usize> = HashMap::new();
 
         for trans in fst.transitions(state_id) {
+            if !fst.is_valid_state(trans.to) {
+                continue;
+            }
+
             *label_counts.entry(trans.input.as_ref()).or_insert(0) += 1;
         }
 
@@ -527,6 +578,48 @@ mod tests {
         fst
     }
 
+    fn build_epsilon_chain() -> VectorWfst<char, TropicalWeight> {
+        let mut fst = VectorWfst::new();
+        fst.add_states(4);
+        fst.set_start(0);
+        fst.add_arc(0, Some('a'), Some('a'), 1, TropicalWeight::new(1.0));
+        fst.add_epsilon(1, 2, TropicalWeight::new(0.5));
+        fst.add_arc(2, Some('b'), Some('b'), 3, TropicalWeight::new(2.0));
+        fst.set_final(3, TropicalWeight::one());
+        fst
+    }
+
+    fn build_output_conflict_fst() -> VectorWfst<char, TropicalWeight> {
+        let mut fst = VectorWfst::new();
+        fst.add_states(3);
+        fst.set_start(0);
+        fst.add_arc(0, Some('a'), Some('x'), 1, TropicalWeight::new(1.0));
+        fst.add_arc(0, Some('a'), Some('y'), 2, TropicalWeight::new(2.0));
+        fst.set_final(1, TropicalWeight::one());
+        fst.set_final(2, TropicalWeight::one());
+        fst
+    }
+
+    fn build_output_only_input_epsilon_fst() -> VectorWfst<char, TropicalWeight> {
+        let mut fst = VectorWfst::new();
+        fst.add_states(2);
+        fst.set_start(0);
+        fst.add_arc(0, None, Some('x'), 1, TropicalWeight::one());
+        fst.set_final(1, TropicalWeight::one());
+        fst
+    }
+
+    fn build_malformed_target_fst() -> VectorWfst<char, TropicalWeight> {
+        let mut fst = VectorWfst::new();
+        fst.add_states(2);
+        fst.set_start(0);
+        fst.add_arc(0, Some('a'), Some('a'), 1, TropicalWeight::new(1.0));
+        fst.add_arc(0, Some('a'), Some('a'), 99, TropicalWeight::new(0.1));
+        fst.add_arc(0, None, None, 100, TropicalWeight::new(0.2));
+        fst.set_final(1, TropicalWeight::one());
+        fst
+    }
+
     #[test]
     fn test_is_deterministic_true() {
         let fst = build_deterministic_fst();
@@ -546,6 +639,15 @@ mod tests {
 
         let nondet_fst = build_non_deterministic_fst();
         assert_eq!(non_determinism_degree(&nondet_fst), 2);
+    }
+
+    #[test]
+    fn test_determinism_predicates_ignore_malformed_targets() {
+        let fst = build_malformed_target_fst();
+
+        assert!(is_deterministic(&fst));
+        assert_eq!(non_determinism_degree(&fst), 1);
+        assert!(!has_input_epsilon_transitions(&fst));
     }
 
     #[test]
@@ -584,6 +686,79 @@ mod tests {
         // Diamond should collapse to: 0 --a--> 1 --b--> 2
         // Output should have fewer states than input
         assert!(result.num_states() <= fst.num_states());
+    }
+
+    #[test]
+    fn test_determinize_removes_true_epsilons_first() {
+        let fst = build_epsilon_chain();
+        assert!(has_input_epsilon_transitions(&fst));
+
+        let result = determinize(&fst, DeterminizeConfig::standard())
+            .expect("epsilon preprocessing should make the chain determinizable");
+
+        assert!(is_deterministic(&result));
+        assert!(!has_input_epsilon_transitions(&result));
+    }
+
+    #[test]
+    fn test_determinize_without_epsilon_prepass_rejects_input_epsilon() {
+        let fst = build_epsilon_chain();
+        let result = determinize(
+            &fst,
+            DeterminizeConfig {
+                remove_epsilon_first: false,
+                ..DeterminizeConfig::standard()
+            },
+        );
+
+        assert!(matches!(
+            result,
+            Err(DeterminizeError::NotDeterminizable { .. })
+        ));
+    }
+
+    #[test]
+    fn test_determinize_rejects_conflicting_outputs() {
+        let fst = build_output_conflict_fst();
+        let result = determinize(&fst, DeterminizeConfig::standard());
+
+        assert!(matches!(
+            result,
+            Err(DeterminizeError::NotDeterminizable { .. })
+        ));
+    }
+
+    #[test]
+    fn test_determinize_rejects_output_only_input_epsilon() {
+        let fst = build_output_only_input_epsilon_fst();
+        let result = determinize(&fst, DeterminizeConfig::standard());
+
+        assert!(matches!(
+            result,
+            Err(DeterminizeError::NotDeterminizable { .. })
+        ));
+    }
+
+    #[test]
+    fn test_determinize_ignores_malformed_transition_targets() {
+        let fst = build_malformed_target_fst();
+        let result = determinize(
+            &fst,
+            DeterminizeConfig {
+                connect_after: false,
+                ..DeterminizeConfig::standard()
+            },
+        )
+        .expect("malformed targets should be ignored during determinization");
+
+        assert!(is_deterministic(&result));
+        assert_eq!(result.num_states(), 2);
+
+        let transitions = result.transitions(result.start());
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(transitions[0].to, 1);
+        assert_eq!(transitions[0].input, Some('a'));
+        assert_eq!(transitions[0].weight.value(), 1.0);
     }
 
     #[test]

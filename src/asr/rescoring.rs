@@ -26,7 +26,17 @@
 //!
 //! - Mohri et al., "Speech Recognition with WFSTs" Section 6
 
-use crate::semiring::Semiring;
+use std::fmt::Debug;
+use std::hash::Hash;
+
+use crate::algorithms::{
+    connect, determinize, minimize, single_source_shortest_distance, ConnectConfig,
+    DeterminizeConfig, DeterminizeError, MinimizeConfig, MinimizeError, ShortestDistanceConfig,
+};
+use crate::composition::{compose, materialize};
+use crate::semiring::{
+    DivisibleSemiring, NumericalWeight, QuantizableSemiring, Semiring, TotallyOrderedSemiring,
+};
 use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst, NO_STATE};
 
 /// Configuration for lattice rescoring.
@@ -168,6 +178,43 @@ pub struct RescoreStats {
     pub arc_reduction: f64,
 }
 
+/// Error produced while rescoring a lattice.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RescoreError {
+    /// Determinization failed.
+    Determinize(String),
+    /// Minimization failed.
+    Minimize(String),
+    /// Shortest-distance computation needed for pruning did not converge.
+    PruningDidNotConverge,
+}
+
+impl std::fmt::Display for RescoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RescoreError::Determinize(err) => write!(f, "determinization failed: {err}"),
+            RescoreError::Minimize(err) => write!(f, "minimization failed: {err}"),
+            RescoreError::PruningDidNotConverge => {
+                write!(f, "shortest-distance pruning did not converge")
+            }
+        }
+    }
+}
+
+impl std::error::Error for RescoreError {}
+
+impl From<DeterminizeError> for RescoreError {
+    fn from(err: DeterminizeError) -> Self {
+        RescoreError::Determinize(err.to_string())
+    }
+}
+
+impl From<MinimizeError> for RescoreError {
+    fn from(err: MinimizeError) -> Self {
+        RescoreError::Minimize(err.to_string())
+    }
+}
+
 impl RescoreStats {
     /// Compute reduction ratios.
     pub fn compute_reductions(&mut self) {
@@ -196,12 +243,20 @@ impl RescoreStats {
 /// The rescored lattice with statistics.
 pub fn rescore_lattice<L, W>(
     lattice: &LatticeGrammar<L, W>,
-    _new_lm: &VectorWfst<L, W>,
-    _config: &RescoreConfig,
-) -> RescoreResult<L, W>
+    new_lm: &VectorWfst<L, W>,
+    config: &RescoreConfig,
+) -> Result<RescoreResult<L, W>, RescoreError>
 where
-    L: Clone + Eq + std::hash::Hash + Default + Send + Sync,
-    W: Semiring + Clone,
+    L: Clone + Eq + Hash + Ord + Debug + Default + Send + Sync,
+    W: DivisibleSemiring
+        + NumericalWeight
+        + QuantizableSemiring
+        + TotallyOrderedSemiring
+        + PartialOrd
+        + Clone
+        + Debug
+        + Hash
+        + Eq,
 {
     let mut stats = RescoreStats {
         input_states: lattice.fst.num_states(),
@@ -209,23 +264,42 @@ where
         ..Default::default()
     };
 
-    // For now, return the input lattice unchanged
-    // Full implementation would:
-    // 1. Compose lattice with new LM: L ∘ G_new
-    // 2. Apply determinization if configured
-    // 3. Apply minimization if configured
-    // 4. Apply pruning if configured
+    let mut result_lattice = if new_lm.is_empty() {
+        clone_lattice(&lattice.fst)
+    } else {
+        materialize(compose(lattice.fst.clone(), new_lm.clone()))
+    };
 
-    let result_lattice = clone_lattice(&lattice.fst);
+    if !new_lm.is_empty() {
+        if config.determinize {
+            let det_config = DeterminizeConfig {
+                max_states: config.max_states.or(Some(1_000_000)),
+                ..DeterminizeConfig::standard()
+            };
+            result_lattice = determinize(&result_lattice, det_config)?;
+        }
+
+        if config.minimize {
+            result_lattice = minimize(&result_lattice, MinimizeConfig::no_push())?;
+        }
+
+        if let Some(threshold) = config.pruning_threshold {
+            result_lattice = prune_by_threshold(&result_lattice, threshold)?;
+        }
+
+        if let Some(max_states) = config.max_states {
+            result_lattice = limit_states(&result_lattice, max_states);
+        }
+    }
 
     stats.output_states = result_lattice.num_states();
     stats.output_arcs = count_arcs(&result_lattice);
     stats.compute_reductions();
 
-    RescoreResult {
+    Ok(RescoreResult {
         lattice: result_lattice,
         stats,
-    }
+    })
 }
 
 /// Count total arcs in an FST.
@@ -281,6 +355,184 @@ where
     result
 }
 
+/// Keep only states and arcs that lie on a path within `threshold` of the best
+/// complete path under the lattice's numeric cost interpretation.
+fn prune_by_threshold<L, W>(
+    fst: &VectorWfst<L, W>,
+    threshold: f64,
+) -> Result<VectorWfst<L, W>, RescoreError>
+where
+    L: Clone + Send + Sync,
+    W: Semiring + NumericalWeight + Clone,
+{
+    if fst.is_empty() || threshold.is_sign_negative() {
+        return Ok(VectorWfst::new());
+    }
+
+    let forward = single_source_shortest_distance(fst, ShortestDistanceConfig::default())
+        .ok_or(RescoreError::PruningDidNotConverge)?;
+    let to_final = distances_to_final(fst)?;
+    let start = fst.start();
+
+    if start == NO_STATE || start as usize >= to_final.len() {
+        return Ok(VectorWfst::new());
+    }
+
+    let best = to_final[start as usize];
+    if best.is_zero() {
+        return Ok(VectorWfst::new());
+    }
+
+    let cutoff = best.numerical_value() + threshold;
+    let mut keep_state = vec![false; fst.num_states()];
+
+    for state in 0..fst.num_states() as StateId {
+        let state_idx = state as usize;
+        if forward[state_idx].is_zero() || to_final[state_idx].is_zero() {
+            continue;
+        }
+
+        let path_weight = forward[state_idx].times(&to_final[state_idx]);
+        keep_state[state_idx] = path_weight.numerical_value() <= cutoff;
+    }
+
+    let mut result = VectorWfst::new();
+    let mut state_map = vec![NO_STATE; fst.num_states()];
+
+    for (old_state, keep) in keep_state.iter().copied().enumerate() {
+        if keep {
+            state_map[old_state] = result.add_state();
+        }
+    }
+
+    let start_idx = start as usize;
+    if start_idx >= state_map.len() || state_map[start_idx] == NO_STATE {
+        return Ok(VectorWfst::new());
+    }
+    result.set_start(state_map[start_idx]);
+
+    for old_state in 0..fst.num_states() as StateId {
+        let old_idx = old_state as usize;
+        let from = state_map[old_idx];
+        if from == NO_STATE {
+            continue;
+        }
+
+        if fst.is_final(old_state) {
+            result.set_final(from, fst.final_weight(old_state));
+        }
+
+        for arc in fst.transitions(old_state) {
+            let to_idx = arc.to as usize;
+            if to_idx >= state_map.len() || state_map[to_idx] == NO_STATE {
+                continue;
+            }
+
+            let path_weight = forward[old_idx].times(&arc.weight).times(&to_final[to_idx]);
+            if path_weight.numerical_value() > cutoff {
+                continue;
+            }
+
+            result.add_arc(
+                from,
+                arc.input.clone(),
+                arc.output.clone(),
+                state_map[to_idx],
+                arc.weight,
+            );
+        }
+    }
+
+    connect(&mut result, ConnectConfig::trim());
+    Ok(result)
+}
+
+/// Compute shortest distances from every state to any final state.
+fn distances_to_final<L, W>(fst: &VectorWfst<L, W>) -> Result<Vec<W>, RescoreError>
+where
+    L: Clone + Send + Sync,
+    W: Semiring + Clone,
+{
+    let mut reversed = VectorWfst::new();
+    for _ in 0..fst.num_states() {
+        reversed.add_state();
+    }
+    let super_start = reversed.add_state();
+    reversed.set_start(super_start);
+
+    for state in 0..fst.num_states() as StateId {
+        if fst.is_final(state) {
+            reversed.add_arc(super_start, None, None, state, fst.final_weight(state));
+        }
+
+        for arc in fst.transitions(state) {
+            if arc.to as usize >= fst.num_states() {
+                continue;
+            }
+            reversed.add_arc(
+                arc.to,
+                arc.output.clone(),
+                arc.input.clone(),
+                state,
+                arc.weight,
+            );
+        }
+    }
+
+    let mut distances =
+        single_source_shortest_distance(&reversed, ShortestDistanceConfig::default())
+            .ok_or(RescoreError::PruningDidNotConverge)?;
+    distances.truncate(fst.num_states());
+    Ok(distances)
+}
+
+/// Enforce a hard state cap while preserving valid state IDs and internal arcs.
+fn limit_states<L, W>(fst: &VectorWfst<L, W>, max_states: usize) -> VectorWfst<L, W>
+where
+    L: Clone + Send + Sync,
+    W: Semiring + Clone,
+{
+    if fst.num_states() <= max_states {
+        return clone_lattice(fst);
+    }
+
+    if max_states == 0 {
+        return VectorWfst::new();
+    }
+
+    let mut result = VectorWfst::new();
+    let copied_states = max_states.min(fst.num_states());
+    for _ in 0..copied_states {
+        result.add_state();
+    }
+
+    let start = fst.start();
+    if start != NO_STATE && (start as usize) < copied_states {
+        result.set_start(start);
+    }
+
+    for state in 0..copied_states as StateId {
+        if fst.is_final(state) {
+            result.set_final(state, fst.final_weight(state));
+        }
+
+        for arc in fst.transitions(state) {
+            if (arc.to as usize) < copied_states {
+                result.add_arc(
+                    state,
+                    arc.input.clone(),
+                    arc.output.clone(),
+                    arc.to,
+                    arc.weight,
+                );
+            }
+        }
+    }
+
+    connect(&mut result, ConnectConfig::trim());
+    result
+}
+
 /// Multi-pass rescoring with multiple language models.
 ///
 /// Performs iterative rescoring with progressively better models.
@@ -288,16 +540,24 @@ pub fn multi_pass_rescore<L, W>(
     initial_lattice: &LatticeGrammar<L, W>,
     lm_sequence: &[VectorWfst<L, W>],
     config: &RescoreConfig,
-) -> Vec<RescoreResult<L, W>>
+) -> Result<Vec<RescoreResult<L, W>>, RescoreError>
 where
-    L: Clone + Eq + std::hash::Hash + Default + Send + Sync,
-    W: Semiring + Clone,
+    L: Clone + Eq + Hash + Ord + Debug + Default + Send + Sync,
+    W: DivisibleSemiring
+        + NumericalWeight
+        + QuantizableSemiring
+        + TotallyOrderedSemiring
+        + PartialOrd
+        + Clone
+        + Debug
+        + Hash
+        + Eq,
 {
     let mut results = Vec::with_capacity(lm_sequence.len());
     let mut current_lattice = initial_lattice.clone();
 
     for (i, lm) in lm_sequence.iter().enumerate() {
-        let result = rescore_lattice(&current_lattice, lm, config);
+        let result = rescore_lattice(&current_lattice, lm, config)?;
 
         // Update current lattice for next pass
         current_lattice = LatticeGrammar::new(
@@ -308,7 +568,7 @@ where
         results.push(result);
     }
 
-    results
+    Ok(results)
 }
 
 #[cfg(test)]
@@ -382,7 +642,8 @@ mod tests {
         let lm = VectorWfst::<u32, LogWeight>::new();
         let config = RescoreConfig::default();
 
-        let result = rescore_lattice(&lattice, &lm, &config);
+        let result =
+            rescore_lattice(&lattice, &lm, &config).expect("empty rescoring should succeed");
 
         assert_eq!(result.stats.input_states, 0);
         assert_eq!(result.stats.output_states, 0);
@@ -401,7 +662,8 @@ mod tests {
         let lm = VectorWfst::<u32, LogWeight>::new();
         let config = RescoreConfig::default();
 
-        let result = rescore_lattice(&lattice, &lm, &config);
+        let result =
+            rescore_lattice(&lattice, &lm, &config).expect("empty-LM rescoring should succeed");
 
         assert_eq!(result.stats.input_states, 2);
         assert_eq!(result.stats.output_states, 2);
@@ -423,9 +685,83 @@ mod tests {
         let lm_sequence = vec![lm1, lm2];
 
         let config = RescoreConfig::default();
-        let results = multi_pass_rescore(&lattice, &lm_sequence, &config);
+        let results = multi_pass_rescore(&lattice, &lm_sequence, &config)
+            .expect("multi-pass rescoring should succeed");
 
         assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_rescore_lattice_composes_non_empty_lm() {
+        let mut lattice_fst: VectorWfst<u32, LogWeight> = VectorWfst::new();
+        let l0 = lattice_fst.add_state();
+        let l1 = lattice_fst.add_state();
+        lattice_fst.set_start(l0);
+        lattice_fst.set_final(l1, LogWeight::one());
+        lattice_fst.add_arc(l0, Some(10), Some(1), l1, LogWeight::new(0.5));
+
+        let mut lm: VectorWfst<u32, LogWeight> = VectorWfst::new();
+        let g0 = lm.add_state();
+        let g1 = lm.add_state();
+        lm.set_start(g0);
+        lm.set_final(g1, LogWeight::one());
+        lm.add_arc(g0, Some(1), Some(99), g1, LogWeight::new(0.25));
+
+        let lattice = LatticeGrammar::new(lattice_fst, RescorePass::FirstPass);
+        let config = RescoreConfig {
+            determinize: false,
+            minimize: false,
+            ..Default::default()
+        };
+
+        let result = rescore_lattice(&lattice, &lm, &config)
+            .expect("composition-based rescoring should succeed");
+
+        assert_eq!(result.stats.input_arcs, 1);
+        assert_eq!(result.stats.output_arcs, 1);
+        let arcs = result.lattice.transitions(result.lattice.start());
+        assert_eq!(arcs.len(), 1);
+        assert_eq!(arcs[0].input, Some(10));
+        assert_eq!(arcs[0].output, Some(99));
+        assert!((arcs[0].weight.value() - 0.75).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_rescore_lattice_prunes_by_threshold() {
+        let mut lattice_fst: VectorWfst<u32, LogWeight> = VectorWfst::new();
+        let l0 = lattice_fst.add_state();
+        let l1 = lattice_fst.add_state();
+        let l2 = lattice_fst.add_state();
+        lattice_fst.set_start(l0);
+        lattice_fst.set_final(l1, LogWeight::one());
+        lattice_fst.set_final(l2, LogWeight::one());
+        lattice_fst.add_arc(l0, Some(10), Some(1), l1, LogWeight::new(0.1));
+        lattice_fst.add_arc(l0, Some(20), Some(2), l2, LogWeight::new(10.0));
+
+        let mut lm: VectorWfst<u32, LogWeight> = VectorWfst::new();
+        let g0 = lm.add_state();
+        let g1 = lm.add_state();
+        let g2 = lm.add_state();
+        lm.set_start(g0);
+        lm.set_final(g1, LogWeight::one());
+        lm.set_final(g2, LogWeight::one());
+        lm.add_arc(g0, Some(1), Some(101), g1, LogWeight::one());
+        lm.add_arc(g0, Some(2), Some(202), g2, LogWeight::one());
+
+        let lattice = LatticeGrammar::new(lattice_fst, RescorePass::FirstPass);
+        let config = RescoreConfig {
+            determinize: false,
+            minimize: false,
+            pruning_threshold: Some(1.0),
+            ..Default::default()
+        };
+
+        let result =
+            rescore_lattice(&lattice, &lm, &config).expect("threshold pruning should succeed");
+        let arcs = result.lattice.transitions(result.lattice.start());
+        assert_eq!(arcs.len(), 1);
+        assert_eq!(arcs[0].input, Some(10));
+        assert_eq!(arcs[0].output, Some(101));
     }
 }
 
@@ -698,13 +1034,14 @@ mod property_tests {
             let lm = VectorWfst::<u32, LogWeight>::new();
             let config = RescoreConfig::default();
 
-            let result = rescore_lattice(&lattice, &lm, &config);
+            let result = rescore_lattice(&lattice, &lm, &config)
+                .expect("empty rescoring should succeed");
 
             prop_assert_eq!(result.stats.input_states, 0);
             prop_assert_eq!(result.stats.output_states, 0);
         }
 
-        /// rescore_lattice preserves state count (current passthrough impl).
+        /// rescore_lattice with an empty LM preserves state count.
         #[test]
         fn rescore_preserves_states(num_states in 1usize..10) {
             let mut fst = VectorWfst::<u32, LogWeight>::new();
@@ -719,13 +1056,14 @@ mod property_tests {
             let lm = VectorWfst::<u32, LogWeight>::new();
             let config = RescoreConfig::default();
 
-            let result = rescore_lattice(&lattice, &lm, &config);
+            let result = rescore_lattice(&lattice, &lm, &config)
+                .expect("empty-LM rescoring should succeed");
 
             prop_assert_eq!(result.stats.input_states, num_states);
             prop_assert_eq!(result.stats.output_states, num_states);
         }
 
-        /// rescore_lattice preserves arc count (current passthrough impl).
+        /// rescore_lattice with an empty LM preserves arc count.
         #[test]
         fn rescore_preserves_arcs(num_states in 2usize..6) {
             let mut fst = VectorWfst::<u32, LogWeight>::new();
@@ -740,7 +1078,8 @@ mod property_tests {
             let lm = VectorWfst::<u32, LogWeight>::new();
             let config = RescoreConfig::default();
 
-            let result = rescore_lattice(&lattice, &lm, &config);
+            let result = rescore_lattice(&lattice, &lm, &config)
+                .expect("empty-LM rescoring should succeed");
 
             let expected_arcs = num_states - 1;
             prop_assert_eq!(result.stats.input_arcs, expected_arcs);
@@ -766,7 +1105,8 @@ mod property_tests {
                 .collect();
 
             let config = RescoreConfig::default();
-            let results = multi_pass_rescore(&lattice, &lms, &config);
+            let results = multi_pass_rescore(&lattice, &lms, &config)
+                .expect("multi-pass rescoring should succeed");
 
             prop_assert_eq!(results.len(), num_passes);
         }
@@ -783,7 +1123,8 @@ mod property_tests {
             let lms: Vec<VectorWfst<u32, LogWeight>> = vec![];
 
             let config = RescoreConfig::default();
-            let results = multi_pass_rescore(&lattice, &lms, &config);
+            let results = multi_pass_rescore(&lattice, &lms, &config)
+                .expect("empty multi-pass rescoring should succeed");
 
             prop_assert!(results.is_empty());
         }

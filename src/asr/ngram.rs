@@ -154,10 +154,14 @@ impl NgramState {
 
     /// Get shortened history for backoff.
     pub fn backed_off(&self) -> Self {
-        let mut new_history = self.history.clone();
-        if !new_history.is_empty() {
-            new_history.remove(0);
-        }
+        let new_history = if self.history.len() <= 1 {
+            Vec::new()
+        } else {
+            let mut history = Vec::with_capacity(self.history.len() - 1);
+            history.extend_from_slice(&self.history[1..]);
+            history
+        };
+
         Self {
             history: new_history,
             is_backoff: true,
@@ -166,13 +170,18 @@ impl NgramState {
 
     /// Extend history with new word, maintaining max length.
     pub fn extend(&self, word: WordId, max_history: usize) -> Self {
-        let mut new_history = self.history.clone();
-        new_history.push(word);
-
-        // Trim to max history length
-        while new_history.len() > max_history {
-            new_history.remove(0);
+        if max_history == 0 {
+            return Self {
+                history: Vec::new(),
+                is_backoff: false,
+            };
         }
+
+        let retained = self.history.len().min(max_history - 1);
+        let start = self.history.len().saturating_sub(retained);
+        let mut new_history = Vec::with_capacity(retained + 1);
+        new_history.extend_from_slice(&self.history[start..]);
+        new_history.push(word);
 
         Self {
             history: new_history,
@@ -216,15 +225,35 @@ impl<W: Semiring + Clone> NgramBuilder<W> {
     ///
     /// * `order` - Maximum n-gram order (e.g., 3 for trigram)
     pub fn new(order: NgramOrder) -> Self {
+        Self::with_capacity(order, 0, 0, 0)
+    }
+
+    /// Create a new n-gram builder with pre-allocated storage.
+    ///
+    /// The capacities are hints for large language-model loaders that know the
+    /// approximate ARPA section sizes before inserting probabilities.
+    ///
+    /// # Arguments
+    ///
+    /// * `order` - Maximum n-gram order (e.g., 3 for trigram)
+    /// * `unigram_capacity` - Expected number of unigram probabilities
+    /// * `history_capacity` - Expected number of higher-order history contexts
+    /// * `backoff_capacity` - Expected number of explicit backoff weights
+    pub fn with_capacity(
+        order: NgramOrder,
+        unigram_capacity: usize,
+        history_capacity: usize,
+        backoff_capacity: usize,
+    ) -> Self {
         Self {
             config: NgramConfig {
                 order,
                 ..Default::default()
             },
             vocab_size: 0,
-            unigrams: HashMap::new(),
-            ngrams: HashMap::new(),
-            backoffs: HashMap::new(),
+            unigrams: HashMap::with_capacity(unigram_capacity),
+            ngrams: HashMap::with_capacity(history_capacity),
+            backoffs: HashMap::with_capacity(backoff_capacity),
         }
     }
 
@@ -273,7 +302,7 @@ impl<W: Semiring + Clone> NgramBuilder<W> {
         let history_vec = history.to_vec();
         self.ngrams
             .entry(history_vec)
-            .or_insert_with(HashMap::new)
+            .or_insert_with(|| HashMap::with_capacity(1))
             .insert(word, weight);
 
         self.vocab_size = self.vocab_size.max(word as usize + 1);
@@ -300,20 +329,24 @@ impl<W: Semiring + Clone> NgramBuilder<W> {
     /// - ε-transitions to backoff states for unseen n-grams
     /// - Transitions from backoff states for lower-order probabilities
     pub fn build(self) -> NgramTransducer<W> {
-        let mut fst: VectorWfst<WordId, W> = VectorWfst::new();
-        let mut state_map: HashMap<NgramState, StateId> = HashMap::new();
+        let state_capacity = self.estimated_state_capacity();
+        let max_history = self.config.order.saturating_sub(1);
+        let mut fst: VectorWfst<WordId, W> = VectorWfst::with_capacity(state_capacity);
+        let mut state_map: HashMap<NgramState, StateId> = HashMap::with_capacity(state_capacity);
 
         // Create initial state (empty history)
         let initial = NgramState::initial();
         let start_id = fst.add_state();
         fst.set_start(start_id);
         fst.set_final(start_id, W::one());
+        fst.reserve_transitions(start_id, 1);
         state_map.insert(initial.clone(), start_id);
 
         // Create unigram backoff state
         let unigram_backoff = NgramState::backoff(Vec::new());
         let backoff_id = fst.add_state();
         fst.set_final(backoff_id, W::one());
+        fst.reserve_transitions(backoff_id, self.unigrams.len());
         state_map.insert(unigram_backoff.clone(), backoff_id);
 
         // Add unigram transitions from backoff state
@@ -328,10 +361,14 @@ impl<W: Semiring + Clone> NgramBuilder<W> {
         for (history, word_weights) in &self.ngrams {
             let from_state = NgramState::with_history(history.clone());
             let from_id = self.get_or_create_state(&mut fst, &mut state_map, &from_state);
+            let transition_capacity = word_weights
+                .len()
+                .saturating_add(usize::from(self.backoffs.contains_key(history)));
+            fst.reserve_transitions(from_id, transition_capacity);
 
             // Add direct transitions for seen n-grams
             for (&word, weight) in word_weights {
-                let next_state = from_state.extend(word, self.config.order - 1);
+                let next_state = from_state.extend(word, max_history);
                 let next_id = self.get_or_create_state(&mut fst, &mut state_map, &next_state);
 
                 fst.add_arc(from_id, Some(word), Some(word), next_id, weight.clone());
@@ -353,12 +390,10 @@ impl<W: Semiring + Clone> NgramBuilder<W> {
         }
 
         // Add backoff from initial state to unigram backoff
-        let unigram_backoff_id = *state_map
-            .get(&NgramState::backoff(Vec::new()))
-            .expect("unigram backoff should exist");
+        let unigram_backoff_id = backoff_id;
 
         // Only add if initial has a backoff weight
-        if let Some(backoff_weight) = self.backoffs.get(&Vec::new()) {
+        if let Some(backoff_weight) = self.backoffs.get(&[] as &[WordId]) {
             fst.add_arc(
                 start_id,
                 None,
@@ -376,6 +411,14 @@ impl<W: Semiring + Clone> NgramBuilder<W> {
             config: self.config,
             vocab_size: self.vocab_size,
         }
+    }
+
+    /// Estimate the number of unique context states before construction.
+    fn estimated_state_capacity(&self) -> usize {
+        2usize
+            .saturating_add(self.unigrams.len())
+            .saturating_add(self.ngrams.len())
+            .saturating_add(self.backoffs.len())
     }
 
     /// Get or create a state in the FST.
@@ -509,6 +552,21 @@ mod tests {
     }
 
     #[test]
+    fn test_builder_with_capacity_preserves_behavior() {
+        let mut builder = NgramBuilder::<LogWeight>::with_capacity(2, 2, 1, 1);
+        builder.add_unigram(1, LogWeight::new(5.0));
+        builder.add_unigram(2, LogWeight::new(4.0));
+        builder.add_bigram(&[1], 2, LogWeight::new(2.0));
+        builder.set_backoff(&[1], LogWeight::new(0.5));
+
+        let lm = builder.build();
+
+        assert_eq!(lm.order(), 2);
+        assert!(lm.vocabulary_size() >= 3);
+        assert!(lm.fst.num_states() >= 2);
+    }
+
+    #[test]
     fn test_backoff_transitions() {
         let mut builder = NgramBuilder::<LogWeight>::new(2);
 
@@ -549,6 +607,19 @@ mod tests {
         for state in 0..lm.fst.num_states() as StateId {
             assert!(lm.fst.is_final(state));
         }
+    }
+
+    #[test]
+    fn test_zero_order_build_does_not_underflow() {
+        let mut builder = NgramBuilder::<LogWeight>::new(0);
+        builder.add_unigram(1, LogWeight::new(5.0));
+        builder.add_ngram(&[1], 2, LogWeight::new(1.0));
+
+        let lm = builder.build();
+
+        assert_eq!(lm.order(), 0);
+        assert!(lm.fst.start() != NO_STATE);
+        assert!(lm.fst.num_states() >= 2);
     }
 }
 

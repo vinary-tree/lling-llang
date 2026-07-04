@@ -2,9 +2,9 @@
 
 use std::hash::Hash;
 
-use super::{
-    StateId, TreeChild, TreePattern, TreeRule, VectorTreeTransducer, WeightedTreeTransducer,
-};
+use super::rule::{TreeChild, TreePattern, TreeRule};
+use super::transducer::{TreeTransducerError, VectorTreeTransducer, WeightedTreeTransducer};
+use super::types::StateId;
 use crate::semiring::Semiring;
 
 /// Builder for constructing tree transducers.
@@ -12,8 +12,6 @@ use crate::semiring::Semiring;
 pub struct TreeTransducerBuilder<L, W: Semiring> {
     /// The transducer being built.
     transducer: VectorTreeTransducer<L, W>,
-    /// Next state ID to allocate.
-    next_state: StateId,
 }
 
 impl<L: Clone + Eq + Hash + Send + Sync, W: Semiring + Clone> TreeTransducerBuilder<L, W> {
@@ -21,22 +19,27 @@ impl<L: Clone + Eq + Hash + Send + Sync, W: Semiring + Clone> TreeTransducerBuil
     pub fn new() -> Self {
         Self {
             transducer: VectorTreeTransducer::new(),
-            next_state: 0,
         }
     }
 
     /// Add a new state and return its ID.
     pub fn add_state(&mut self) -> StateId {
-        let id = self.transducer.add_state();
-        self.next_state = id + 1;
-        id
+        self.transducer.add_state()
+    }
+
+    /// Try to add a new state and return its ID.
+    pub fn try_add_state(&mut self) -> Result<StateId, TreeTransducerError> {
+        self.transducer.try_add_state()
     }
 
     /// Add a new final state with the given weight.
     pub fn add_final_state(&mut self, weight: W) -> StateId {
-        let id = self.transducer.add_final_state(weight);
-        self.next_state = id + 1;
-        id
+        self.transducer.add_final_state(weight)
+    }
+
+    /// Try to add a new final state with the given weight.
+    pub fn try_add_final_state(&mut self, weight: W) -> Result<StateId, TreeTransducerError> {
+        self.transducer.try_add_final_state(weight)
     }
 
     /// Set the start state.
@@ -45,16 +48,38 @@ impl<L: Clone + Eq + Hash + Send + Sync, W: Semiring + Clone> TreeTransducerBuil
         self
     }
 
+    /// Try to set the start state.
+    pub fn try_set_start(&mut self, state: StateId) -> Result<&mut Self, TreeTransducerError> {
+        self.transducer.try_set_start(state)?;
+        Ok(self)
+    }
+
     /// Make a state final with the given weight.
     pub fn set_final(&mut self, state: StateId, weight: W) -> &mut Self {
         self.transducer.set_final(state, weight);
         self
     }
 
+    /// Try to make a state final with the given weight.
+    pub fn try_set_final(
+        &mut self,
+        state: StateId,
+        weight: W,
+    ) -> Result<&mut Self, TreeTransducerError> {
+        self.transducer.try_set_final(state, weight)?;
+        Ok(self)
+    }
+
     /// Add a rule to the transducer.
     pub fn add_rule(&mut self, rule: TreeRule<L, W>) -> &mut Self {
         self.transducer.add_rule(rule);
         self
+    }
+
+    /// Try to add a rule to the transducer.
+    pub fn try_add_rule(&mut self, rule: TreeRule<L, W>) -> Result<&mut Self, TreeTransducerError> {
+        self.transducer.try_add_rule(rule)?;
+        Ok(self)
     }
 
     /// Add a rule with explicit components.
@@ -270,7 +295,9 @@ pub fn pattern<L>(symbol: L) -> TreePatternBuilder<L> {
 mod tests {
     use super::*;
     use crate::semiring::TropicalWeight;
-    use crate::tree_transducers::{Tree, TreeTransducerOps, WeightedTreeTransducer};
+
+    use super::super::transducer::{TreeTransducerOps, WeightedTreeTransducer};
+    use super::super::tree::Tree;
 
     #[test]
     fn test_builder_creation() {
@@ -289,6 +316,19 @@ mod tests {
         assert_eq!(s0, 0);
         assert_eq!(s1, 1);
         assert_eq!(builder.num_states(), 2);
+    }
+
+    #[test]
+    fn test_checked_builder_rejects_invalid_start() {
+        let mut builder: TreeTransducerBuilder<&str, TropicalWeight> = TreeTransducerBuilder::new();
+
+        assert_eq!(
+            builder.try_set_start(0).unwrap_err(),
+            TreeTransducerError::InvalidStartState {
+                state: 0,
+                num_states: 0,
+            }
+        );
     }
 
     #[test]

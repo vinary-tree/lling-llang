@@ -644,7 +644,7 @@ Wide context models can "see" adjacent frames, so:
   *EESEN: End-to-End Speech Recognition using Deep RNN Models and WFST-based Decoding.*
   CTC emissions decoded through a WFST `T ∘ L ∘ G`.
 
-## Next Steps
+## Related Topics
 
 - [Differentiable WFSTs](differentiable.md): Gradient computation through CTC
 - [Deep Learning Integration](deep-learning.md): Using CTC with neural networks

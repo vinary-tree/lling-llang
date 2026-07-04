@@ -65,21 +65,33 @@ pub struct SimpleAlphabet<L: Eq + Hash> {
     default_arity: usize,
 }
 
-impl<L: Eq + Hash + Clone> SimpleAlphabet<L> {
+impl<L: Eq + Hash> SimpleAlphabet<L> {
     /// Create a new empty alphabet.
     pub fn new() -> Self {
-        Self {
-            arities: HashMap::new(),
-            default_arity: 0,
-        }
+        Self::with_default_arity(0)
+    }
+
+    /// Create a new empty alphabet with capacity for at least `capacity` symbols.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self::with_capacity_and_default_arity(capacity, 0)
     }
 
     /// Create with a default arity for unknown symbols.
     pub fn with_default_arity(default_arity: usize) -> Self {
+        Self::with_capacity_and_default_arity(0, default_arity)
+    }
+
+    /// Create with capacity and a default arity for unknown symbols.
+    pub fn with_capacity_and_default_arity(capacity: usize, default_arity: usize) -> Self {
         Self {
-            arities: HashMap::new(),
+            arities: HashMap::with_capacity(capacity),
             default_arity,
         }
+    }
+
+    /// Reserve capacity for at least `additional` more symbols.
+    pub fn reserve(&mut self, additional: usize) {
+        self.arities.reserve(additional);
     }
 
     /// Add a symbol with its arity.
@@ -113,7 +125,7 @@ impl<L: Eq + Hash + Clone> SimpleAlphabet<L> {
     }
 }
 
-impl<L: Eq + Hash + Clone> Default for SimpleAlphabet<L> {
+impl<L: Eq + Hash> Default for SimpleAlphabet<L> {
     fn default() -> Self {
         Self::new()
     }
@@ -138,6 +150,9 @@ impl RankedAlphabet for &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug, PartialEq, Eq, Hash)]
+    struct NonClone(&'static str);
 
     #[test]
     fn test_symbol_creation() {
@@ -196,5 +211,23 @@ mod tests {
         assert!(!alphabet.is_empty());
         assert!(alphabet.contains(&"A"));
         assert!(!alphabet.contains(&"D"));
+    }
+
+    #[test]
+    fn test_simple_alphabet_does_not_require_clone_labels() {
+        let mut alphabet = SimpleAlphabet::with_capacity_and_default_arity(4, 3);
+        alphabet.reserve(2);
+        alphabet.add(NonClone("leaf"), 0);
+        alphabet.add(NonClone("branch"), 2);
+
+        assert_eq!(alphabet.arity(&NonClone("leaf")), 0);
+        assert_eq!(alphabet.arity(&NonClone("branch")), 2);
+        assert_eq!(alphabet.arity(&NonClone("unknown")), 3);
+        assert!(alphabet.contains(&NonClone("leaf")));
+        assert_eq!(alphabet.len(), 2);
+
+        let default: SimpleAlphabet<NonClone> = SimpleAlphabet::default();
+        assert!(default.is_empty());
+        assert_eq!(default.arity(&NonClone("unknown")), 0);
     }
 }

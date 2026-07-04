@@ -209,40 +209,47 @@ Create a backend for your storage system:
 
 ```rust
 use lling_llang::backend::{LatticeBackend, VocabId};
+use std::collections::HashMap;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MyBackend {
-    // Your storage fields
+    words: Vec<String>,
+    ids: HashMap<String, VocabId>,
 }
 
 impl LatticeBackend for MyBackend {
     fn intern(&mut self, word: &str) -> VocabId {
-        // Add word to storage, return ID
-        todo!()
+        if let Some(id) = self.ids.get(word) {
+            return *id;
+        }
+
+        let id = self.words.len() as VocabId;
+        self.words.push(word.to_owned());
+        self.ids.insert(word.to_owned(), id);
+        id
     }
 
     fn lookup(&self, id: VocabId) -> Option<&str> {
-        // Retrieve word by ID
-        todo!()
+        self.words.get(id as usize).map(String::as_str)
     }
 
     fn vocab_size(&self) -> usize {
-        // Return total unique words
-        todo!()
+        self.words.len()
     }
 
     fn contains(&self, word: &str) -> bool {
-        self.get_id(word).is_some()
+        self.ids.contains_key(word)
     }
 
     fn get_id(&self, word: &str) -> Option<VocabId> {
-        // Check without interning
-        todo!()
+        self.ids.get(word).copied()
     }
 
     fn iter(&self) -> impl Iterator<Item = (VocabId, &str)> {
-        // Iterate all entries
-        std::iter::empty() // placeholder
+        self.words
+            .iter()
+            .enumerate()
+            .map(|(id, word)| (id as VocabId, word.as_str()))
     }
 
     fn supports_sharing(&self) -> bool {
@@ -390,7 +397,7 @@ fn vocab_stats(backend: &HashMapBackend) {
 }
 ```
 
-## Next Steps
+## Related Topics
 
 - [PathMap Integration](../integration/f1r3fly/pathmap-backend.md): Distributed storage details
 - [Lattices](lattices.md): How backends are used in lattice construction

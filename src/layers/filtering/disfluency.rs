@@ -31,7 +31,7 @@ use crate::backend::LatticeBackend;
 use crate::lattice::{Lattice, LatticeBuilder};
 use crate::semiring::{Semiring, TropicalWeight};
 
-use crate::layers::{CorrectionLayer, LayerResult};
+use super::super::traits::{CorrectionLayer, LayerResult};
 
 /// Types of disfluencies to detect/remove.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

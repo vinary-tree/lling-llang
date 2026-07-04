@@ -355,7 +355,7 @@ builder.add_correction(0, 1, "gonna", keep_weight, EdgeMetadata::original());
 builder.add_correction(0, 2, "going to", correct_weight, EdgeMetadata::correction(1));
 ```
 
-## Next Steps
+## Related Topics
 
 - [Path Extraction](../algorithms/path-extraction.md): Find optimal paths through lattices
 - [Backends](backends.md): Different storage strategies
