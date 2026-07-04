@@ -1069,6 +1069,22 @@ fn minimize_benchmarks(c: &mut Criterion) {
         );
     }
 
+    // Large redundant automata — exposes the pass-count behavior of Moore
+    // refinement at scale (the evidence base for whether a true Hopcroft
+    // O(|E| log|Q|) rewrite is warranted).
+    for size in [250, 500, 1000, 2000] {
+        group.bench_with_input(
+            BenchmarkId::new("redundant_large", size),
+            &size,
+            |b, &size| {
+                b.iter_with_setup(
+                    || build_redundant_deterministic_wfst(size),
+                    |fst| black_box(minimize(&fst, MinimizeConfig::standard())),
+                )
+            },
+        );
+    }
+
     group.finish();
 }
 
