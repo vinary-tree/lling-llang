@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use super::{Label, TransducerLattice, BLANK};
+use super::{Label, TransducerLattice, TransducerLatticeError, BLANK};
 use crate::semiring::Semiring;
 use crate::wfst::{StateId, VectorWfst, Wfst};
 
@@ -48,24 +48,136 @@ impl TransducerGradients {
     }
 
     /// Get gradient at (t, u, label).
+    ///
+    /// # Panics
+    /// Panics if `(t, u, label)` is outside the `[T, U+1, V]` gradient shape.
+    /// Use [`TransducerGradients::try_get`] for a checked variant.
     #[inline]
     pub fn get(&self, t: usize, u: usize, label: Label) -> f64 {
-        let idx = (t * self.num_positions + u) * self.vocab_size + label as usize;
-        self.data[idx]
+        self.try_get(t, u, label)
+            .unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Try to get the gradient at (t, u, label).
+    #[inline]
+    pub fn try_get(&self, t: usize, u: usize, label: Label) -> Result<f64, TransducerLatticeError> {
+        let idx = self.try_index(t, u, label)?;
+        self.data
+            .get(idx)
+            .copied()
+            .ok_or_else(|| self.length_mismatch())
     }
 
     /// Set gradient at (t, u, label).
+    ///
+    /// # Panics
+    /// Panics if `(t, u, label)` is outside the `[T, U+1, V]` gradient shape.
+    /// Use [`TransducerGradients::try_set`] for a checked variant.
     #[inline]
     pub fn set(&mut self, t: usize, u: usize, label: Label, value: f64) {
-        let idx = (t * self.num_positions + u) * self.vocab_size + label as usize;
-        self.data[idx] = value;
+        self.try_set(t, u, label, value)
+            .unwrap_or_else(|err| panic!("{err}"));
+    }
+
+    /// Try to set the gradient at (t, u, label).
+    #[inline]
+    pub fn try_set(
+        &mut self,
+        t: usize,
+        u: usize,
+        label: Label,
+        value: f64,
+    ) -> Result<(), TransducerLatticeError> {
+        let idx = self.try_index(t, u, label)?;
+        match self.data.get_mut(idx) {
+            Some(slot) => {
+                *slot = value;
+                Ok(())
+            }
+            None => Err(self.length_mismatch()),
+        }
     }
 
     /// Add to gradient at (t, u, label).
+    ///
+    /// # Panics
+    /// Panics if `(t, u, label)` is outside the `[T, U+1, V]` gradient shape.
+    /// Use [`TransducerGradients::try_add`] for a checked variant.
     #[inline]
     pub fn add(&mut self, t: usize, u: usize, label: Label, value: f64) {
-        let idx = (t * self.num_positions + u) * self.vocab_size + label as usize;
-        self.data[idx] += value;
+        self.try_add(t, u, label, value)
+            .unwrap_or_else(|err| panic!("{err}"));
+    }
+
+    /// Try to add to the gradient at (t, u, label).
+    #[inline]
+    pub fn try_add(
+        &mut self,
+        t: usize,
+        u: usize,
+        label: Label,
+        value: f64,
+    ) -> Result<(), TransducerLatticeError> {
+        let idx = self.try_index(t, u, label)?;
+        match self.data.get_mut(idx) {
+            Some(slot) => {
+                *slot += value;
+                Ok(())
+            }
+            None => Err(self.length_mismatch()),
+        }
+    }
+
+    /// Bounds-check `(t, u, label)` against the `[T, U+1, V]` shape and return
+    /// the flat index. Mirrors [`TransducerLattice::try_index`] so a stray
+    /// index can never silently read or corrupt a different `(t, u, label)`
+    /// cell (findings share `TransducerLatticeError` since the tensor shape and
+    /// bounds are identical).
+    #[inline]
+    fn try_index(&self, t: usize, u: usize, label: Label) -> Result<usize, TransducerLatticeError> {
+        if t >= self.num_frames {
+            return Err(TransducerLatticeError::FrameOutOfBounds {
+                frame: t,
+                num_frames: self.num_frames,
+            });
+        }
+        if u >= self.num_positions {
+            return Err(TransducerLatticeError::PositionOutOfBounds {
+                position: u,
+                num_positions: self.num_positions,
+            });
+        }
+        if (label as usize) >= self.vocab_size {
+            return Err(TransducerLatticeError::LabelOutOfBounds {
+                label,
+                vocab_size: self.vocab_size,
+            });
+        }
+
+        t.checked_mul(self.num_positions)
+            .and_then(|base| base.checked_add(u))
+            .and_then(|position| {
+                position
+                    .checked_mul(self.vocab_size)
+                    .and_then(|base| base.checked_add(label as usize))
+            })
+            .ok_or(TransducerLatticeError::ShapeSizeOverflow {
+                num_frames: self.num_frames,
+                num_positions: self.num_positions,
+                vocab_size: self.vocab_size,
+            })
+    }
+
+    /// The gradient buffer length disagrees with the declared shape.
+    #[inline]
+    fn length_mismatch(&self) -> TransducerLatticeError {
+        TransducerLatticeError::LogProbLengthMismatch {
+            expected: self
+                .num_frames
+                .saturating_mul(self.num_positions)
+                .saturating_mul(self.vocab_size),
+            actual: self.data.len(),
+        }
     }
 }
 
@@ -82,10 +194,47 @@ impl TransducerGradients {
 ///
 /// # Returns
 /// Loss value and gradients with respect to log-probabilities.
+///
+/// # Panics
+/// Panics if `BLANK` or any target label is outside `lattice.vocab_size`. Use
+/// [`try_transducer_loss`] for a checked variant that reports the offending
+/// label instead of panicking.
 pub fn transducer_loss<W>(lattice: &TransducerLattice<W>, targets: &[Label]) -> TransducerLossResult
 where
     W: Semiring + From<f64> + Into<f64>,
 {
+    try_transducer_loss(lattice, targets).unwrap_or_else(|err| panic!("{err}"))
+}
+
+/// Fallible [`transducer_loss`]: validates that blank and every target label
+/// lie inside the lattice vocabulary before running the forward/backward
+/// passes, so an out-of-vocabulary target (e.g. a tokenizer/vocab mismatch)
+/// returns [`TransducerLatticeError::LabelOutOfBounds`] instead of panicking.
+pub fn try_transducer_loss<W>(
+    lattice: &TransducerLattice<W>,
+    targets: &[Label],
+) -> Result<TransducerLossResult, TransducerLatticeError>
+where
+    W: Semiring + From<f64> + Into<f64>,
+{
+    // Validate every label the passes will index (blank plus each target)
+    // against the vocabulary up front. After this, no internal `lattice.get`
+    // or `gradients.set` can be reached with an out-of-range label.
+    if (BLANK as usize) >= lattice.vocab_size {
+        return Err(TransducerLatticeError::LabelOutOfBounds {
+            label: BLANK,
+            vocab_size: lattice.vocab_size,
+        });
+    }
+    for &label in targets {
+        if (label as usize) >= lattice.vocab_size {
+            return Err(TransducerLatticeError::LabelOutOfBounds {
+                label,
+                vocab_size: lattice.vocab_size,
+            });
+        }
+    }
+
     let t_len = lattice.num_frames;
     let u_len = targets.len() + 1; // +1 for start position
 
@@ -176,12 +325,12 @@ where
     let forward_scores: Vec<f64> = alpha.into_iter().flatten().collect();
     let backward_scores: Vec<f64> = beta.into_iter().flatten().collect();
 
-    TransducerLossResult {
+    Ok(TransducerLossResult {
         loss,
         gradients,
         forward_scores,
         backward_scores,
-    }
+    })
 }
 
 /// Compute transducer loss with external language model.
@@ -194,6 +343,10 @@ where
 /// * `targets` - Target label sequence
 /// * `lm` - Language model as WFST
 /// * `lm_weight` - Weight for LM scores (λ)
+///
+/// # Panics
+/// Panics if any target label is outside `lattice.vocab_size`; use
+/// [`try_transducer_loss_with_lm`] for a checked variant.
 pub fn transducer_loss_with_lm<W>(
     lattice: &TransducerLattice<W>,
     targets: &[Label],
@@ -203,12 +356,27 @@ pub fn transducer_loss_with_lm<W>(
 where
     W: Semiring + From<f64> + Into<f64> + Clone,
 {
-    let mut result = transducer_loss(lattice, targets);
+    try_transducer_loss_with_lm(lattice, targets, lm, lm_weight)
+        .unwrap_or_else(|err| panic!("{err}"))
+}
+
+/// Fallible [`transducer_loss_with_lm`]: forwards the target/vocab validation
+/// of [`try_transducer_loss`] before applying the LM shallow-fusion term.
+pub fn try_transducer_loss_with_lm<W>(
+    lattice: &TransducerLattice<W>,
+    targets: &[Label],
+    lm: &VectorWfst<Label, W>,
+    lm_weight: f64,
+) -> Result<TransducerLossResult, TransducerLatticeError>
+where
+    W: Semiring + From<f64> + Into<f64> + Clone,
+{
+    let mut result = try_transducer_loss(lattice, targets)?;
 
     let lm_score = compute_lm_score(lm, targets);
     result.loss -= lm_weight * lm_score;
 
-    result
+    Ok(result)
 }
 
 /// Compute LM score for a target sequence.
@@ -313,6 +481,10 @@ fn merge_log_score(scores: &mut HashMap<StateId, f64>, state: StateId, score: f6
 }
 
 /// Batched transducer loss for multiple utterances.
+///
+/// # Panics
+/// Panics if any utterance has an out-of-vocabulary target; use
+/// [`try_transducer_loss_batch`] for a checked variant.
 pub fn transducer_loss_batch<W>(
     lattices: &[TransducerLattice<W>],
     targets_batch: &[Vec<Label>],
@@ -320,10 +492,23 @@ pub fn transducer_loss_batch<W>(
 where
     W: Semiring + From<f64> + Into<f64>,
 {
+    try_transducer_loss_batch(lattices, targets_batch).unwrap_or_else(|err| panic!("{err}"))
+}
+
+/// Fallible [`transducer_loss_batch`]: returns the first
+/// [`TransducerLatticeError`] instead of panicking when an utterance has an
+/// out-of-vocabulary target.
+pub fn try_transducer_loss_batch<W>(
+    lattices: &[TransducerLattice<W>],
+    targets_batch: &[Vec<Label>],
+) -> Result<Vec<TransducerLossResult>, TransducerLatticeError>
+where
+    W: Semiring + From<f64> + Into<f64>,
+{
     lattices
         .iter()
         .zip(targets_batch.iter())
-        .map(|(lattice, targets)| transducer_loss(lattice, targets))
+        .map(|(lattice, targets)| try_transducer_loss(lattice, targets))
         .collect()
 }
 
@@ -377,29 +562,61 @@ pub fn factorized_transducer_loss<W>(
 where
     W: Semiring + From<f64> + Into<f64>,
 {
+    try_factorized_transducer_loss::<W>(blank_logits, vocab_logits, targets)
+        .unwrap_or_else(|err| panic!("{err}"))
+}
+
+/// Fallible [`factorized_transducer_loss`]: validates that `vocab_logits` is
+/// rectangular (every row shares the first row's `V-1` length) and that all
+/// targets are in-vocabulary, so a jagged predictor output or out-of-vocab
+/// target returns a [`TransducerLatticeError`] instead of panicking.
+pub fn try_factorized_transducer_loss<W>(
+    blank_logits: &[f64],
+    vocab_logits: &[Vec<f64>],
+    targets: &[Label],
+) -> Result<TransducerLossResult, TransducerLatticeError>
+where
+    W: Semiring + From<f64> + Into<f64>,
+{
     let t_len = blank_logits.len();
     let u_len = targets.len() + 1;
+    // Preserve the original vocabulary-size derivation (first row width + 1,
+    // defaulting to 2 when there are no vocab rows) so valid inputs are
+    // unchanged; `vocab_row` is the required per-row width for the check below.
     let vocab_size = vocab_logits.first().map_or(1, |v| v.len()) + 1;
+    let vocab_row = vocab_size - 1;
 
-    // Build lattice from factorized logits
-    let mut lattice: TransducerLattice<W> = TransducerLattice::new(t_len, u_len, vocab_size);
+    // Reject jagged vocab_logits: a row longer than the first would index
+    // label (v + 1) >= vocab_size and panic in the unchecked path.
+    for row in vocab_logits {
+        if row.len() != vocab_row {
+            return Err(TransducerLatticeError::LogProbLengthMismatch {
+                expected: vocab_row,
+                actual: row.len(),
+            });
+        }
+    }
+
+    // Build the lattice with checked construction and writes; target
+    // validation happens inside try_transducer_loss below.
+    let mut lattice: TransducerLattice<W> = TransducerLattice::try_new(t_len, u_len, vocab_size)?;
 
     for t in 0..t_len {
         for u in 0..u_len {
-            // Blank probability comes from blank predictor
-            lattice.set(t, u, BLANK, blank_logits[t]);
+            // Blank probability comes from blank predictor.
+            lattice.try_set(t, u, BLANK, blank_logits[t])?;
 
             // Vocabulary probabilities come from vocab predictor
-            // (shared across time frames in FNT)
+            // (shared across time frames in FNT).
             if u < vocab_logits.len() {
                 for (v, &log_prob) in vocab_logits[u].iter().enumerate() {
-                    lattice.set(t, u, (v + 1) as Label, log_prob);
+                    lattice.try_set(t, u, (v + 1) as Label, log_prob)?;
                 }
             }
         }
     }
 
-    transducer_loss(&lattice, targets)
+    try_transducer_loss(&lattice, targets)
 }
 
 #[cfg(test)]
@@ -491,5 +708,110 @@ mod tests {
 
         let score = compute_lm_score(&lm, &[1]);
         assert!((score - -0.6).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_try_transducer_loss_rejects_out_of_vocab_target() {
+        // vocab_size = 3 → valid labels are 0, 1, 2; target 5 is out of range.
+        let lattice: TransducerLattice<TropicalWeight> = TransducerLattice::new(2, 2, 3);
+        let err = try_transducer_loss(&lattice, &[5]).unwrap_err();
+        assert!(matches!(
+            err,
+            TransducerLatticeError::LabelOutOfBounds {
+                label: 5,
+                vocab_size: 3
+            }
+        ));
+    }
+
+    #[test]
+    #[should_panic(expected = "out of bounds")]
+    fn test_transducer_loss_panics_on_out_of_vocab_target() {
+        let lattice: TransducerLattice<TropicalWeight> = TransducerLattice::new(2, 2, 3);
+        let _ = transducer_loss(&lattice, &[5]);
+    }
+
+    #[test]
+    fn test_try_transducer_loss_accepts_in_vocab_target() {
+        let mut lattice: TransducerLattice<TropicalWeight> = TransducerLattice::new(2, 2, 3);
+        lattice.set(0, 0, BLANK, -1.5);
+        lattice.set(0, 0, 1, -2.0);
+        lattice.set(1, 0, BLANK, -1.2);
+        lattice.set(1, 1, BLANK, -1.0);
+        let result = try_transducer_loss(&lattice, &[1]).expect("in-vocab target");
+        assert!(result.loss.is_finite());
+    }
+
+    #[test]
+    fn test_transducer_gradients_try_reject_out_of_range() {
+        let mut grads = TransducerGradients::new(2, 2, 3);
+        // Valid round-trip still works.
+        grads.try_set(1, 1, 2, 0.5).expect("valid index");
+        assert!((grads.try_get(1, 1, 2).expect("valid index") - 0.5).abs() < 1e-9);
+        // Out-of-range frame / position / label are each rejected.
+        assert!(matches!(
+            grads.try_get(9, 0, 0).unwrap_err(),
+            TransducerLatticeError::FrameOutOfBounds { .. }
+        ));
+        assert!(matches!(
+            grads.try_set(0, 9, 0, 1.0).unwrap_err(),
+            TransducerLatticeError::PositionOutOfBounds { .. }
+        ));
+        assert!(matches!(
+            grads.try_add(0, 0, 7, 1.0).unwrap_err(),
+            TransducerLatticeError::LabelOutOfBounds { .. }
+        ));
+    }
+
+    #[test]
+    fn test_transducer_gradients_reject_silent_corruption() {
+        // num_positions = 2, vocab_size = 3 → flat len 12. The old unchecked
+        // code mapped (t=0, u=2, label=0) to flat idx 6 — an in-range but WRONG
+        // cell, namely (t=1, u=0, label=0) — and silently overwrote it.
+        let mut grads = TransducerGradients::new(2, 2, 3);
+        assert!(matches!(
+            grads.try_set(0, 2, 0, 42.0).unwrap_err(),
+            TransducerLatticeError::PositionOutOfBounds { .. }
+        ));
+        // Nothing was written: the (t=1, u=0, label=0) cell is still zero.
+        assert_eq!(grads.get(1, 0, 0), 0.0);
+    }
+
+    #[test]
+    fn test_try_factorized_rejects_jagged_vocab_logits() {
+        let blank_logits = vec![-1.0, -1.0];
+        // Row 0 has width 2, row 1 has width 3 → jagged.
+        let vocab_logits = vec![vec![-1.0, -2.0], vec![-1.0, -2.0, -3.0]];
+        let err =
+            try_factorized_transducer_loss::<TropicalWeight>(&blank_logits, &vocab_logits, &[1])
+                .unwrap_err();
+        assert!(matches!(
+            err,
+            TransducerLatticeError::LogProbLengthMismatch {
+                expected: 2,
+                actual: 3
+            }
+        ));
+    }
+
+    #[test]
+    fn test_try_factorized_accepts_rectangular_vocab_logits() {
+        let blank_logits = vec![-1.0, -1.0];
+        let vocab_logits = vec![vec![-1.0, -2.0], vec![-1.5, -2.5]];
+        let result =
+            try_factorized_transducer_loss::<TropicalWeight>(&blank_logits, &vocab_logits, &[1])
+                .expect("rectangular vocab_logits");
+        assert!(result.loss.is_finite());
+    }
+
+    #[test]
+    fn test_try_transducer_loss_batch_reports_out_of_vocab() {
+        let lattice: TransducerLattice<TropicalWeight> = TransducerLattice::new(2, 2, 3);
+        let lattices = vec![lattice];
+        let targets_batch = vec![vec![5]];
+        assert!(matches!(
+            try_transducer_loss_batch(&lattices, &targets_batch).unwrap_err(),
+            TransducerLatticeError::LabelOutOfBounds { .. }
+        ));
     }
 }
