@@ -8,24 +8,46 @@
 //!
 //! # Algorithm
 //!
-//! The algorithm follows Mohri's approach:
+//! The algorithm follows Mohri's approach for weighted minimization:
 //! 1. Push weights to ensure canonical form
-//! 2. Compute equivalence classes using Hopcroft-style partition refinement
+//! 2. Compute equivalence classes by **Moore-style iterative partition
+//!    refinement** — states are first separated by their quantized final weight,
+//!    then repeatedly re-partitioned by the signature `(input, output, quantized
+//!    weight, target partition)` of their outgoing transitions until the
+//!    partition assignment stops changing
 //! 3. Merge equivalent states
 //!
 //! # Complexity
 //!
-//! - Acyclic: O(|Q| + |E|)
-//! - General: O(|E| log |Q|) with Hopcroft's algorithm
+//! Let `|Q|` be the state count, `|E|` the transition count, and `d` the maximum
+//! out-degree. Moore refinement runs at most `P ≤ |Q|` passes; each pass rebuilds
+//! every state's signature in `O(|E|)` (the input-sorted transition order is
+//! precomputed once — deterministic input makes it stable across passes — so no
+//! per-pass sort is needed), giving a worst case of `O(|Q| · |E|)`. This is
+//! simpler than, and for the modest automata this library minimizes (built
+//! offline) fast enough, but it does **not** achieve Hopcroft's `O(|E| log |Q|)`
+//! bound — see *Future work*.
 //!
 //! # Requirements
 //!
-//! - Input must be deterministic
+//! - Input must be deterministic (no input-ε; a unique input label per state)
 //! - Semiring must be divisible (for weight pushing)
+//!
+//! # Future work
+//!
+//! True Hopcroft partition refinement (`O(|E| log |Q|)`) would improve the
+//! asymptotics on very large automata (e.g. million-state language models), but
+//! the weighted `(label, output, quantized-weight)` splitter bookkeeping is
+//! substantially more error-prone than the property-test-verified Moore
+//! refinement used here, and the win only materialises far above this library's
+//! current benchmark range. Any such rewrite should be gated on a large-automaton
+//! minimization benchmark that demonstrates a measured bottleneck, and should
+//! cross-check its output against this implementation.
 //!
 //! # References
 //!
 //! - Mohri, M. (2009). "Weighted Automata Algorithms"
+//! - Moore, E. F. (1956). "Gedanken-experiments on Sequential Machines"
 //! - Hopcroft, J. (1971). "An n log n algorithm for minimizing states in a finite automaton"
 
 use std::collections::{HashMap, HashSet};
@@ -274,95 +296,90 @@ where
 
     validate_weight_epsilon(epsilon)?;
 
-    // Initial partition: separate by quantized final weight
-    let mut partition: Vec<usize> = vec![0; n];
-    let mut num_partitions = 0;
-
-    // Separate by quantized final weight
-    let mut final_weight_to_partition: HashMap<Option<QuantizedWeight>, usize> = HashMap::new();
-
+    // Precompute, once, each state's outgoing arcs in canonical order.
+    // `minimize` requires deterministic, input-ε-free input (checked before this
+    // call and preserved by connect/push), so every state's transitions carry
+    // distinct non-ε input labels. Sorting by input is therefore a total order
+    // that is invariant across refinement passes — only the *target partition*
+    // ids change between passes, never the ordering — so we sort here exactly
+    // once instead of re-sorting every state on every pass. Malformed targets
+    // (`to >= n`) are dropped, consistent with the partition lookups below.
+    let mut state_arcs: Vec<Vec<(Option<L>, Option<L>, QuantizedWeight, usize)>> =
+        Vec::with_capacity(n);
     for state in 0..n {
         let state_id = state as StateId;
-        let fw = if fst.is_final(state_id) {
-            Some(QuantizedWeight::from_weight(
-                &fst.final_weight(state_id),
-                epsilon,
-            ))
-        } else {
-            None
-        };
-
-        if let Some(&p) = final_weight_to_partition.get(&fw) {
-            partition[state] = p;
-        } else {
-            let p = num_partitions;
-            num_partitions += 1;
-            final_weight_to_partition.insert(fw, p);
-            partition[state] = p;
+        let mut arcs: Vec<(Option<L>, Option<L>, QuantizedWeight, usize)> = Vec::new();
+        for trans in fst.transitions(state_id) {
+            let to = trans.to as usize;
+            if to >= n {
+                continue;
+            }
+            arcs.push((
+                trans.input.clone(),
+                trans.output.clone(),
+                QuantizedWeight::from_weight(&trans.weight, epsilon),
+                to,
+            ));
         }
+        arcs.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        state_arcs.push(arcs);
     }
 
-    // Iterative refinement
-    let mut changed = true;
-    while changed {
-        changed = false;
-
-        // Compute signatures for each state based on current partition
-        let mut signature_to_partition: HashMap<StateSignature<L>, usize> = HashMap::new();
-        let mut new_partition: Vec<usize> = vec![0; n];
-        let mut new_num_partitions = 0;
-
-        for state in 0..n {
+    // Precompute each state's quantized final weight (also pass-invariant).
+    let final_weights: Vec<Option<QuantizedWeight>> = (0..n)
+        .map(|state| {
             let state_id = state as StateId;
-
-            // Build signature with quantized weights
-            let mut sig = StateSignature::new();
-
             if fst.is_final(state_id) {
-                sig.final_weight = Some(QuantizedWeight::from_weight(
+                Some(QuantizedWeight::from_weight(
                     &fst.final_weight(state_id),
                     epsilon,
-                ));
-            }
-
-            let mut trans_sigs: Vec<(Option<L>, Option<L>, QuantizedWeight, usize)> = Vec::new();
-            for trans in fst.transitions(state_id) {
-                let Some(&target_partition) = partition.get(trans.to as usize) else {
-                    continue;
-                };
-
-                trans_sigs.push((
-                    trans.input.clone(),
-                    trans.output.clone(),
-                    QuantizedWeight::from_weight(&trans.weight, epsilon),
-                    target_partition,
-                ));
-            }
-
-            // Sort for canonical form
-            trans_sigs.sort_by(|a, b| {
-                a.0.cmp(&b.0)
-                    .then_with(|| a.1.cmp(&b.1))
-                    .then_with(|| a.3.cmp(&b.3))
-            });
-            sig.transitions = trans_sigs;
-
-            // Look up or create partition for this signature
-            if let Some(&p) = signature_to_partition.get(&sig) {
-                new_partition[state] = p;
+                ))
             } else {
-                let p = new_num_partitions;
-                new_num_partitions += 1;
-                signature_to_partition.insert(sig, p);
-                new_partition[state] = p;
+                None
             }
+        })
+        .collect();
+
+    // Initial partition: separate by quantized final weight.
+    let mut partition: Vec<usize> = vec![0; n];
+    let mut final_weight_to_partition: HashMap<Option<QuantizedWeight>, usize> =
+        HashMap::with_capacity(n);
+    for (state, &fw) in final_weights.iter().enumerate() {
+        let next = final_weight_to_partition.len();
+        partition[state] = *final_weight_to_partition.entry(fw).or_insert(next);
+    }
+
+    // Iterative refinement. The signature map and next-partition buffer are
+    // allocated once and reused (cleared / fully overwritten) each pass rather
+    // than re-allocated, since their sizes are bounded by `n`.
+    let mut signature_to_partition: HashMap<StateSignature<L>, usize> = HashMap::with_capacity(n);
+    let mut new_partition: Vec<usize> = vec![0; n];
+    let mut changed = true;
+    while changed {
+        signature_to_partition.clear();
+
+        for (state, arcs) in state_arcs.iter().enumerate() {
+            // Rebuild the signature in the precomputed canonical order, reading
+            // each target's current partition id.
+            let mut sig = StateSignature::new();
+            sig.final_weight = final_weights[state];
+            sig.transitions = arcs
+                .iter()
+                .map(|(input, output, weight, to)| {
+                    (input.clone(), output.clone(), *weight, partition[*to])
+                })
+                .collect();
+
+            let next = signature_to_partition.len();
+            new_partition[state] = *signature_to_partition.entry(sig).or_insert(next);
         }
 
-        // Check if the relation changed, not only whether the number of
-        // partitions grew. Same-cardinality refinements can still move states.
-        if new_partition != partition {
-            changed = true;
-            partition = new_partition;
+        // Refine until the partition assignment stabilizes — not merely until the
+        // partition count stops growing, since equal-cardinality passes can still
+        // move states.
+        changed = new_partition != partition;
+        if changed {
+            partition.copy_from_slice(&new_partition);
         }
     }
 
