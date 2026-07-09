@@ -341,6 +341,49 @@ For beam search with beam_width=10 and 10 positions, this saves ~100 small alloc
 
 ---
 
+### Hypothesis 6: Earley Chart Merge Optimization
+
+**Date**: 2025-12-26
+**Status**: ❌ REJECTED
+
+**Rationale**: Replace O(n) `contains()` checks in Earley chart merge with HashSet-based O(1) lookups.
+
+**Before**:
+```rust
+for child in state.child_nodes {
+    if !existing.child_nodes.contains(&child) {  // O(n) linear scan
+        existing.child_nodes.push(child);
+    }
+}
+```
+
+**After**:
+```rust
+let mut all_children: FxHashSet<ForestChild> = existing.child_nodes.drain(..).collect();
+all_children.extend(state.child_nodes);
+existing.child_nodes = all_children.into_iter().collect();
+```
+
+**Results**:
+
+| Benchmark | Before | After | Change | p-value |
+|-----------|--------|-------|--------|---------|
+| earley_3_word_sentence | 4.86 µs | 5.18 µs | **+5.5%** | < 0.05 |
+| earley_5_word_sentence | 7.70 µs | 7.84 µs | **+1.8%** | < 0.05 |
+| earley_lattice_with_alternatives | 5.13 µs | 5.68 µs | **+10.7%** | < 0.05 |
+
+**Analysis**:
+Similar to the beam search select optimization, the HashSet approach regresses for small collections:
+- SmallVec capacity is 4 elements - below the threshold where HashSet helps
+- HashSet creation requires allocation and hashing overhead
+- Linear scan on 4 elements is ~12 comparisons worst case, faster than hash overhead
+
+For larger parsing workloads with many ambiguous parse states, HashSet would help. But the current benchmarks show typical small grammars where linear scan wins.
+
+Reverted.
+
+---
+
 ### Hypothesis 7: Path Extend Clone Reduction
 
 **Date**: 2025-12-26
