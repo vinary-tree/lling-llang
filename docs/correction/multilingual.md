@@ -2,7 +2,7 @@
 
 > **Thesis.** The `multilingual` module decides *which language each word is in*
 > and scores hypotheses accordingly: a per-word language detector picks
-> `` `argmaxₗ P(ℓ ∣ context)` ``, a `CodeSwitchTransducer` resolves the cheapest
+> $`\arg\max_{\ell} P(\ell \mid \text{context})`$, a `CodeSwitchTransducer` resolves the cheapest
 > sequence of language assignments under a switch penalty, and per-language
 > `LanguageModel`s rescore each contiguous span.
 
@@ -21,13 +21,13 @@ for the backtick/Unicode conventions.
 | Symbol / term | Meaning |
 |---|---|
 | **Code-switching** | Alternation between two or more languages within one utterance ("hello mundo"). |
-| `` `ℓ` `` | A language, identified by a [`LanguageId`](../../src/multilingual/language.rs) code (e.g. `"en"`, `"es"`). |
-| `` `context` `` | The surrounding words used to condition language identity (here: the word itself plus the previous language). |
-| `` `argmaxₗ P(ℓ ∣ context)` `` | The most probable language for a span given its context — what `LanguageDetector` returns. |
-| `` `P(ℓ)` `` | Language **prior** — the expected frequency of `` `ℓ` `` (`LanguageConfig::prior`). |
-| `` `P(w ∣ ℓ)` `` | Word probability under language `` `ℓ` ``'s model (stored as a log-probability). |
-| `` `s` `` | The **switch penalty** added (in log space) whenever consecutive words change language (`CodeSwitchConfig::switch_penalty`). |
-| `` `b` `` | The **same-language bonus** added when consecutive words keep the language (`same_language_bonus`). |
+| $`\ell`$ | A language, identified by a [`LanguageId`](../../src/multilingual/language.rs) code (e.g. `"en"`, `"es"`). |
+| $`\text{context}`$ | The surrounding words used to condition language identity (here: the word itself plus the previous language). |
+| $`\arg\max_{\ell} P(\ell \mid \text{context})`$ | The most probable language for a span given its context — what `LanguageDetector` returns. |
+| $`P(\ell)`$ | Language **prior** — the expected frequency of $`\ell`$ (`LanguageConfig::prior`). |
+| $`P(w \mid \ell)`$ | Word probability under language $`\ell`$'s model (stored as a log-probability). |
+| $`s`$ | The **switch penalty** added (in log space) whenever consecutive words change language (`CodeSwitchConfig::switch_penalty`). |
+| $`b`$ | The **same-language bonus** added when consecutive words keep the language (`same_language_bonus`). |
 | **Span** | A maximal contiguous run of same-language words ([`LanguageSpan`](../../src/multilingual/code_switch.rs)). |
 | **Switch point** | A position where the language changes ([`SwitchPoint`](../../src/multilingual/code_switch.rs)). |
 | **WFST** | Weighted Finite-State Transducer (see [wfst-traits](../architecture/wfst-traits.md)). |
@@ -35,7 +35,7 @@ for the backtick/Unicode conventions.
 Scores in this module are **log-probabilities** where *higher is better*
 (unlike the cost convention of [error-models](error-models.md)); the
 `CodeSwitchTransducer::build_wfst` adapter negates them when emitting a
-`` `TropicalWeight` `` lattice, since Tropical minimizes.
+`TropicalWeight` lattice, since Tropical minimizes.
 
 ---
 
@@ -46,12 +46,14 @@ Scores in this module are **log-probabilities** where *higher is better*
 For a word (or span) with context, the [`LanguageDetector`](../../src/multilingual/language.rs)
 assigns the language that maximizes the posterior:
 
-```text
-ℓ̂ = argmaxₗ P(ℓ ∣ context)
-   = argmaxₗ [ log P(ℓ) + log P(w ∣ ℓ) ]      (Bayes; the evidence is constant in ℓ)
+```math
+\begin{aligned}
+\hat{\ell} &= \arg\max_{\ell} P(\ell \mid \text{context}) \\
+           &= \arg\max_{\ell} [\, \log P(\ell) + \log P(w \mid \ell) \,] && \text{(Bayes; the evidence is constant in } \ell\text{)}
+\end{aligned}
 ```
 
-The detector computes `` `log P(ℓ) + log P(w ∣ ℓ)` `` for each configured
+The detector computes $`\log P(\ell) + \log P(w \mid \ell)`$ for each configured
 language, then a numerically stable softmax over those scores yields the
 confidence and the ranked alternatives returned in
 [`DetectionResult`](../../src/multilingual/language.rs). Unknown words fall back
@@ -59,21 +61,20 @@ to `LanguageConfig::unknown_word_prob`.
 
 ### The code-switching model
 
-A hypothesis assigns a language `` `ℓₜ` `` to each word `` `wₜ` `` of an
-utterance `` `w₁…w_n` ``. Its score is the sum of word log-probabilities,
+A hypothesis assigns a language $`\ell_t`$ to each word $`w_t`$ of an
+utterance $`w_1 \dots w_n`$. Its score is the sum of word log-probabilities,
 language priors, and transition terms:
 
-```text
-score(w, ℓ) = Σₜ [ log P(wₜ ∣ ℓₜ) + log P(ℓₜ) + τ(ℓₜ₋₁, ℓₜ) ]
-
-             ⎧ b        if ℓₜ = ℓₜ₋₁     (same-language bonus)
-τ(ℓₜ₋₁, ℓₜ) = ⎨
-             ⎩ −s       if ℓₜ ≠ ℓₜ₋₁     (switch penalty)
+```math
+\begin{aligned}
+\text{score}(w, \ell) &= \sum_t [\, \log P(w_t \mid \ell_t) + \log P(\ell_t) + \tau(\ell_{t-1}, \ell_t) \,] \\
+\tau(\ell_{t-1}, \ell_t) &= \begin{cases} b & \text{if } \ell_t = \ell_{t-1} \quad \text{(same-language bonus)} \\ -s & \text{if } \ell_t \ne \ell_{t-1} \quad \text{(switch penalty)} \end{cases}
+\end{aligned}
 ```
 
-with `` `τ` `` undefined for `` `t = 1` `` (no predecessor). This is a
+with $`\tau`$ undefined for $`t = 1`$ (no predecessor). This is a
 first-order (bigram-over-languages) sequence model: maximizing
-`` `score(w, ℓ)` `` over all assignments is a Viterbi decoding whose state is
+$`\text{score}(w, \ell)`$ over all assignments is a Viterbi decoding whose state is
 the current language. The
 [`CodeSwitchTransducer`](../../src/multilingual/code_switch.rs) realizes exactly
 this — its `score_with_languages` evaluates a fixed assignment, and `best_path`
@@ -82,9 +83,9 @@ finds the optimum.
 ### As a WFST
 
 `build_wfst(vocabulary)` materializes the model as a
-`` `VectorWfst<String, W>` ``: **one state per language**, **self-loop arcs** for
+`VectorWfst<String, W>`: **one state per language**, **self-loop arcs** for
 in-language words, **cross arcs** carrying the switch penalty, and an optional
-ε-connected super-start when `allow_any_start` is set (so the utterance may begin
+$`\varepsilon`$-connected super-start when `allow_any_start` is set (so the utterance may begin
 in any language). Start→language paths through this WFST enumerate exactly the
 language assignments scored above; this is the lattice drawn in
 [§ Diagrams](#diagrams).
@@ -93,10 +94,10 @@ language assignments scored above; this is the lattice drawn in
 
 ## Intuition — "hello mundo"
 
-Two languages: English (`` `P(ℓ) = 0.5` ``) with `` `P("hello") ` `` high and
-`` `P("mundo")` `` low, and Spanish (`` `P(ℓ) = 0.5` ``) with the reverse. With a
-*small* switch penalty `` `s = 1.0` ``, the cheapest assignment reads
-`` `"hello"` `` as English and `` `"mundo"` `` as Spanish, paying `` `s` `` once
+Two languages: English ($`P(\ell) = 0.5`$) with $`P(\text{"hello"})`$ high and
+$`P(\text{"mundo"})`$ low, and Spanish ($`P(\ell) = 0.5`$) with the reverse. With a
+*small* switch penalty $`s = 1.0`$, the cheapest assignment reads
+`"hello"` as English and `"mundo"` as Spanish, paying $`s`$ once
 at the single switch point:
 
 ```text
@@ -106,11 +107,11 @@ at the single switch point:
         + log P(en)         (one switch point)   + log P(es)
 ```
 
-`best_path` returns `` `word_languages = [en, es]` ``,
-`` `num_switches = 1` ``, and the span decomposition
-`` `[en:0..1, es:1..2]` ``. Had the switch penalty been large, the decoder would
+`best_path` returns `word_languages = [en, es]`,
+`num_switches = 1`, and the span decomposition
+`[en:0..1, es:1..2]`. Had the switch penalty been large, the decoder would
 prefer a single-language reading even at the cost of a low word probability —
-the penalty `` `s` `` is the knob that trades *fit* against *switch frequency*.
+the penalty $`s`$ is the knob that trades *fit* against *switch frequency*.
 
 ---
 
@@ -132,8 +133,8 @@ multilingual
 | [`Script`](../../src/multilingual/language.rs) | Writing-system tag (Latin, Cyrillic, Arabic, Han, Hangul, …) for detection heuristics. |
 | [`LanguageModel`](../../src/multilingual/language.rs) | Trait: `word_log_prob`, `context_log_prob`, `vocabulary_size`, `in_vocabulary`. |
 | [`SimpleLanguageModel`](../../src/multilingual/language.rs) | A unigram model; `from_counts` builds it by normalizing frequencies to log-probs. |
-| [`LanguageDetector`](../../src/multilingual/language.rs) | `detect_word` / `detect_sequence` return a [`DetectionResult`](../../src/multilingual/language.rs) (`argmaxₗ P(ℓ ∣ context)` + alternatives). |
-| [`CodeSwitchConfig`](../../src/multilingual/code_switch.rs) | `switch_penalty` `` `s` ``, `same_language_bonus` `` `b` ``, `allow_any_start`, `max_switches`. |
+| [`LanguageDetector`](../../src/multilingual/language.rs) | `detect_word` / `detect_sequence` return a [`DetectionResult`](../../src/multilingual/language.rs) ($`\arg\max_{\ell} P(\ell \mid \text{context})`$ + alternatives). |
+| [`CodeSwitchConfig`](../../src/multilingual/code_switch.rs) | `switch_penalty` `s`, `same_language_bonus` `b`, `allow_any_start`, `max_switches`. |
 | [`CodeSwitchBuilder`](../../src/multilingual/code_switch.rs) | Fluent builder: `add_language`, `add_language_model`, `switch_penalty`, `build`. |
 | [`CodeSwitchTransducer<W>`](../../src/multilingual/code_switch.rs) | `word_score`, `score_with_languages`, `best_path` (Viterbi), `build_wfst`. |
 | [`CodeSwitchPath`](../../src/multilingual/code_switch.rs) | A decoded result: `score`, `word_languages`, `switch_points`, `spans`, with `num_switches` and `dominant_language` helpers. |
@@ -143,11 +144,11 @@ multilingual
 ## Algorithms — Viterbi over the language lattice
 
 `best_path` decodes the optimal language assignment by dynamic programming over
-`` `(position, language)` ``. The intent: fill a table `` `best[t][ℓ]` `` = the
-best score of any assignment ending at word `` `t` `` in language `` `ℓ` ``,
+$`(\text{position}, \text{language})`$. The intent: fill a table $`\text{best}[t][\ell]`$ = the
+best score of any assignment ending at word $`t`$ in language $`\ell`$,
 keeping back-pointers to reconstruct the argmax. The loop invariant is that
-`` `best[t][ℓ]` `` already incorporates every term up to and including word
-`` `t` ``.
+$`\text{best}[t][\ell]`$ already incorporates every term up to and including word
+$`t`$.
 
 ```text
 ⟨ code-switch Viterbi ⟩ ≡
@@ -163,21 +164,21 @@ keeping back-pointers to reconstruct the argmax. The loop invariant is that
   follow back-pointers from (n−1, ℓ*) to recover the assignment
 ```
 
-where `` `τ(ℓ′, ℓ) = b` `` if `` `ℓ′ = ℓ` `` else `` `−s` ``. With `` `n` ``
-words and `` `m = ∣Λ∣` `` languages the trellis has `` `n·m` `` cells, each
-relaxing `` `m` `` predecessors, so decoding is
-`` `O(n · m²)` `` time and `` `O(n · m)` `` space — the standard Viterbi bound
+where $`\tau(\ell', \ell) = b`$ if $`\ell' = \ell`$ else $`-s`$. With $`n`$
+words and $`m = \lvert \Lambda\rvert`$ languages the trellis has $`n \cdot m`$ cells, each
+relaxing $`m`$ predecessors, so decoding is
+$`O(n \cdot m^2)`$ time and $`O(n \cdot m)`$ space — the standard Viterbi bound
 (see [path-extraction](../algorithms/path-extraction.md)). The implementation
 in [`best_path`](../../src/multilingual/code_switch.rs) matches this chunk
 exactly.
 
-**Trace** (`` `["hello", "mundo"]` ``, `` `s = 1.0` ``): with
-`` `log P(hello∣en) = −0.5` ``, `` `log P(mundo∣en) = −10` ``,
-`` `log P(hello∣es) = −10` ``, `` `log P(mundo∣es) = −0.5` `` and equal priors,
-the cell `` `best[1][es]` `` maximizes over `` `best[0][en] − s − 0.5` `` (≈
-switch from en) versus `` `best[0][es] + b − 0.5` `` (stay es). The switch path
-wins because staying in Spanish would have paid `` `log P(hello∣es) = −10` `` at
-word 0. The recovered path is `` `[en, es]` `` with one switch point. ∎
+**Trace** (`["hello", "mundo"]`, $`s = 1.0`$): with
+$`\log P(\text{hello} \mid \text{en}) = -0.5`$, $`\log P(\text{mundo} \mid \text{en}) = -10`$,
+$`\log P(\text{hello} \mid \text{es}) = -10`$, $`\log P(\text{mundo} \mid \text{es}) = -0.5`$ and equal priors,
+the cell $`\text{best}[1][\text{es}]`$ maximizes over $`\text{best}[0][\text{en}] - s - 0.5`$ ($`\approx`$
+switch from en) versus $`\text{best}[0][\text{es}] + b - 0.5`$ (stay es). The switch path
+wins because staying in Spanish would have paid $`\log P(\text{hello} \mid \text{es}) = -10`$ at
+word 0. The recovered path is `[en, es]` with one switch point. ∎
 
 ---
 
@@ -260,10 +261,10 @@ assert!(same > switched);
 
 ![Code-switching lattice over "hello mundo": one state per language, language-tagged self-loop arcs, and cross-language arcs carrying the switch penalty; the best path en→switch→es is highlighted.](../diagrams/correction/code-switch.svg)
 
-*Blue `` `S` `` = ε super-start (`allow_any_start`); double-ring = final
+*Blue $`S`$ = $`\varepsilon`$ super-start (`allow_any_start`); double-ring = final
 language states; amber = language-tagged word arcs (self-loops); bold green =
-the best path `` `en →[switch]→ es` ``; grey = alternative cross arc; dashed
-grey = ε entry. Arc labels read `` `word [lang] / cost` ``.*
+the best path $`\text{en} \xrightarrow{\text{switch}} \text{es}`$; grey = alternative cross arc; dashed
+grey = $`\varepsilon`$ entry. Arc labels read `word [lang] / cost`.*
 
 <details><summary>Text view</summary>
 
@@ -284,7 +285,7 @@ grey = ε entry. Arc labels read `` `word [lang] / cost` ``.*
 ![Activity flow: tokenize, detect language per word (argmax), branch on whether a code-switch is present, segment into language spans, route each span to its per-language model, rescore in parallel, recombine, and emit a CodeSwitchPath.](../diagrams/correction/multilingual-flow.svg)
 
 *Amber = correction/NLP activities; blue diamonds = decisions; green terminal =
-the emitted `` `CodeSwitchPath` ``; the fork shows per-language rescoring of the
+the emitted `CodeSwitchPath`; the fork shows per-language rescoring of the
 `en` and `es` spans in parallel.*
 
 <details><summary>Text view</summary>
@@ -309,9 +310,9 @@ stop
 
 ## Relation to the library
 
-- **Weights & lattices.** `build_wfst` produces a `` `VectorWfst<String, W>` ``
+- **Weights & lattices.** `build_wfst` produces a `VectorWfst<String, W>`
   over any [`Semiring`](../architecture/semirings.md); with
-  `` `TropicalWeight` `` the negated log-scores make the best path the
+  `TropicalWeight` the negated log-scores make the best path the
   highest-probability language assignment, decodable by the shared
   [path-extraction](../algorithms/path-extraction.md) machinery.
 - **Composition with correction.** The code-switching lattice composes with the
@@ -319,7 +320,7 @@ stop
   [layer pipeline](../architecture/layers.md): detect language first, then apply
   language-appropriate spelling/confusion correction per span.
 - **Detector ↔ decoder.** `LanguageDetector.detect_word` provides the per-span
-  `` `argmaxₗ P(ℓ ∣ context)` `` used to seed or prune the
+  $`\arg\max_{\ell} P(\ell \mid \text{context})`$ used to seed or prune the
   `CodeSwitchTransducer` trellis; both share the `LanguageConfig` priors and
   per-language `word_log_prob`.
 - **No feature gate.** `multilingual` is always compiled (see

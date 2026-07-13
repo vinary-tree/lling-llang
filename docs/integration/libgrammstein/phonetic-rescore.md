@@ -46,7 +46,7 @@ same phonetic form as the reference word "night", yet the known word "night"
 | **Phonetic normalization** | Converting spelling to pronunciation representation |
 | **Zompist rules** | 62 verified English spelling-to-sound rules |
 | **Reference** | Expected/correct words for comparison |
-| **Interpolation weight** | Balance between original and phonetic scores (λ) |
+| **Interpolation weight** | Balance between original and phonetic scores ($`\lambda`$) |
 | **Lattice rescoring** | Adjusting edge weights without changing structure |
 
 ## PhoneticReference Trait
@@ -175,23 +175,20 @@ let rescored_lattice = layer.apply(&input_lattice)?;
 
 ### Weight Interpolation Formula
 
-The rescoring interpolates between original and phonetic scores, where `λ ∈ [0, 1]`
-is the phonetic mixing weight:
-`new_weight = (1 − λ)·original_weight + λ·phonetic_cost`.
+The rescoring interpolates between original and phonetic scores, where
+$`\lambda \in [0, 1]`$ is the phonetic mixing weight:
 
-```text
-new_weight = (1 − λ) × original_weight + λ × phonetic_cost
-
-where:
-  λ               = phonetic weight (0.0 to 1.0)
-  original_weight = edge weight from input lattice
-  phonetic_cost   = −log(phonetic_score) for the word
+```math
+\text{new\_weight} = (1 - \lambda) \cdot \text{original\_weight} + \lambda \cdot \text{phonetic\_cost}
 ```
+
+Here $`\text{original\_weight}`$ is the edge weight from the input lattice and
+$`\text{phonetic\_cost} = -\log(\text{phonetic\_score})`$ is the word's phonetic cost.
 
 ### Phonetic Score Calculation
 
-Phonetic similarity is `sim = 1 − levenshtein(normalize(w₁), normalize(w₂)) / max_len`,
-so words that normalize to the same Zompist form score `sim = 1`.
+Phonetic similarity is $`\text{sim} = 1 - \operatorname{levenshtein}(\operatorname{normalize}(w_1), \operatorname{normalize}(w_2)) / \text{max\_len}`$,
+so words that normalize to the same Zompist form score $`\text{sim} = 1`$.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -396,7 +393,7 @@ fn main() {
 
 ## Weight Tuning Guidelines
 
-| Use Case | Recommended λ | Rationale |
+| Use Case | Recommended $`\lambda`$ | Rationale |
 |----------|---------------|-----------|
 | Spell correction | 0.3 - 0.4 | Mild phonetic influence |
 | ASR error recovery | 0.4 - 0.6 | Balance acoustic and phonetic |

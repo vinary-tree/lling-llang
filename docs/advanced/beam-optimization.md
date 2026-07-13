@@ -11,7 +11,7 @@ Beam search is the standard inference algorithm for large WFST-based systems, pr
 | Log-Semiring Pushing | Stochastic normalization | Up to 18× speedup |
 | Lookahead Tables | Future cost estimation | Improved pruning |
 | Token Grouping | Lazy evaluation for composition | 10-20× fewer ops |
-| N-gram Back-off | Compact LM representation | Avoids `O(∣V∣²)` |
+| N-gram Back-off | Compact LM representation | Avoids $`O(\lvert V\rvert^2)`$ |
 
 ## Log-Semiring Weight Pushing
 
@@ -21,7 +21,7 @@ done in the **log semiring, NOT tropical**.
 
 ![Log-semiring weight pushing for beam search: before vs after, with the after-automaton stochastic](../diagrams/advanced/beam-optimization.svg)
 
-*Blue = the original automaton with weight mass `w` scattered along the path; green = after pushing `w′(e) = w(e) + V(dst) − V(src)`, where the cost is absorbed and `Σ exp(−w′) = 1` at every state (stochastic). Dotted grey = the per-state correspondence.*
+*Blue = the original automaton with weight mass $`w`$ scattered along the path; green = after pushing $`w'(e) = w(e) + V(\text{dst}) - V(\text{src})`$, where the cost is absorbed and $`\sum \exp(-w') = 1`$ at every state (stochastic). Dotted grey = the per-state correspondence.*
 
 <details><summary>Text view</summary>
 
@@ -48,24 +48,24 @@ after — Σ exp(−w′) = 1 at each state (stochastic)
 
 ### The Stochastic Property
 
-After log-semiring pushing, at each state `q` the outgoing transitions (plus the final
-weight) form a proper probability distribution — `Σ exp(−w′) = 1`:
+After log-semiring pushing, at each state $`q`$ the outgoing transitions (plus the final
+weight) form a proper probability distribution:
 
-```text
-Σ exp(−w′) = 1
-   over outgoing arcs of q + final weight of q
-
-In log space:  ⊕ₗₒg(all outgoing weights + final weight) ≈ 0̄
+```math
+\begin{aligned}
+&\sum \exp(-w') = 1 && \text{(over outgoing arcs of } q \text{, plus the final weight of } q) \\
+&\oplus_{\log}(\text{all outgoing weights} + \text{final weight}) \approx \bar{0} && \text{(in log space)}
+\end{aligned}
 ```
 
 This means transitions represent proper probability distributions, making beam pruning
-decisions statistically meaningful (`0̄` is the log-semiring additive identity, `+∞`).
+decisions statistically meaningful ($`\bar{0}`$ is the log-semiring additive identity, $`+\infty`$).
 
 ### Algorithm
 
-1. **Compute backward potentials**: `V(q) = −log(Σ exp(−path_weight))` for all paths from `q` to a final state.
-2. **Reweight transitions**: `w′(e) = w(e) + V(target) − V(source)`.
-3. **Normalize finals**: set final weights to `1̄` (`LogWeight::one()`, the `⊗`-identity `= 0`).
+1. **Compute backward potentials**: $`V(q) = -\log(\sum \exp(-\text{path weight}))`$ for all paths from $`q`$ to a final state.
+2. **Reweight transitions**: $`w'(e) = w(e) + V(\text{target}) - V(\text{source})`$.
+3. **Normalize finals**: set final weights to $`\bar{1}`$ (`LogWeight::one()`, the $`\otimes`$-identity $`= 0`$).
 
 ```text
 Before pushing:
@@ -82,8 +82,8 @@ After pushing:
   Result: all path weight absorbed into the initial-state potential
 ```
 
-In prose: each arc is reweighted `w′(e) = w(e) + V(dst) − V(src)`, so the telescoping
-sum along any start→final path collapses to the original total minus `V(start)`.
+In prose: each arc is reweighted $`w'(e) = w(e) + V(\text{dst}) - V(\text{src})`$, so the telescoping
+sum along any start→final path collapses to the original total minus $`V(\text{start})`$.
 
 ### Core API
 
@@ -189,11 +189,11 @@ Without normalization, short paths look artificially "better."
 
 Add an estimate of remaining cost to each hypothesis:
 
+```math
+\text{normalized score} = \text{accumulated score} + \operatorname{lookahead}(\text{current state})
 ```
-normalized_score = accumulated_score + lookahead(current_state)
 
-Where lookahead(q) = estimated cost to reach final from q
-```
+where $`\operatorname{lookahead}(q)`$ estimates the cost to reach a final state from $`q`$.
 
 ### API
 
@@ -258,11 +258,11 @@ let lookahead = compute_lookahead_single(&fst, state_id);
 
 ## Token Grouping (LET-Decoder, [Lv 2021](../BIBLIOGRAPHY.md#ref-lv2021))
 
-For on-the-fly composition (e.g., HCLG ∘ G_r), token grouping reduces redundant operations by 10-20×.
+For on-the-fly composition (e.g., $`\text{HCLG} \circ G_r`$), token grouping reduces redundant operations by 10-20×.
 
 ### Problem
 
-During on-the-fly composition with a residual grammar G_r:
+During on-the-fly composition with a residual grammar $`G_r`$:
 - Many tokens share the same HCLG state but differ in grammar state
 - Expanding all tokens independently wastes computation
 - Most tokens get pruned before reaching word boundaries
@@ -394,15 +394,15 @@ manager.expand_group(group_id);
 
 ## N-gram Back-off Structure
 
-For large vocabulary LMs, back-off structure avoids O(|V|²) transitions.
+For large vocabulary LMs, back-off structure avoids $`O(\lvert V\rvert^2)`$ transitions.
 
 ### Problem
 
 Naively representing an n-gram LM:
-- `O(∣V∣ⁿ⁻¹)` states for contexts
-- `O(∣V∣ⁿ)` arcs for all n-grams
+- $`O(\lvert V\rvert^{n-1})`$ states for contexts
+- $`O(\lvert V\rvert^n)`$ arcs for all n-grams
 
-For a vocabulary of 100K words: `10¹⁰` potential bigram arcs.
+For a vocabulary of 100K words: $`10^{10}`$ potential bigram arcs.
 
 ### Solution: Back-off
 
@@ -547,7 +547,7 @@ println!("Arc reduction: {:.1}%", reduction.arc_reduction * 100.0);
 |------------|------------|-------------|-----------|
 | 1,000 | 1,000,000 | ~50,000 | 95% |
 | 10,000 | 100,000,000 | ~500,000 | 99.5% |
-| 100,000 | 10^10 | ~5,000,000 | 99.95% |
+| 100,000 | $`10^{10}`$ | ~5,000,000 | 99.95% |
 
 ## Best Practices
 
@@ -609,9 +609,9 @@ Mohri et al. conjecture that log-semiring pushing provides the **optimal likelih
 
 > "The acoustic likelihoods and transducer probabilities are now synchronized to obtain the optimal likelihood ratio test for deciding whether to prune."
 
-### `α`-Stable Property
+### $`\alpha`$-Stable Property
 
-Token grouping maintains the **`α`-stable property** (here `α` denotes a group's best
+Token grouping maintains the **$`\alpha`$-stable property** (here $`\alpha`$ denotes a group's best
 forward log-probability, not the forward score of the FB algorithm):
 - Updating unexpanded groups doesn't change their forward probability
 - Enables correct lattice generation despite deferred expansion
@@ -623,23 +623,23 @@ forward log-probability, not the forward score of the FB algorithm):
 
 | Operation | Time | Space |
 |-----------|------|-------|
-| Compute potentials | `O(∣Q∣ + ∣E∣)` acyclic | `O(∣Q∣)` |
-| Apply push | `O(∣E∣)` | `O(∣E∣)` |
+| Compute potentials | $`O(\lvert Q\rvert + \lvert E\rvert)`$ acyclic | $`O(\lvert Q\rvert)`$ |
+| Apply push | $`O(\lvert E\rvert)`$ | $`O(\lvert E\rvert)`$ |
 
 ### Lookahead Table
 
 | Operation | Time | Space |
 |-----------|------|-------|
-| Build table | `O(∣Q∣ + ∣E∣)` | `O(∣Q∣)` |
-| Query | `O(1)` | - |
+| Build table | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(\lvert Q\rvert)`$ |
+| Query | $`O(1)`$ | - |
 
 ### Token Grouping
 
 | Operation | Time |
 |-----------|------|
-| Process token | `O(1)` amortized |
-| Advance frame | `O(groups)` |
-| Back-trace | `O(path length)` |
+| Process token | $`O(1)`$ amortized |
+| Advance frame | $`O(\text{groups})`$ |
+| Back-trace | $`O(\text{path length})`$ |
 
 ## References
 
@@ -657,7 +657,7 @@ forward log-probability, not the forward score of the FB algorithm):
 - [Lv 2021](../BIBLIOGRAPHY.md#ref-lv2021) — Lv, H., Povey, D., et al. *LET-Decoder: A
   WFST-Based Lazy-Evaluation Token-Group Decoder with Exact Lattice Generation*
   (IEEE SPL 28:703–707) — the token-grouping + lazy-evaluation strategy and the
-  `α`-stable property used here.
+  $`\alpha`$-stable property used here.
 
 ## Related Topics
 

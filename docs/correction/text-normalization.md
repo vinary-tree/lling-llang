@@ -3,12 +3,12 @@
 > **Thesis.** The `text_processing` module converts between the *written* and
 > *spoken* forms of text — `"$5" ⇄ "five dollars"`, `"123" ⇄ "one hundred
 > twenty three"` — by classifying each token into a **semiotic class** and
-> applying a per-class verbalizer `` `τ_c` `` realized as a WFST, then
+> applying a per-class verbalizer $`\tau_c`$ realized as a WFST, then
 > reassembling the pieces.
 
 This document covers the module `src/text_processing/`
 ([`mod.rs`](../../src/text_processing/mod.rs)): **Text Normalization (TN)**,
-`` `text → spoken` ``, and its inverse **ITN**, `` `spoken → text` ``.
+$`\text{text} \to \text{spoken}`$, and its inverse **ITN**, $`\text{spoken} \to \text{text}`$.
 
 ---
 
@@ -21,12 +21,12 @@ for conventions.
 |---|---|
 | **TN** | Text Normalization: written form → spoken form ("$5.50" → "five dollars and fifty cents"). |
 | **ITN** | Inverse Text Normalization: spoken form → written form (the inverse map). |
-| **Semiotic class** | The category of a token determining how it is verbalized: `` `c ∈ {CARDINAL, ORDINAL, MONEY, TIME, DATE, MEASURE, …}` `` (the [`SemioticClass`](../../src/text_processing/mod.rs) enum). |
-| `` `τ_c` `` | The **verbalizer** for class `` `c` `` — a WFST mapping a written token of that class to its spoken form (TN), or the inverse (ITN). |
-| `` `Σ` `` | The character alphabet of a verbalizer WFST (`` `VectorWfst<char, W>` ``). |
-| `` `⊕` ` / ` `⊗` `` | Semiring *plus* (alternatives) / *times* (sequential). Default weight is `` `TropicalWeight` ``. |
-| `` `1̄` `` | The `` `⊗` ``-identity (Tropical cost `` `0` ``), used for the cost-free arcs of the demonstration verbalizers. |
-| **Classifier** | The WFST/tagger that assigns each input span a `` `SemioticClass` ``, producing [`TaggedToken`](../../src/text_processing/mod.rs)s. |
+| **Semiotic class** | The category of a token determining how it is verbalized: $`c \in \{\text{CARDINAL}, \text{ORDINAL}, \text{MONEY}, \text{TIME}, \text{DATE}, \text{MEASURE}, \dots\}`$ (the [`SemioticClass`](../../src/text_processing/mod.rs) enum). |
+| $`\tau_c`$ | The **verbalizer** for class $`c`$ — a WFST mapping a written token of that class to its spoken form (TN), or the inverse (ITN). |
+| $`\Sigma`$ | The character alphabet of a verbalizer WFST (`VectorWfst<char, W>`). |
+| $`\oplus`$ / $`\otimes`$ | Semiring *plus* (alternatives) / *times* (sequential). Default weight is `TropicalWeight`. |
+| $`\bar{1}`$ | The $`\otimes`$-identity (Tropical cost $`0`$), used for the cost-free arcs of the demonstration verbalizers. |
+| **Classifier** | The WFST/tagger that assigns each input span a `SemioticClass`, producing [`TaggedToken`](../../src/text_processing/mod.rs)s. |
 | **WFST** | Weighted Finite-State Transducer (see [wfst-traits](../architecture/wfst-traits.md)). |
 
 The two-stage **classify-then-verbalize** design follows the production WFST
@@ -40,61 +40,61 @@ semiotic tokens, then a *verbalizer* grammar rewrites each tagged token.
 ### TN as a composition of class verbalizers
 
 Let the classifier partition an input string into tagged tokens
-`` `(t₁, c₁), …, (t_m, c_m)` `` where `` `tᵢ` `` is a token and
-`` `cᵢ ∈ SemioticClass` ``. TN is the labelled composition
+$`(t_1, c_1), \dots, (t_m, c_m)`$ where $`t_i`$ is a token and
+$`c_i \in \text{SemioticClass}`$. TN is the labelled composition
 
-```text
-TN(input) = reassemble( τ_{c₁}(t₁), τ_{c₂}(t₂), …, τ_{c_m}(t_m) )
+```math
+\text{TN}(\text{input}) = \text{reassemble}\bigl( \tau_{c_1}(t_1), \tau_{c_2}(t_2), \dots, \tau_{c_m}(t_m) \bigr)
 ```
 
-where each `` `τ_c` `` is a WFST and `` `reassemble` `` concatenates the spoken
+where each $`\tau_c`$ is a WFST and $`\text{reassemble}`$ concatenates the spoken
 spans in their original order. Plain tokens use the identity verbalizer
-`` `τ_PLAIN = id` ``. ITN is the same pipeline with each verbalizer inverted:
+$`\tau_{\text{PLAIN}} = \text{id}`$. ITN is the same pipeline with each verbalizer inverted:
 
-```text
-ITN(input) = reassemble( τ⁻¹_{c₁}(t₁), …, τ⁻¹_{c_m}(t_m) )
+```math
+\text{ITN}(\text{input}) = \text{reassemble}\bigl( \tau^{-1}_{c_1}(t_1), \dots, \tau^{-1}_{c_m}(t_m) \bigr)
 ```
 
-Because each `` `τ_c` `` is a finite-state transducer, the whole map is rational
+Because each $`\tau_c`$ is a finite-state transducer, the whole map is rational
 and composes with the rest of the library (lattices, n-best). The module's
 [`TextNormalizer`](../../src/text_processing/mod.rs) holds a `classifier`
-`` `VectorWfst<char, W>` `` plus a `` `HashMap<SemioticClass, Verbalizer<W>>` ``,
-and returns `` `Vec<(String, W)>` `` — a *weighted* list of candidates, keeping
+`VectorWfst<char, W>` plus a `HashMap<SemioticClass, Verbalizer<W>>`,
+and returns `Vec<(String, W)>` — a *weighted* list of candidates, keeping
 the signature ready for downstream beam search.
 
 ### The semiotic classes
 
-| Class `` `c` `` | TN example (`` `written → spoken` ``) |
+| Class $`c`$ | TN example ($`\text{written} \to \text{spoken}`$) |
 |---|---|
-| `CARDINAL` | `` `"123" → "one hundred twenty three"` `` |
-| `ORDINAL` | `` `"1st" → "first"` `` |
-| `MONEY` | `` `"$5" → "five dollars"` `` |
-| `TIME` | `` `"3:30 PM" → "three thirty PM"` `` |
-| `DATE` | `` `"01/15/2024" → "January fifteenth twenty twenty four"` `` |
-| `MEASURE` | `` `"5 km" → "five kilometers"` `` |
+| `CARDINAL` | `"123" → "one hundred twenty three"` |
+| `ORDINAL` | `"1st" → "first"` |
+| `MONEY` | `"$5" → "five dollars"` |
+| `TIME` | `"3:30 PM" → "three thirty PM"` |
+| `DATE` | `"01/15/2024" → "January fifteenth twenty twenty four"` |
+| `MEASURE` | `"5 km" → "five kilometers"` |
 
 (The enum also defines `Decimal`, `Fraction`, `Address`, `Telephone`,
 `Electronic`, `Verbatim`, `Whitelist`, and `Plain`.) Each row is one
-`` `τ_c` ``; the four-symbol classes named in this doc's mandate
+$`\tau_c`$; the four-symbol classes named in this doc's mandate
 (`CARDINAL, ORDINAL, MONEY, TIME, DATE, MEASURE`) are the canonical set.
 
 ### The CARDINAL spine
 
 `MONEY`, `MEASURE`, `ORDINAL`, and others delegate their numeric core to the
 CARDINAL verbalizer. The implementation's
-[`number_to_words`](../../src/text_processing/mod.rs) realizes `` `τ_CARDINAL` ``
-by positional decomposition into `` `{ones, tens}` `` tables scaled by
-`` `{hundred, thousand, million, billion}` `` multipliers; its ITN inverse
+[`number_to_words`](../../src/text_processing/mod.rs) realizes $`\tau_{\text{CARDINAL}}`$
+by positional decomposition into `{ones, tens}` tables scaled by
+`{hundred, thousand, million, billion}` multipliers; its ITN inverse
 [`words_to_number`](../../src/text_processing/mod.rs) folds the word stream back
 into an integer by accumulating values and applying multipliers. These are the
-proven kernels (`` `"123" ⇄ "one hundred twenty three"` ``) on which the
+proven kernels (`"123" ⇄ "one hundred twenty three"`) on which the
 class-specific WFSTs build.
 
 ---
 
 ## Intuition — `"$5" → "five dollars"`
 
-The MONEY verbalizer `` `τ_MONEY` `` reads the amount and currency and emits a
+The MONEY verbalizer $`\tau_{\text{MONEY}}`$ reads the amount and currency and emits a
 spoken phrase. Conceptually it (1) consumes the currency symbol and remembers it,
 (2) verbalizes the integer amount via the CARDINAL spine, and (3) appends the
 currency name — singular or plural depending on the amount, from
@@ -106,8 +106,8 @@ currency name — singular or plural depending on the amount, from
  (symbol absorbed)  (CARDINAL: 5→five)  (name_plural, amount ≠ 1)
 ```
 
-For `` `"$1"` `` the final arc would instead emit the singular
-`` `name_singular = "dollar"` ``, giving `` `"one dollar"` ``. This is the WFST
+For `"$1"` the final arc would instead emit the singular
+`name_singular = "dollar"`, giving `"one dollar"`. This is the WFST
 drawn in [§ Diagrams](#diagrams).
 
 ---
@@ -128,17 +128,17 @@ text_processing
 
 | Type | Responsibility |
 |---|---|
-| [`SemioticClass`](../../src/text_processing/mod.rs) | The class tag `` `c` `` driving verbalizer selection. |
+| [`SemioticClass`](../../src/text_processing/mod.rs) | The class tag $`c`$ driving verbalizer selection. |
 | [`TaggedToken`](../../src/text_processing/mod.rs) | A classified span: `text`, `class`, `start`, `end`. |
-| [`TextNormalizer<W>`](../../src/text_processing/mod.rs) | Holds the classifier `` `VectorWfst<char, W>` `` and the per-class verbalizers; `normalize(input) -> Vec<(String, W)>`. |
+| [`TextNormalizer<W>`](../../src/text_processing/mod.rs) | Holds the classifier `VectorWfst<char, W>` and the per-class verbalizers; `normalize(input) -> Vec<(String, W)>`. |
 | [`InverseTextNormalizer<W>`](../../src/text_processing/mod.rs) | The ITN side; `denormalize(input) -> Vec<(String, W)>`. |
-| [`Verbalizer<W>`](../../src/text_processing/mod.rs) | Wraps one class's WFST `` `τ_c` ``; exposes `wfst()` and `class()`. |
+| [`Verbalizer<W>`](../../src/text_processing/mod.rs) | Wraps one class's WFST $`\tau_c`$; exposes `wfst()` and `class()`. |
 | [`MoneyConfig`](../../src/text_processing/mod.rs) | Currency `symbol`, `name_singular/plural`, `subunit_singular/plural`, `subunit_divisor` (e.g. `100` for cents). |
 | [`DateFormat`](../../src/text_processing/mod.rs) / [`TimeFormat`](../../src/text_processing/mod.rs) | Disambiguate ordering/clock conventions for `DATE`/`TIME`. |
 
 The verbalizer WFSTs are built with the [`MutableWfst`](../../src/wfst/traits.rs)
 API (`add_state`, `set_start`, `set_final`, `add_transition`/`add_arc`), and the
-normalizer requires `` `W: Semiring + Clone + From<f64>` `` so class costs can be
+normalizer requires `W: Semiring + Clone + From<f64>` so class costs can be
 injected.
 
 ---
@@ -166,17 +166,17 @@ reassembled output is in input order.
   return reassemble(out)                          ▷ concatenate spans in order
 ```
 
-`` `classify` `` is `` `O(∣input∣)` `` for the demonstration classifier; each
-`` `τ_c` `` is a finite transducer so verbalizing a token is linear in its
-length; `` `reassemble` `` is linear in the number of tokens. ITN runs the same
-chunk with `` `τ⁻¹_c` `` (e.g. `words_to_number`) and inverted PLAIN handling.
+`classify` is $`O(\lvert \text{input}\rvert)`$ for the demonstration classifier; each
+$`\tau_c`$ is a finite transducer so verbalizing a token is linear in its
+length; $`\text{reassemble}`$ is linear in the number of tokens. ITN runs the same
+chunk with $`\tau^{-1}_c`$ (e.g. `words_to_number`) and inverted PLAIN handling.
 
-**Trace** (`` `"I have 123 apples"` ``, TN): the classifier tags `` `"123"` `` as
-`CARDINAL` and the rest as `PLAIN`; `` `τ_CARDINAL("123") = "one hundred twenty
-three"` ``; reassembly yields `` `"I have one hundred twenty three apples"` ``.
+**Trace** (`"I have 123 apples"`, TN): the classifier tags `"123"` as
+`CARDINAL` and the rest as `PLAIN`; $`\tau_{\text{CARDINAL}}(\text{"123"}) = \text{"one hundred twenty three"}`$;
+reassembly yields `"I have one hundred twenty three apples"`.
 The ITN trace runs in reverse: `` `words_to_number(["one","hundred","twenty",
 "three"]) = (123, 4)` `` consuming four words, so
-`` `"... one hundred twenty three apples" → "... 123 apples"` ``. ∎
+`"... one hundred twenty three apples" → "... 123 apples"`. ∎
 
 ---
 
@@ -207,11 +207,11 @@ let results = itn.denormalize("I have one hundred twenty three apples");
 assert!(results[0].0.contains("123"));
 ```
 
-### The CARDINAL spine (`` `τ_CARDINAL` `` and its inverse)
+### The CARDINAL spine ($`\tau_{\text{CARDINAL}}`$ and its inverse)
 
-`` `number_to_words` `` / `` `words_to_number` `` are crate-internal kernels
+`number_to_words` / `words_to_number` are crate-internal kernels
 (reached publicly through `normalize` / `denormalize`); this snippet is their
-in-module test, demonstrating the exact `` `"123" ⇄ "one hundred twenty three"` ``
+in-module test, demonstrating the exact `"123" ⇄ "one hundred twenty three"`
 correspondence the MONEY/MEASURE/ORDINAL verbalizers reuse.
 
 ```rust,ignore
@@ -244,8 +244,8 @@ assert_eq!(cfg.subunit_divisor, 100); // cents
 ![Activity flow: input text, classifier WFST tags tokens with a SemioticClass, a per-token branch routes CARDINAL/MONEY/TIME/DATE/MEASURE/ORDINAL/PLAIN tokens to their verbalizer τ_c, and the reassembler concatenates the verbalized spans into weighted candidates.](../diagrams/correction/tn-itn-flow.svg)
 
 *Amber = per-class verbalization activities; blue diamond = the class switch;
-green terminal = the emitted weighted candidates `` `Vec<(String, W)>` ``; the
-loop iterates over the classifier's `` `TaggedToken` ``s.*
+green terminal = the emitted weighted candidates `Vec<(String, W)>`; the
+loop iterates over the classifier's `TaggedToken`s.*
 
 <details><summary>Text view</summary>
 
@@ -265,14 +265,14 @@ stop
 
 </details>
 
-### The MONEY-class WFST (`` `$5 → five dollars` ``)
+### The MONEY-class WFST (`$5 → five dollars`)
 
 ![MONEY verbalizer WFST: absorb the currency symbol (ε output), verbalize the integer amount via the CARDINAL spine, then emit the plural currency name; the singular-name alternative is shown for amount = 1.](../diagrams/correction/money-fst.svg)
 
 *Blue = states; double green ring = final; bold green = the single accepting
-derivation `` `"$5" → "five dollars"` ``; grey = the singular alternative
-(`` `"$1" → "one dollar"` ``). Arc labels read `` `in:out/weight` `` with
-`` `ε` `` the empty label.*
+derivation `"$5" → "five dollars"`; grey = the singular alternative
+(`"$1" → "one dollar"`). Arc labels read `in:out/weight` with
+$`\varepsilon`$ the empty label.*
 
 <details><summary>Text view</summary>
 
@@ -288,14 +288,14 @@ derivation `` `"$5" → "five dollars"` ``; grey = the singular alternative
 
 ## Relation to the library
 
-- **Verbalizers are WFSTs.** Each `` `τ_c` `` is a
-  `` `VectorWfst<char, W>` `` (via [`Verbalizer`](../../src/text_processing/mod.rs)),
+- **Verbalizers are WFSTs.** Each $`\tau_c`$ is a
+  `VectorWfst<char, W>` (via [`Verbalizer`](../../src/text_processing/mod.rs)),
   so TN/ITN compose with [composition](../algorithms/composition.md) and feed the
   same [path-extraction](../algorithms/path-extraction.md) used elsewhere; the
-  `` `Vec<(String, W)>` `` return type is a ready-made candidate list for a beam.
-- **Weights.** `` `W: Semiring + From<f64>` `` lets class-specific costs (e.g. a
+  `Vec<(String, W)>` return type is a ready-made candidate list for a beam.
+- **Weights.** `W: Semiring + From<f64>` lets class-specific costs (e.g. a
   penalty on an unusual verbalization) ride on the arcs; with
-  `` `TropicalWeight` `` the lowest-cost verbalization is selected by
+  `TropicalWeight` the lowest-cost verbalization is selected by
   shortest path.
 - **Pipeline order.** TN/ITN is a *token-level* stage that runs after the
   character-level surface cleanup of

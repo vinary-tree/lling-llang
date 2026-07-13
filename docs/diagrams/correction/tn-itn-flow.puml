@@ -20,29 +20,29 @@ skinparam activity {
   EndColor #2E7D32
 }
 
-title <b>TN / ITN</b>  —  classify → normalize-per-class (τ<sub>c</sub>) → reassemble
+title <b>TN / ITN</b>  —  classify → normalize-per-class (<latex>\tau_c</latex>) → reassemble
 
 start
 :Input text\n(TN: "I have 123 apples"\nITN: "... one hundred twenty three ...");
 
 :<b>Classifier WFST</b>\ntag tokens with SemioticClass\n→ Vec&lt;TaggedToken&gt;;
 note right #ECEFF1
-  c ∈ {CARDINAL, ORDINAL,
+  c <latex>\in</latex> {CARDINAL, ORDINAL,
        MONEY, TIME, DATE,
-       MEASURE, …, PLAIN}
+       MEASURE, <latex>\dots</latex>, PLAIN}
 end note
 
 repeat :for each TaggedToken;
   #BBDEFB:Which SemioticClass c?;
   split
     -> CARDINAL;
-    :τ<sub>CARDINAL</sub>\n"123" ↔ "one hundred twenty three";
+    :<latex>\tau_{CARDINAL}</latex>\n"123" ↔ "one hundred twenty three";
   split again
     -> MONEY;
-    :τ<sub>MONEY</sub>\n"$5" ↔ "five dollars";
+    :<latex>\tau_{MONEY}</latex>\n"$5" ↔ "five dollars";
   split again
     -> TIME / DATE / MEASURE / ORDINAL;
-    :τ<sub>c</sub>  (per-class verbalizer);
+    :<latex>\tau_c</latex>  (per-class verbalizer);
   split again
     -> PLAIN;
     :pass through unchanged;

@@ -6,8 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Entries are reverse-chronological and grouped under **Added**, **Changed**,
-**Fixed**, and **Performance**. Mathematics is written in Unicode and wrapped in
-backticks per [`docs/STYLE.md`](docs/STYLE.md); symbols are defined in
+**Fixed**, and **Performance**. Mathematics is written as **MathJax LaTeX**
+delimited for GitHub-flavored Markdown — inline math as a backtick span wrapped in
+dollar signs ($`\oplus`$) and display math in a fenced block whose info-string
+is `math` — per [`docs/STYLE.md`](docs/STYLE.md); symbols are defined in
 [`docs/NOTATION.md`](docs/NOTATION.md).
 
 > **Tags & version history.** The crate manifest declared `version = "0.1.0"`
@@ -31,7 +33,7 @@ backticks per [`docs/STYLE.md`](docs/STYLE.md); symbols are defined in
   the `prattail` crate as the shared foundational home (Task #21 / ADR-018): effective
   Boolean algebras (`BooleanAlgebra`), Symbolic Finite Automata/Transducers (SFA/SFT),
   the `Sat3` three-valued tower (`RejectSafeAlgebra`/`HeytingAlgebra`), the generic
-  solver bridge (`ConstraintTheory`/`TheoryAlgebra`), behavioral (μ-calculus) algebra,
+  solver bridge (`ConstraintTheory`/`TheoryAlgebra`), behavioral ($`\mu`$-calculus) algebra,
   KAT `BooleanTest`, subtype-lattice and Presburger decision procedures, and the
   zero-admission Rocq proofs of their algebra laws (`proofs/coq/{logict,presburger,sft,
   symbolic_algebra}`, 16 theories, admission-free under Rocq 9.1.1). `prattail` now
@@ -41,12 +43,12 @@ backticks per [`docs/STYLE.md`](docs/STYLE.md); symbols are defined in
   [`docs/architecture/symbolic-core-hoist.md`](docs/architecture/symbolic-core-hoist.md).
 - **Documentation overhaul.** A full pedagogical documentation tier under
   [`docs/`](docs/), governed by a machine-checkable style guide:
-  - [`docs/STYLE.md`](docs/STYLE.md) — Unicode-math-in-backticks convention,
+  - [`docs/STYLE.md`](docs/STYLE.md) — the MathJax-LaTeX (GitHub-delimited) math convention,
     define-before-use rule, the *thesis → terms → model → intuition →
     architecture → algorithm → examples → diagrams → references* topic-doc flow,
     and the literate-pseudocode (Knuth) house template.
   - [`docs/NOTATION.md`](docs/NOTATION.md) — the canonical glossary of every
-    algebraic/automata symbol (`⊕`, `⊗`, `0̄`, `1̄`, `∘`, `π`, `η`, `∣Q∣`, …)
+    algebraic/automata symbol ($`\oplus`$, $`\otimes`$, $`\bar{0}`$, $`\bar{1}`$, $`\circ`$, $`\pi`$, $`\eta`$, $`\lvert Q\rvert`$, …)
     and acronym (WFST, WFSA, CTC, RNN-T, PDA, LF-MMI, …), defined once.
   - [`docs/BIBLIOGRAPHY.md`](docs/BIBLIOGRAPHY.md) — the citation-checked
     reference list; every DOI / arXiv / ACL / PMLR identifier verified to
@@ -64,6 +66,24 @@ backticks per [`docs/STYLE.md`](docs/STYLE.md); symbols are defined in
   and `ARCHITECTURE.md`.
 
 ### Changed
+- **Documentation math notation → MathJax LaTeX.** Migrated every repository and
+  `docs/` Markdown document from the previous Unicode-glyphs-in-backticks style to
+  **MathJax LaTeX** delimited for GitHub-flavored Markdown (inline $`…`$ spans,
+  display `math` fences). Rewrote [`docs/STYLE.md`](docs/STYLE.md) §1 and
+  [`docs/NOTATION.md`](docs/NOTATION.md) — whose **LaTeX** column is now the
+  canonical Unicode → LaTeX map — and updated `README.md`, `ARCHITECTURE.md`,
+  `CONTRIBUTING.md`, `GLOSSARY.md`, and
+  [`docs/diagrams/README.md`](docs/diagrams/README.md) to match. Archived the
+  scientific optimization ledgers to [`docs/archive/`](docs/archive/). Converted the
+  math labels of the PlantUML (`<latex>`, JLaTeXMath) and TikZ diagram sources to
+  LaTeX and regenerated their SVGs (Graphviz/D2 sources keep Unicode labels by design).
+- **Documentation quality fixes made alongside the migration.** Marked the no-op
+  feature flags `pcfg`, `error-grammar`, and `sexpr` as *reserved (no effect yet)*;
+  corrected the crate install version (`0.1` → `0.2`); re-attributed the GPU-decoder
+  performance figures in [`docs/advanced/gpu-acceleration.md`](docs/advanced/gpu-acceleration.md)
+  to Braun et al. (the crate ships no GPU kernels); softened the `f1r3fly` "full stack"
+  claim to what is actually wired; and normalized doubled-backtick code spans
+  (`` `X` `` → `X`), which had rendered with spurious visible backticks on GitHub.
 - README and module doc-comments cross-link into the new `docs/` tier rather
   than restating concepts inline.
 
@@ -90,7 +110,7 @@ semiring↔lattice bridge into the dictionary-family crates.
     matrix-closure with stabilization-to-star-solution lemmas.
   - **Coq WFST semantics:** WFST/state/transition definitions; path & path-weight
     definitions; adjacency-matrix-closure semantics; the weighted language
-    `L(A)` via duplicate-free, occurrence-indexed accepting-path enumerations.
+    $`L(A)`$ via duplicate-free, occurrence-indexed accepting-path enumerations.
   - **Reverse inclusion** — every real accepting transducing path is enumerated
     by the product-occurrence closed-path machinery, completing a full
     bidirectional correspondence between position-accepting-final closed
@@ -99,7 +119,7 @@ semiring↔lattice bridge into the dictionary-family crates.
     lemmas for Viterbi, shortest-distance, determinization, and minimization.
   - **TLA⁺ models:** `RRWM` (bounded online-learning accounting),
     `LazyComposition` (cache / worklist / LRU-order memory bounds), and
-    `CascadeOrder` (`H → C → L → G` ordering) — 9 TLC configs plus 3
+    `CascadeOrder` ($`H \to C \to L \to G`$ ordering) — 9 TLC configs plus 3
     expected-failure mutants that prove the checks have teeth.
 - **Transducer families & new layers** (`f60fc69`): multitape (`k`-tape)
   transducers, weighted pushdown automata (PDA), tree transducers, error models
@@ -151,21 +171,21 @@ foundation (`semiring`, `wfst`, `lattice`, `algorithms`, `path`, `cfg`,
 
 ### Added
 - **Semiring foundation** — ~15 weight types (Tropical, Log, Probability,
-  Boolean, Expectation, Product, Lexicographic, Power/`η`-power, String, Count,
+  Boolean, Expectation, Product, Lexicographic, Power/$`\eta`$-power, String, Count,
   Gödel, SignedTropical, …) behind a single `Semiring` trait, so one algorithm
   computes shortest path, total probability mass, reachability, or an expected
   gradient by swapping the weight type (`2a9495a`, Phase 4 semirings
   `0f368e0`).
 - **WFST core & rational operations** — the `Wfst`/`MutableWfst` traits and
-  `VectorWfst`; union (`A ∪ B`), concatenation (`A · B`), Kleene closure (`A*`),
-  invert, project, reverse, and lazy composition (`A ∘ B`) (Phase 2 core ops,
+  `VectorWfst`; union ($`A \cup B`$), concatenation ($`A \cdot B`$), Kleene closure ($`A^*`$),
+  invert, project, reverse, and lazy composition ($`A \circ B`$) (Phase 2 core ops,
   `c36afe5`).
 - **Lattices** — the weighted-DAG `Lattice`, `LatticeBuilder`, `Node`, `Edge`,
   and the `LatticeBackend` storage abstraction (`HashMapBackend`).
 - **Shortest-distance & path extraction** — the generalized single-source
   shortest-distance algorithm with **queue disciplines** (`3cf4a19`), and
   `viterbi`, `nbest` (top-`k`), and `beam_search` path extractors.
-- **Core WFST algorithms** — weight pushing, `ε`-removal, `connect` (trimming),
+- **Core WFST algorithms** — weight pushing, $`\varepsilon`$-removal, `connect` (trimming),
   and synchronization, generic over the semiring (`c36afe5`).
 - **Determinization & minimization** — weighted-subset determinization and
   partition-refinement minimization (Phase 3, `e72e343`).
@@ -186,7 +206,7 @@ foundation (`semiring`, `wfst`, `lattice`, `algorithms`, `path`, `cfg`,
 - **Benchmark harness** — a Criterion harness in
   [`benches/core_benchmarks.rs`](benches/core_benchmarks.rs) and the scientific
   optimization ledger in
-  [`docs/optimization/journal.md`](docs/optimization/journal.md).
+  [`docs/archive/journal.md`](docs/archive/journal.md).
 
 ### Fixed
 - **Minimization floating-point tolerance** and context-dependency label
@@ -194,20 +214,20 @@ foundation (`semiring`, `wfst`, `lattice`, `algorithms`, `path`, `cfg`,
 
 ### Performance
 *Accepted optimizations from the scientific ledger
-([`docs/optimization/journal.md`](docs/optimization/journal.md)); each was merged
+([`docs/archive/journal.md`](docs/archive/journal.md)); each was merged
 only after a benchmarked improvement at `p < 0.05`.*
-- **Topological sort `O(∣V∣²)` → `O(∣V∣ + ∣E∣)`** by building an
+- **Topological sort $`O(\lvert V\rvert^2)`$ → $`O(\lvert V\rvert + \lvert E\rvert)`$** by building an
   `edge_id → target` lookup table once instead of scanning all nodes per edge —
   **−94%** on a 200-node diamond lattice (**17.6×** faster) (`c3449c2`).
-- **`log_sum_exp` fast path** — when `∣a − b∣ > 20`, `e⁻ᵈⁱᶠᶠ` underflows below
+- **`log_sum_exp` fast path** — when $`\lvert a - b\rvert > 20`$, $`e^{-\text{diff}}`$ underflows below
   `f64` precision, so the result is simply `min(a, b)`, skipping `exp`/`ln`:
-  **≈ −10%** on log-semiring ops, with `−5…12%` cascading across algorithms
+  **$`\approx`$ −10%** on log-semiring ops, with `−5…12%` cascading across algorithms
   (`ef735dc`).
 - **Beam-search allocation removal** — eliminated the intermediate `Vec` in the
-  edge-expansion loop (direct iteration): **≈ −23%** on beam search (`347e98d`).
+  edge-expansion loop (direct iteration): **$`\approx`$ −23%** on beam search (`347e98d`).
 - **Path-extend clone reduction** — added `extend_move(self, …)` and a
   move-last pattern so each path extension saves one `SmallVec<[EdgeId; 16]>`
-  clone: **≈ −25%** on beam search, **up to −21%** on N-best (`8bf8d78`).
+  clone: **$`\approx`$ −25%** on beam search, **up to −21%** on N-best (`8bf8d78`).
 
 *Rejected optimizations (documented in the ledger so they are not re-attempted):*
 semiring `#[inline(always)]` (compiler already inlined; forcing it bloated

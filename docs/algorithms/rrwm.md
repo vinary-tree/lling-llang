@@ -8,13 +8,13 @@ Defined centrally in [`../NOTATION.md`](../NOTATION.md); repeated locally for th
 
 | Symbol | Meaning |
 |---|---|
-| `∘` | composition — combines the cumulative automaton with the round's loss transducer. |
-| `⊕` / `⊗` | semiring *plus* / *times* over the `η`-power semiring. |
-| `1̄` | the `⊗`-identity (`W₀` is the one-state automaton, all paths weight `1̄`). |
-| `η` | power-semiring exponent — the online-learning temperature (smaller = more exploration). |
-| `Wₜ`, `Vₜ` | cumulative weight automaton / loss transducer at round `t`. |
-| `R_T` | total regret after `T` rounds; `M` = max loss/round, `N` = number of experts. |
-| `∣Wₜ∣`, `∣Vₜ∣` | sizes used in the per-round composition bound (cardinality bar `∣` = U+2223). |
+| $`\circ`$ | composition — combines the cumulative automaton with the round's loss transducer. |
+| $`\oplus`$ / $`\otimes`$ | semiring *plus* / *times* over the $`\eta`$-power semiring. |
+| $`\bar{1}`$ | the $`\otimes`$-identity ($`W_0`$ is the one-state automaton, all paths weight $`\bar{1}`$). |
+| $`\eta`$ | power-semiring exponent — the online-learning temperature (smaller = more exploration). |
+| $`W_t`$, $`V_t`$ | cumulative weight automaton / loss transducer at round $`t`$. |
+| $`R_T`$ | total regret after $`T`$ rounds; $`M`$ = max loss/round, $`N`$ = number of experts. |
+| $`\lvert W_t\rvert`$, $`\lvert V_t\rvert`$ | sizes used in the per-round composition bound (cardinality bar $`\lvert\cdot\rvert`$). |
 
 ## Concepts
 
@@ -45,13 +45,13 @@ RRWM combines these experts, learning which ones to trust over time.
 
 ### Algorithm Overview
 
-RRWM maintains a **cumulative weight automaton** `` `Wₜ` `` that tracks performance. Each
-round predicts by sampling `` `Wₜ₋₁` ``, observes a loss transducer `` `Vₜ` ``, composes it
+RRWM maintains a **cumulative weight automaton** $`W_t`$ that tracks performance. Each
+round predicts by sampling $`W_{t-1}`$, observes a loss transducer $`V_t`$, composes it
 in, and weight-pushes to restore a stochastic automaton for the next sample.
 
 ![RRWM online learning loop: starting from W₀ (one-state, all paths weight 1̄), each round predicts by sampling Wₜ₋₁, builds a loss transducer Vₜ, composes Wₜ ← Wₜ₋₁ ∘ Vₜ, weight-pushes to stochastic, and accumulates loss until T rounds or a state cap triggers reset](../diagrams/algorithms/rrwm-loop.svg)
 
-*Purple = the learner's predict step (sampling); algorithms-green = the WFST operations it drives (compose, weight-push); the loop runs until round `T` or a state cap forces a reset to `W₀`. Regret bound `` `E[R_T] ≤ 2M√(T log N)` ``.*
+*Purple = the learner's predict step (sampling); algorithms-green = the WFST operations it drives (compose, weight-push); the loop runs until round $`T`$ or a state cap forces a reset to $`W_0`$. Regret bound $`E[R_T] \le 2M\sqrt{T \log N}`$.*
 
 <details><summary>Text view</summary>
 
@@ -93,27 +93,27 @@ The literate chunks below name each phase of one round.
 ```
 
 The key insight is that WFST composition efficiently combines all paths across all
-experts in one structure, so the weighted-majority update is a single `` `∘` ``-then-push.
+experts in one structure, so the weighted-majority update is a single $`\circ`$-then-push.
 
 ### Regret Bound
 
-RRWM achieves the theoretical regret bound `` `E[R_T] ≤ 2M√(T log N)` ``:
+RRWM achieves the theoretical regret bound $`E[R_T] \le 2M\sqrt{T \log N}`$:
 
-```text
-E[R_T] ≤ 2M√(T log N)
+```math
+E[R_T] \le 2M\sqrt{T \log N}
 ```
 
 Where:
-- `` `R_T` ``: Total regret after `T` rounds
-- `M`: Maximum loss per round
-- `T`: Number of rounds
-- `N`: Number of path experts
+- $`R_T`$: Total regret after $`T`$ rounds
+- $`M`$: Maximum loss per round
+- $`T`$: Number of rounds
+- $`N`$: Number of path experts
 
-This bound is **sublinear** in `T`, meaning average regret decreases over time ([Cortes 2015](../BIBLIOGRAPHY.md#ref-cortes2015)).
+This bound is **sublinear** in $`T`$, meaning average regret decreases over time ([Cortes 2015](../BIBLIOGRAPHY.md#ref-cortes2015)).
 
 ### Connection to Power Semiring
 
-RRWM operates over the `η`-power semiring to enable:
+RRWM operates over the $`\eta`$-power semiring to enable:
 - Smooth weight updates (vs hard thresholding)
 - Proper probability distributions after weight pushing
 - Rational loss functions (hence "Rational" in RRWM)
@@ -139,7 +139,7 @@ let rrwm = Rrwm::<char>::new(config);
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `eta` | 1.0 | Power semiring `η` (smaller = more exploration) |
+| `eta` | 1.0 | Power semiring $`\eta`$ (smaller = more exploration) |
 | `learning_rate` | 1.0 | Multiplier for weight updates |
 | `max_rounds` | 100,000 | Reset trigger (prevents unbounded automaton growth) |
 | `track_statistics` | false | Enable detailed statistics |
@@ -369,21 +369,21 @@ println!("Start state: {}", cumulative.start());
 
 ### Weight Update Mechanism
 
-At each round, weights are updated via WFST composition, i.e. `` `Wₜ = WeightPush(Wₜ₋₁ ∘ Vₜ)` ``:
+At each round, weights are updated via WFST composition:
 
-```text
-Wₜ = WeightPush(Wₜ₋₁ ∘ Vₜ)
+```math
+W_t = \operatorname{WeightPush}(W_{t-1} \circ V_t)
 ```
 
 Where:
-- `` `Wₜ₋₁` `` is the cumulative automaton from the previous round
-- `` `Vₜ` `` is the loss transducer for round `t`
-- `` `∘` `` denotes WFST composition
+- $`W_{t-1}`$ is the cumulative automaton from the previous round
+- $`V_t`$ is the loss transducer for round $`t`$
+- $`\circ`$ denotes WFST composition
 - `WeightPush` makes the result stochastic for sampling
 
 ### Loss Transducer Construction
 
-The loss transducer V_t encodes the loss for each possible prediction:
+The loss transducer $`V_t`$ encodes the loss for each possible prediction:
 
 ```
 Input: actual outcome y
@@ -395,10 +395,10 @@ For incorrect prediction: high loss (low weight)
 
 ### Sampling Predictions
 
-After weight pushing, the cumulative automaton is stochastic (outgoing weights sum to 1). Predictions are sampled proportional to weights, i.e. `` `P(π) ∝ Wₜ(π)` ``:
+After weight pushing, the cumulative automaton is stochastic (outgoing weights sum to 1). Predictions are sampled proportional to weights:
 
-```text
-P(path π) ∝ Wₜ(π)
+```math
+P(\text{path } \pi) \propto W_t(\pi)
 ```
 
 Better-performing paths get higher probability over time.
@@ -445,20 +445,20 @@ Better-performing paths get higher probability over time.
 
 | Operation | Complexity |
 |-----------|------------|
-| `observe()` | `` `O(∣Wₜ₋₁∣ × ∣Vₜ∣)` `` composition |
-| `predict()` | `` `O(path length)` `` sampling |
-| `regret_bound()` | `` `O(1)` `` |
-| `reset()` | `` `O(1)` `` |
-| Space | `` `O(∣Wₜ∣)` `` cumulative automaton |
+| `observe()` | $`O(\lvert W_{t-1}\rvert \times \lvert V_t\rvert)`$ composition |
+| `predict()` | $`O(\text{path length})`$ sampling |
+| `regret_bound()` | $`O(1)`$ |
+| `reset()` | $`O(1)`$ |
+| Space | $`O(\lvert W_t\rvert)`$ cumulative automaton |
 
 ## References
 
-- [Cortes 2015](../BIBLIOGRAPHY.md#ref-cortes2015) — Cortes, C., Kuznetsov, V., Mohri, M., & Warmuth, M. K. (2015). *On-Line Learning Algorithms for Path Experts with Non-Additive Losses.* COLT 2015, PMLR 40:424–447. Figure 6 defines RRWM; the `` `E[R_T] ≤ 2M√(T log N)` `` regret bound and the compose-then-push update are from this work.
+- [Cortes 2015](../BIBLIOGRAPHY.md#ref-cortes2015) — Cortes, C., Kuznetsov, V., Mohri, M., & Warmuth, M. K. (2015). *On-Line Learning Algorithms for Path Experts with Non-Additive Losses.* COLT 2015, PMLR 40:424–447. Figure 6 defines RRWM; the $`E[R_T] \le 2M\sqrt{T \log N}`$ regret bound and the compose-then-push update are from this work.
 - [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms*: the composition and weight-pushing primitives RRWM drives each round.
 
 ## Related Documentation
 
-- [Power Semiring](../architecture/power-semiring.md) - The `η`-power semiring used by RRWM
+- [Power Semiring](../architecture/power-semiring.md) - The $`\eta`$-power semiring used by RRWM
 - [Path Sampling](path-sampling.md) - How predictions are sampled
 - [Weight Pushing](weight-pushing.md) - Making automata stochastic
 - [Composition](composition.md) - How loss transducers are combined

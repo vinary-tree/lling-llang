@@ -18,7 +18,7 @@ title <b>WFST trait hierarchy</b>\n<size:11><i>read-only core, extended for muta
 interface "Wfst<L, W: Semiring>" as W {
   +start() : StateId
   +is_final(StateId) : bool
-  +final_weight(StateId) : W      .. ρ
+  +final_weight(StateId) : W      .. <latex>\rho</latex>
   +transitions(StateId) : &[WeightedTransition<L,W>]
   +num_states() : usize
   +num_transitions(StateId) : usize

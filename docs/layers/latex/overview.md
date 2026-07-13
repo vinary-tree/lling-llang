@@ -9,15 +9,15 @@ each pass gated by a `LatexSyntaxConfig` flag: **Pass 1** prunes ungrammatical
 edges with an Earley parse over the `LatexGrammar`; **Pass 2** validates structure
 (brace matching, environment begin/end pairing, math-delimiter balance) with the
 `LatexValidator`; **Pass 3** generates repair suggestions for any
-`` `ValidationIssue` ``s, optionally applying high-confidence ones automatically
-when `` `confidence ≥ auto_repair_threshold` ``.
+`ValidationIssue`s, optionally applying high-confidence ones automatically
+when $`\text{confidence} \ge \text{auto\_repair\_threshold}`$.
 
 ![Activity diagram: LatexSyntaxLayer.apply flows from the input lattice through an optional grammar-filter pass (prune_ungrammatical), a structural-validation pass (validate_structure) that emits ValidationIssues, and a repair-generation pass (generate_repairs) that sorts suggestions by confidence and either auto-applies them or stashes them in last_repairs, ending at the output lattice plus repair suggestions.](../../diagrams/layers/latex/repair-flow.svg)
 
 *Amber = the validate/repair activities; grey diamonds = the `LatexSyntaxConfig`
 gates (`prune_ungrammatical`, `validate_structure`, `generate_repairs`,
 `auto_repair`); green terminal = the filtered lattice plus its
-`` `RepairSuggestion` `` list.*
+`RepairSuggestion` list.*
 
 <details><summary>Text view</summary>
 

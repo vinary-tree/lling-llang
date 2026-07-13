@@ -16,37 +16,37 @@ skinparam sequence {
   ParticipantFontColor #102027
 }
 
-title <b>Forward–backward autograd over a WFST</b>\n<size:11><i>forward score → backward arc-posteriors; gradient = −posterior</i></size>
+title <b>Forward–backward autograd over a WFST</b>\n<size:11><i>forward score → backward arc-posteriors; <latex>\text{gradient} = -\text{posterior}</latex></i></size>
 
 participant "Neural\nemissions E" as NN #FFE0B2
-participant "Forward pass\nα[s]" as FWD
-participant "Backward pass\nβ[s]" as BWD
-participant "Arc gradients\n∂Z/∂w" as G #C8E6C9
+participant "Forward pass\n<latex>\alpha[s]</latex>" as FWD
+participant "Backward pass\n<latex>\beta[s]</latex>" as BWD
+participant "Arc gradients\n<latex>\partial Z/\partial w</latex>" as G #C8E6C9
 
 == Forward pass (prefix scores, topological order) ==
 NN -> FWD : log-prob arc weights w
 note over FWD
-  α[q₀] = 1̄ (= 0 in log)
-  α[t] = α[t] ⊕ (α[s] ⊗ w)
+  <latex>\alpha[q_0] = \bar{1}</latex> (= 0 in log)
+  <latex>\alpha[t] = \alpha[t] \oplus (\alpha[s] \otimes w)</latex>
   for every arc (s, t, w)
 end note
-FWD -> FWD : Z = ⊕_{f∈F} (α[f] ⊗ ρ[f])
+FWD -> FWD : <latex>Z = \bigoplus_{f \in F} (\alpha[f] \otimes \rho[f])</latex>
 
 == Backward pass (suffix scores, reverse topological order) ==
 FWD -> BWD : partition function Z
 note over BWD
-  β[f] = ρ[f] for finals
-  β[s] = β[s] ⊕ (w ⊗ β[t])
+  <latex>\beta[f] = \rho[f]</latex> for finals
+  <latex>\beta[s] = \beta[s] \oplus (w \otimes \beta[t])</latex>
   for every arc (s, t, w)
 end note
 
 == Combine: per-arc posterior ==
-FWD -> G : α[s]
-BWD -> G : β[t]
+FWD -> G : <latex>\alpha[s]</latex>
+BWD -> G : <latex>\beta[t]</latex>
 note over G
   posterior(arc) =
-    exp(α[s] + w + β[t] − Z)
-  ∂Loss/∂w = −posterior
+    <latex>\exp(\alpha[s] + w + \beta[t] - Z)</latex>
+  <latex>\partial \text{Loss}/\partial w = -\text{posterior}</latex>
 end note
 G --> NN : gradients back to emissions
 

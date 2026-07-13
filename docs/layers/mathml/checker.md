@@ -10,7 +10,7 @@ the checker within the full check / normalization pipeline.
 
 *Amber = the disambiguation/type-check activities; grey diamonds =
 `MathMLSemanticConfig` gates; green terminal = the output lattice plus its
-`` `SemanticResult` ``. Type checking is the `check_types` branch.*
+`SemanticResult`. Type checking is the `check_types` branch.*
 
 <details><summary>Text view</summary>
 

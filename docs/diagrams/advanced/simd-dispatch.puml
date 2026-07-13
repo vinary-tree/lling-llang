@@ -42,7 +42,7 @@ else (none)
   #ECEFF1:scalar fallback\n1 lane (portable loop);
 endif
 
-:process ⌊n / width⌋ full vectors\nwith ⊕ (min / log-add) or ⊗ (+);
+:process <latex>\lfloor n / \text{width} \rfloor</latex> full vectors\nwith <latex>\oplus</latex> (min / log-add) or <latex>\otimes</latex> (+);
 :handle n mod width tail elements\nin scalar;
 #C8E6C9:return Vec<f64> result;
 stop

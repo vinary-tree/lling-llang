@@ -20,14 +20,14 @@ title <b>Queue-discipline selection</b>\n<size:11><i>single-source shortest-dist
 
 start
 if (graph acyclic?) then (yes)
-  #C8E6C9:**Topological queue**\nprocess each state once\nO(∣Q∣ + ∣E∣);
+  #C8E6C9:**Topological queue**\nprocess each state once\n<latex>O(|Q| + |E|)</latex>;
   stop
 else (no)
   if (tropical + nonneg weights?) then (yes)
-    #C8E6C9:**Shortest-first (Dijkstra)**\nmin-distance priority queue\nO(∣E∣ + ∣Q∣ log ∣Q∣);
+    #C8E6C9:**Shortest-first (Dijkstra)**\nmin-distance priority queue\n<latex>O(|E| + |Q| \log |Q|)</latex>;
     stop
   else (no)
-    #C8E6C9:**FIFO queue**\ngeneral k-closed semiring\nO(C · ∣E∣);
+    #C8E6C9:**FIFO queue**\ngeneral k-closed semiring\n<latex>O(C \cdot |E|)</latex>;
     stop
   endif
 endif
@@ -35,7 +35,7 @@ endif
 legend right
   | Discipline | When |
   |<#C8E6C9> Topological | DAGs / lattices |
-  |<#C8E6C9> Shortest-first | tropical, w ≥ 0 |
+  |<#C8E6C9> Shortest-first | tropical, <latex>w \ge 0</latex> |
   |<#C8E6C9> FIFO | cyclic, k-closed |
   ----
   Auto picks Topological if a topo-sort exists, else FIFO.

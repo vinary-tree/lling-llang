@@ -1,14 +1,14 @@
 # Lookahead Pruning
 
-**Thesis.** A *lookahead table* `` `L` `` precomputes, for every state `` `q` ``,
-an estimate of the cost still to come — `` `L[q] = ⊕` `` over the arcs reachable
-from `` `q` `` to a final state — so that beam search can compare hypotheses at
+**Thesis.** A *lookahead table* $`L`$ precomputes, for every state $`q`$,
+an estimate of the cost still to come — $`L[q] = \bigoplus`$ over the arcs reachable
+from $`q`$ to a final state — so that beam search can compare hypotheses at
 different stages of completion on equal footing and prune the hopeless ones
 earlier.
 
 During beam search a hypothesis that has consumed three words has necessarily
 accumulated more cost than one that has consumed one, even if the longer
-hypothesis is globally better. Adding `` `L[q] `` — the *backward potential* —
+hypothesis is globally better. Adding $`L[q]`$ — the *backward potential* —
 turns the raw accumulated cost into an estimate of the **whole-path** cost, which
 *is* comparable across hypotheses. Source:
 [`src/optimization/lookahead.rs`](../../src/optimization/lookahead.rs).
@@ -20,74 +20,78 @@ turns the raw accumulated cost into an estimate of the **whole-path** cost, whic
 | Term | Meaning |
 |---|---|
 | **WFST / WFSA** | Weighted Finite-State Transducer / Acceptor. ([NOTATION](../NOTATION.md)) |
-| `` `L[q]` `` | Lookahead score for state `` `q` `` — its backward potential `` `V(q)` ``. |
-| `` `V(q)` `` | Backward potential: `` `V(q) = ⊕` `` over all paths from `` `q` `` to a final state. |
-| `` `⊕` `` | Semiring *plus*. In the **log** semiring `` `⊕ = ⊕ₗₒg` ``; combines alternative futures. |
-| `` `⊗` `` | Semiring *times* (`` `+` `` in log space); combines a prefix with its future estimate. |
-| `` `0̄` `` | Additive identity (`` `⊕` ``-identity) — “no path”/unreachable; log `` `0̄ = ∞` ``. |
-| `` `g(q)` `` | Accumulated weight of the prefix reaching `` `q` `` (the beam's running score). |
+| $`L[q]`$ | Lookahead score for state $`q`$ — its backward potential $`V(q)`$. |
+| $`V(q)`$ | Backward potential: $`V(q) = \bigoplus`$ over all paths from $`q`$ to a final state. |
+| $`\oplus`$ | Semiring *plus*. In the **log** semiring $`\oplus = \oplus_{\log}`$; combines alternative futures. |
+| $`\otimes`$ | Semiring *times* ($`+`$ in log space); combines a prefix with its future estimate. |
+| $`\bar{0}`$ | Additive identity ($`\oplus`$-identity) — “no path”/unreachable; log $`\bar{0} = \infty`$. |
+| $`g(q)`$ | Accumulated weight of the prefix reaching $`q`$ (the beam's running score). |
 | **frontier** | The active hypotheses kept by the beam at one step. |
-| `` `β` `` | Beam width — keep hypotheses within `` `best + β` `` of the best score. |
-| `` `∣Q∣` ``, `` `∣E∣` `` | State / edge counts (cardinality, U+2223, not ASCII `|`). |
+| $`\beta`$ | Beam width — keep hypotheses within $`\text{best} + \beta`$ of the best score. |
+| $`\lvert Q\rvert`$, $`\lvert E\rvert`$ | State / edge counts (cardinality, U+2223, not ASCII `|`). |
 
 ---
 
 ## Formal model
 
 The lookahead score is the **backward shortest-distance** in the log semiring.
-For an acyclic WFST with final-weight function `` `ρ` ``,
+For an acyclic WFST with final-weight function $`\rho`$,
 
-```text
-V(q) = ⊕ over paths π : q ⇝ F   of   w(π) ⊗ ρ(end(π))
-     = ⊕ₐ∈arcs(q)   w(a) ⊗ V(target(a))          (recurrence)
-     = ρ(q)                                       if q ∈ F (base case)
+```math
+\begin{aligned}
+V(q) &= \bigoplus \text{ over paths } \pi : q \rightsquigarrow F \ \text{ of } \ w(\pi) \otimes \rho(\text{end}(\pi)) \\
+     &= \bigoplus_{a \in \text{arcs}(q)} w(a) \otimes V(\text{target}(a)) && \text{(recurrence)} \\
+     &= \rho(q) && \text{if } q \in F \text{ (base case)}
+\end{aligned}
 ```
 
-so `` `L[q] = V(q) `` is exactly the *total probability mass* of all
-continuations from `` `q` `` to acceptance, expressed as a negative log weight.
-A hypothesis sitting at `` `q` `` with prefix cost `` `g(q)` `` gets the
+so $`L[q] = V(q)`$ is exactly the *total probability mass* of all
+continuations from $`q`$ to acceptance, expressed as a negative log weight.
+A hypothesis sitting at $`q`$ with prefix cost $`g(q)`$ gets the
 **normalized score**
 
-```text
-score(q) = g(q) ⊗ L[q]            (log space: g(q) + V(q))
+```math
+\text{score}(q) = g(q) \otimes L[q] \qquad \text{(log space: } g(q) + V(q) \text{)}
 ```
 
-which estimates the full-path cost; beam pruning then keeps `` `q` `` iff
-`` `score(q) ≤ best + β` ``. This is the admissible "A\*-style" completion
-estimate: in the log semiring `` `V(q)` `` sums *all* futures (not just the best
+which estimates the full-path cost; beam pruning then keeps $`q`$ iff
+$`\text{score}(q) \le \text{best} + \beta`$. This is the admissible "A\*-style" completion
+estimate: in the log semiring $`V(q)`$ sums *all* futures (not just the best
 one), the same quantity log-semiring weight pushing computes
 ([Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002)), so the module reuses those
 potentials directly.
 
 | Component | Type | Role |
 |---|---|---|
-| `` `V` `` | `` `Vec<LogWeight>` `` (`potentials`) | Backward potential per state. |
-| `` `L[q]` `` | `LogWeight` (`get(q)`) | The lookahead score; `` `0̄` `` for out-of-range `` `q` ``. |
-| total | `LogWeight` (`total_weight`) | `` `V(start)` `` — total mass through the WFST. |
+| $`V`$ | `Vec<LogWeight>` (`potentials`) | Backward potential per state. |
+| $`L[q]`$ | `LogWeight` (`get(q)`) | The lookahead score; $`\bar{0}`$ for out-of-range $`q`$. |
+| total | `LogWeight` (`total_weight`) | $`V(\text{start})`$ — total mass through the WFST. |
 
 ---
 
 ## Intuition — a chain and a fork
 
-For the chain `` `q0 --a/1.0--> q1 --b/2.0--> q2(final)` `` the futures are
+For the chain $`q_0 \xrightarrow{a/1.0} q_1 \xrightarrow{b/2.0} q_2(\text{final})`$ the futures are
 unique, so the potentials are just suffix sums:
 
-```text
-V(q2) = 0   (final, log 1 = 0)
-V(q1) = 2.0 (only continuation: b)
-V(q0) = 3.0 (a then b: 1.0 + 2.0)
+```math
+\begin{aligned}
+V(q_2) &= 0   && \text{(final, } \log 1 = 0 \text{)} \\
+V(q_1) &= 2.0 && \text{(only continuation: } b \text{)} \\
+V(q_0) &= 3.0 && \text{(} a \text{ then } b \text{: } 1.0 + 2.0 \text{)}
+\end{aligned}
 ```
 
-For a fork `` `q0` `` with two arcs to the same final (`` `a/1.0` `` and
-`` `b/2.0` ``), the futures combine with `` `⊕ₗₒg` ``:
+For a fork $`q_0`$ with two arcs to the same final ($`a/1.0`$ and
+$`b/2.0`$), the futures combine with $`\oplus_{\log}`$:
 
-```text
-V(q0) = −log(e^{−1.0} + e^{−2.0}) ≈ 0.687
+```math
+V(q_0) = -\log(e^{-1.0} + e^{-2.0}) \approx 0.687
 ```
 
 Both are tested directly: `test_build_lookahead_chain` checks
-`` `L[0]=3.0, L[1]=2.0, L[2]=0` ``, and `test_lookahead_parallel` checks the
-fork's `` `≈ 0.687` ``.
+$`L[0]=3.0, L[1]=2.0, L[2]=0`$, and `test_lookahead_parallel` checks the
+fork's $`\approx 0.687`$.
 
 ---
 
@@ -95,7 +99,7 @@ fork's `` `≈ 0.687` ``.
 
 ### `LookaheadTable`
 
-`LookaheadTable` is the materialized `` `L` ``. It exposes the lookahead per
+`LookaheadTable` is the materialized $`L`$. It exposes the lookahead per
 state and the global mass:
 
 ```rust
@@ -110,11 +114,11 @@ let estimate = table.normalize_score(current_state, &g);   // g ⊗ L[q]
 
 | Method | Returns | Meaning |
 |---|---|---|
-| `get(q)` | `LogWeight` | `` `L[q] = V(q)` ``; `` `0̄` `` (`LogWeight::zero()`) if `` `q` `` is out of range. |
-| `get_value(q)` | `f64` | The raw potential, or `` `∞` `` if unreachable. |
-| `is_reachable(q)` | `bool` | Whether `` `q` `` has any path to a final state. |
-| `normalize_score(q, g)` | `LogWeight` | `` `g ⊗ L[q]` `` — the completion estimate. |
-| `total_weight()` | `&LogWeight` | `` `V(start)` `` — total mass through the WFST. |
+| `get(q)` | `LogWeight` | $`L[q] = V(q)`$; $`\bar{0}`$ (`LogWeight::zero()`) if $`q`$ is out of range. |
+| `get_value(q)` | `f64` | The raw potential, or $`\infty`$ if unreachable. |
+| `is_reachable(q)` | `bool` | Whether $`q`$ has any path to a final state. |
+| `normalize_score(q, g)` | `LogWeight` | $`g \otimes L[q]`$ — the completion estimate. |
+| `total_weight()` | `&LogWeight` | $`V(\text{start})`$ — total mass through the WFST. |
 | `num_reachable()` / `num_states()` | `usize` | Reachable-to-final count / table size. |
 
 ### `build_lookahead_table` and `LookaheadConfig`
@@ -127,9 +131,9 @@ with `LogPushError::NoStartState`. `LookaheadConfig` has two knobs —
 | Field | Default | Effect |
 |---|---|---|
 | `cache` | `true` | Keep the table for reuse across the search. |
-| `allow_unreachable` | `true` | On a potential-computation failure, return an all-`` `0̄` `` table instead of erroring. |
+| `allow_unreachable` | `true` | On a potential-computation failure, return an all-$`\bar{0}`$ table instead of erroring. |
 
-For one-off queries, `compute_lookahead_single(fst, q)` returns `` `V(q)` ``
+For one-off queries, `compute_lookahead_single(fst, q)` returns $`V(q)`$
 without storing the table (though it still computes all potentials, so the table
 is preferable for repeated lookups).
 
@@ -139,9 +143,9 @@ is preferable for repeated lookups).
 
 ### ⟨ build lookahead table ⟩
 
-The intent is to *materialize `` `V(q)` `` for every state so the frontier can
-read it in `` `O(1)` ``*. The invariant is that, processing states in reverse
-topological order, `` `V(q)` `` is final before any predecessor of `` `q` `` is
+The intent is to *materialize $`V(q)`$ for every state so the frontier can
+read it in $`O(1)`$*. The invariant is that, processing states in reverse
+topological order, $`V(q)`$ is final before any predecessor of $`q`$ is
 visited — the standard backward shortest-distance order.
 
 ```text
@@ -155,10 +159,10 @@ visited — the standard backward shortest-distance order.
   return LookaheadTable { potentials = V, total, num_reachable }
 ```
 
-For an acyclic WFST this is `` `O(∣Q∣ + ∣E∣)` `` — one visit per state and per
+For an acyclic WFST this is $`O(\lvert Q\rvert + \lvert E\rvert)`$ — one visit per state and per
 arc. Cyclic WFSTs require the fixed-point shortest-distance solver inside
 `compute_log_potentials`; `allow_unreachable` shields callers from the failure
-case by returning an all-`` `0̄` `` table.
+case by returning an all-$`\bar{0}`$ table.
 
 ### ⟨ push lookahead to the frontier ⟩
 
@@ -172,13 +176,13 @@ At search time each hypothesis combines its prefix cost with the table:
   keep hyp  iff  score(hyp) ≤ best + β              // prune
 ```
 
-Without lookahead, `` `best` `` is dominated by the *shortest* prefixes and long
-hypotheses are unfairly pruned; with `` `L` ``, every score is a whole-path
+Without lookahead, $`\text{best}`$ is dominated by the *shortest* prefixes and long
+hypotheses are unfairly pruned; with $`L`$, every score is a whole-path
 estimate, so the cutoff is meaningful across stages.
 
 ![Lookahead pruning: a small WFSA's backward potentials V(q) populate a lookahead table L, which the beam frontier combines with each hypothesis's accumulated cost via g ⊗ L[q] to decide what survives the beam threshold.](../diagrams/optimization/lookahead.svg)
 
-*Blue = WFSA states annotated with `` `V(q)` ``; green/bold = the best path and the kept frontier; grey = alternative arcs; amber = the materialized `` `L` `` table; dotted = the data flow from potentials to the frontier.*
+*Blue = WFSA states annotated with $`V(q)`$; green/bold = the best path and the kept frontier; grey = alternative arcs; amber = the materialized $`L`$ table; dotted = the data flow from potentials to the frontier.*
 
 <details><summary>Text view</summary>
 
@@ -247,7 +251,7 @@ assert!(normalized.approx_eq(&LogWeight::new(3.0), 0.001));
   `compute_log_potentials`, the same backward pass that
   [`advanced/beam-optimization.md`](../advanced/beam-optimization.md) uses for
   stochastic pushing; lookahead reads the potentials instead of reweighting arcs.
-- **Shortest distance.** `` `V(q)` `` is a backward shortest-distance
+- **Shortest distance.** $`V(q)`$ is a backward shortest-distance
   ([`algorithms/shortest-distance.md`](../algorithms/shortest-distance.md)) in the
   log semiring.
 - **Beam search & SIMD pruning.** `normalize_score` feeds the cutoff that
@@ -255,7 +259,7 @@ assert!(normalized.approx_eq(&LogWeight::new(3.0), 0.001));
   applies on the lane-vectorized frontier.
 - **Constrained decoding.** The per-state `valid_token_cache` in
   [`advanced/constrained-decoding.md`](../advanced/constrained-decoding.md) is the
-  same "precompute per state, read in `` `O(1)` `` at search time" pattern.
+  same "precompute per state, read in $`O(1)`$ at search time" pattern.
 - See the optimization research log in [`journal.md`](journal.md).
 
 ---
@@ -266,5 +270,5 @@ assert!(normalized.approx_eq(&LogWeight::new(3.0), 0.001));
   Transducers in Speech Recognition.* Backward potentials and their use in
   beam-pruned Viterbi decoding.
 - [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms.*
-  The shortest-distance framework that defines `` `V(q) = ⊕` `` over reachable
+  The shortest-distance framework that defines $`V(q) = \bigoplus`$ over reachable
   paths.

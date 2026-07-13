@@ -26,15 +26,15 @@ title <b>RNN-T components</b>  —  AcousticEncoder · AutoregressivePredictor �
 component "AcousticEncoder\n(Conformer / CNN)" as ENC
 component "AutoregressivePredictor\n(LSTM language model)" as PRED
 component "JointNetwork\n(FeedForward / Factorized / Additive)" as JOIN
-component "TransducerLattice\nT × (U+1) log-probs" as LAT #B2DFDB
+component "TransducerLattice\n<latex>T \times (U+1)</latex> log-probs" as LAT #B2DFDB
 component "loss / decoding\n(forward-backward · beam search)" as OUT #C8E6C9
 
 X --> ENC
 Y --> PRED
 ENC --> JOIN : EncoderOutput f_t  [T, D]
 PRED --> JOIN : PredictorOutput g_u  [U+1, D]
-JOIN --> LAT : log P(k ∣ t, u)  over vocab ∪ {blank}
-LAT --> OUT : ⊕ over alignments → −log P(y∣x)
+JOIN --> LAT : <latex>\log P(k \mid t, u)</latex>  over vocab <latex>\cup</latex> {blank}
+LAT --> OUT : <latex>\oplus</latex> over alignments → <latex>-\log P(y \mid x)</latex>
 
 note bottom of JOIN
   <b>forward(f_t, g_u)</b> → Vec<f32> of length vocab_size (index 0 = blank).

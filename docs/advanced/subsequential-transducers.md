@@ -43,8 +43,8 @@ properties ([Mohri 2000](../BIBLIOGRAPHY.md#ref-mohri2000)):
 
 | Property | Subsequential | Non-subsequential |
 |----------|---------------|-------------------|
-| Processing time | `O(n)` for input length `n` | Potentially exponential |
-| Memory usage | `O(1)` active states | `O(∣Q∣)` active states |
+| Processing time | $`O(n)`$ for input length $`n`$ | Potentially exponential |
+| Memory usage | $`O(1)`$ active states | $`O(\lvert Q\rvert)`$ active states |
 | Backtracking | Never | May be required |
 | Streaming | Yes | Limited |
 | Composition | Efficient | Can explode in size |
@@ -73,13 +73,13 @@ G2P conversion:         "read" → /riːd/ or /rɛd/
 ### Piecewise Subsequential Decomposition
 
 **Schützenberger's Theorem** (1977): Any finite-state function can be decomposed into a
-finite union of subsequential functions — `T = T₁ ∪ T₂ ∪ … ∪ Tₖ`:
+finite union of subsequential functions:
 
-```text
-T = T₁ ∪ T₂ ∪ … ∪ Tₖ
+```math
+T = T_1 \cup T_2 \cup \dots \cup T_k
 ```
 
-where each `Tᵢ` is subsequential. The minimum `k` is the **degree of ambiguity**.
+where each $`T_i`$ is subsequential. The minimum $`k`$ is the **degree of ambiguity**.
 
 ```
 Non-subsequential T              Piecewise Decomposition
@@ -435,33 +435,33 @@ fn find_ambiguity_points(wfst: &VectorWfst<L, W>) -> Vec<(StateId, usize)> {
 
 ### Time Complexity
 
-| Operation | Subsequential | Piecewise (`k` pieces) |
+| Operation | Subsequential | Piecewise ($`k`$ pieces) |
 |-----------|---------------|----------------------|
-| `apply(input)` | `O(n)` | `O(k × n)` |
-| `apply_unique(input)` | `O(n)` | `O(k × n + m log m)`* |
-| `decompose(wfst)` | `O(∣Q∣ + ∣E∣)` | `O(∣Q∣ + ∣E∣)` |
+| `apply(input)` | $`O(n)`$ | $`O(k \times n)`$ |
+| `apply_unique(input)` | $`O(n)`$ | $`O(k \times n + m \log m)`$* |
+| `decompose(wfst)` | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(\lvert Q\rvert + \lvert E\rvert)`$ |
 
-*where `m` = number of results before deduplication
+*where $`m`$ = number of results before deduplication
 
 ### Space Complexity
 
 | Structure | Space |
 |-----------|-------|
-| SubsequentialTransducer | `O(∣Q∣ + ∣E∣)` |
-| PiecewiseSubsequential | `O(k × (∣Q∣ + ∣E∣))` |
-| DecompositionStats | `O(1)` |
+| SubsequentialTransducer | $`O(\lvert Q\rvert + \lvert E\rvert)`$ |
+| PiecewiseSubsequential | $`O(k \times (\lvert Q\rvert + \lvert E\rvert))`$ |
+| DecompositionStats | $`O(1)`$ |
 
 ### Degree of Ambiguity
 
-The degree `k` affects:
-- **Memory**: `k` copies of the structure
-- **Time**: `k` applications per input
-- **Output size**: Up to `k` results per input
+The degree $`k`$ affects:
+- **Memory**: $`k`$ copies of the structure
+- **Time**: $`k`$ applications per input
+- **Output size**: Up to $`k`$ results per input
 
 For practical applications:
-- `k = 1`: Subsequential (optimal)
-- `k ≤ 5`: Efficient for most uses
-- `k > 100`: Consider alternative approaches
+- $`k = 1`$: Subsequential (optimal)
+- $`k \le 5`$: Efficient for most uses
+- $`k > 100`$: Consider alternative approaches
 
 ## When to Use
 
@@ -502,12 +502,12 @@ For practical applications:
   minimization.
 - [Mohri et al. 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — Mohri, M., Pereira, F., & Riley, M.
   *Weighted Finite-State Transducers in Speech Recognition.* Determinization and composition
-  `∘` of weighted transducers, the operations that turn a non-subsequential WFST into a
+  $`\circ`$ of weighted transducers, the operations that turn a non-subsequential WFST into a
   usable decoding graph.
 - Schützenberger, M. P. (1977). *Sur une variante des fonctions séquentielles.* Theoretical
   Computer Science 4(1):47–57.
   [doi:10.1016/0304-3975(77)90055-X](https://doi.org/10.1016/0304-3975(77)90055-X) — the
-  decomposition theorem `T = T₁ ∪ … ∪ Tₖ` underlying piecewise-subsequential transducers.
+  decomposition theorem $`T = T_1 \cup \dots \cup T_k`$ underlying piecewise-subsequential transducers.
 - Roche, E., & Schabes, Y. (1997). *Deterministic Part-of-Speech Tagging with Finite-State
   Transducers.* Computational Linguistics 21(2):227–253.
   [ACL J95-2004](https://aclanthology.org/J95-2004/) — a classic application of

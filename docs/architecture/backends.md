@@ -11,7 +11,7 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); conventions in [`STYLE.md`](../
 | **Interning** | Mapping each distinct string to one compact integer handle (and back). |
 | `VocabId` | The handle type — a `u32` index identifying an interned word. |
 | **Structural sharing** | Two backends sharing one underlying store via copy-on-write (PathMap). |
-| `` `∣V∣` `` | Vocabulary size (number of unique interned words), `` `LatticeBackend::vocab_size()` ``. |
+| $`\lvert V\rvert`$ | Vocabulary size (number of unique interned words), `LatticeBackend::vocab_size()`. |
 
 ## Concepts
 
@@ -42,11 +42,11 @@ This pattern is used throughout lling-llang:
 
 ## The LatticeBackend Trait
 
-One interning trait, two storage strategies: the default in-memory `` `HashMapBackend` `` and the structurally-sharing `` `PathMapBackend` `` (extended by the `` `PathMapSharingBackend` `` trait under the `` `f1r3fly` `` feature).
+One interning trait, two storage strategies: the default in-memory `HashMapBackend` and the structurally-sharing `PathMapBackend` (extended by the `PathMapSharingBackend` trait under the `f1r3fly` feature).
 
 ![Backend storage hierarchy: the LatticeBackend interning trait (blue) with intern/lookup/vocab_size/contains/get_id/iter/supports_sharing is implemented by HashMapBackend (FxHashMap + Vec, supports_sharing=false) and PathMapBackend (Arc<PathMap> + IndexMap, supports_sharing=true, cfg f1r3fly); PathMapSharingBackend (green) extends LatticeBackend with share_prefix/shares_structure_with and is implemented by PathMapBackend.](../diagrams/architecture/backends.svg)
 
-*Blue = the `` `LatticeBackend` `` interning interface; green = the `` `PathMapSharingBackend` `` extension trait (copy-on-write sharing); grey = the concrete `` `HashMapBackend` `` and `` `PathMapBackend` `` structs.*
+*Blue = the `LatticeBackend` interning interface; green = the `PathMapSharingBackend` extension trait (copy-on-write sharing); grey = the concrete `HashMapBackend` and `PathMapBackend` structs.*
 
 <details><summary>Text view</summary>
 
@@ -408,4 +408,4 @@ fn vocab_stats(backend: &HashMapBackend) {
 Full entries — including DOIs — are in [`BIBLIOGRAPHY.md`](../BIBLIOGRAPHY.md).
 
 - [**Mohri 2009**](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, *Weighted Automata Algorithms*: symbol tables and label interning as a precondition for efficient automaton operations. [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)
-- [**Allauzen 2007**](../BIBLIOGRAPHY.md#ref-allauzen2007) — Allauzen et al., *OpenFst*: the `SymbolTable` abstraction that `` `LatticeBackend` `` generalizes (in-memory vs. content-addressed/shared stores). [doi:10.1007/978-3-540-76336-9_3](https://doi.org/10.1007/978-3-540-76336-9_3)
+- [**Allauzen 2007**](../BIBLIOGRAPHY.md#ref-allauzen2007) — Allauzen et al., *OpenFst*: the `SymbolTable` abstraction that `LatticeBackend` generalizes (in-memory vs. content-addressed/shared stores). [doi:10.1007/978-3-540-76336-9_3](https://doi.org/10.1007/978-3-540-76336-9_3)

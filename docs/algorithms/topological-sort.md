@@ -8,8 +8,8 @@ Defined centrally in [`../NOTATION.md`](../NOTATION.md); repeated locally for th
 
 | Symbol | Meaning |
 |---|---|
-| `∣V∣` / `∣E∣` | number of nodes / edges of the DAG (cardinality bar `∣` = U+2223). |
-| `u → v` | a directed edge; `u` must precede `v` in any topological order. |
+| $`\lvert V\rvert`$ / $`\lvert E\rvert`$ | number of nodes / edges of the DAG. |
+| $`u \to v`$ | a directed edge; $`u`$ must precede $`v`$ in any topological order. |
 | in-degree | the number of incoming edges of a node. |
 | DAG | **D**irected **A**cyclic **G**raph — a graph with no directed cycle. |
 
@@ -17,7 +17,7 @@ Defined centrally in [`../NOTATION.md`](../NOTATION.md); repeated locally for th
 
 ### What is Topological Sort?
 
-Given a DAG, a **topological order** is a linear sequence of nodes where for every edge u→v, node u appears before node v in the sequence.
+Given a DAG, a **topological order** is a linear sequence of nodes where for every edge $`u \to v`$, node $`u`$ appears before node $`v`$ in the sequence.
 
 ```
 Graph:          Topological Orders (multiple valid):
@@ -35,7 +35,7 @@ C must come before D
 Topological order enables **dynamic programming** on DAGs:
 - Process nodes in dependency order
 - When visiting a node, all predecessors already processed
-- Allows single-pass O(V+E) algorithms
+- Allows single-pass $`O(\lvert V\rvert + \lvert E\rvert)`$ algorithms
 
 Key algorithms requiring topological order:
 - **Viterbi**: Shortest/best path
@@ -158,7 +158,7 @@ lling-llang uses **Kahn's algorithm** ([Kahn 1962](#references)) for topological
 
 ### How It Works
 
-Kahn's algorithm is a *peeling* process: the loop invariant is that a node is appended to the output only once **all** its predecessors have already been emitted, which is exactly when its remaining in-degree reaches `0`. The literate chunks below name the two phases — `` `⟨ seed the ready queue ⟩` `` and `` `⟨ peel a ready node ⟩` `` — and `` `⟨ kahn topological sort ⟩` `` assembles them with the cycle check.
+Kahn's algorithm is a *peeling* process: the loop invariant is that a node is appended to the output only once **all** its predecessors have already been emitted, which is exactly when its remaining in-degree reaches `0`. The literate chunks below name the two phases — `⟨ seed the ready queue ⟩` and `⟨ peel a ready node ⟩` — and `⟨ kahn topological sort ⟩` assembles them with the cycle check.
 
 1. **Count in-degrees**: For each node, count incoming edges
 2. **Initialize queue**: Add nodes with in-degree 0 (no dependencies)
@@ -189,7 +189,7 @@ Kahn's algorithm is a *peeling* process: the loop invariant is that a node is ap
     else:               return ⊥ (cycle)       // some node never reached in-degree 0
 ```
 
-Each node is pushed and popped exactly once, and each edge is relaxed exactly once when its source is peeled, giving `` `O(∣V∣ + ∣E∣)` `` time. If a cycle exists, every node on it keeps a positive in-degree forever, so it is never enqueued and `` `∣result∣ < ∣V∣` `` — that size check **is** the cycle detector.
+Each node is pushed and popped exactly once, and each edge is relaxed exactly once when its source is peeled, giving $`O(\lvert V\rvert + \lvert E\rvert)`$ time. If a cycle exists, every node on it keeps a positive in-degree forever, so it is never enqueued and $`\lvert \text{result}\rvert < \lvert V\rvert`$ — that size check **is** the cycle detector.
 
 ```
 Example: A→B, A→C, B→D, C→D
@@ -272,10 +272,10 @@ pub fn topological_sort<W: Semiring>(
 
 ### Complexity
 
-- **Time**: `` `O(∣V∣ + ∣E∣)` `` — each node and edge visited exactly once
-- **Space**: `` `O(∣V∣ + ∣E∣)` `` for the edge target lookup table
+- **Time**: $`O(\lvert V\rvert + \lvert E\rvert)`$ — each node and edge visited exactly once
+- **Space**: $`O(\lvert V\rvert + \lvert E\rvert)`$ for the edge target lookup table
 
-The `` `O(1)` `` edge target lookup is a key optimization. Without it, finding the target of each edge would require an `` `O(∣V∣)` `` scan, making the overall algorithm `` `O(∣V∣ × ∣E∣)` ``.
+The $`O(1)`$ edge target lookup is a key optimization. Without it, finding the target of each edge would require an $`O(\lvert V\rvert)`$ scan, making the overall algorithm $`O(\lvert V\rvert \times \lvert E\rvert)`$.
 
 ## Cycle Detection with DFS
 
@@ -379,8 +379,8 @@ pub fn count_paths<W: Semiring, B: LatticeBackend>(
 
 ### Complexity
 
-- **Time**: `` `O(∣V∣ + ∣E∣)` `` after topological sort
-- **Space**: `` `O(∣V∣)` `` for count array
+- **Time**: $`O(\lvert V\rvert + \lvert E\rvert)`$ after topological sort
+- **Space**: $`O(\lvert V\rvert)`$ for count array
 
 ### Example
 
@@ -459,7 +459,7 @@ let edge_targets: Vec<NodeId> = edges.iter().map(|e| e.target).collect();
 let target = edge_targets[edge_id.0 as usize];
 ```
 
-Without this, each edge lookup would scan all nodes, degrading performance to O(V × E).
+Without this, each edge lookup would scan all nodes, degrading performance to $`O(\lvert V\rvert \times \lvert E\rvert)`$.
 
 ### Multiple Valid Orders
 
@@ -549,5 +549,5 @@ for &node_id in order.iter().rev() {
 
 ## References
 
-- [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms*: shortest-distance and forward/backward computations on acyclic weighted graphs rely on a topological order so each state is settled in a single pass; the `` `O(∣V∣ + ∣E∣)` `` dynamic-programming pattern this doc enables.
+- [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms*: shortest-distance and forward/backward computations on acyclic weighted graphs rely on a topological order so each state is settled in a single pass; the $`O(\lvert V\rvert + \lvert E\rvert)`$ dynamic-programming pattern this doc enables.
 - **[Kahn 1962]** Kahn, A. B. (1962). *Topological Sorting of Large Networks.* Communications of the ACM 5(11):558–562. [doi:10.1145/368996.369025](https://doi.org/10.1145/368996.369025) — the in-degree-peeling algorithm implemented here.

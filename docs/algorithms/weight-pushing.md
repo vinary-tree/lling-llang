@@ -8,13 +8,13 @@ Defined centrally in [`../NOTATION.md`](../NOTATION.md); repeated locally for th
 
 | Symbol | Meaning |
 |---|---|
-| `⊕` / `⊗` | semiring *plus* (combine alternatives) / *times* (combine arcs). |
-| `0̄` / `1̄` | `⊕`-identity ("no path") / `⊗`-identity ("empty path", zero cost). |
-| `V(q)` | potential of state `q` — the shortest distance from/to `q` used to reweight. |
-| `V(q)⁻¹` | the `⊗`-inverse of the potential (division `⊘` on a `DivisibleSemiring`). |
-| `ρ(q)` | final-weight function `ρ : F → K`. |
-| `⊕ₗₒg` | log-add `x ⊕ₗₒg y = −ln(e⁻ˣ + e⁻ʸ)` (the Log-semiring `⊕`). |
-| `∣Q∣`, `∣E∣` | number of states / transitions (cardinality bar `∣` = U+2223). |
+| $`\oplus`$ / $`\otimes`$ | semiring *plus* (combine alternatives) / *times* (combine arcs). |
+| $`\bar{0}`$ / $`\bar{1}`$ | $`\oplus`$-identity ("no path") / $`\otimes`$-identity ("empty path", zero cost). |
+| $`V(q)`$ | potential of state $`q`$ — the shortest distance from/to $`q`$ used to reweight. |
+| $`V(q)^{-1}`$ | the $`\otimes`$-inverse of the potential (division $`\oslash`$ on a `DivisibleSemiring`). |
+| $`\rho(q)`$ | final-weight function $`\rho : F \to K`$. |
+| $`\oplus_{\log}`$ | log-add $`x \oplus_{\log} y = -\ln(e^{-x} + e^{-y})`$ (the Log-semiring $`\oplus`$). |
+| $`\lvert Q\rvert`$, $`\lvert E\rvert`$ | number of states / transitions (cardinality bar $`\lvert\cdot\rvert`$). |
 
 ## Concepts
 
@@ -25,11 +25,11 @@ Weight pushing transforms a WFST by redistributing weights along paths while pre
 - **Forward (toward initial)**: Early transitions carry more weight
 - **Backward (toward final)**: Late transitions carry more weight
 
-The figure below shows a backward push: each arc is reweighted by the potentials `` `V(q)` `` so the path mass migrates toward the start, the per-path total is unchanged, and the final weight normalizes to `1̄`.
+The figure below shows a backward push: each arc is reweighted by the potentials $`V(q)`$ so the path mass migrates toward the start, the per-path total is unchanged, and the final weight normalizes to $`\bar{1}`$.
 
 ![Weight pushing before/after: a 0→1→2 chain reweighted by backward potentials V(q) so arc weights move toward the start while every path total stays 3.5 and the final weight ρ becomes 1̄](../diagrams/algorithms/weight-pushing.svg)
 
-*Left = original tropical weights with each state's potential `` `V(q)` `` annotated; right = pushed — `` `w'(e) = V(t) ⊗ w(e) ⊗ V(s)⁻¹` ``, mass pulled toward the start, `` `ρ → 1̄` `` (green dashed final-weight indicator).*
+*Left = original tropical weights with each state's potential $`V(q)`$ annotated; right = pushed — $`w'(e) = V(t) \otimes w(e) \otimes V(s)^{-1}`$, mass pulled toward the start, $`\rho \to \bar{1}`$ (green dashed final-weight indicator).*
 
 <details><summary>Text view</summary>
 
@@ -216,18 +216,18 @@ if is_stochastic(&fst, 1e-6) {
 
 ### Potential Functions
 
-Weight pushing uses **potential functions** `` `V(q)` `` computed via shortest-distance
+Weight pushing uses **potential functions** $`V(q)`$ computed via shortest-distance
 ([Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009)). The potential is the total weight of
-all paths from (or to) `q`; reweighting each arc by the potentials of its endpoints
+all paths from (or to) $`q`$; reweighting each arc by the potentials of its endpoints
 leaves every full start→final path total invariant while shifting where the mass sits.
 
-**Forward Push (toward initial)** — `` `V(q)` `` = shortest distance from the initial state to `q`:
-- Transition: `` `w'(e) = V(source)⁻¹ ⊗ w(e) ⊗ V(target)` ``
-- Final: `` `ρ'(q) = V(q)⁻¹ ⊗ ρ(q)` ``
+**Forward Push (toward initial)** — $`V(q)`$ = shortest distance from the initial state to $`q`$:
+- Transition: $`w'(e) = V(\text{source})^{-1} \otimes w(e) \otimes V(\text{target})`$
+- Final: $`\rho'(q) = V(q)^{-1} \otimes \rho(q)`$
 
-**Backward Push (toward final)** — `` `V(q)` `` = shortest distance from `q` to any final state:
-- Transition: `` `w'(e) = w(e) ⊗ V(target) ⊗ V(source)⁻¹` ``
-- Final: `` `ρ'(q) = 1̄` `` (normalized)
+**Backward Push (toward final)** — $`V(q)`$ = shortest distance from $`q`$ to any final state:
+- Transition: $`w'(e) = w(e) \otimes V(\text{target}) \otimes V(\text{source})^{-1}`$
+- Final: $`\rho'(q) = \bar{1}`$ (normalized)
 
 ```text
 ⟨ compute potentials ⟩ ≡
@@ -250,11 +250,11 @@ leaves every full start→final path total invariant while shifting where the ma
 
 ### Log-Semiring Potentials
 
-For the log semiring, the potential `` `V(q)` `` represents the **total probability** of
-all paths from `q` to a final state, i.e. `` `V(q) = −log Σ_{π: q→final} e^{−weight(π)}` ``:
+For the log semiring, the potential $`V(q)`$ represents the **total probability** of
+all paths from $`q`$ to a final state:
 
-```text
-V(q) = -log( Σ_{paths π from q to final} exp(-weight(π)) )
+```math
+V(q) = -\log\left( \sum_{\text{paths } \pi \text{ from } q \text{ to final}} \exp(-\operatorname{weight}(\pi)) \right)
 ```
 
 This is computed in reverse topological order:
@@ -264,11 +264,11 @@ V(final) = final_weight
 V(q) = ⊕ₗₒg over outgoing arcs of ( arc_weight ⊗ V(target) )
 ```
 
-i.e. `` `V(q) = ⨁ₗₒg_e (w(e) ⊗ V(target(e)))` ``, where `` `a ⊕ₗₒg b = −log(e⁻ᵃ + e⁻ᵇ)` ``.
+i.e. $`V(q) = \bigoplus_{\log,\, e} (w(e) \otimes V(\operatorname{target}(e)))`$, where $`a \oplus_{\log} b = -\log(e^{-a} + e^{-b})`$.
 
 ### Reweighting Invariant
 
-Path weights are preserved under the reweighting, because the potentials telescope: `` `V(s₁)⁻¹ ⊗ V(s₂) ⊗ V(s₂)⁻¹ ⊗ V(s₃) = V(s₁)⁻¹ ⊗ V(s₃)` ``.
+Path weights are preserved under the reweighting, because the potentials telescope: $`V(s_1)^{-1} \otimes V(s_2) \otimes V(s_2)^{-1} \otimes V(s_3) = V(s_1)^{-1} \otimes V(s_3)`$.
 
 ```text
                 original                    after push
@@ -286,9 +286,9 @@ Because the potentials cancel along the path:
 
 | Operation | Time | Space |
 |-----------|------|-------|
-| Compute potentials (acyclic) | `` `O(∣Q∣ + ∣E∣)` `` | `` `O(∣Q∣)` `` |
-| Compute potentials (general) | `` `O(∣E∣ + ∣Q∣ log ∣Q∣)` `` | `` `O(∣Q∣)` `` |
-| Apply push | `` `O(∣Q∣ + ∣E∣)` `` | `` `O(∣E∣)` `` |
+| Compute potentials (acyclic) | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(\lvert Q\rvert)`$ |
+| Compute potentials (general) | $`O(\lvert E\rvert + \lvert Q\rvert \log \lvert Q\rvert)`$ | $`O(\lvert Q\rvert)`$ |
+| Apply push | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(\lvert E\rvert)`$ |
 
 ### Beam Search Speedup
 
@@ -328,7 +328,7 @@ let minimized = minimize(&fst, MinimizeConfig::default())?;
 
 ### Cascade Optimization
 
-For speech recognition cascades (`` `H ∘ C ∘ L ∘ G` ``):
+For speech recognition cascades ($`H \circ C \circ L \circ G`$):
 
 ```rust
 // Build the cascade

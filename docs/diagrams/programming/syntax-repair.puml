@@ -44,7 +44,7 @@ SRC --> TOK : lex
 PR --> SRT : error ranges /\nMISSING nodes
 TOK --> SRT : Token stream
 SRT --> FIND : apply weighted rules
-FIND --> SEL : sort by cost ⊕ = min
+FIND --> SEL : sort by cost <latex>\oplus = \min</latex>
 SEL --> OUT : apply edits\n(reverse byte order)
 
 note bottom of SRT

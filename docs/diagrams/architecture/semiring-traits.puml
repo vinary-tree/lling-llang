@@ -15,11 +15,11 @@ hide circle
 
 title <b>Semiring trait hierarchy</b>\n<size:11><i>the core algebra, refined by capability traits and property markers</i></size>
 
-interface "Semiring\n(K, ⊕, ⊗, 0̄, 1̄)" as S {
-  +zero() : Self      .. 0̄
-  +one() : Self       .. 1̄
-  +plus(&Self) : Self    .. ⊕
-  +times(&Self) : Self   .. ⊗
+interface "Semiring\n<latex>(K, \oplus, \otimes, \bar{0}, \bar{1})</latex>" as S {
+  +zero() : Self      .. <latex>\bar{0}</latex>
+  +one() : Self       .. <latex>\bar{1}</latex>
+  +plus(&Self) : Self    .. <latex>\oplus</latex>
+  +times(&Self) : Self   .. <latex>\otimes</latex>
   +is_zero() : bool
   +is_one() : bool
   +approx_eq(&Self, f64) : bool
@@ -72,7 +72,7 @@ S <|-- QNT
 
 note bottom of S
   Concrete weights implement the subset of traits their algebra supports:
-  <b>Tropical</b>(min,+) · <b>Log</b>(⊕ₗₒg,+) · <b>Probability</b>(+,×) · <b>Boolean</b>(∨,∧)
-  · Count · Expectation · Gödel · Power(η) · Product · Lexicographic · SignedTropical · String/Set/Edit
+  <b>Tropical</b>(<latex>\min</latex>,+) · <b>Log</b>(<latex>\oplus_{\log}</latex>,+) · <b>Probability</b>(+,<latex>\times</latex>) · <b>Boolean</b>(<latex>\lor,\land</latex>)
+  · Count · Expectation · Gödel · Power(<latex>\eta</latex>) · Product · Lexicographic · SignedTropical · String/Set/Edit
 end note
 @enduml

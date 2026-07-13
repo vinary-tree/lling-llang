@@ -19,20 +19,20 @@ Shared notation is in [`NOTATION.md`](../NOTATION.md); **WTT** abbreviates
 
 | Symbol / term | Meaning |
 |---|---|
-| `Q` | Finite set of states. |
-| `Σ` | Input **ranked alphabet** — symbols each with a fixed arity. |
-| `Δ` | Output ranked alphabet. |
-| `q₀` | Initial state (`start()`). |
-| `F ⊆ Q` | Final states. |
-| `R` | Set of weighted rules. |
-| `ρ` | Final-weight function `ρ : F → K`. |
-| `K` | Carrier of the weight semiring `W`. |
-| `⊗`, `⊕` | Semiring *times* (along a derivation) and *plus* (over derivations). |
-| `0̄`, `1̄` | The `⊕`- and `⊗`-identities. |
-| `σ`, `δ` | An input symbol (`σ ∈ Σ`) and an output symbol (`δ ∈ Δ`). |
-| `xᵢ` | A variable bound to the `i`-th child subtree of the matched node. |
-| `arity(σ)` | Number of children `σ` takes (its rank). |
-| `π` | A permutation/selection of variable indices in a rule's right-hand side. |
+| $`Q`$ | Finite set of states. |
+| $`\Sigma`$ | Input **ranked alphabet** — symbols each with a fixed arity. |
+| $`\Delta`$ | Output ranked alphabet. |
+| $`q_0`$ | Initial state (`start()`). |
+| $`F \subseteq Q`$ | Final states. |
+| $`R`$ | Set of weighted rules. |
+| $`\rho`$ | Final-weight function $`\rho : F \to K`$. |
+| $`K`$ | Carrier of the weight semiring `W`. |
+| $`\otimes`$, $`\oplus`$ | Semiring *times* (along a derivation) and *plus* (over derivations). |
+| $`\bar{0}`$, $`\bar{1}`$ | The $`\oplus`$- and $`\otimes`$-identities. |
+| $`\sigma`$, $`\delta`$ | An input symbol ($`\sigma \in \Sigma`$) and an output symbol ($`\delta \in \Delta`$). |
+| $`x_i`$ | A variable bound to the $`i`$-th child subtree of the matched node. |
+| $`\operatorname{arity}(\sigma)`$ | Number of children $`\sigma`$ takes (its rank). |
+| $`\pi`$ | A permutation/selection of variable indices in a rule's right-hand side. |
 
 ---
 
@@ -40,27 +40,31 @@ Shared notation is in [`NOTATION.md`](../NOTATION.md); **WTT** abbreviates
 
 A weighted tree transducer is the tuple
 
-`` `T = (Q, Σ, Δ, q₀, F, R, ρ)` ``
+```math
+T = (Q, \Sigma, \Delta, q_0, F, R, \rho)
+```
 
 | Component | Type | Role |
 |---|---|---|
-| `Q` | finite set | States. |
-| `Σ` | ranked alphabet | Input symbols with arities. |
-| `Δ` | ranked alphabet | Output symbols with arities. |
-| `q₀ ∈ Q` | state | Initial state. |
-| `F ⊆ Q` | state subset | Final states. |
-| `R` | rule set | Weighted rewrite rules (below). |
-| `ρ` | `F → K` | Final weight of an accepting state. |
+| $`Q`$ | finite set | States. |
+| $`\Sigma`$ | ranked alphabet | Input symbols with arities. |
+| $`\Delta`$ | ranked alphabet | Output symbols with arities. |
+| $`q_0 \in Q`$ | state | Initial state. |
+| $`F \subseteq Q`$ | state subset | Final states. |
+| $`R`$ | rule set | Weighted rewrite rules (below). |
+| $`\rho`$ | $`F \to K`$ | Final weight of an accepting state. |
 
-A **rule** in `R` has the shape
+A **rule** in $`R`$ has the shape
 
-`` `q(σ(x₁,…,xₙ)) → δ(q₁(x_π₍₁₎),…,qₘ(x_π₍ₘ₎)), w` ``
+```math
+q(\sigma(x_1,\dots,x_n)) \to \delta(q_1(x_{\pi(1)}),\dots,q_m(x_{\pi(m)})), w
+```
 
-read as: *in state `q`, at a node labeled `σ` with `n = arity(σ)` children bound
-to `x₁…xₙ`, produce an output node labeled `δ`; recurse into the selected input
-children `x_π₍ⱼ₎` in states `qⱼ`; charge weight `w ∈ K`.* The right-hand side is a
-**tree pattern** whose leaves are either *variables* `qⱼ(x_π₍ⱼ₎)` (process input
-child `π(j)` in state `qⱼ`) or *fixed subtrees* (constant output material).
+read as: *in state $`q`$, at a node labeled $`\sigma`$ with $`n = \operatorname{arity}(\sigma)`$ children bound
+to $`x_1 \dots x_n`$, produce an output node labeled $`\delta`$; recurse into the selected input
+children $`x_{\pi(j)}`$ in states $`q_j`$; charge weight $`w \in K`$.* The right-hand side is a
+**tree pattern** whose leaves are either *variables* $`q_j(x_{\pi(j)})`$ (process input
+child $`\pi(j)`$ in state $`q_j`$) or *fixed subtrees* (constant output material).
 
 The class of a rule is determined by how it uses the input variables — a
 distinction the library exposes directly:
@@ -70,14 +74,14 @@ distinction the library exposes directly:
 | **linear** | every input variable used exactly once | `is_linear()` |
 | **deleting** | some input variable not used at all | `is_deleting()` |
 | **copying** | some input variable used more than once | `is_copying()` |
-| **identity-like** | `σ = δ`, same arity, variables in order `x₀,x₁,…` | `is_identity_like()` |
+| **identity-like** | $`\sigma = \delta`$, same arity, variables in order $`x_0,x_1,\dots`$ | `is_identity_like()` |
 
-The weight a transducer assigns to an input/output tree pair `(t, t′)` is the
-`⊕`-sum, over all derivations `d` that rewrite `t` into `t′`, of the `⊗`-product
-of the rule weights used in `d`:
+The weight a transducer assigns to an input/output tree pair $`(t, t')`$ is the
+$`\oplus`$-sum, over all derivations $`d`$ that rewrite $`t`$ into $`t'`$, of the $`\otimes`$-product
+of the rule weights used in $`d`$:
 
-```text
-⟦T⟧(t, t′) = ⊕ { ⊗ over rules r used in d of weight(r)  ∣  d : q₀(t) ⇒* t′ }.
+```math
+\llbracket T\rrbracket(t, t') = \bigoplus \Bigl\{\, \bigotimes_{r \text{ used in } d} \operatorname{weight}(r) \;\Bigm|\; d : q_0(t) \Rightarrow^* t' \,\Bigr\}
 ```
 
 > **Ranked alphabet.** A [`RankedAlphabet`](../../src/tree_transducers/alphabet.rs)
@@ -90,13 +94,13 @@ of the rule weights used in `d`:
 
 ## Intuition: swapping two children
 
-The smallest interesting rule is a **swap**: relabel `S` to `T` and exchange its
+The smallest interesting rule is a **swap**: relabel $`S`$ to $`T`$ and exchange its
 two children. As a rule,
 
-`` `q(S(x₀, x₁)) → T(x₁, x₀), 0̄?` `` — no: weight `1̄` (cost 0 in Tropical),
+$`q(S(x_0, x_1)) \to T(x_1, x_0), \bar{0}?`$ — no: weight $`\bar{1}`$ (cost 0 in Tropical),
 
-so the variable selection is the permutation `π = (1, 0)`. Applied to the input
-tree `S(a, b)` it yields `T(b, a)`:
+so the variable selection is the permutation $`\pi = (1, 0)`$. Applied to the input
+tree $`S(a, b)`$ it yields $`T(b, a)`$:
 
 ```text
         S                    T
@@ -105,9 +109,9 @@ tree `S(a, b)` it yields `T(b, a)`:
      x₀   x₁          (x₁ here) (x₀ here)
 ```
 
-Child `b` (bound to `x₁`) lands in output position 0, and `a` (bound to `x₀`)
+Child $`b`$ (bound to $`x_1`$) lands in output position 0, and $`a`$ (bound to $`x_0`$)
 lands in position 1. The leaves are themselves rewritten by trivial identity
-rules `q(a) → a` and `q(b) → b`. This is the rewrite drawn in the
+rules $`q(a) \to a`$ and $`q(b) \to b`$. This is the rewrite drawn in the
 [Diagrams](#diagrams) section.
 
 ---
@@ -162,8 +166,8 @@ node it tries every rule registered for `(current state, node symbol)` whose
 arity matches, rewriting each variable child by recursing into the corresponding
 input subtree, and combining the per-child results by **cartesian product** (a
 node has one output per choice of outputs at each child). The invariant is that
-`transduce_from_state(q, t)` returns the set of `(output tree, weight)` pairs `T`
-can produce from `t` starting in state `q`.
+`transduce_from_state(q, t)` returns the set of `(output tree, weight)` pairs $`T`$
+can produce from $`t`$ starting in state $`q`$.
 
 ```text
 ⟨ transduce tree t in state q ⟩ ≡
@@ -192,11 +196,11 @@ happens: `var_index` may point to any input child, in any order, so the swap rul
 above selects child 1 then child 0. **Copying** falls out for free — two
 `Variable` children with the same `var_index` recurse into the same input subtree
 twice — and **deletion** is a right-hand side that simply omits a variable (a leaf
-output pattern). The cartesian product threads weights with `⊗`, so ambiguous
+output pattern). The cartesian product threads weights with $`\otimes`$, so ambiguous
 inputs yield multiple weighted outputs.
 
 **Complexity.** For a linear, unambiguous transducer the work is
-`` `O(∣t∣)` `` in the input tree size (one rule application per node). Copying
+$`O(\lvert t\rvert)`$ in the input tree size (one rule application per node). Copying
 rules can duplicate subtrees, and ambiguity (several rules per `(state, symbol)`)
 multiplies the output set via the cartesian product, so the output count — and
 the time — can grow with the number of derivations.
@@ -266,7 +270,7 @@ assert_eq!(out[0].0.label(), &"DELETED");
 
 ### Weighted ambiguity
 
-Two rules for the same input produce two weighted outputs — the `⊕`-alternatives:
+Two rules for the same input produce two weighted outputs — the $`\oplus`$-alternatives:
 
 ```rust
 use lling_llang::tree_transducers::{TreeTransducerBuilder, Tree, TreeTransducerOps};
@@ -295,9 +299,9 @@ assert!(weights.contains(&1.0) && weights.contains(&2.0));
 ![A tree-transducer rule applied to an input AST: the input tree S over children a and b is rewritten to the output tree T over children b and a, with dashed amber edges showing variable x1 binding to output position 0 and x0 to position 1.](../diagrams/transducers/tree-rewrite.svg)
 
 *Teal = tree nodes/edges (green leaves are terminals); the bold teal root edge is
-the rule application `q(S…) → T…` with its weight; the dashed amber edges are the
-variable bindings — `x₁` carries child `b` to output position 0 and `x₀` carries
-`a` to position 1 (the reordering).*
+the rule application $`q(S\dots) \to T\dots`$ with its weight; the dashed amber edges are the
+variable bindings — $`x_1`$ carries child $`b`$ to output position 0 and $`x_0`$ carries
+$`a`$ to position 1 (the reordering).*
 
 <details><summary>Text view</summary>
 
@@ -326,7 +330,7 @@ variable bindings — `x₁` carries child `b` to output position 0 and `x₀` c
   syntax-based machine translation and parse-tree normalization; deletion and
   flattening rules linearize or prune structure.
 - **Weights are any semiring.** Ambiguous derivations are combined with
-  `⊕`/`⊗` over the chosen [semiring](../architecture/semirings.md); the examples
+  $`\oplus`$/$`\otimes`$ over the chosen [semiring](../architecture/semirings.md); the examples
   use `TropicalWeight`.
 - **No feature flag.** Always compiled (`pub mod tree_transducers;` in
   [`src/lib.rs`](../../src/lib.rs)) and re-exported from the crate `prelude`

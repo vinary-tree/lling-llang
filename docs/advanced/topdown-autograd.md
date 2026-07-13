@@ -8,7 +8,7 @@ offers better numerical stability and computational efficiency for sequence-leve
 
 ![Top-down autograd: the gradient of a WFST is a WFST with the same topology, arc weight replaced by arc posterior](../diagrams/advanced/topdown-autograd-graph.svg)
 
-*Blue = the original WFST with arc weights `w` and forward scores `α`; purple = the gradient WFST with the **same topology** but each arc weight replaced by its posterior `g = exp(α[s] + w + β[t] − Z)`; green double-ring = the final state with backward score `β`. Bold green arcs carry the higher posterior. The worked diamond has `Z = 1.35`. Dotted grey = the `∂/∂w` correspondence between the two views.*
+*Blue = the original WFST with arc weights $`w`$ and forward scores $`\alpha`$; purple = the gradient WFST with the **same topology** but each arc weight replaced by its posterior $`g = \exp(\alpha[s] + w + \beta[t] - Z)`$; green double-ring = the final state with backward score $`\beta`$. Bold green arcs carry the higher posterior. The worked diamond has $`Z = 1.35`$. Dotted grey = the $`\partial/\partial w`$ correspondence between the two views.*
 
 <details><summary>Text view</summary>
 
@@ -38,14 +38,10 @@ Backward: ∂L/∂x ← ∂op1 ← ∂L/∂y ← ∂op2 ← ∂L/∂z ← ∂op3
 
 **Top-Down (k2-style)**: For WFST operations, we compute gradients using mathematical
 properties of the algorithms (forward-backward scores) rather than tracking primitive
-operations. The arc gradient is `−posterior × output_grad`, with
-`posterior = exp(α[src] + w + β[dst] − Z)`:
+operations:
 
-```text
-Forward:  Compute α (forward) and β (backward) scores
-Backward: Gradient = −posterior × output_grad
-          where posterior = exp(α[src] + w + β[dst] − Z)
-```
+- **Forward:** compute $`\alpha`$ (forward) and $`\beta`$ (backward) scores.
+- **Backward:** $`\text{gradient} = -\,\text{posterior} \times \text{output\_grad}`$, where $`\text{posterior} = \exp(\alpha[\text{src}] + w + \beta[\text{dst}] - Z)`$.
 
 ### Why Top-Down Works Better for WFSTs
 
@@ -59,21 +55,21 @@ Backward: Gradient = −posterior × output_grad
 ### Forward-Backward Algorithm
 
 The forward-backward algorithm computes the probability of each arc being used in any
-accepting path. The forward score is `α[s] = log Σ exp(α[prev] + w(prev→s))`, the
-backward score is `β[s] = log Σ exp(w(s→next) + β[next])`, and the partition function is
-`Z = α[start] + β[start]`:
+accepting path. The forward score is $`\alpha[s] = \log \sum \exp(\alpha[\text{prev}] + w(\text{prev} \to s))`$, the
+backward score is $`\beta[s] = \log \sum \exp(w(s \to \text{next}) + \beta[\text{next}])`$, and the partition function is
+$`Z = \alpha[\text{start}] + \beta[\text{start}]`$:
 
-```text
-Forward Scores (α):
-  α[start] = 0̄        (log domain: probability 1, the ⊗-identity)
-  α[s] = log Σ exp(α[prev] + w(prev→s))   for each incoming arc
-
-Backward Scores (β):
-  β[final] = final_weight
-  β[s] = log Σ exp(w(s→next) + β[next])    for each outgoing arc
-
-Total Log-Probability (Z):
-  Z = α[start] + β[start]   (or α[any] + β[any] for acyclic)
+```math
+\begin{aligned}
+& \textbf{Forward scores } (\alpha): \\
+& \quad \alpha[\text{start}] = \bar{0} \quad \text{(log domain: probability 1, the } \otimes\text{-identity)} \\
+& \quad \alpha[s] = \log \sum \exp(\alpha[\text{prev}] + w(\text{prev} \to s)) \quad \text{for each incoming arc} \\
+& \textbf{Backward scores } (\beta): \\
+& \quad \beta[\text{final}] = \text{final weight} \\
+& \quad \beta[s] = \log \sum \exp(w(s \to \text{next}) + \beta[\text{next}]) \quad \text{for each outgoing arc} \\
+& \textbf{Total log-probability } (Z): \\
+& \quad Z = \alpha[\text{start}] + \beta[\text{start}] \quad \text{(or } \alpha[\text{any}] + \beta[\text{any}] \text{ for acyclic)}
+\end{aligned}
 ```
 
 Visually:
@@ -94,23 +90,23 @@ Visually:
 ### Arc Posteriors
 
 The posterior probability of an arc is the probability it appears in a random path
-sampled according to path weights — `P(arc ∣ obs) = exp(α[src] + w(arc) + β[dst] − Z)`:
+sampled according to path weights:
 
-```text
-P(arc | observation) = exp(α[src] + w(arc) + β[dst] − Z)
+```math
+P(\text{arc} \mid \text{observation}) = \exp(\alpha[\text{src}] + w(\text{arc}) + \beta[\text{dst}] - Z)
 ```
 
 Where:
-- `α[src]` = log-probability of reaching the arc's source state
-- `w(arc)` = arc weight (in log domain)
-- `β[dst]` = log-probability of reaching a final state from destination
-- `Z` = total log-probability (partition function)
+- $`\alpha[\text{src}]`$ = log-probability of reaching the arc's source state
+- $`w(\text{arc})`$ = arc weight (in log domain)
+- $`\beta[\text{dst}]`$ = log-probability of reaching a final state from destination
+- $`Z`$ = total log-probability (partition function)
 
 For negative log-likelihood loss, the gradient with respect to arc weight is the negated
-posterior — `∂Loss/∂w(arc) = −P(arc ∣ obs)`:
+posterior:
 
-```text
-∂Loss/∂w(arc) = −P(arc | observation)
+```math
+\frac{\partial\,\text{Loss}}{\partial w(\text{arc})} = -P(\text{arc} \mid \text{observation})
 ```
 
 ### Sparse Gradient Representation
@@ -423,7 +419,7 @@ Key stability practices:
 1. **Never exponentiate then log**: Work in log domain throughout
 2. **Use log-sum-exp trick**: Factor out maximum before summing
 3. **Threshold small posteriors**: Ignore arcs with posterior < 1e-10
-4. **Check for infinities**: Handle `−∞` (zero probability, the log-semiring `0̄`) gracefully
+4. **Check for infinities**: Handle $`-\infty`$ (zero probability, the log-semiring $`\bar{0}`$) gracefully
 
 ### Gradient Accumulation for Multiple Paths
 
@@ -469,7 +465,7 @@ fn chunked_backward(
 
 | Aspect | Bottom-Up | Top-Down |
 |--------|-----------|----------|
-| **Memory** | `O(ops × ∣Q∣)` | `O(∣Q∣ + ∣E∣)` |
+| **Memory** | $`O(\text{ops} \times \lvert Q\rvert)`$ | $`O(\lvert Q\rvert + \lvert E\rvert)`$ |
 | **Numerical Stability** | Prone to underflow | Log-domain stable |
 | **Pruning** | Awkward | Natural |
 | **Implementation** | Framework-dependent | Algorithm-specific |

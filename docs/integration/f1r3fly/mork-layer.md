@@ -329,9 +329,9 @@ let updated = evaluator.update(&lattice, &[Change::RemoveEdge(edge_id)])?;
 
 | Operation | Full Evaluation | Incremental |
 |-----------|-----------------|-------------|
-| Small change | O(paths × rules) | O(affected × rules) |
-| Batch changes | O(paths × rules) | O(affected × rules) |
-| No change | O(paths × rules) | O(1) |
+| Small change | $`O(\text{paths} \times \text{rules})`$ | $`O(\text{affected} \times \text{rules})`$ |
+| Batch changes | $`O(\text{paths} \times \text{rules})`$ | $`O(\text{affected} \times \text{rules})`$ |
+| No change | $`O(\text{paths} \times \text{rules})`$ | $`O(1)`$ |
 
 ## Rule Ordering
 

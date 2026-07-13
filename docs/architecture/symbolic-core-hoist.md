@@ -11,7 +11,7 @@
 symbolic-verification core: effective Boolean algebras, Symbolic Finite Automata /
 Transducers (SFA/SFT), the `Sat3` three-valued algebra tower
 (`BooleanAlgebra` → `RejectSafeAlgebra` → `HeytingAlgebra`), a generic
-solver bridge (`ConstraintTheory` / `TheoryAlgebra`), behavioral (μ-calculus) algebra,
+solver bridge (`ConstraintTheory` / `TheoryAlgebra`), behavioral ($`\mu`$-calculus) algebra,
 and a Presburger-arithmetic decision procedure — all backed by **zero-admission Rocq
 proofs**.
 
@@ -67,7 +67,7 @@ No dependency cycle is introduced: `lling-llang` depends on none of
 | `sym_tree` | symbolic **tree** automata (`SymTerm`, `TreeAlgebra`, `TreePred`). |
 | `sym_tree_transducer` | symbolic tree transducers. |
 | `sft` | Symbolic Finite **Transducers** (SFT/STFT). |
-| `behavioral_algebra` | μ-calculus `BehavioralFormula` over an LTS, on the `Sat3` tower. |
+| `behavioral_algebra` | $`\mu`$-calculus `BehavioralFormula` over an LTS, on the `Sat3` tower. |
 | `behavioral_pred` | `BehavioralPred` (`moniker::BoundTerm` leaf). |
 | `logict` | `ConstraintTheory` trait, `TheoryAlgebra<T>` (the generic solver→`BooleanAlgebra` bridge), `LogicStream`. |
 | `lattice_theory` | subtype-lattice `ConstraintTheory` (`LatticeTheory`, `LatticeStore`). |

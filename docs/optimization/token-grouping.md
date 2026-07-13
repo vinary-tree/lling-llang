@@ -8,7 +8,7 @@ materialization until a word boundary — cuts redundant composition work by
 
 This is the LET-Decoder lazy-evaluation strategy
 ([Lv 2021](../BIBLIOGRAPHY.md#ref-lv2021)): a `TokenGroup` stores only the *best* forward
-probability (its `` `⊕` ``-combination) for pruning, links groups across frames
+probability (its $`\oplus`$-combination) for pruning, links groups across frames
 with lightweight `GroupLink`s instead of real tokens, and **expands** a group
 into concrete tokens only when a word arc forces it. Source:
 [`src/optimization/token_group.rs`](../../src/optimization/token_group.rs).
@@ -19,36 +19,38 @@ into concrete tokens only when a word arc forces it. Source:
 
 | Term | Meaning |
 |---|---|
-| **token** | A search hypothesis `` `(base_state, grammar_state, forward_prob, …)` ``. |
+| **token** | A search hypothesis `(base_state, grammar_state, forward_prob, …)`. |
 | **base state** | A state in the base graph (e.g. HCLG); the grouping key. |
-| **grammar state** | A state in the residual grammar `` `Gᵣ` `` that distinguishes tokens. |
+| **grammar state** | A state in the residual grammar $`G_r`$ that distinguishes tokens. |
 | **token group** | Equivalence class of tokens sharing one base state (`TokenGroup`). |
-| `` `⊕` `` | Semiring *plus*. In the **log** semiring `` `⊕ = ⊕ₗₒg` `` (log-add); combines the group's tokens. |
-| **forward prob** | Accumulated `` `−log` `` probability of reaching a token (`forward_prob`). |
+| $`\oplus`$ | Semiring *plus*. In the **log** semiring $`\oplus = \oplus_{\log}`$ (log-add); combines the group's tokens. |
+| **forward prob** | Accumulated $`-\log`$ probability of reaching a token (`forward_prob`). |
 | **lazy evaluation** | Defer materializing tokens until a word boundary needs them. |
 | **frame** | One time step of the decoder; groups are keyed within a frame. |
-| **α-stable** | Property that group forward probabilities stay valid after updates (correct lattices). |
-| `` `∣V∣` `` | Vocabulary size (cardinality, U+2223, not ASCII `|`). |
+| **$`\alpha`$-stable** | Property that group forward probabilities stay valid after updates (correct lattices). |
+| $`\lvert V\rvert`$ | Vocabulary size (cardinality, U+2223, not ASCII `|`). |
 
-HCLG = the composed **H**MM ∘ **C**ontext ∘ **L**exicon ∘ **G**rammar graph
+HCLG = the composed **H**MM $`\circ`$ **C**ontext $`\circ`$ **L**exicon $`\circ`$ **G**rammar graph
 ([`asr/cascade-construction.md`](../asr/cascade-construction.md)).
 
 ---
 
 ## Formal model
 
-On-the-fly composition explores the product `` `HCLG ∘ Gᵣ` ``, whose states are
-pairs `` `(b, s)` `` of a base-graph state `` `b` `` and a grammar state
-`` `s` ``. Many such pairs share `` `b` `` and differ only in `` `s` ``. A token
+On-the-fly composition explores the product $`\text{HCLG} \circ G_r`$, whose states are
+pairs $`(b, s)`$ of a base-graph state $`b`$ and a grammar state
+$`s`$. Many such pairs share $`b`$ and differ only in $`s`$. A token
 group is the **fiber over a base state**:
 
-```text
-group(b) = { token : token.base_state = b }       (within one frame)
-group(b).best_forward_prob = ⊕  over  { token.forward_prob : token ∈ group(b) }
+```math
+\begin{aligned}
+\text{group}(b) &= \{\, \text{token} : \text{token.base\_state} = b \,\} && \text{(within one frame)} \\
+\text{group}(b).\text{best\_forward\_prob} &= \bigoplus \text{ over } \{\, \text{token.forward\_prob} : \text{token} \in \text{group}(b) \,\}
+\end{aligned}
 ```
 
-where `` `⊕ = ⊕ₗₒg` `` is log-add. Pruning compares groups by
-`` `best_forward_prob` `` alone — a single number per base state — so a group can
+where $`\oplus = \oplus_{\log}`$ is log-add. Pruning compares groups by
+`best_forward_prob` alone — a single number per base state — so a group can
 be discarded *before* its constituent tokens are ever built. Materialization is
 deferred: a group stays **lazy** until a token arrives via a **word arc** (an
 arc with an output label), at which point `expand_group` realizes its tokens.
@@ -56,9 +58,9 @@ Between frames, a `GroupLink` records the `(source, target, weight, is_word_arc)
 relation so back-tracing can reconstruct paths without storing intermediate
 tokens — this is what makes the saving real.
 
-The α-stable property guarantees that updating `` `best_forward_prob` `` with new
+The $`\alpha`$-stable property guarantees that updating `best_forward_prob` with new
 incoming mass (via `add_token` or `add_preceding_link`, both folding with
-`` `⊕ₗₒg` ``) keeps the group's score correct, so the lazily generated lattice
+$`\oplus_{\log}`$) keeps the group's score correct, so the lazily generated lattice
 equals the one eager expansion would produce.
 
 | Component | Type | Role |
@@ -95,7 +97,7 @@ different base state gets a new one.
 A `TokenGroup` carries the grouping key (`base_state`), the pruning score
 (`best_forward_prob`), an `expanded` flag, and — only once expanded — the actual
 `tokens` plus `preceding_links`/`succeeding_links`. `add_token` folds a token's
-`forward_prob` into `best_forward_prob` with `` `⊕ₗₒg` `` (the `plus` of the log
+`forward_prob` into `best_forward_prob` with $`\oplus_{\log}`$ (the `plus` of the log
 semiring) and stores the token; `add_preceding_link` does the same for an
 incoming link's weight without storing a token.
 
@@ -117,7 +119,7 @@ assert!(group.best_forward_prob.approx_eq(&LogWeight::new(expected), 0.01));
 
 ### `TokenGroupPool` and per-frame keying
 
-`TokenGroupPool` allocates groups and maps `` `base_state → group_id` `` **for
+`TokenGroupPool` allocates groups and maps $`\text{base\_state} \to \text{group\_id}`$ **for
 the current frame**. `get_or_create(base_state)` returns the existing group
 within the frame or makes a new one; `advance_frame()` bumps the frame counter
 and clears the map, so the same base state in the next frame yields a fresh
@@ -165,7 +167,7 @@ arc forces `expanded == true` and stores the token
 
 The intent is to *keep one prunable score per base state and only pay for tokens
 that survive to a word boundary*. The invariant is: **a group's
-`best_forward_prob` equals the `` `⊕ₗₒg` `` of all token/link masses routed to its
+`best_forward_prob` equals the $`\oplus_{\log}`$ of all token/link masses routed to its
 base state in the current frame**, whether or not those tokens are materialized.
 
 ```text
@@ -183,15 +185,15 @@ base state in the current frame**, whether or not those tokens are materialized.
   advance_frame():   snapshot active groups → GroupedFrame; roll pool & queue
 ```
 
-Per token the work is `` `O(1)` `` (a hash lookup, a `` `⊕ₗₒg` ``, a bucket
-insert); pruning is `` `O(buckets)` `` to sweep the tail. The saving comes from
+Per token the work is $`O(1)`$ (a hash lookup, a $`\oplus_{\log}`$, a bucket
+insert); pruning is $`O(\text{buckets})`$ to sweep the tail. The saving comes from
 **not** running composition for the grammar-state distinctions inside a group
 until a word boundary, and from pruning whole groups by one number — the source
 notes 10–20× fewer composition operations and the matching `ops_saved` counter.
 
 ![Token equivalence classes: four tokens sharing or differing in base state collapse into TokenGroups keyed by base state, each holding the log-added best forward probability; the surviving group is histogram-pruned and a word arc forces its expansion, while a dashed GroupLink carries lazy back-trace information.](../diagrams/optimization/token-grouping.svg)
 
-*Blue = raw `(base, grammar)` tokens; green = the surviving group keyed by base 7 (its score is `` `⊕(a,b,c)` ``); grey = the pruned group (base 9); amber = the word-arc-triggered expansion; grey dashed = the lazy `GroupLink` back-trace edge.*
+*Blue = raw `(base, grammar)` tokens; green = the surviving group keyed by base 7 (its score is $`\oplus(a,b,c)`$); grey = the pruned group (base 9); amber = the word-arc-triggered expansion; grey dashed = the lazy `GroupLink` back-trace edge.*
 
 <details><summary>Text view</summary>
 
@@ -259,11 +261,11 @@ assert_eq!(queue.len(), 2);
 ## Relation to the library
 
 - **On-the-fly composition.** Grouping optimizes the lazy product
-  `` `HCLG ∘ Gᵣ` `` from [`algorithms/composition.md`](../algorithms/composition.md)
+  $`\text{HCLG} \circ G_r`$ from [`algorithms/composition.md`](../algorithms/composition.md)
   and the lazy WFST machinery in
   [`architecture/wfst-operations.md`](../architecture/wfst-operations.md).
 - **Log semiring.** `forward_prob` is a `LogWeight`; group folding uses
-  `` `⊕ₗₒg` `` ([`architecture/semirings.md`](../architecture/semirings.md)).
+  $`\oplus_{\log}`$ ([`architecture/semirings.md`](../architecture/semirings.md)).
 - **Beam search & lookahead.** Histogram pruning complements the beam cutoff and
   the future-cost estimate of [`lookahead.md`](lookahead.md); both decide what to
   keep before doing full work.

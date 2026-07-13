@@ -2,9 +2,9 @@
 
 > **Thesis.** A feature-gated blanket implementation makes *every idempotent
 > semiring* usable as a `libdictenstein`/`llattice` dictionary value, by
-> recognizing that an idempotent `` `⊕` `` already satisfies the join-semilattice
+> recognizing that an idempotent $`\oplus`$ already satisfies the join-semilattice
 > laws — so a dictionary's union-merge `join` becomes exactly the semiring
-> `` `⊕` ``.
+> $`\oplus`$.
 
 This document covers `src/lattice_bridge.rs`
 ([source](../../src/lattice_bridge.rs)) and the `lattice` / `lattice-persistent`
@@ -19,16 +19,16 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); conventions in
 
 | Symbol / term | Meaning |
 |---|---|
-| **Semiring** | `` `(K, ⊕, ⊗, 0̄, 1̄)` `` — the algebra of weights (see [semirings](semirings.md)). |
-| `` `⊕` `` | Semiring *plus*: combines **alternatives**. Associative, commutative, identity `` `0̄` ``. |
-| `` `⊗` `` | Semiring *times*: combines **sequential** steps. Associative, identity `` `1̄` ``, distributes over `` `⊕` ``. |
-| `` `0̄` ` / ` `1̄` `` | The `` `⊕` ``- and `` `⊗` ``-identities ("no path" / "empty path"). |
-| **Idempotent** | A semiring is idempotent when `` `a ⊕ a = a` `` for all `` `a ∈ K` `` (the [`IdempotentSemiring`](../../src/semiring/traits.rs) marker). |
-| **Lattice** | A set with `` `join` `` (least upper bound) and `` `meet` `` (greatest lower bound) — the [`llattice::Lattice`](../../src/lattice_bridge.rs) trait. |
-| **Join semilattice** | A set with an associative, commutative, idempotent binary `` `join` `` (no `` `meet` `` required). |
-| `` `∨` ` / ` `∧` `` | Lattice `` `join` `` / `` `meet` ``. |
+| **Semiring** | $`(K, \oplus, \otimes, \bar{0}, \bar{1})`$ — the algebra of weights (see [semirings](semirings.md)). |
+| $`\oplus`$ | Semiring *plus*: combines **alternatives**. Associative, commutative, identity $`\bar{0}`$. |
+| $`\otimes`$ | Semiring *times*: combines **sequential** steps. Associative, identity $`\bar{1}`$, distributes over $`\oplus`$. |
+| $`\bar{0}`$ / $`\bar{1}`$ | The $`\oplus`$- and $`\otimes`$-identities ("no path" / "empty path"). |
+| **Idempotent** | A semiring is idempotent when $`a \oplus a = a`$ for all $`a \in K`$ (the [`IdempotentSemiring`](../../src/semiring/traits.rs) marker). |
+| **Lattice** | A set with `join` (least upper bound) and `meet` (greatest lower bound) — the [`llattice::Lattice`](../../src/lattice_bridge.rs) trait. |
+| **Join semilattice** | A set with an associative, commutative, idempotent binary `join` (no `meet` required). |
+| $`\lor`$ / $`\land`$ | Lattice `join` / `meet`. |
 | **Dictionary value** | A type stored against a key in a `libdictenstein` trie (the `DictionaryValue` marker). |
-| **Union-merge** | When two values are stored for the same key, they are combined by `` `join` `` (`` `∨` ``) — the CRDT-style merge. |
+| **Union-merge** | When two values are stored for the same key, they are combined by `join` ($`\lor`$) — the CRDT-style merge. |
 
 This module is **structural glue**, not an algorithm: it states *why* an
 idempotent semiring is already a lattice and supplies the wrapper type that
@@ -38,12 +38,12 @@ carries that fact across the crate boundary.
 
 ## Formal model
 
-### Idempotent `` `⊕` `` is a join
+### Idempotent $`\oplus`$ is a join
 
 A **join semilattice** is a commutative, associative, idempotent magma. The
-semiring axioms already give `` `⊕` `` commutativity and associativity; adding
+semiring axioms already give $`\oplus`$ commutativity and associativity; adding
 the [`IdempotentSemiring`](../../src/semiring/traits.rs) law
-`` `a ⊕ a = a` `` supplies the third:
+$`a \oplus a = a`$ supplies the third:
 
 ```text
 commutativity:  a ⊕ b = b ⊕ a
@@ -54,8 +54,8 @@ idempotency:    a ⊕ a = a               ⟸ IdempotentSemiring
 ```
 
 The induced partial order is the **natural order**
-`` `a ≤ b ⟺ a ⊕ b = a` `` (for cost semirings, `` `≤` `` ranks "at least as
-good"); `` `0̄` `` is the bottom because `` `0̄ ⊕ a = a` `` for all `` `a` `` (see
+$`a \le b \iff a \oplus b = a`$ (for cost semirings, $`\le`$ ranks "at least as
+good"); $`\bar{0}`$ is the bottom because $`\bar{0} \oplus a = a`$ for all $`a`$ (see
 [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) on natural orders and the
 [`Semiring::natural_less`](../../src/semiring/traits.rs) method).
 
@@ -75,35 +75,35 @@ impl<S> llattice::Lattice for SemiringLatticeWrapper<S>   where S : Semiring + I
 }
 ```
 
-`` `join` `` is therefore *definitionally* the semiring `` `⊕` ``. When a
+`join` is therefore *definitionally* the semiring $`\oplus`$. When a
 `libdictenstein` dictionary union-merges two values stored under the same key,
-it calls `` `join` `` — so **the dictionary's merge equals `` `⊕` ``**, which is
+it calls `join` — so **the dictionary's merge equals $`\oplus`$**, which is
 the central claim of this module.
 
-> **Meet caveat.** `` `meet` `` is wired to `` `⊗` `` for convenience, but
-> `` `⊗` `` is *path composition*, not a lattice meet in general. It coincides
-> with the true `` `∧` `` only for special algebras — e.g. the Boolean semiring,
-> where `` `⊗ = AND` `` is the greatest lower bound. For a correct `` `meet` `` on
+> **Meet caveat.** `meet` is wired to $`\otimes`$ for convenience, but
+> $`\otimes`$ is *path composition*, not a lattice meet in general. It coincides
+> with the true $`\land`$ only for special algebras — e.g. the Boolean semiring,
+> where $`\otimes = \text{AND}`$ is the greatest lower bound. For a correct `meet` on
 > other semirings, implement [`llattice::Lattice`](../../src/lattice_bridge.rs)
 > directly. The source documents exactly this in its type-level doc comments.
 
 ### Why the impl lives here (the orphan rule)
 
 Rust's **orphan rule** forbids implementing a foreign trait
-(`` `llattice::Lattice` ``, `` `libdictenstein::DictionaryValue` ``) for a foreign
+(`llattice::Lattice`, `libdictenstein::DictionaryValue`) for a foreign
 type unless the implementing crate owns one of them. `lling-llang` owns the
-semiring types, so wrapping them in the local `` `SemiringLatticeWrapper` `` makes
+semiring types, so wrapping them in the local `SemiringLatticeWrapper` makes
 the impls legal *here* and breaks what would otherwise be a dependency cycle
 (`libdictenstein → lling-llang → libdictenstein`). The wrapper was relocated out
 of `libdictenstein` for exactly this reason.
 
 ---
 
-## Intuition — two dictionary values merging via `` `⊕` ``
+## Intuition — two dictionary values merging via $`\oplus`$
 
-Store two `` `TropicalWeight` `` values under the same dictionary key — say the
-costs `` `10.0` `` and `` `5.0` `` arrive from two sources. The union-merge calls
-`` `join = ⊕ = min` ``, keeping the cheaper:
+Store two `TropicalWeight` values under the same dictionary key — say the
+costs $`10.0`$ and $`5.0`$ arrive from two sources. The union-merge calls
+$`\text{join} = \oplus = \min`$, keeping the cheaper:
 
 ```text
 left  = Wrapper(Tropical 10.0)
@@ -112,8 +112,7 @@ right = Wrapper(Tropical  5.0)
 left.join(&right) = Wrapper(Tropical 5.0)        ▷ 5.0 = min(10.0, 5.0)
 ```
 
-For the Boolean semiring the same merge is logical OR: `` `true ∨ false =
-true` ``. This is the object snapshot in [§ Diagrams](#diagrams) — the merge is
+For the Boolean semiring the same merge is logical OR: $`\text{true} \lor \text{false} = \text{true}`$. This is the object snapshot in [§ Diagrams](#diagrams) — the merge is
 commutative, associative, and idempotent, which is precisely what a
 conflict-free (CRDT-style) dictionary merge requires.
 
@@ -132,14 +131,14 @@ lattice_bridge  (cfg(feature = "lattice"))
 
 | Item | Responsibility |
 |---|---|
-| [`SemiringLattice`](../../src/lattice_bridge.rs) | Marker trait + blanket impl: *any* `` `S: Semiring + IdempotentSemiring` `` is a `SemiringLattice`. |
-| [`SemiringLatticeWrapper<S>`](../../src/lattice_bridge.rs) | Newtype adapter carrying an `` `S` `` value; supplies `` `join = ⊕` `` and `` `meet = ⊗` `` and serves as a dictionary value. |
-| `impl Lattice for Wrapper` | `` `join(&self, other) = Wrapper(self.0.plus(&other.0))` ``; `` `meet(&self, other) = Wrapper(self.0.times(&other.0))` ``. |
+| [`SemiringLattice`](../../src/lattice_bridge.rs) | Marker trait + blanket impl: *any* `S: Semiring + IdempotentSemiring` is a `SemiringLattice`. |
+| [`SemiringLatticeWrapper<S>`](../../src/lattice_bridge.rs) | Newtype adapter carrying an `S` value; supplies $`\text{join} = \oplus`$ and $`\text{meet} = \otimes`$ and serves as a dictionary value. |
+| `impl Lattice for Wrapper` | `join(&self, other) = Wrapper(self.0.plus(&other.0))`; `meet(&self, other) = Wrapper(self.0.times(&other.0))`. |
 | `impl DictionaryValue` | Two cfg-gated impls — basic bounds vs serde-bounded — so the wrapper is storable in in-memory and disk-backed dictionaries respectively. |
 
-The wrapper derives `` `Clone, Copy, Debug, Default, PartialEq` ``, and under
+The wrapper derives `Clone, Copy, Debug, Default, PartialEq`, and under
 `lattice-persistent` additionally derives transparent
-`` `serde::Serialize`/`Deserialize` `` so the inner weight serializes directly.
+`serde::Serialize`/`Deserialize` so the inner weight serializes directly.
 
 ---
 
@@ -157,12 +156,12 @@ lattice-persistent = ["lattice", "libdictenstein/persistent-artrie", "dep:serde"
 
 | Feature | Effect |
 |---|---|
-| **`lattice`** | Compiles `pub mod lattice_bridge` (gated in [`lib.rs`](../../src/lib.rs)), pulls in `` `llattice` `` and `` `libdictenstein` ``, and provides the basic-bounds `DictionaryValue` impl. |
+| **`lattice`** | Compiles `pub mod lattice_bridge` (gated in [`lib.rs`](../../src/lib.rs)), pulls in `llattice` and `libdictenstein`, and provides the basic-bounds `DictionaryValue` impl. |
 | **`lattice-persistent`** | Implies `lattice`; enables `libdictenstein`'s `persistent-artrie` backend and `serde`, swapping in the **serde-bounded** `DictionaryValue` impl so wrapped weights can be persisted to disk-backed dictionaries. |
 
-The two `` `DictionaryValue` `` impls are mutually exclusive via
-`` `#[cfg(not(feature = "lattice-persistent"))]` `` and
-`` `#[cfg(feature = "lattice-persistent")]` ``, so exactly one is active for any
+The two `DictionaryValue` impls are mutually exclusive via
+`#[cfg(not(feature = "lattice-persistent"))]` and
+`#[cfg(feature = "lattice-persistent")]`, so exactly one is active for any
 feature selection.
 
 ---
@@ -172,7 +171,7 @@ feature selection.
 There is no iterative algorithm here; the "algorithm" is the one-line merge the
 dictionary invokes when two values collide on a key. Its intent: combine
 contributions order-independently. The relevant invariant is that
-`` `join` `` is idempotent/commutative/associative, so repeated or reordered
+`join` is idempotent/commutative/associative, so repeated or reordered
 merges converge to the same value (the CRDT property).
 
 ```text
@@ -185,24 +184,24 @@ merges converge to the same value (the CRDT property).
   (a.join(&b)).join(&c)        = a.join(&b.join(&c))      (associative)
 ```
 
-Each merge is `` `O(cost(⊕))` `` — `` `O(1)` `` for scalar semirings such as
+Each merge is $`O(\operatorname{cost}(\oplus))`$ — $`O(1)`$ for scalar semirings such as
 Tropical/Boolean. Because the operation is a lattice join, a dictionary built
 this way is a conflict-free replicated value: merging two replicas in any order
 yields the least upper bound of their contents.
 
-**Trace** (Tropical): inserting `` `5.0` `` where `` `10.0` `` is stored runs
-`` `10.0.join(&5.0) = 10.0 ⊕ 5.0 = min(10.0, 5.0) = 5.0` ``; inserting
-`` `5.0` `` again is idempotent (`` `5.0 ⊕ 5.0 = 5.0` ``), leaving the entry
-unchanged. ∎
+**Trace** (Tropical): inserting $`5.0`$ where $`10.0`$ is stored runs
+$`10.0.\text{join}(\&5.0) = 10.0 \oplus 5.0 = \min(10.0, 5.0) = 5.0`$; inserting
+$`5.0`$ again is idempotent ($`5.0 \oplus 5.0 = 5.0`$), leaving the entry
+unchanged. $`\blacksquare`$
 
 ---
 
 ## Examples
 
 Snippets are from the module's `#[cfg(test)]` suite (compiler-checked under
-`` `--features lattice` ``).
+`--features lattice`).
 
-### Tropical: join = `` `⊕ = min` ``, meet = `` `⊗ = +` ``
+### Tropical: join = $`\oplus = \min`$, meet = $`\otimes = +`$
 
 ```rust,ignore
 use lling_llang::lattice_bridge::SemiringLatticeWrapper;
@@ -219,7 +218,7 @@ assert_eq!(a.join(&b).0 .0 .0, 5.0);
 assert_eq!(a.meet(&b).0 .0 .0, 15.0);
 ```
 
-### Boolean: join = `` `⊕ = OR` ``
+### Boolean: join = $`\oplus = \text{OR}`$
 
 ```rust,ignore
 use lling_llang::lattice_bridge::SemiringLatticeWrapper;
@@ -249,15 +248,15 @@ assert_is_semiring_lattice::<BoolWeight>();
 
 ## Diagrams
 
-### Blanket impl + two values merging via `` `⊕` ``
+### Blanket impl + two values merging via $`\oplus`$
 
 ![Class diagram of the semiring↔lattice bridge: Semiring is refined by IdempotentSemiring and the blanket SemiringLattice; SemiringLatticeWrapper<S> implements llattice::Lattice (join = ⊕, meet = ⊗) and libdictenstein::DictionaryValue. Below, an object snapshot shows two Tropical wrapper values joining (⊕ = min) into a merged value.](../diagrams/architecture/lattice-bridge.svg)
 
-*Blue = the core `` `Semiring` `` / `` `Lattice` `` interfaces; amber =
+*Blue = the core `Semiring` / `Lattice` interfaces; amber =
 idempotent marker and the wrapper/value objects; green = the
-`` `SemiringLattice` `` blanket marker and the merged result; bold green arrows =
-the union-merge `` `join = ⊕` `` of `` `Tropical(10)` `` and `` `Tropical(5)` ``
-into `` `Tropical(5) = min(10,5)` ``; neutral grey = the `DictionaryValue`
+`SemiringLattice` blanket marker and the merged result; bold green arrows =
+the union-merge $`\text{join} = \oplus`$ of $`\text{Tropical}(10)`$ and $`\text{Tropical}(5)`$
+into $`\text{Tropical}(5) = \min(10,5)`$; neutral grey = the `DictionaryValue`
 marker bound.*
 
 <details><summary>Text view</summary>
@@ -286,23 +285,23 @@ marker bound.*
 ## Relation to the library
 
 - **Semirings.** The bridge consumes the
-  [`IdempotentSemiring`](semirings.md) marker; Tropical (`` `min(a,a)=a` ``) and
-  Boolean (`` `a ∨ a = a` ``) qualify, while non-idempotent algebras
+  [`IdempotentSemiring`](semirings.md) marker; Tropical ($`\min(a,a)=a`$) and
+  Boolean ($`a \lor a = a`$) qualify, while non-idempotent algebras
   (Probability, Count) intentionally do not — they have no lawful join, so the
   blanket impl excludes them.
 - **Dictionaries & lattices.** With `lattice` enabled, any qualifying weight
-  becomes a `` `libdictenstein` `` dictionary value via
+  becomes a `libdictenstein` dictionary value via
   [`SemiringLatticeWrapper`](../../src/lattice_bridge.rs); the
   [`llattice::Lattice`](../../src/lattice_bridge.rs) trait supplies the shared
-  `` `join`/`meet` `` vocabulary so downstream crates need not re-derive it.
+  `join`/`meet` vocabulary so downstream crates need not re-derive it.
 - **Lattices in this crate vs `llattice`.** The WFST
   [`Lattice`](lattices.md) type (a weighted DAG of hypotheses) is unrelated to
-  the order-theoretic `` `llattice::Lattice` `` used here; this bridge concerns
+  the order-theoretic `llattice::Lattice` used here; this bridge concerns
   the latter (join/meet algebra), which is why it lives in `architecture/`
   beside the semiring docs.
 - **Cycle-breaking placement.** Hosting the impls in `lling-llang` (which owns
   the semiring types) satisfies the orphan rule and keeps
-  `` `libdictenstein` `` free of a back-dependency on this crate.
+  `libdictenstein` free of a back-dependency on this crate.
 
 ---
 

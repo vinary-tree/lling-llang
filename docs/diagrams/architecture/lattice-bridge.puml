@@ -24,21 +24,21 @@ skinparam object {
 }
 hide empty members
 
-title <b>Semiring ↔ lattice bridge</b>  (feature = "lattice")\n<size:11><i>blanket impl: any idempotent semiring becomes a libdictenstein dictionary value whose union-merge join = ⊕</i></size>
+title <b>Semiring ↔ lattice bridge</b>  (feature = "lattice")\n<size:11><i>blanket impl: any idempotent semiring becomes a libdictenstein dictionary value whose union-merge join = <latex>\oplus</latex></i></size>
 
-interface "Semiring\n(K, ⊕, ⊗, 0̄, 1̄)" as S {
-  +plus(&Self) : Self    .. ⊕
-  +times(&Self) : Self   .. ⊗
+interface "Semiring\n<latex>(K, \oplus, \otimes, \bar{0}, \bar{1})</latex>" as S {
+  +plus(&Self) : Self    .. <latex>\oplus</latex>
+  +times(&Self) : Self   .. <latex>\otimes</latex>
 }
 interface "IdempotentSemiring" as IDEM #FFF59D {
-  .. marker: a ⊕ a = a ..
+  .. marker: <latex>a \oplus a = a</latex> ..
 }
 interface "SemiringLattice" as SL #C8E6C9 {
   .. blanket marker ..
 }
 interface "llattice::Lattice" as LAT #BBDEFB {
-  +join(&Self) : Self    .. ⊕
-  +meet(&Self) : Self    .. ⊗
+  +join(&Self) : Self    .. <latex>\oplus</latex>
+  +meet(&Self) : Self    .. <latex>\otimes</latex>
 }
 interface "libdictenstein::\nDictionaryValue" as DV #ECEFF1 {
   .. Clone+Default+Send+Sync+'static ..
@@ -46,8 +46,8 @@ interface "libdictenstein::\nDictionaryValue" as DV #ECEFF1 {
 class "SemiringLatticeWrapper<S>" as W #FFF59D {
   +0 : S
   --
-  join = ⊕  (union-merge)
-  meet = ⊗  (path compose)
+  join = <latex>\oplus</latex>  (union-merge)
+  meet = <latex>\otimes</latex>  (path compose)
 }
 
 S <|-- IDEM
@@ -57,9 +57,9 @@ W ..|> DV   : (serde-bounded if\nfeature lattice-persistent)
 SL .right.> W : wraps S
 
 note bottom of LAT
-  Idempotent ⊕ satisfies the join-semilattice laws
-  (idempotent, commutative, associative), so ⊕ is a
-  lawful <b>join</b>. ⊗ is path composition, not a true
+  Idempotent <latex>\oplus</latex> satisfies the join-semilattice laws
+  (idempotent, commutative, associative), so <latex>\oplus</latex> is a
+  lawful <b>join</b>. <latex>\otimes</latex> is path composition, not a true
   meet — supply a real meet for other semirings.
 end note
 
@@ -73,8 +73,8 @@ object "right : Wrapper<Tropical>" as R #FFF59D {
 object "merged : Wrapper<Tropical>" as M #C8E6C9 {
   0 = Tropical(5.0)
   = left.join(right)
-  = ⊕ = min(10, 5)
+  = <latex>\oplus = \min(10, 5)</latex>
 }
-L -[#2E7D32,bold]-> M : join (⊕)
-R -[#2E7D32,bold]-> M : join (⊕)
+L -[#2E7D32,bold]-> M : join (<latex>\oplus</latex>)
+R -[#2E7D32,bold]-> M : join (<latex>\oplus</latex>)
 @enduml

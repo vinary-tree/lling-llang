@@ -27,10 +27,10 @@ note right #ECEFF1
   words: ["hello", "mundo"]
 end note
 
-:<b>LanguageDetector.detect_word</b>\nargmax<sub>ℓ</sub> P(ℓ | context)\nper word / span;
-#BBDEFB:Code-switch present?\n(more than one ℓ argmax);
+:<b>LanguageDetector.detect_word</b>\n<latex>\text{argmax}_\ell P(\ell \mid \text{context})</latex>\nper word / span;
+#BBDEFB:Code-switch present?\n(more than one <latex>\ell</latex> argmax);
 if (yes) then (switch)
-  :<b>CodeSwitchTransducer.best_path</b>\nViterbi over (word × language)\nwith switch_penalty;
+  :<b>CodeSwitchTransducer.best_path</b>\nViterbi over (word <latex>\times</latex> language)\nwith switch_penalty;
   :Segment into LanguageSpans\n(contiguous single-language runs);
 else (monolingual)
   :Single LanguageSpan\n= whole utterance;

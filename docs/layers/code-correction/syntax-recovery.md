@@ -27,13 +27,13 @@ the configured `RecoveryStrategy` set and adding its per-operation cost), while
 tracking an open-bracket stack. At end of input, any unclosed brackets are
 balanced before reaching the accepting `Recovered` state. Every repair is added as
 a *parallel* lattice edge, so all candidates coexist and the lowest-cost path —
-`` `cost = original_cost + Σ recovery_costs` `` — is preferred downstream.
+$`\text{cost} = \text{original\_cost} + \sum \text{recovery\_costs}`$ — is preferred downstream.
 
 ![State diagram: from Scanning, conditional transitions to Insertion (+insertion_cost), Deletion (+deletion_cost via an ε edge), and Replacement (+replacement_cost), each returning to Scanning; at end of input, green edges go to Balancing (if the bracket stack is non-empty) then to the green double-ringed Recovered state, or directly to Recovered when the stack is empty.](../../diagrams/layers/code-correction/syntax-recovery.svg)
 
 *Amber = recovery states; bold green = the accepting transitions to the green
-double-ring `Recovered` state; guards in `` `[ … ]` `` are the strategy/cost/limit
-conditions (`max_insertions`, `max_deletions`); `` `ε` `` is the empty (skip) label.*
+double-ring `Recovered` state; guards in `[ … ]` are the strategy/cost/limit
+conditions (`max_insertions`, `max_deletions`); $`\varepsilon`$ is the empty (skip) label.*
 
 <details><summary>Text view (per-strategy lattice edits)</summary>
 
@@ -251,7 +251,7 @@ let config = SyntaxRecoveryConfig::default()
 ## Cost Model
 
 Costs determine which corrections are preferred. The total cost of a recovered
-path is `` `total_cost = original_cost + Σ recovery_costs` ``:
+path is $`\text{total\_cost} = \text{original\_cost} + \sum \text{recovery\_costs}`$:
 
 ```text
 total_cost = original_cost + Σ recovery_costs
@@ -263,7 +263,7 @@ Recovery costs:
 ```
 
 Lower total cost = more preferred path. Because weights live in the tropical
-semiring (`` `⊕ = min` ``, `` `⊗ = +` ``), the best path is the minimum-cost path.
+semiring ($`\oplus = \min`$, $`\otimes = +`$), the best path is the minimum-cost path.
 
 ### Cost Tuning
 

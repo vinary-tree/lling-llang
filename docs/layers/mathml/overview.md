@@ -16,7 +16,7 @@ unification, optionally pruning any path that carries a type error.
 *Amber = the disambiguation/type-check activities; grey diamonds = the
 `MathMLSemanticConfig` gates (`disambiguate_homoglyphs`, `normalize_homoglyphs`,
 `check_types`, `prune_type_errors`); green terminal = the filtered lattice plus
-its `` `SemanticResult` `` (`inferred_type`, `issues`, `disambiguations`).*
+its `SemanticResult` (`inferred_type`, `issues`, `disambiguations`).*
 
 <details><summary>Text view</summary>
 

@@ -8,31 +8,31 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); conventions in [`STYLE.md`](../
 
 | Symbol / term | Meaning |
 |---|---|
-| **Signed tropical** | The semiring `` `(ℝ ∪ {±∞}, min, +, +∞, 0)` `` over the full real line. |
-| `` `⊕` `` | Semiring *plus*: `` `min(a, b)` `` — pick the better (lower) weight. |
-| `` `⊗` `` | Semiring *times*: `` `a + b` `` — accumulate cost/reward along a path. |
-| `` `0̄` ` / ` `1̄` `` | The identities `` `+∞` `` (`` `⊕` ``) and `` `0` `` (`` `⊗` ``). |
-| `` `w*` `` | Kleene closure `` `min(0, w, 2w, 3w, …)` `` (diverges to `` `−∞` `` for `` `w < 0` ``). |
-| **Reward** | A negative weight (`` `< 0` ``) — a bonus that `` `⊕ = min` `` prefers. |
+| **Signed tropical** | The semiring $`(\mathbb{R} \cup \{\pm\infty\}, \min, +, +\infty, 0)`$ over the full real line. |
+| $`\oplus`$ | Semiring *plus*: $`\min(a, b)`$ — pick the better (lower) weight. |
+| $`\otimes`$ | Semiring *times*: $`a + b`$ — accumulate cost/reward along a path. |
+| $`\bar{0}`$ / $`\bar{1}`$ | The identities $`+\infty`$ ($`\oplus`$) and $`0`$ ($`\otimes`$). |
+| $`w^*`$ | Kleene closure $`\min(0, w, 2w, 3w, \dots)`$ (diverges to $`-\infty`$ for $`w < 0`$). |
+| **Reward** | A negative weight ($`< 0`$) — a bonus that $`\oplus = \min`$ prefers. |
 
 ## Concepts
 
 ### What is the Signed Tropical Semiring?
 
-The **signed tropical semiring** `` `(ℝ ∪ {±∞}, min, +, +∞, 0)` `` operates over the full real number line, unlike the standard tropical semiring which is restricted to non-negative values.
+The **signed tropical semiring** $`(\mathbb{R} \cup \{\pm\infty\}, \min, +, +\infty, 0)`$ operates over the full real number line, unlike the standard tropical semiring which is restricted to non-negative values.
 
 | Operation | Definition | Intuition |
 |-----------|------------|-----------|
-| `` `⊕` `` | `` `min(a, b)` `` | Pick the better (lower) weight |
-| `` `⊗` `` | `` `a + b` `` | Accumulate costs/rewards |
-| `` `0̄` `` | `` `+∞` `` | Unreachable (infinite cost) |
-| `` `1̄` `` | `` `0` `` | Neutral (no cost, no reward) |
+| $`\oplus`$ | $`\min(a, b)`$ | Pick the better (lower) weight |
+| $`\otimes`$ | $`a + b`$ | Accumulate costs/rewards |
+| $`\bar{0}`$ | $`+\infty`$ | Unreachable (infinite cost) |
+| $`\bar{1}`$ | $`0`$ | Neutral (no cost, no reward) |
 
-The figure below places rewards (negative) and costs (positive) on the real line and marks the star-convergence boundary at `` `0` ``:
+The figure below places rewards (negative) and costs (positive) on the real line and marks the star-convergence boundary at $`0`$:
 
 ![Signed-tropical semiring figure: the signature (ℝ∪{±∞}, min, +, +∞, 0) with a⊕b=min(a,b) and a⊗b=a+b over a number line from −∞ to +∞=0̄, with a green brace marking rewards (<0, fluency bonus / preferred path) on the negative side and an orange brace marking costs (>0, edit distance / penalty) on the positive side, plus a red star-rule note: a≥0 ⇒ a*=1̄=0 (converges), a<0 ⇒ a*=−∞ (diverges → FallibleStarSemiring).](../diagrams/architecture/signed-tropical.svg)
 
-*Blue = the signature/axioms; green = the reward region (`` `< 0` ``) and the converging-star case; orange = the cost region (`` `> 0` ``); red = the star-divergence boundary at `` `0` `` and the fallible-closure note.*
+*Blue = the signature/axioms; green = the reward region ($`< 0`$) and the converging-star case; orange = the cost region ($`> 0`$); red = the star-divergence boundary at $`0`$ and the fallible-closure note.*
 
 <details><summary>Text view</summary>
 
@@ -48,13 +48,13 @@ The figure below places rewards (negative) and costs (positive) on the real line
 
 ### Why Signed Tropical?
 
-The standard `` `TropicalWeight` `` restricts weights to non-negative values. This limitation prevents modeling scenarios where you want to **reward** certain behaviors:
+The standard `TropicalWeight` restricts weights to non-negative values. This limitation prevents modeling scenarios where you want to **reward** certain behaviors:
 
 | Weight Type | Meaning | Example |
 |-------------|---------|---------|
-| Positive (`` `+` ``) | Cost/Penalty | Edit distance, error penalty |
-| Zero (`` `0` ``) | Neutral | Free operation |
-| Negative (`` `−` ``) | Reward/Bonus | Fluency bonus, preferred path |
+| Positive ($`+`$) | Cost/Penalty | Edit distance, error penalty |
+| Zero ($`0`$) | Neutral | Free operation |
+| Negative ($`-`$) | Reward/Bonus | Fluency bonus, preferred path |
 
 **Use cases:**
 - **Language model scoring**: Bonuses for fluent phrases
@@ -65,7 +65,7 @@ The standard `` `TropicalWeight` `` restricts weights to non-negative values. Th
 
 ### Comparison with Standard Tropical
 
-Standard tropical lives on the non-negative half-line `` `(ℝ₊ ∪ {∞}, min, +, ∞, 0)` ``; the signed variant `` `(ℝ ∪ {±∞}, min, +, +∞, 0)` `` opens it to the full real line so negatives can encode rewards:
+Standard tropical lives on the non-negative half-line $`(\mathbb{R}_+ \cup \{\infty\}, \min, +, \infty, 0)`$; the signed variant $`(\mathbb{R} \cup \{\pm\infty\}, \min, +, +\infty, 0)`$ opens it to the full real line so negatives can encode rewards:
 
 ```text
 Standard Tropical:  (ℝ₊ ∪ {∞}, min, +, ∞, 0)
@@ -129,14 +129,14 @@ assert_eq!(a.times(&SignedTropicalWeight::one()), a);   // a ⊗ 0 = a
 
 ### The Divergence Problem
 
-The star operation `` `w* = 1̄ ⊕ w ⊕ w² ⊕ …` `` computes the Kleene closure. For signed tropical this is `` `w* = min(0, w, 2w, 3w, …)` ``:
+The star operation $`w^* = \bar{1} \oplus w \oplus w^2 \oplus \dots`$ computes the Kleene closure. For signed tropical this is:
 
-```text
-w* = min(0, w, 2w, 3w, ...)
+```math
+w^* = \min(0, w, 2w, 3w, \dots)
 ```
 
-- **If `` `w ≥ 0` ``**: Sequence is non-decreasing, minimum is `` `0` `` → `` `w* = 0` `` (converges)
-- **If `` `w < 0` ``**: Sequence decreases without bound → `` `w* = −∞` `` (diverges!)
+- **If $`w \ge 0`$**: Sequence is non-decreasing, minimum is $`0`$ → $`w^* = 0`$ (converges)
+- **If $`w < 0`$**: Sequence decreases without bound → $`w^* = -\infty`$ (diverges!)
 
 ```rust
 use lling_llang::semiring::{SignedTropicalWeight, FallibleStarSemiring};
@@ -181,8 +181,8 @@ match w.try_star() {
 
 | Trait | Meaning | Implications |
 |-------|---------|--------------|
-| `IdempotentSemiring` | `` `a ⊕ a = a` `` | Shortest path algorithms work correctly |
-| `CommutativeTimesSemiring` | `` `a ⊗ b = b ⊗ a` `` | Order of path composition doesn't matter |
+| `IdempotentSemiring` | $`a \oplus a = a`$ | Shortest path algorithms work correctly |
+| `CommutativeTimesSemiring` | $`a \otimes b = b \otimes a`$ | Order of path composition doesn't matter |
 | `TotallyOrderedSemiring` | Total ordering exists | Can use in determinization |
 | `DivisibleSemiring` | Division defined | Weight pushing possible |
 | `QuantizableSemiring` | Can quantize to integers | Minimization with floating-point tolerance |
@@ -361,12 +361,12 @@ Use standard `TropicalWeight` when:
 
 | Algorithm | SignedTropicalWeight Support |
 |-----------|------------------------------|
-| Shortest path (Dijkstra) | Only if all weights ≥ 0 |
+| Shortest path (Dijkstra) | Only if all weights $`\ge 0`$ |
 | Shortest path (Bellman-Ford) | Yes (handles negatives) |
 | Determinization | Yes |
 | Minimization | Yes |
 | Weight pushing | Yes |
-| Epsilon removal | Only if loop weights ≥ 0 |
+| Epsilon removal | Only if loop weights $`\ge 0`$ |
 
 ### Memory Layout
 
@@ -387,7 +387,7 @@ This means:
 
 Full entries — including DOIs — are in [`BIBLIOGRAPHY.md`](../BIBLIOGRAPHY.md).
 
-- [**Mohri 2009**](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, *Weighted Automata Algorithms*: closure/star convergence conditions and the divisibility properties this semiring exposes (motivating `` `FallibleStarSemiring` `` when `` `w < 0` ``). [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)
+- [**Mohri 2009**](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, *Weighted Automata Algorithms*: closure/star convergence conditions and the divisibility properties this semiring exposes (motivating `FallibleStarSemiring` when $`w < 0`$). [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)
 - [**Mohri 2002**](../BIBLIOGRAPHY.md#ref-mohri2002) — Mohri, Pereira & Riley, *Weighted Finite-State Transducers in Speech Recognition*: tropical weights for shortest-path scoring, here generalized to carry rewards as negative costs. [doi:10.1006/csla.2001.0184](https://doi.org/10.1006/csla.2001.0184)
 
 ## Related Topics

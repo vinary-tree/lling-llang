@@ -532,7 +532,7 @@ A typical migration workflow:
 
 ### Rule Indexing
 
-Rules are indexed by their first token for O(1) lookup:
+Rules are indexed by their first token for $`O(1)`$ lookup:
 
 ```rust
 // Internal structure:
@@ -553,7 +553,7 @@ When multiple rules match, costs influence selection:
 
 ### WFST Compilation
 
-Building a WFST is O(n) in the number of rules. The resulting WFST can be:
+Building a WFST is $`O(n)`$ in the number of rules. The resulting WFST can be:
 - **Composed** with other transducers
 - **Determinized** for faster matching
 - **Minimized** to reduce state count

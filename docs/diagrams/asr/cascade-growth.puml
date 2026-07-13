@@ -15,32 +15,32 @@ skinparam rectangle {
   BorderColor #E65100
 }
 
-title <b>Cascade growth with incremental determinization</b>\n<size:11>N = π( min( det( H ∘ det( C ∘ det( L ∘ G ) ) ) ) )  —  det/min cap the state count after each ∘</size>
+title <b>Cascade growth with incremental determinization</b>\n<size:11><latex>N = \pi( \min( \det( H \circ \det( C \circ \det( L \circ G ) ) ) ) )</latex>  —  det/min cap the state count after each <latex>\circ</latex></size>
 
-rectangle "<b>G</b> — grammar\n≈ 1K states" as G #FFE0B2
-rectangle "<b>L ∘ G</b>\n≈ 500K states  (blow-up)" as LG #FFCC80
-rectangle "<b>det(L ∘ G)</b>\n≈ 50K states  (10× ↓)" as DLG #FFE0B2
-rectangle "<b>C ∘ det(L ∘ G)</b>\n≈ 200K states" as CLG #FFCC80
-rectangle "<b>det(C ∘ L ∘ G)</b>\n≈ 100K states" as DCLG #FFE0B2
-rectangle "<b>H ∘ det(C ∘ L ∘ G)</b>\nexpand HMM states" as HCLG #FFCC80
-rectangle "<b>N</b> = π(min(…))\nminimal decoding graph" as N #FFB74D
+rectangle "<b>G</b> — grammar\n<latex>\approx</latex> 1K states" as G #FFE0B2
+rectangle "<b><latex>L \circ G</latex></b>\n<latex>\approx</latex> 500K states  (blow-up)" as LG #FFCC80
+rectangle "<b><latex>\det(L \circ G)</latex></b>\n<latex>\approx</latex> 50K states  (<latex>10\times</latex> ↓)" as DLG #FFE0B2
+rectangle "<b><latex>C \circ \det(L \circ G)</latex></b>\n<latex>\approx</latex> 200K states" as CLG #FFCC80
+rectangle "<b><latex>\det(C \circ L \circ G)</latex></b>\n<latex>\approx</latex> 100K states" as DCLG #FFE0B2
+rectangle "<b><latex>H \circ \det(C \circ L \circ G)</latex></b>\nexpand HMM states" as HCLG #FFCC80
+rectangle "<b>N</b> = <latex>\pi(\min(\dots))</latex>\nminimal decoding graph" as N #FFB74D
 
-G   -right-> LG   : ∘ L
+G   -right-> LG   : <latex>\circ</latex> L
 LG  -right-> DLG  : det
-DLG -right-> CLG  : ∘ C
+DLG -right-> CLG  : <latex>\circ</latex> C
 CLG -right-> DCLG : det
-DCLG -right-> HCLG : ∘ H
-HCLG -right-> N    : min · π
+DCLG -right-> HCLG : <latex>\circ</latex> H
+HCLG -right-> N    : min · <latex>\pi</latex>
 
 note bottom of LG
-  Without incremental det the L ∘ G product can reach
+  Without incremental det the <latex>L \circ G</latex> product can reach
   millions of states and exhaust memory before C and H
   are even composed (docs/asr/cascade-construction.md).
 end note
 
 note bottom of DCLG
   After each composition, <b>det</b> (powerset construction)
-  removes redundant paths and ε-arcs; the final <b>min</b>
-  merges equivalent states; <b>π</b> erases auxiliary symbols.
+  removes redundant paths and <latex>\varepsilon</latex>-arcs; the final <b>min</b>
+  merges equivalent states; <b><latex>\pi</latex></b> erases auxiliary symbols.
 end note
 @enduml

@@ -11,25 +11,25 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); conventions in [`STYLE.md`](../
 | **Lattice** | A weighted DAG whose start→end paths enumerate hypotheses (a WFSA — see [wfst-traits](wfst-traits.md)). |
 | **DAG** | Directed Acyclic Graph — no cycles, so all paths are finite. |
 | **WFSA** | Weighted Finite-State Acceptor — a transducer with `input = output`. |
-| `` `V` `` / `` `∣V∣` `` | The node (vertex) set and its cardinality. |
-| `` `E` `` / `` `∣E∣` `` | The edge set and its cardinality. |
-| `` `⊗` `` | Semiring *times*: accumulates edge weight along a path (Tropical: `` `+` ``). |
-| `` `⊕` `` | Semiring *plus*: combines paths reaching the same node (Tropical: `` `min` ``). |
+| $`V`$ / $`\lvert V\rvert`$ | The node (vertex) set and its cardinality. |
+| $`E`$ / $`\lvert E\rvert`$ | The edge set and its cardinality. |
+| $`\otimes`$ | Semiring *times*: accumulates edge weight along a path (Tropical: $`+`$). |
+| $`\oplus`$ | Semiring *plus*: combines paths reaching the same node (Tropical: $`\min`$). |
 
 ## Concepts
 
 ### What is a Lattice?
 
-Imagine you're typing `` `"teh quik"` `` and want to find the best correction. There are multiple possibilities:
+Imagine you're typing `"teh quik"` and want to find the best correction. There are multiple possibilities:
 
-- `` `"teh"` `` could be: `` `"the"` ``, `` `"teh"` `` (keep it), `` `"tea"` ``, `` `"ten"` ``, …
-- `` `"quik"` `` could be: `` `"quick"` ``, `` `"quik"` `` (keep it), `` `"quit"` ``, …
+- `"teh"` could be: `"the"`, `"teh"` (keep it), `"tea"`, `"ten"`, …
+- `"quik"` could be: `"quick"`, `"quik"` (keep it), `"quit"`, …
 
-A lattice represents **all these possibilities compactly** as a graph. The rendered example below adds the word `` `fox` `` to make a complete sentence; its bold green path is the best (Viterbi) correction `` `the quick fox` `` with weight `` `0.5 ⊗ 0.5 ⊗ 0.0 = 1.0` `` (tropical):
+A lattice represents **all these possibilities compactly** as a graph. The rendered example below adds the word `fox` to make a complete sentence; its bold green path is the best (Viterbi) correction `the quick fox` with weight $`0.5 \otimes 0.5 \otimes 0.0 = 1.0`$ (tropical):
 
 ![Correction lattice as a left-to-right weighted finite-state acceptor for "teh quik fox": node 0 → 1 has arcs the/0.5 (best, green) and teh/1.0 (alternative, grey); node 1 → 2 has quick/0.5 (best) and quik/1.0 (alternative); node 2 → 3 (final, double ring) has fox/0.0; the bold green path is the Viterbi best path the quick fox.](../diagrams/architecture/lattice-worked.svg)
 
-*Blue circles = positions; green double-ring = the accepting (final) node; bold green arcs = the best (Viterbi) path; light-grey arcs = alternatives. Arc labels read `` `word / weight` ``.*
+*Blue circles = positions; green double-ring = the accepting (final) node; bold green arcs = the best (Viterbi) path; light-grey arcs = alternatives. Arc labels read `word / weight`.*
 
 <details><summary>Text view</summary>
 
@@ -42,10 +42,10 @@ A lattice represents **all these possibilities compactly** as a graph. The rende
 
 </details>
 
-Each path from start to end is a complete correction (weights combine by `` `⊗` `` — addition in the tropical semiring):
-- `` `"the quick"` `` with weight `` `1.0` `` (`` `0.5 + 0.5` ``)
-- `` `"teh quik"` `` with weight `` `0.0` `` (`` `0.0 + 0.0` ``)
-- `` `"tea quick"` `` with weight `` `2.0` `` (`` `1.5 + 0.5` ``)
+Each path from start to end is a complete correction (weights combine by $`\otimes`$ — addition in the tropical semiring):
+- `"the quick"` with weight $`1.0`$ ($`0.5 + 0.5`$)
+- `"teh quik"` with weight $`0.0`$ ($`0.0 + 0.0`$)
+- `"tea quick"` with weight $`2.0`$ ($`1.5 + 0.5`$)
 - …
 
 ### Key Properties
@@ -366,4 +366,4 @@ builder.add_correction(0, 2, "going to", correct_weight, EdgeMetadata::correctio
 Full entries — including DOIs — are in [`BIBLIOGRAPHY.md`](../BIBLIOGRAPHY.md).
 
 - [**Mohri 2002**](../BIBLIOGRAPHY.md#ref-mohri2002) — Mohri, Pereira & Riley, *Weighted Finite-State Transducers in Speech Recognition*: weighted lattices/acceptors as the representation of hypothesis spaces. [doi:10.1006/csla.2001.0184](https://doi.org/10.1006/csla.2001.0184)
-- [**Mohri 2009**](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, *Weighted Automata Algorithms*: topological shortest-distance over a DAG in `` `O(∣V∣ + ∣E∣)` ``, the bound the position-ordered lattice achieves. [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)
+- [**Mohri 2009**](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, *Weighted Automata Algorithms*: topological shortest-distance over a DAG in $`O(\lvert V\rvert + \lvert E\rvert)`$, the bound the position-ordered lattice achieves. [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)

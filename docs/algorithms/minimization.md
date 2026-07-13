@@ -8,22 +8,22 @@ Defined centrally in [`../NOTATION.md`](../NOTATION.md); repeated locally for th
 
 | Symbol | Meaning |
 |---|---|
-| `⊕` / `⊗` | semiring *plus* (combine alternatives) / *times* (combine arcs). |
-| `0̄` / `1̄` | `⊕`-identity / `⊗`-identity. |
-| `ρ(q)` | final-weight function `ρ : F → K`. |
-| `≡` | state-equivalence (Myhill-Nerode): same weighted future. |
-| `Σ*` | all finite strings over the input alphabet `Σ`. |
-| `∣Q∣`, `∣E∣` | number of states / transitions (cardinality bar `∣` = U+2223). |
+| $`\oplus`$ / $`\otimes`$ | semiring *plus* (combine alternatives) / *times* (combine arcs). |
+| $`\bar{0}`$ / $`\bar{1}`$ | $`\oplus`$-identity / $`\otimes`$-identity. |
+| $`\rho(q)`$ | final-weight function $`\rho : F \to K`$. |
+| $`\equiv`$ | state-equivalence (Myhill-Nerode): same weighted future. |
+| $`\Sigma^*`$ | all finite strings over the input alphabet $`\Sigma`$. |
+| $`\lvert Q\rvert`$, $`\lvert E\rvert`$ | number of states / transitions. |
 
 ## Concepts
 
 ### What is Minimization?
 
-Minimization identifies and merges **equivalent states**—states that behave identically for all possible continuations. In the example below, states 1 and 2 share a future (both read `b` into a final class), as do 3 and 4 (both final with the same weight), so each pair collapses to a single class.
+Minimization identifies and merges **equivalent states**—states that behave identically for all possible continuations. In the example below, states 1 and 2 share a future (both read $`b`$ into a final class), as do 3 and 4 (both final with the same weight), so each pair collapses to a single class.
 
 ![Minimization before/after: a 5-state acceptor whose equivalent state pairs {1,2} and {3,4} merge into one class each, yielding a 3-state minimal acceptor](../diagrams/algorithms/minimize-before-after.svg)
 
-*Amber states = equivalence class A `{1,2}`; green double-ring states = final class B `{3,4}`. Left panel is the input; right panel is the minimal automaton (one state per class); the green bold arc is the shared `b`-transition.*
+*Amber states = equivalence class A $`\{1,2\}`$; green double-ring states = final class B $`\{3,4\}`$. Left panel is the input; right panel is the minimal automaton (one state per class); the green bold arc is the shared $`b`$-transition.*
 
 <details><summary>Text view</summary>
 
@@ -233,8 +233,8 @@ procedure PARTITION_REFINEMENT(fst):
 ```
 
 The refinement terminates because each round either splits at least one block (strictly
-increasing the block count, bounded by `` `∣Q∣` ``) or changes nothing and stops. A
-worklist implementation of this scheme attains Hopcroft's `` `O(∣E∣ log ∣Q∣)` `` bound.
+increasing the block count, bounded by $`\lvert Q\rvert`$) or changes nothing and stops. A
+worklist implementation of this scheme attains Hopcroft's $`O(\lvert E\rvert \log \lvert Q\rvert)`$ bound.
 
 ### State Signatures
 
@@ -290,18 +290,18 @@ Without pushing, equivalent states might have different weight distributions, pr
 
 | Case | Complexity |
 |------|------------|
-| Acyclic | `` `O(∣Q∣ + ∣E∣)` `` |
-| General | `` `O(∣E∣ log ∣Q∣)` `` |
+| Acyclic | $`O(\lvert Q\rvert + \lvert E\rvert)`$ |
+| General | $`O(\lvert E\rvert \log \lvert Q\rvert)`$ |
 
-The `` `O(∣E∣ log ∣Q∣)` `` bound comes from Hopcroft's algorithm for partition refinement.
+The $`O(\lvert E\rvert \log \lvert Q\rvert)`$ bound comes from Hopcroft's algorithm for partition refinement.
 
 ### Space Complexity
 
 | Structure | Size |
 |-----------|------|
-| Partition array | `` `O(∣Q∣)` `` |
-| Signatures | `` `O(∣Q∣ × avg_out_degree)` `` |
-| Output WFST | `` `O(∣Q'∣ + ∣E'∣)` `` where `` `∣Q'∣ ≤ ∣Q∣` `` |
+| Partition array | $`O(\lvert Q\rvert)`$ |
+| Signatures | $`O(\lvert Q\rvert \times \text{avg\_out\_degree})`$ |
+| Output WFST | $`O(\lvert Q'\rvert + \lvert E'\rvert)`$ where $`\lvert Q'\rvert \le \lvert Q\rvert`$ |
 
 ## Requirements
 
@@ -461,10 +461,10 @@ match minimize(&fst, config) {
 
 ### Myhill-Nerode Theorem
 
-The minimal WFST corresponds to the Myhill-Nerode equivalence relation, i.e. `` `q₁ ≡ q₂ ⟺ ∀w ∈ Σ*: weight(q₁, w) = weight(q₂, w)` ``:
+The minimal WFST corresponds to the Myhill-Nerode equivalence relation:
 
-```text
-q₁ ≡ q₂  iff  ∀ w ∈ Σ*:  weight(q₁, w) = weight(q₂, w)
+```math
+q_1 \equiv q_2 \iff \forall w \in \Sigma^* : \operatorname{weight}(q_1, w) = \operatorname{weight}(q_2, w)
 ```
 
 Two states are equivalent if they produce identical weights for all continuations.
@@ -481,7 +481,7 @@ This means the minimal WFST is optimal in both metrics simultaneously.
 
 ## References
 
-- [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms*: weighted minimization, the push-then-partition-refine pipeline, the Hopcroft `` `O(∣E∣ log ∣Q∣)` `` bound, and the states-also-minimizes-transitions theorem.
+- [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms*: weighted minimization, the push-then-partition-refine pipeline, the Hopcroft $`O(\lvert E\rvert \log \lvert Q\rvert)`$ bound, and the states-also-minimizes-transitions theorem.
 - [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted Finite-State Transducers in Speech Recognition*: minimization as the final stage of the recognition-cascade optimization, with reported state reductions.
 - [Allauzen 2007](../BIBLIOGRAPHY.md#ref-allauzen2007) — *OpenFst*: the `Minimize` operation and equivalence-by-isomorphism testing this implementation mirrors.
 

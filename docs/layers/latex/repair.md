@@ -3,14 +3,14 @@
 The repair module provides strategies for generating fix suggestions for LaTeX syntax errors detected during validation.
 
 Repair is the third pass of `LatexSyntaxLayer::apply` — it runs only after
-validation has produced `` `ValidationIssue` ``s, and each strategy turns an
-issue into ranked `` `RepairSuggestion` ``s. The diagram below situates repair
-within the full validate `` `→` `` repair pipeline.
+validation has produced `ValidationIssue`s, and each strategy turns an
+issue into ranked `RepairSuggestion`s. The diagram below situates repair
+within the full validate → repair pipeline.
 
 ![Activity diagram: the LaTeX validate-then-repair pipeline, where repair generation follows structural validation, sorts suggestions by confidence, and optionally auto-applies high-confidence repairs.](../../diagrams/layers/latex/repair-flow.svg)
 
 *Amber = the validate/repair activities; grey diamonds = `LatexSyntaxConfig`
-gates; green terminal = the output lattice plus its `` `RepairSuggestion` `` list.
+gates; green terminal = the output lattice plus its `RepairSuggestion` list.
 Repair generation is the `generate_repairs` branch.*
 
 <details><summary>Text view</summary>
@@ -317,7 +317,7 @@ let layer = LatexSyntaxLayer::with_config(grammar, config);
 ```
 
 When `auto_repair` is enabled:
-1. Repairs with `` `confidence ≥ threshold` `` are applied automatically
+1. Repairs with $`\text{confidence} \ge \text{threshold}`$ are applied automatically
 2. The resulting lattice includes the repairs
 3. Lower-confidence repairs are still available via `last_repairs()`
 

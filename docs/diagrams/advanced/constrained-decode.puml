@@ -21,33 +21,33 @@ skinparam note {
   BorderColor #455A64
 }
 
-title <b>Grammar-constrained decoding pipeline</b>\n<size:11><i>CFG → PDA → compressed FSM → token mask m[v]=1 iff v∈allowed → masked logits</i></size>
+title <b>Grammar-constrained decoding pipeline</b>\n<size:11><i>CFG → PDA → compressed FSM → token mask <latex>m[v]=1 \text{ iff } v \in \text{allowed}</latex> → masked logits</i></size>
 
 |#BBDEFB|compile (once)|
 start
-:CFG  G = (V, Σ, R, S);
+:CFG  <latex>G = (V, \Sigma, R, S)</latex>;
 note right
   Context-free grammar:
-  V variables · Σ terminals
+  V variables · <latex>\Sigma</latex> terminals
   R rules · S start symbol
 end note
-:build PDA  (Q, Σ, Γ, δ, q₀, Z₀);
-note right: stack Γ recognizes CFL nesting
+:build PDA  <latex>(Q, \Sigma, \Gamma, \delta, q_0, Z_0)</latex>;
+note right: stack <latex>\Gamma</latex> recognizes CFL nesting
 :compress to FSM\n(precompute valid-token sets\n+ batch transitions);
 :cache  valid_tokens[q] : TokenMask;
 
 |#FFF59D|decode (per step)|
 repeat
   :DecoderState s = (automaton_state, stack);
-  :m ← valid_tokens(s)   // m[v] = 1 iff v ∈ allowed;
+  :m ← valid_tokens(s)   // <latex>m[v] = 1 \text{ iff } v \in \text{allowed}</latex>;
   |#E1BEE7|LLM|
-  :logits ℓ over vocabulary V;
-  :ℓ′[v] ← ℓ[v] if m[v]=1 else −∞;
-  :sample / argmax  token t  with m[t]=1;
+  :logits <latex>\ell</latex> over vocabulary V;
+  :<latex>\ell'[v]</latex> ← <latex>\ell[v] \text{ if } m[v]=1 \text{ else } -\infty</latex>;
+  :sample / argmax  token t  with <latex>m[t]=1</latex>;
   |#FFF59D|decode (per step)|
   :s ← advance(s, t)   // PDA push/pop or FSM step;
-backward :more tokens & ¬is_accepting(s)?;
+backward :more tokens & <latex>\lnot</latex>is_accepting(s)?;
 repeat while (continue) is (yes) not (no)
-#C8E6C9:accepted sequence ∈ L(G);
+#C8E6C9:accepted sequence <latex>\in L(G)</latex>;
 stop
 @enduml

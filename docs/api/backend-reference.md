@@ -144,9 +144,9 @@ assert!(!backend.contains("foo"));
 
 | Property | Value |
 |----------|-------|
-| Intern | O(1) average |
-| Lookup | O(1) |
-| Memory | O(n) where n = unique words |
+| Intern | $`O(1)`$ average |
+| Lookup | $`O(1)`$ |
+| Memory | $`O(n)`$ where $`n`$ = unique words |
 | Thread Safety | ExternalSync |
 | Persistence | No |
 | Sharing | No |
@@ -173,9 +173,9 @@ impl VecBackend {
 
 | Property | Value |
 |----------|-------|
-| Intern | O(n) (linear search) |
-| Lookup | O(1) |
-| Memory | O(n) |
+| Intern | $`O(n)`$ (linear search) |
+| Lookup | $`O(1)`$ |
+| Memory | $`O(n)`$ |
 | Thread Safety | ExternalSync |
 | Use Case | Small vocabularies |
 
@@ -244,8 +244,8 @@ impl PathMapBackendBuilder {
 
 | Property | Value |
 |----------|-------|
-| Intern | O(1) + network |
-| Lookup | O(1) cached / network |
+| Intern | $`O(1)`$ + network |
+| Lookup | $`O(1)`$ cached / network |
 | Memory | Bounded by cache |
 | Thread Safety | InternalSync |
 | Persistence | Yes |
@@ -327,11 +327,11 @@ pub struct CacheStats {
 
 | Backend | Intern | Lookup | Memory | Thread Safe | Persistent | Distributed |
 |---------|--------|--------|--------|-------------|------------|-------------|
-| HashMapBackend | O(1) | O(1) | High | No | No | No |
-| VecBackend | O(n) | O(1) | Low | No | No | No |
-| PathMapBackend | Net | Net/O(1) | Bounded | Yes | Yes | Yes |
-| SharedBackend | O(1)* | O(1)* | High | Yes | No | No |
-| CachedBackend | Net | O(1)/Net | Medium | No | Depends | Depends |
+| HashMapBackend | $`O(1)`$ | $`O(1)`$ | High | No | No | No |
+| VecBackend | $`O(n)`$ | $`O(1)`$ | Low | No | No | No |
+| PathMapBackend | Net | Net/$`O(1)`$ | Bounded | Yes | Yes | Yes |
+| SharedBackend | $`O(1)`$* | $`O(1)`$* | High | Yes | No | No |
+| CachedBackend | Net | $`O(1)`$/Net | Medium | No | Depends | Depends |
 
 ## Utility Functions
 

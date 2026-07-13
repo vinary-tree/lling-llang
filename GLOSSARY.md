@@ -21,7 +21,7 @@ the doc that introduces each) lives at [`docs/NOTATION.md`](docs/NOTATION.md).
 | **RRWM** | Rational Randomized Weighted-Majority |
 | **GCD** | Grammar-Constrained Decoding |
 | **GTN** | Graph Transformer Networks (differentiable WFSTs) |
-| **H · C · L · G** | ASR cascade: HMM · Context-dependency · Lexicon · Grammar/LM |
+| $`H \circ C \circ L \circ G`$ | ASR cascade: HMM · Context-dependency · Lexicon · Grammar/LM |
 
-For symbols (`⊕ ⊗ 0̄ 1̄ ∘ π η …`) and full definitions, see
+For symbols ($`\oplus`$, $`\otimes`$, $`\bar{0}`$, $`\bar{1}`$, $`\circ`$, $`\pi`$, $`\eta`$, …) and full definitions, see
 [`docs/NOTATION.md`](docs/NOTATION.md).

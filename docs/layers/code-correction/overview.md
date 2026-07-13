@@ -18,15 +18,15 @@ The code correction layer uses WFST (Weighted Finite-State Transducer) lattices 
 ## Architecture
 
 The code-correction layers are `CorrectionLayer`s composed inside a
-`LayerPipeline`: each consumes a `` `Lattice⟨W, B⟩` `` and returns a (typically
-smaller) `` `Lattice⟨W, B⟩` ``, applied left to right. The broader correction
+`LayerPipeline`: each consumes a $`\mathrm{Lattice}\langle W, B\rangle`$ and returns a (typically
+smaller) $`\mathrm{Lattice}\langle W, B\rangle`$, applied left to right. The broader correction
 pipeline runs **lexical → CFG → LM → custom**, where the code-correction layer is
 one of the *custom* domain stages; internally it chains **token correction →
 syntax recovery → pattern-aware boosting**.
 
 ![Activity diagram: a LayerPipeline applies its CorrectionLayers in order — lexical filtering (EditDistance/Confusion), CFG filtering (CfgFilter), LM rescoring (LanguageModel), then a custom domain branch routing to CodeCorrection, LatexSyntax, or MathMLSemantic — each mapping a lattice to a lattice.](../../diagrams/layers/code-correction/correction-layers.svg)
 
-*Amber = correction/NLP layers (`` `Lattice⟨W, B⟩ → Lattice⟨W, B⟩` ``); grey
+*Amber = correction/NLP layers ($`\mathrm{Lattice}\langle W, B\rangle \to \mathrm{Lattice}\langle W, B\rangle`$); grey
 diamond = the domain switch; blue start = the input WFSA; green terminal = the
 filtered, reweighted output lattice.*
 
@@ -276,10 +276,10 @@ CodeCorrectionConfig {
 |--------|---------------|
 | Lattice with 100 edges | ~1-2ms |
 | Lattice with 1000 edges | ~10-20ms |
-| Pattern matching | `O(n × p)` |
+| Pattern matching | $`O(n \times p)`$ |
 | Memory overhead | ~10KB per layer |
 
-Where `n` = number of tokens, `p` = number of patterns.
+Where $`n`$ = number of tokens, $`p`$ = number of patterns.
 
 ## See Also
 

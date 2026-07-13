@@ -21,14 +21,14 @@ documented here. Sources: [`src/programming/traits.rs`](../../src/programming/tr
 |---|---|
 | **WFST** | Weighted Finite-State Transducer (input + output + weight per arc). ([NOTATION](../NOTATION.md)) |
 | **token lattice** | A weighted DAG whose start→end paths enumerate candidate token sequences. |
-| **edit cost** | The weight of a repair arc; lower = more preferred. A tropical weight under `` `W` ``. |
-| `` `⊕` `` | Semiring *plus*. Over the tropical semiring `` `⊕ = min` `` — picks the cheapest repair. |
-| `` `⊗` `` | Semiring *times*. Over the tropical semiring `` `⊗ = +` `` — sums edit costs along a path. |
-| `` `ε` `` | Empty label — an arc that inserts/deletes without consuming input. |
+| **edit cost** | The weight of a repair arc; lower = more preferred. A tropical weight under $`W`$. |
+| $`\oplus`$ | Semiring *plus*. Over the tropical semiring $`\oplus = \min`$ — picks the cheapest repair. |
+| $`\otimes`$ | Semiring *times*. Over the tropical semiring $`\otimes = +`$ — sums edit costs along a path. |
+| $`\varepsilon`$ | Empty label — an arc that inserts/deletes without consuming input. |
 | **MISSING node** | A node a parser's error recovery inserts to mark something absent (e.g. a bracket). |
 | **ERROR node** | A parse-tree node covering text the parser could not fit the grammar. |
-| `` `∣E∣` `` | Number of edges (arcs) in a lattice; uses U+2223, not ASCII `|`. |
-| `` `W` `` | A semiring weight type, e.g. `TropicalWeight`. |
+| $`\lvert E\rvert`$ | Number of edges (arcs) in a lattice; typeset `\lvert E\rvert`, not a bare `|`. |
+| $`W`$ | A semiring weight type, e.g. `TropicalWeight`. |
 
 CFG = Context-Free Grammar; PDA = Pushdown Automaton (see
 [`architecture/parsing`](../algorithms/parsing.md),
@@ -38,27 +38,29 @@ CFG = Context-Free Grammar; PDA = Pushdown Automaton (see
 
 ## Formal model
 
-Repair operates on a token stream `` `t = t₁ … tₙ` `` together with a set of
-error ranges from the parser. Each repair rule `` `r` `` contributes one or more
+Repair operates on a token stream $`t = t_1 \ldots t_n`$ together with a set of
+error ranges from the parser. Each repair rule $`r`$ contributes one or more
 **candidate edits**, modeled as arcs of a transducer over the token alphabet
-`` `Σ` ``:
+$`\Sigma`$:
 
 | Edit | Arc | Cost source |
 |---|---|---|
-| identity (keep) | `` `t : t / 1̄` `` | `` `0.0` `` |
-| substitute | `` `a : b / c` `` | `typo_fix` `` `0.2` `` or `substitute` `` `1.0` `` |
-| insert | `` `ε : b / c` `` | `missing_punctuation` `` `0.3` `` or `insert` `` `1.0` `` |
-| delete | `` `a : ε / c` `` | `delete` `` `1.0` `` |
+| identity (keep) | $`t : t / \bar{1}`$ | $`0.0`$ |
+| substitute | $`a : b / c`$ | `typo_fix` $`0.2`$ or `substitute` $`1.0`$ |
+| insert | $`\varepsilon : b / c`$ | `missing_punctuation` $`0.3`$ or `insert` $`1.0`$ |
+| delete | $`a : \varepsilon / c`$ | `delete` $`1.0`$ |
 
 A *repair* is a start→end path through the resulting lattice; its total cost is
-the `` `⊗` `` (tropical `` `+` ``) of its arc costs, and the chosen repair is the
-`` `⊕` `` (tropical `` `min` ``) over all paths — the **least-cost edit**. The
-key relation, with `` `c(e)` `` the cost of edit `` `e` `` from
+the $`\otimes`$ (tropical $`+`$) of its arc costs, and the chosen repair is the
+$`\oplus`$ (tropical $`\min`$) over all paths — the **least-cost edit**. The
+key relation, with $`c(e)`$ the cost of edit $`e`$ from
 `SyntaxRepairCosts`, is:
 
-```text
-cost(repair) = ⊗ₑ∈repair c(e) = Σ c(e)            (tropical ⊗ = +)
-best         = ⊕ over all repair paths            (tropical ⊕ = min)
+```math
+\begin{aligned}
+\operatorname{cost}(\text{repair}) &= \bigotimes_{e \in \text{repair}} c(e) = \sum c(e) && \text{(tropical } \otimes = +) \\
+\text{best} &= \bigoplus \text{ over all repair paths} && \text{(tropical } \oplus = \min)
+\end{aligned}
 ```
 
 Because a real fix may need several edits at different offsets, the transducer
@@ -69,18 +71,18 @@ while still favoring the cheapest repairs.
 
 | Component | Type | Role |
 |---|---|---|
-| `` `t` `` | `` `&[Token]` `` | The lexed input stream. |
-| rules | `` `Vec<SyntaxRepairRule>` `` | Weighted edit rules. |
-| `` `c` `` | `SyntaxRepairCosts` | Per-operation cost table. |
-| result | `` `(String, Vec<RepairCandidate>)` `` | Repaired text + applied edits. |
+| $`t`$ | `&[Token]` | The lexed input stream. |
+| rules | `Vec<SyntaxRepairRule>` | Weighted edit rules. |
+| $`c`$ | `SyntaxRepairCosts` | Per-operation cost table. |
+| result | `(String, Vec<RepairCandidate>)` | Repaired text + applied edits. |
 
 ---
 
 ## Intuition — fixing a typo'd keyword
 
 The smallest repair is a single substitution. Given `funciton foo() {}` and a
-rule `` `funciton : function / 0.2` ``, the lattice has one cheap substitution
-arc; every other token copies through at cost `` `0.0` ``:
+rule $`\text{funciton} : \text{function} / 0.2`$, the lattice has one cheap substitution
+arc; every other token copies through at cost $`0.0`$:
 
 ```text
 funciton ──(funciton : function / 0.2)──▶ function
@@ -101,7 +103,7 @@ exactly one applied repair.
 `ParserBackend` lets the repairer work with any parsing technology
 (tree-sitter, LALRPOP, pest, or a custom parser). It returns a
 `ParseResult<NodeRef>` carrying both a (possibly partial) tree and a
-`` `Vec<ParserError>` ``, so error-tolerant parsers surface exactly the ranges
+`Vec<ParserError>`, so error-tolerant parsers surface exactly the ranges
 repair needs.
 
 ```rust
@@ -140,7 +142,7 @@ transducer matches against:
   `Number`, etc.; `is_significant()` skips whitespace/comments.
 - **`TokenPredicate`** — a matcher: `Text`, `TextCaseInsensitive`, `Kind`,
   `StartsWith`/`EndsWith`/`Contains`, `Regex`, plus the combinators `Any_`,
-  `All`, `Not`. This is how a rule says "after a `` `}` `` token"
+  `All`, `Not`. This is how a rule says "after a `}` token"
   (`TokenPredicate::text("}")`).
 - **`TokenPattern` / `PatternMatcher`** — multi-token patterns with
   `Single`/`Optional`/`ZeroOrMore`/`OneOrMore`, `Capture`, `Alternative`, and
@@ -184,7 +186,7 @@ Python.
 
 `build_token_wfst(alphabet)` lifts the rules into a single-state
 `VectorWfst<String, W>`: identity arcs copy every alphabet token unchanged, and
-each substitution rule adds a `` `from : to` `` arc. The resulting transducer can
+each substitution rule adds a `from : to` arc. The resulting transducer can
 be **composed** with downstream transducers (lexical normalizers, syntax
 checkers) using the standard composition algorithm.
 
@@ -217,16 +219,16 @@ applying them in any order is well-defined.
     apply chosen edits to source in descending byte order  ⟨ offset-stable apply ⟩
 ```
 
-Firing all rules is `` `O(∣rules∣ · ∣t∣)` `` in the simple text/after-token
-cases; the greedy non-overlap pass is `` `O(∣candidates∣²)` `` in the worst
+Firing all rules is $`O(\lvert\text{rules}\rvert \cdot \lvert t\rvert)`$ in the simple text/after-token
+cases; the greedy non-overlap pass is $`O(\lvert\text{candidates}\rvert^2)`$ in the worst
 case (each candidate compared against the accepted set). Applying edits in
 descending byte order keeps earlier offsets valid as later text changes —
 the same trick `RepairAction::Multiple` uses internally.
 
 **Worked trace** (`test_non_overlapping_selection`): three replacements at byte
-ranges `` `[0,5)` ``, `` `[3,8)` ``, `` `[10,15)` `` with costs `0.1, 0.2, 0.15`.
-Sorted, candidate 1 (`0.1`, `[0,5)`) is taken; candidate 3 (`0.15`, `[10,15)`)
-is disjoint and taken; candidate 2 (`0.2`, `[3,8)`) overlaps candidate 1 and is
+ranges $`[0,5)`$, $`[3,8)`$, $`[10,15)`$ with costs $`0.1, 0.2, 0.15`$.
+Sorted, candidate 1 ($`0.1`$, $`[0,5)`$) is taken; candidate 3 ($`0.15`$, $`[10,15)`$)
+is disjoint and taken; candidate 2 ($`0.2`$, $`[3,8)`$) overlaps candidate 1 and is
 skipped — 2 of 3 selected.
 
 ![Syntax-repair component diagram: a ParserBackend (tree-sitter/LALRPOP/pest) yields a tree plus error ranges; a tokenizer feeds a token stream; the SyntaxRepairTransducer applies weighted rules, sorts candidates by cost, selects a non-overlapping cover, and emits repaired text.](../diagrams/programming/syntax-repair.svg)
@@ -262,14 +264,14 @@ source text ──lex──▶ Vec<Token> ────────────�
 When a block brace is missing, the cheapest accepting path inserts the
 punctuation rather than deleting tokens. The lattice below scores candidate edits
 for `foo ( )` that lacks its block: the green path keeps the observed tokens
-(cost `` `0.0` ``) and inserts `` `" {"` `` then `` `"}"` `` at
-`missing_punctuation` cost `` `0.3` `` each, for total `` `0.6` `` — strictly
-cheaper than any path that deletes the parenthesis (`delete` `` `1.0` ``) or
+(cost $`0.0`$) and inserts `" {"` then `"}"` at
+`missing_punctuation` cost $`0.3`$ each, for total $`0.6`$ — strictly
+cheaper than any path that deletes the parenthesis (`delete` $`1.0`$) or
 leaves the error unrepaired.
 
 ![Token-repair lattice for a missing-bracket example: identity arcs copy the observed tokens at zero cost while epsilon-input insertion arcs add the missing braces; the green path is the least-cost accepting repair.](../diagrams/programming/repair-lattice.svg)
 
-*Blue = lattice states; green/bold = the least-cost repair path (Σ = 0.6); grey = dominated alternatives; grey dashed = an `` `ε` `` no-op identity arc; double ring = accepting state.*
+*Blue = lattice states; green/bold = the least-cost repair path ($`\Sigma = 0.6`$); grey = dominated alternatives; grey dashed = an $`\varepsilon`$ no-op identity arc; double ring = accepting state.*
 
 <details><summary>Text view</summary>
 

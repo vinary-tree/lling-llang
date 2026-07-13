@@ -26,7 +26,7 @@ skinparam note {
 title <b>MathML check / homoglyph normalization</b>\n<size:11><i>MathMLSemanticLayer.apply over a token lattice</i></size>
 
 start
-:Input lattice  Lattice⟨W, B⟩;
+:Input lattice  Lattice<latex>\langle W, B \rangle</latex>;
 
 if (disambiguate_homoglyphs?) then (yes)
   :<b>Phase 1 — Homoglyph disambiguation</b>\nHomoglyphDisambiguator scores each\nconfusable glyph against MathContext;
@@ -53,7 +53,7 @@ if (check_types?) then (yes)
     Issues: TypeMismatch, ArityMismatch,
     UndefinedVariable, DivisionByZero.
   end note
-  if (prune_type_errors ∧ path has a type Error?) then (yes)
+  if (prune_type_errors <latex>\land</latex> path has a type Error?) then (yes)
     :drop the offending path;
   else (no — keep)
   endif

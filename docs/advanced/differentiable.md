@@ -26,7 +26,7 @@ gradients ◄─────────── backward ◄───────
 
 Every WFST operation returns a graph where gradients can be computed. The key insight is
 that **the gradient of a WFST is also a WFST** — it has the same topology but with gradient
-values (posteriors `g`) instead of weights `w`. This is illustrated end-to-end by the
+values (posteriors $`g`$) instead of weights $`w`$. This is illustrated end-to-end by the
 [top-down autograd diagram](topdown-autograd.md#top-down-automatic-differentiation).
 
 ```text
@@ -43,12 +43,12 @@ Weights are path probabilities    Gradients are path posteriors
 ### Forward and Backward Passes
 
 The differentiation follows the forward-backward algorithm: a forward pass accumulates
-`α`, a backward pass accumulates `β`, and the arc gradient
-`∂Z/∂w = exp(α[s] + w + β[t] − Z)` falls out of the two.
+$`\alpha`$, a backward pass accumulates $`\beta`$, and the arc gradient
+$`\partial Z/\partial w = \exp(\alpha[s] + w + \beta[t] - Z)`$ falls out of the two.
 
 ![Forward-backward autograd over a WFST: forward score then backward arc-posteriors](../diagrams/advanced/differentiable-passes.svg)
 
-*Two-pass sequence: the forward pass (`α`) sums over prefixes in topological order and yields the partition function `Z`; the backward pass (`β`) sums over suffixes in reverse; combining them gives each arc's posterior `exp(α[s] + w + β[t] − Z)`, whose negation is the gradient flowing back to the neural emissions (orange).*
+*Two-pass sequence: the forward pass ($`\alpha`$) sums over prefixes in topological order and yields the partition function $`Z`$; the backward pass ($`\beta`$) sums over suffixes in reverse; combining them gives each arc's posterior $`\exp(\alpha[s] + w + \beta[t] - Z)`$, whose negation is the gradient flowing back to the neural emissions (orange).*
 
 <details><summary>Text view</summary>
 
@@ -68,19 +68,19 @@ Arc gradient:
 
 </details>
 
-**Forward Pass (`α`)**:
-- `α[start] = 1̄` (log-semiring one `= 0.0`)
-- `α[t] = α[t] ⊕ (α[s] ⊗ w)` for each arc `(s, t, w)`
-- Total score `Z = ⊕_{f ∈ F} (α[f] ⊗ ρ[f])`
+**Forward Pass ($`\alpha`$)**:
+- $`\alpha[\text{start}] = \bar{1}`$ (log-semiring one $`= 0.0`$)
+- $`\alpha[t] = \alpha[t] \oplus (\alpha[s] \otimes w)`$ for each arc $`(s, t, w)`$
+- Total score $`Z = \bigoplus_{f \in F} (\alpha[f] \otimes \rho[f])`$
 
-**Backward Pass (`β`)**:
-- `β[f] = ρ[f]` for final states
-- `β[s] = β[s] ⊕ (w ⊗ β[t])` for each arc `(s, t, w)`
+**Backward Pass ($`\beta`$)**:
+- $`\beta[f] = \rho[f]`$ for final states
+- $`\beta[s] = \beta[s] \oplus (w \otimes \beta[t])`$ for each arc $`(s, t, w)`$
 
-**Arc Gradients** — `∂Z/∂w = exp(α[s] + w + β[t] − Z)`:
+**Arc Gradients** — the per-arc posterior:
 
-```text
-∂Z/∂w = exp(α[s] + w + β[t] − Z)
+```math
+\frac{\partial Z}{\partial w} = \exp(\alpha[s] + w + \beta[t] - Z)
 ```
 
 This is the **posterior probability** that the arc is used in a random path.
@@ -296,7 +296,7 @@ Algorithm: FORWARD_SCORE(fst)
   5. Return Z
 ```
 
-Where `logadd(a, b) = log(exp(a) + exp(b))`.
+Where $`\operatorname{logadd}(a, b) = \log(\exp(a) + \exp(b))`$.
 
 ### Backward Pass
 
@@ -314,7 +314,7 @@ Algorithm: BACKWARD(fst, Z)
 
 ### Gradient Interpretation
 
-The gradient `∂Z/∂w = exp(α[s] + w + β[t] - Z)` equals the **posterior probability** that arc (s,t) is used when a path is sampled proportionally to its weight.
+The gradient $`\partial Z/\partial w = \exp(\alpha[s] + w + \beta[t] - Z)`$ equals the **posterior probability** that arc (s,t) is used when a path is sampled proportionally to its weight.
 
 ```
                 α[s]                β[t]
@@ -329,37 +329,41 @@ Gradient = P(path uses arc (s,t) | all paths)
 
 | Operation | Time | Space |
 |-----------|------|-------|
-| Forward score (acyclic) | `O(∣Q∣ + ∣E∣)` | `O(∣Q∣)` |
-| Forward score (cyclic) | `O(∣Q∣²)` | `O(∣Q∣)` |
-| Backward pass | `O(∣Q∣ + ∣E∣)` | `O(∣Q∣ + ∣E∣)` |
-| Viterbi score | `O(∣Q∣ + ∣E∣)` | `O(∣Q∣)` |
-| Viterbi path | `O(∣Q∣ + ∣E∣)` | `O(∣Q∣)` |
+| Forward score (acyclic) | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(\lvert Q\rvert)`$ |
+| Forward score (cyclic) | $`O(\lvert Q\rvert^2)`$ | $`O(\lvert Q\rvert)`$ |
+| Backward pass | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(\lvert Q\rvert + \lvert E\rvert)`$ |
+| Viterbi score | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(\lvert Q\rvert)`$ |
+| Viterbi path | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(\lvert Q\rvert)`$ |
 
 ## Semiring Considerations
 
 ### Log Semiring for Forward Score
 
-The log semiring is used for computing total path weight (`⊕ = logadd`, `⊗ = +`,
-`0̄ = −∞`, `1̄ = 0`):
+The log semiring is used for computing total path weight ($`\oplus = \operatorname{logadd}`$, $`\otimes = +`$,
+$`\bar{0} = -\infty`$, $`\bar{1} = 0`$):
 
-```text
-⊕ = logadd (log of sum)
-⊗ = +      (log of product)
-0̄ = −∞     (log of 0)
-1̄ = 0      (log of 1)
+```math
+\begin{aligned}
+\oplus &= \operatorname{logadd} && \text{(log of sum)} \\
+\otimes &= {+} && \text{(log of product)} \\
+\bar{0} &= -\infty && \text{(log of 0)} \\
+\bar{1} &= 0 && \text{(log of 1)}
+\end{aligned}
 ```
 
 This gives the **total probability** when weights are log-probabilities.
 
 ### Tropical Semiring for Viterbi
 
-The tropical semiring gives the best single path (`⊕ = min`, `⊗ = +`, `0̄ = +∞`, `1̄ = 0`):
+The tropical semiring gives the best single path ($`\oplus = \min`$, $`\otimes = +`$, $`\bar{0} = +\infty`$, $`\bar{1} = 0`$):
 
-```text
-⊕ = min
-⊗ = +
-0̄ = +∞
-1̄ = 0
+```math
+\begin{aligned}
+\oplus &= \min \\
+\otimes &= {+} \\
+\bar{0} &= +\infty \\
+\bar{1} &= 0
+\end{aligned}
 ```
 
 **Critical difference**: Forward score sums over paths; Viterbi takes the best.
@@ -459,16 +463,16 @@ fn logadd(a: f64, b: f64) -> f64 {
 }
 ```
 
-The `ln_1p` function computes `ln(1 + x)` more accurately for small `x`.
+The `ln_1p` function computes $`\ln(1 + x)`$ more accurately for small $`x`$.
 
 ## Visualization
 
 ### Forward-Backward on a Diamond
 
-This worked diamond (`Z = 1.35`) is the same example rendered as the gradient-WFST diagram
+This worked diamond ($`Z = 1.35`$) is the same example rendered as the gradient-WFST diagram
 in [Top-Down Automatic Differentiation](topdown-autograd.md#top-down-automatic-differentiation):
-the forward scores `α`, backward scores `β`, and arc posteriors
-`g(arc) = exp(α[s] + w + β[t] − Z)`.
+the forward scores $`\alpha`$, backward scores $`\beta`$, and arc posteriors
+$`g(\text{arc}) = \exp(\alpha[s] + w + \beta[t] - Z)`$.
 
 ```text
            α=0.0
@@ -528,9 +532,9 @@ if score.value().is_nan() || score.value().is_infinite() {
 
 ## Performance Tips
 
-1. **Use topological order**: For acyclic graphs, topological sort gives `O(∣E∣)` complexity
+1. **Use topological order**: For acyclic graphs, topological sort gives $`O(\lvert E\rvert)`$ complexity
 2. **Batch operations**: Compute multiple forward scores before backward passes
-3. **Cache forward scores**: The backward pass reuses `α` values
+3. **Cache forward scores**: The backward pass reuses $`\alpha`$ values
 4. **Consider Viterbi**: For max-margin training, Viterbi gradients are sparse (`1.0` or `0.0`)
 5. **Reset between uses**: Call `grad_fst.reset()` when reusing with different inputs
 

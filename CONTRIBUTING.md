@@ -59,7 +59,7 @@ very good reason and a discussion first.
 ### Keep new algorithms generic over the `Semiring` trait
 
 The whole library is organized around one idea: an algorithm written in terms of
-`⊕` (combine alternatives) and `⊗` (combine in sequence) computes a *different
+$`\oplus`$ (combine alternatives) and $`\otimes`$ (combine in sequence) computes a *different
 quantity* depending on which semiring it is instantiated with — shortest path
 (Tropical), total probability mass (Log), reachability (Boolean), or an expected
 gradient (Expectation). **New graph/automaton algorithms must be parameterized by
@@ -73,7 +73,7 @@ pub fn my_algorithm<W: Semiring>(lattice: &Lattice<W, B>) -> W { /* ⊕ / ⊗ on
 pub fn my_algorithm(lattice: &Lattice<TropicalWeight, B>) -> f64 { /* min / + */ }
 ```
 
-Use the identities `0̄` (the `⊕`-identity, "no path") and `1̄` (the `⊗`-identity,
+Use the identities $`\bar{0}`$ (the $`\oplus`$-identity, "no path") and $`\bar{1}`$ (the $`\otimes`$-identity,
 "empty path") rather than literals, and prefer pattern matching over predicate
 chains. See [`docs/architecture/semirings.md`](docs/architecture/semirings.md)
 and the README's *"The one algorithm behind it"* section for the house style.
@@ -122,17 +122,24 @@ All documentation must follow the repository style guide and pedagogical rules.
 The top-level [`README.md`](README.md) is the canonical worked example.
 
 - **[`docs/STYLE.md`](docs/STYLE.md)** — the operative rules. Highlights:
-  - Unicode math, **never** LaTeX `$…$`; **backtick-wrap every** mathematical
-    token or expression (`` `⊕` ``, `` `O(∣V∣ + ∣E∣)` ``, `` `T = (Q, Σ, q₀, F, E, ρ)` ``).
-  - Cardinality bar is `∣` (U+2223), not ASCII `|` (which is reserved for
-    Markdown tables and Rust bit-or).
+  - **Mathematics is MathJax LaTeX, GitHub-delimited.** Write inline math as a
+    backtick span wrapped in dollar signs — ``$`\oplus`$``,
+    ``$`O(\lvert V\rvert + \lvert E\rvert)`$``, ``$`T = (Q, \Sigma, q_0, F, E, \rho)`$`` —
+    and display math in a fenced block whose info-string is `math`. Never a bare
+    `$…$` (CommonMark strips the backslashes before MathJax runs) and never
+    `$$…$$`. Take the LaTeX for each symbol from the map in
+    [`docs/NOTATION.md`](docs/NOTATION.md).
+  - **Cardinality** is ``$`\lvert Q\rvert`$`` / ``$`\lvert V\rvert`$`` (`\lvert…\rvert`)
+    and the conditional bar is ``$`P(a \mid b)`$`` (`\mid`) — prefer these to a bare
+    `|`, which is reserved for Markdown tables and Rust bit-or.
   - **Define before use**: every symbol/acronym gets a local "Terms & symbols"
     table linking the central [`docs/NOTATION.md`](docs/NOTATION.md).
   - Topic docs follow *thesis → terms → formal model → intuition →
     architecture/API → algorithms → examples → diagrams → relation → references*.
   - Algorithms are presented in **literate-programming** form (Knuth): prose
-    intent + loop invariant, a named `⟨ chunk ⟩` in a `text` fence, then the
-    `O(·)` complexity and a worked trace.
+    intent + loop invariant, a named `⟨ chunk ⟩` in a `text` fence — pseudocode
+    keeps its Unicode operators inside the fence — then the ``$`O(\cdot)`$``
+    complexity and a worked trace as rendered math in the surrounding prose.
   - Code snippets must be **valid** — prefer lifting from `#[cfg(test)]` tests or
     doctests so the compiler checks them; use the real API.
 - **[`docs/NOTATION.md`](docs/NOTATION.md)** — the canonical symbol/acronym
@@ -166,14 +173,14 @@ Optimization is **data-driven and follows the scientific method**. Do not
 optimize on intuition: benchmark and profile first, form a hypothesis, test it,
 and accept it only if it is a statistically significant improvement. The process
 and full results are recorded in
-[`docs/optimization/journal.md`](docs/optimization/journal.md).
+[`docs/archive/journal.md`](docs/archive/journal.md).
 
 1. **Baseline** — benchmark the critical paths (Criterion harness), profile with
    `perf` to find the true hotspot.
 2. **Hypothesis** — propose a targeted change with an expected effect and a
    rationale (algorithmic or constant-factor).
 3. **Test** — implement, re-benchmark, compare. Acceptance threshold is
-   **`p < 0.05`** (95% CI, ≥ 100 samples, ≥ 3 s warmup).
+   **$`p < 0.05`$** (95% CI, $`\ge 100`$ samples, $`\ge 3`$ s warmup).
 4. **Accept / Reject** — merge only statistically significant improvements;
    **record rejections too** with the reason.
 
@@ -197,14 +204,14 @@ re-attempting dead ends:
   — failed Coq/Rocq tactic sequences, with the exact error and what worked
   instead.
 - **Performance:** the *Rejected Optimizations* sections of
-  [`docs/optimization/journal.md`](docs/optimization/journal.md).
+  [`docs/archive/journal.md`](docs/archive/journal.md).
 
 ## 6. Commit & PR conventions
 
 - **Branch** off `master`; do not commit directly to it.
 - **Conventional-commit** subjects: `feat:`, `fix:`, `perf:`, `docs:`,
   `refactor:`, `chore:`, with an optional scope (`feat(ctc): …`,
-  `perf(beam): …`, `fix(lattice): …`). Keep the subject imperative and ≤ ~72
+  `perf(beam): …`, `fix(lattice): …`). Keep the subject imperative and $`\le`$ ~72
   chars; put the rationale and verification notes in the body.
 - **Reference the verification you ran** in the body — e.g. "cargo
   test/clippy clean; `make verify-proofs` green (9 TLC configs + 3 mutants)".

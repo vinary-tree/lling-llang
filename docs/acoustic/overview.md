@@ -9,14 +9,14 @@ Transducer)-based speech recognition. **ASR** = Automatic Speech Recognition;
 
 An acoustic model maps audio features to probability distributions over speech
 units (phonemes, characters, or subwords). In the ASR cascade
-`H ∘ C ∘ L ∘ G`, the acoustic model supplies the **emission** probabilities
-`P(unit∣frame)` that drive decoding; `FusionConfig` weights them against the
+$`H \circ C \circ L \circ G`$, the acoustic model supplies the **emission** probabilities
+$`P(\text{unit} \mid \text{frame})`$ that drive decoding; `FusionConfig` weights them against the
 language-model score and the weighted product is searched for the best word
 sequence.
 
 ![neural posterior fusion: audio frames into AcousticModel forward(), per-frame posteriors, fused via FusionConfig against the recognition network N = H∘C∘L∘G, searched by Viterbi/beam to produce words](../diagrams/acoustic/posterior-fusion.svg)
 
-*Purple = the neural acoustic stage (`AcousticModel::forward` → `FramePosterior` / `PosteriorSequence`); orange = the recognition network `N` and `FusionConfig`; green = search. The fused arc weight is `combined = λ_am · log P(unit∣frame) + λ_lm · log P(word∣context) + penalties`.*
+*Purple = the neural acoustic stage (`AcousticModel::forward` → `FramePosterior` / `PosteriorSequence`); orange = the recognition network $`N`$ and `FusionConfig`; green = search. The fused arc weight is $`\text{combined} = \lambda_{am} \cdot \log P(\text{unit} \mid \text{frame}) + \lambda_{lm} \cdot \log P(\text{word} \mid \text{context}) + \text{penalties}`$.*
 
 <details><summary>Text view</summary>
 
@@ -189,12 +189,13 @@ pub struct FusionConfig {
 
 ### Score Combination
 
-The fused score is `combined = λ_am · log P(obs∣state) + λ_lm · log P(word∣context) + penalties`,
-where `λ_am` is `acoustic_weight`, `λ_lm` is `lm_weight`, and the penalties are the
-`word_insertion_penalty` and `blank_penalty` fields of `FusionConfig`.
+The fused score combines the weighted acoustic and language-model log-probabilities
+with penalties — where $`\lambda_{am}`$ is `acoustic_weight`, $`\lambda_{lm}`$ is
+`lm_weight`, and the penalties are the `word_insertion_penalty` and `blank_penalty`
+fields of `FusionConfig`:
 
-```text
-combined_score = λ_am × log P(obs∣state) + λ_lm × log P(word∣context) + penalties
+```math
+\text{combined\_score} = \lambda_{am} \times \log P(\text{obs} \mid \text{state}) + \lambda_{lm} \times \log P(\text{word} \mid \text{context}) + \text{penalties}
 ```
 
 ### Configuration
@@ -455,15 +456,15 @@ fn asr_pipeline(audio_path: &str) -> String {
 ## Related Documentation
 
 - [libgrammstein Acoustic Models](../../libgrammstein/docs/components/acoustic/models.md)
-- [ASR Cascade Construction](../asr/cascade-construction.md) - the `H ∘ C ∘ L ∘ G` network
+- [ASR Cascade Construction](../asr/cascade-construction.md) - the $`H \circ C \circ L \circ G`$ network
 - [CTC Topologies](../advanced/ctc-topologies.md)
 - [Semirings](../architecture/semirings.md)
 
 ## References
 
 - [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted Finite-State
-  Transducers in Speech Recognition.* The `H ∘ C ∘ L ∘ G` cascade into which the
-  acoustic emission scores `P(unit∣frame)` are fused.
+  Transducers in Speech Recognition.* The $`H \circ C \circ L \circ G`$ cascade into which the
+  acoustic emission scores $`P(\text{unit} \mid \text{frame})`$ are fused.
 - [Graves 2006](../BIBLIOGRAPHY.md#ref-graves2006) — *Connectionist Temporal
   Classification.* The alignment-free CTC objective behind character/subword
   acoustic models with a `blank` unit (`blank_id`, `FusionConfig::blank_penalty`).

@@ -52,7 +52,7 @@ Fast parsing with basic brace matching:
 let grammar = LatexGrammar::minimal()?;
 ```
 
-Productions (`` `ε` `` denotes the empty string; `` `|` `` separates alternatives):
+Productions ($`\varepsilon`$ denotes the empty string; `|` separates alternatives):
 
 ```text
 Document    → ContentList

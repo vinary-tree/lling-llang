@@ -101,11 +101,11 @@ lling-llang is organized in tiers, with data flowing **bottom-up** from the weig
 
 ## Data Flow
 
-A typical correction workflow turns `` `"teh quik fox"` `` into `` `"the quick fox"` `` in four stages: (1) **tokenization + candidate generation**, (2) **lattice construction**, (3) an optional **layer pipeline**, and (4) **path extraction**. Stage 2 builds the weighted DAG below — the green path is the best (Viterbi) correction `` `"the quick fox"` `` with total weight `` `0.5 ⊗ 0.5 ⊗ 0.0 = 1.0` `` (tropical).
+A typical correction workflow turns `"teh quik fox"` into `"the quick fox"` in four stages: (1) **tokenization + candidate generation**, (2) **lattice construction**, (3) an optional **layer pipeline**, and (4) **path extraction**. Stage 2 builds the weighted DAG below — the green path is the best (Viterbi) correction `"the quick fox"` with total weight $`0.5 \otimes 0.5 \otimes 0.0 = 1.0`$ (tropical).
 
 ![Worked correction lattice as a left-to-right weighted finite-state acceptor for "teh quik fox": node 0 → 1 has arcs the/0.5 (best, green) and teh/1.0 (alternative, grey); node 1 → 2 has quick/0.5 (best) and quik/1.0 (alternative); node 2 → 3 (final, double ring) has fox/0.0; the bold green path the→quick→fox is the Viterbi best path.](../diagrams/architecture/lattice-worked.svg)
 
-*Blue circles = positions; the green double-ring = the accepting (final) node; bold green arcs = the best (Viterbi) path `` `the quick fox` ``; light-grey arcs = alternatives (`` `teh` ``, `` `quik` ``). Arc labels read `` `word / weight` ``.*
+*Blue circles = positions; the green double-ring = the accepting (final) node; bold green arcs = the best (Viterbi) path `the quick fox`; light-grey arcs = alternatives (`teh`, `quik`). Arc labels read `word / weight`.*
 
 <details><summary>Text view — full four-stage pipeline</summary>
 
@@ -167,7 +167,7 @@ Output: "the quick fox"
 
 </details>
 
-> **Note.** The rendered acceptor shows the two-word core `` `the quick fox` `` with single alternatives per slot; the text view above lists the full candidate set (including `` `tea` ``) used in stages 1 and 3.
+> **Note.** The rendered acceptor shows the two-word core `the quick fox` with single alternatives per slot; the text view above lists the full candidate set (including `tea`) used in stages 1 and 3.
 
 ## Details
 
@@ -175,11 +175,11 @@ Output: "the quick fox"
 
 Weights flow through the system following semiring algebra:
 
-- **Sequential transitions**: Weights are **multiplied** (`` `⊗` ``)
-  - Path `` `"the" → "quick"` `` has weight `` `0.5 ⊗ 0.5 = 0.5 + 0.5 = 1.0` `` (tropical semiring)
+- **Sequential transitions**: Weights are **multiplied** ($`\otimes`$)
+  - Path `"the" → "quick"` has weight $`0.5 \otimes 0.5 = 0.5 + 0.5 = 1.0`$ (tropical semiring)
 
-- **Parallel alternatives**: Weights are **added** (`` `⊕` ``)
-  - If two paths reach the same node, we keep the **minimum** (tropical semiring; `` `⊕ = min` ``)
+- **Parallel alternatives**: Weights are **added** ($`\oplus`$)
+  - If two paths reach the same node, we keep the **minimum** (tropical semiring; $`\oplus = \min`$)
 
 This algebraic structure ensures that:
 1. Path weights are computed consistently
@@ -263,16 +263,16 @@ See [Layers](layers.md) for building custom layers.
 
 | Operation | Time Complexity | Space Complexity |
 |-----------|-----------------|------------------|
-| Lattice construction | O(E) | O(V + E) |
-| Topological sort | O(V + E) | O(V) |
-| Viterbi | O(V + E) | O(V) |
-| N-best extraction | O(k log k) | O(k × L) |
-| Beam search | O(V × B × D) | O(B × L) |
+| Lattice construction | $`O(E)`$ | $`O(V + E)`$ |
+| Topological sort | $`O(V + E)`$ | $`O(V)`$ |
+| Viterbi | $`O(V + E)`$ | $`O(V)`$ |
+| N-best extraction | $`O(k \log k)`$ | $`O(k \times L)`$ |
+| Beam search | $`O(V \times B \times D)`$ | $`O(B \times L)`$ |
 | Lazy composition | Demand-driven | Depends on caching |
 
 Where:
-- V = nodes, E = edges, L = path length
-- k = number of paths, B = beam width, D = average out-degree
+- $`V`$ = nodes, $`E`$ = edges, $`L`$ = path length
+- $`k`$ = number of paths, $`B`$ = beam width, $`D`$ = average out-degree
 
 ## Advanced Features
 
@@ -284,9 +284,9 @@ Connectionist Temporal Classification (CTC) graph topologies for speech recognit
 
 | Topology | States | Arcs | Memory Savings |
 |----------|--------|------|----------------|
-| Correct-CTC | N | N² | Baseline |
-| Compact-CTC | N | 3N-2 | 1.5× smaller |
-| Minimal-CTC | 1 | N | 2× smaller |
+| Correct-CTC | $`N`$ | $`N^2`$ | Baseline |
+| Compact-CTC | $`N`$ | $`3N-2`$ | 1.5× smaller |
+| Minimal-CTC | $`1`$ | $`N`$ | 2× smaller |
 
 See [CTC Topologies](../advanced/ctc-topologies.md) for details.
 
@@ -316,7 +316,7 @@ See [GPU Acceleration](../advanced/gpu-acceleration.md) for details.
 
 ### ASR Pipeline
 
-Complete speech recognition transducer construction composes the **H**MM, **C**ontext-dependency, **L**exicon, and **G**rammar transducers and optimizes the result: `` `N = π(min(det(H̃ ∘ det(C̃ ∘ det(L̃ ∘ G)))))` `` [[Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002)].
+Complete speech recognition transducer construction composes the **H**MM, **C**ontext-dependency, **L**exicon, and **G**rammar transducers and optimizes the result: $`N = \pi(\min(\det(\tilde{H} \circ \det(\tilde{C} \circ \det(\tilde{L} \circ G)))))`$ [[Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002)].
 
 ```text
 N = π(min(det(H̃ ∘ det(C̃ ∘ det(L̃ ∘ G)))))
@@ -356,6 +356,6 @@ See [ASR Pipeline](../advanced/asr-pipeline.md) for details.
 
 Full entries — including DOIs — are in [`BIBLIOGRAPHY.md`](../BIBLIOGRAPHY.md).
 
-- [**Mohri 2002**](../BIBLIOGRAPHY.md#ref-mohri2002) — Mohri, Pereira & Riley, *Weighted Finite-State Transducers in Speech Recognition*: the WFST/lattice model and the `` `N = π(min(det(H ∘ C ∘ L ∘ G)))` `` recognition cascade. [doi:10.1006/csla.2001.0184](https://doi.org/10.1006/csla.2001.0184)
+- [**Mohri 2002**](../BIBLIOGRAPHY.md#ref-mohri2002) — Mohri, Pereira & Riley, *Weighted Finite-State Transducers in Speech Recognition*: the WFST/lattice model and the $`N = \pi(\min(\det(H \circ C \circ L \circ G)))`$ recognition cascade. [doi:10.1006/csla.2001.0184](https://doi.org/10.1006/csla.2001.0184)
 - [**Mohri 2009**](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, *Weighted Automata Algorithms*: shortest-distance, weight pushing, determinization, and minimization referenced in the performance table. [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)
 - [**Braun 2020**](../BIBLIOGRAPHY.md#ref-braun2020) — Braun et al., *GPU-Accelerated Viterbi Exact Lattice Decoder*: the CSR layout and lock-free token recombination the GPU tier follows. [doi:10.1109/ICASSP40776.2020.9054099](https://doi.org/10.1109/ICASSP40776.2020.9054099)

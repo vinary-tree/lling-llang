@@ -14,7 +14,7 @@ never saw (the OOV problem), a subword lexicon `L'` composes the unseen word fro
 
 ![BPE subword lexicon automaton: a word-boundary hub with arcs for initial pieces (hel, wor), continuation pieces (+lo, +ld) returning to the hub, and a whole-word self-loop (the)](../diagrams/asr/subword-bpe-lexicon.svg)
 
-*The double-ring **word-boundary** hub is the start and final state; bold green arcs build `hel · +lo → "hello"`; plain arcs build `wor · +ld → "world"`; the grey self-loop is the whole-word piece `the`. Each arc emits its subword id on the first phone and `ε` thereafter.*
+*The double-ring **word-boundary** hub is the start and final state; bold green arcs build `hel · +lo → "hello"`; plain arcs build `wor · +ld → "world"`; the grey self-loop is the whole-word piece `the`. Each arc emits its subword id on the first phone and $`\varepsilon`$ thereafter.*
 
 <details><summary>Text view</summary>
 
@@ -319,7 +319,7 @@ println!("Phone inventory size: {}", num_phones);
 
 - [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted Finite-State
   Transducers in Speech Recognition.* The lexicon transducer `L` whose subword
-  variant is described here, and its place in the `H ∘ C ∘ L ∘ G` cascade.
+  variant is described here, and its place in the $`H \circ C \circ L \circ G`$ cascade.
 - [Miao 2015](../BIBLIOGRAPHY.md#ref-miao2015) — *EESEN: End-to-End Speech
   Recognition using Deep RNN Models and WFST-based Decoding.* WFST decoding from
   subword/character units, the setting in which an open-vocabulary subword `L'`

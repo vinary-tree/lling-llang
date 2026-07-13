@@ -22,11 +22,11 @@ swapping the weight type. That is the idea the whole library is organized around
 - 🧮 **One algebra, many objectives.** ~15 semiring weight types (Tropical, Log, Probability,
   Boolean, Expectation, Product, Lexicographic, Power, …) drive shortest-path, probabilistic, and
   multi-objective search through identical code.
-- 🔤 **Classical WFST algorithms** à la Mohri: composition, `ε`-removal, determinization,
+- 🔤 **Classical WFST algorithms** à la Mohri: composition, $`\varepsilon`$-removal, determinization,
   minimization, weight pushing, shortest-distance, synchronization — generic over the semiring.
 - 🌳 **A transducer zoo:** lattices, multitape transducers, weighted pushdown automata (PDA), tree
   transducers, and subsequential transducers.
-- 🎙️ **End-to-end speech recognition:** the `H ∘ C ∘ L ∘ G` cascade, CTC topologies, neural
+- 🎙️ **End-to-end speech recognition:** the $`H \circ C \circ L \circ G`$ cascade, CTC topologies, neural
   transducers (RNN-T), acoustic-model fusion, LF-MMI and weakly-supervised training.
 - 🔬 **Differentiable & GPU-ready:** GTN-style autograd through WFST operations, and
   GPU-shaped data structures (CSR, lock-free token packing, k-vector reduction).
@@ -41,22 +41,22 @@ swapping the weight type. That is the idea the whole library is organized around
 
 These symbols and terms are used throughout; they are defined here once, before first use.
 
-| Symbol / term                | Meaning                                                                                                                                                                       |
-|------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **WFST**                     | *Weighted Finite-State Transducer* — a finite automaton whose transitions carry an input label, an output label, and a weight.                                                |
-| **WFSA**                     | *Weighted Finite-State Acceptor* — a WFST with `input = output` (no translation, just scoring).                                                                                 |
-| **Semiring** `(K, ⊕, ⊗, 0̄, 1̄)` | A set `K` with two operations: `⊕` combines *alternative* paths, `⊗` combines *sequential* steps; `0̄` is the `⊕`-identity (“no path”), `1̄` the `⊗`-identity (“empty path”). |
-| `ε` (epsilon)              | The empty label — a transition that consumes/emits nothing.                                                                                                                   |
-| **DAG**                      | *Directed Acyclic Graph*.                                                                                                                                                     |
-| **Lattice**                  | A weighted DAG whose start→end paths enumerate hypotheses (e.g. corrections of a sentence).                                                                                   |
-| `∘`                        | *Composition* — chaining transducers so the output of one feeds the input of the next.                                                                                        |
-| `H`, `C`, `L`, `G`               | The ASR cascade stages: **H**MM, **C**ontext-dependency, **L**exicon, **G**rammar/LM.                                                                                         |
-| **Viterbi / N-best / beam**  | Path-extraction strategies: single best, top-*k*, and approximate top paths.                                                                                                  |
-| **CTC**                      | *Connectionist Temporal Classification* — alignment-free sequence labeling.                                                                                                   |
-| **RNN-T**                    | *Recurrent Neural-network Transducer* — streaming encoder–predictor–joiner model.                                                                                             |
-| **LF-MMI**                   | *Lattice-Free Maximum Mutual Information* — a sequence-discriminative training objective.                                                                                     |
-| **PDA**                      | *Pushdown Automaton* — a finite automaton with a stack (recognizes context-free languages).                                                                                   |
-| **TN / ITN**                 | *Text Normalization* (“$5” → “five dollars”) and its **I**nverse (“five dollars” → “$5”).                                                                                     |
+| Symbol / term | Meaning |
+|------------------------------|-------------------------------------------------------------------------------------------------------------------------------|
+| **WFST** | *Weighted Finite-State Transducer* — a finite automaton whose transitions carry an input label, an output label, and a weight. |
+| **WFSA** | *Weighted Finite-State Acceptor* — a WFST whose input and output labels coincide (no translation, just scoring). |
+| **Semiring** $`(K, \oplus, \otimes, \bar{0}, \bar{1})`$ | A set $`K`$ with two operations: $`\oplus`$ combines *alternative* paths, $`\otimes`$ combines *sequential* steps; $`\bar{0}`$ is the $`\oplus`$-identity ("no path"), $`\bar{1}`$ the $`\otimes`$-identity ("empty path"). |
+| $`\varepsilon`$ (epsilon) | The empty label — a transition that consumes/emits nothing. |
+| **DAG** | *Directed Acyclic Graph*. |
+| **Lattice** | A weighted DAG whose start→end paths enumerate hypotheses (e.g. corrections of a sentence). |
+| $`\circ`$ | *Composition* — chaining transducers so the output of one feeds the input of the next. |
+| $`H`$, $`C`$, $`L`$, $`G`$ | The ASR cascade stages: **H**MM, **C**ontext-dependency, **L**exicon, **G**rammar/LM. |
+| **Viterbi / N-best / beam** | Path-extraction strategies: single best, top-*k*, and approximate top paths. |
+| **CTC** | *Connectionist Temporal Classification* — alignment-free sequence labeling. |
+| **RNN-T** | *Recurrent Neural-network Transducer* — streaming encoder–predictor–joiner model. |
+| **LF-MMI** | *Lattice-Free Maximum Mutual Information* — a sequence-discriminative training objective. |
+| **PDA** | *Pushdown Automaton* — a finite automaton with a stack (recognizes context-free languages). |
+| **TN / ITN** | *Text Normalization* ("$5" → "five dollars") and its **I**nverse ("five dollars" → "$5"). |
 
 ---
 
@@ -83,23 +83,23 @@ formal-verification suite underwrites the core.
 
 ### Semirings — one algebra, many objectives
 
-A **semiring** `(K, ⊕, ⊗, 0̄, 1̄)` equips a weight set `K` with two monoids that distribute. The trick
-is that an algorithm written in terms of `⊕` and `⊗` computes a *different quantity* depending on which
+A **semiring** $`(K, \oplus, \otimes, \bar{0}, \bar{1})`$ equips a weight set $`K`$ with two monoids that distribute. The trick
+is that an algorithm written in terms of $`\oplus`$ and $`\otimes`$ computes a *different quantity* depending on which
 semiring you instantiate it with:
 
-| Semiring | `⊕` (combine alternatives) | `⊗` (combine in sequence) | `0̄` | `1̄` | Computes… |
+| Semiring | $`\oplus`$ (combine alternatives) | $`\otimes`$ (combine in sequence) | $`\bar{0}`$ | $`\bar{1}`$ | Computes… |
 |---|---|---|---|---|---|
-| **Tropical** | `min` | `+` | `+∞` | `0` | shortest path (e.g. edit distance) |
-| **Log** | `⊕ₗₒg` | `+` | `+∞` | `0` | total probability mass (in −log space) |
-| **Probability** | `+` | `×` | `0` | `1` | probabilities directly |
-| **Boolean** | `∨` (OR) | `∧` (AND) | `false` | `true` | reachability (is there *any* path?) |
-| **Expectation** | `+` | `product-rule` | `(0, 0)` | `(1, 0)` | expected values / gradients |
-| **Product** | `(⊕₁, ⊕₂)` | `(⊗₁, ⊗₂)` | `(0̄₁, 0̄₂)` | `(1̄₁, 1̄₂)` | two objectives at once |
-| **Lexicographic** | `lex-min` | `(⊗₁, ⊗₂)` | `(0̄, 0̄)` | `(1̄, 1̄)` | tie-broken priorities |
-| **String** | `longest common prefix` | `concatenation` | `∞` | `ε` | label accumulation |
+| **Tropical** | $`\min`$ | $`+`$ | $`+\infty`$ | $`0`$ | shortest path (e.g. edit distance) |
+| **Log** | $`\oplus_{\log}`$ | $`+`$ | $`+\infty`$ | $`0`$ | total probability mass (in −log space) |
+| **Probability** | $`+`$ | $`\times`$ | $`0`$ | $`1`$ | probabilities directly |
+| **Boolean** | $`\lor`$ (OR) | $`\land`$ (AND) | $`\text{false}`$ | $`\text{true}`$ | reachability (is there *any* path?) |
+| **Expectation** | $`+`$ | product-rule | $`(0, 0)`$ | $`(1, 0)`$ | expected values / gradients |
+| **Product** | $`(\oplus_1, \oplus_2)`$ | $`(\otimes_1, \otimes_2)`$ | $`(\bar{0}_1, \bar{0}_2)`$ | $`(\bar{1}_1, \bar{1}_2)`$ | two objectives at once |
+| **Lexicographic** | lex-$`\min`$ | $`(\otimes_1, \otimes_2)`$ | $`(\bar{0}, \bar{0})`$ | $`(\bar{1}, \bar{1})`$ | tie-broken priorities |
+| **String** | longest common prefix | concatenation | $`\infty`$ | $`\varepsilon`$ | label accumulation |
 
-where the **log-add** operator is  `x ⊕ₗₒg y = −ln(e⁻ˣ + e⁻ʸ)`.  Additional weight types ship in
-the same module — `Count`, `Power` (η-power, for online learning), `Gödel`, `SignedTropical`
+where the **log-add** operator is $`x \oplus_{\log} y = -\ln(e^{-x} + e^{-y})`$. Additional weight types ship in
+the same module — `Count`, `Power` ($`\eta`$-power, for online learning), `Gödel`, `SignedTropical`
 (rewards as negative costs), and set/edit-valued weights — see
 [`docs/architecture/semirings.md`](docs/architecture/semirings.md).
 
@@ -152,9 +152,9 @@ correction cheaper than leaving an unlikely token in place.
 ### WFSTs & rational operations
 
 The `wfst` module provides the general transducer with its **rational operations** — *union*
-(`A ∪ B`), *concatenation* (`A · B`), and *Kleene closure* (`A*`) — and **unary operations** —
+($`A \cup B`$), *concatenation* ($`A \cdot B`$), and *Kleene closure* ($`A^*`$) — and **unary operations** —
 *invert*, *project* (keep input or output tape), and *reverse*. Larger systems are assembled by
-lazily **composing** transducers (`A ∘ B`), evaluated on the fly to avoid materializing the full
+lazily **composing** transducers ($`A \circ B`$), evaluated on the fly to avoid materializing the full
 product. See [[1]](#references), [[3]](#references) and
 [`docs/architecture/wfst-operations.md`](docs/architecture/wfst-operations.md).
 
@@ -173,7 +173,7 @@ Add the crate (path or version) to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-lling-llang = "0.1"
+lling-llang = "0.2"
 ```
 
 ### A worked example
@@ -215,11 +215,11 @@ For alternatives, swap `viterbi` for `nbest(&mut lattice, k)` (top-*k*) or
 
 `viterbi` is a special case of the **generalized single-source shortest-distance** algorithm
 (Mohri [[3]](#references)). Presented in literate style — the same loop computes *any* of the
-objectives in the semiring table, because `⊕` and `⊗` are abstract:
+objectives in the semiring table, because $`\oplus`$ and $`\otimes`$ are abstract:
 
-We want, for every node `q`, the value `d[q]` = the `⊕`-combination over **all** start→`q` paths of
-the `⊗`-product of their arc weights. Initialize the source to the empty-path weight `1̄` and everything
-else to “no path yet”, `0̄`:
+We want, for every node $`q`$, the value $`d[q]`$ = the $`\oplus`$-combination over **all** start→$`q`$ paths of
+the $`\otimes`$-product of their arc weights. Initialize the source to the empty-path weight $`\bar{1}`$ and everything
+else to "no path yet", $`\bar{0}`$:
 
 ```text
 d[start] ← 1̄
@@ -227,7 +227,7 @@ d[q]     ← 0̄          for every q ≠ start
 ```
 
 Because a lattice is acyclic, visiting nodes in **topological order** guarantees that when we reach
-`q`, `d[q]` is already final. We then *relax* each outgoing arc, pushing `q`'s value forward:
+$`q`$, $`d[q]`$ is already final. We then *relax* each outgoing arc, pushing $`q`$'s value forward:
 
 ```text
 for q in topological_order(G):
@@ -235,7 +235,7 @@ for q in topological_order(G):
         d[r] ← d[r] ⊕ (d[q] ⊗ w)          # combine this path in
 ```
 
-The result `d[end]` is the answer; choosing the semiring chooses the question:
+The result $`d[\text{end}]`$ is the answer; choosing the semiring chooses the question:
 
 ```text
 Tropical (⊕ = min, ⊗ = +)   →  cost of the cheapest path        (Viterbi)
@@ -244,7 +244,7 @@ Boolean  (⊕ = ∨, ⊗ = ∧)      →  is the end reachable at all?
 ```
 
 To recover the *path* (not just its score), Viterbi additionally stores a back-pointer at each
-relaxation and walks them back from `end`. Complexity is `O(∣V∣ + ∣E∣)` for acyclic lattices;
+relaxation and walks them back from `end`. Complexity is $`O(\lvert V\rvert + \lvert E\rvert)`$ for acyclic lattices;
 general (cyclic) inputs use a queue discipline and semiring-specific closure
 (see [`docs/algorithms/shortest-distance.md`](docs/algorithms/shortest-distance.md)).
 
@@ -256,7 +256,7 @@ Each area links to its in-depth guide under [`docs/`](docs/).
 
 ### Classical WFST algorithms
 Generic over the semiring, following Mohri [[3]](#references):
-shortest-distance, **weight pushing**, **`ε`-removal**, **determinization**, **minimization**,
+shortest-distance, **weight pushing**, **$`\varepsilon`$-removal**, **determinization**, **minimization**,
 `connect` (trimming), and **synchronization** of label delay.
 → [`docs/algorithms/`](docs/algorithms/)
 
@@ -271,7 +271,7 @@ shortest-distance, **weight pushing**, **`ε`-removal**, **determinization**, **
 
 ### Automatic speech recognition
 The canonical recognition network is the composed, optimized cascade
-`N = π(min(det(H ∘ C ∘ L ∘ G)))` (Mohri, Pereira & Riley [[1]](#references)):
+$`N = \pi(\min(\det(H \circ C \circ L \circ G)))`$ (Mohri, Pereira & Riley [[1]](#references)):
 
 ![ASR cascade](docs/diagrams/asr-cascade.svg)
 
@@ -308,7 +308,7 @@ Graves [[7]](#references)).
 - **`programming`** — syntax-error repair and automated API-version migration.
 
 ### Online learning
-**RRWM** (Randomized Weighted-Majority over path experts) and the **`η`-power semiring** for online
+**RRWM** (Randomized Weighted-Majority over path experts) and the **$`\eta`$-power semiring** for online
 ensemble learning, after Cortes, Kuznetsov, Mohri & Warmuth [[13]](#references).
 → [`docs/algorithms/rrwm.md`](docs/algorithms/rrwm.md), [`docs/architecture/power-semiring.md`](docs/architecture/power-semiring.md)
 
@@ -325,9 +325,9 @@ mutants to prove the checks have teeth.
 | Layer                     | What is proven                                                                                                                                                        |
 |---------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Coq — foundations**     | Semiring laws; tropical & log weights; quantization, interval, and roundoff contracts; finite semiring matrix closure.                                                |
-| **Coq — WFST semantics**  | WFST/state/transition definitions; accepting-path connectivity; adjacency-matrix semantics; the weighted language `L(A)` via duplicate-free path enumerations.          |
+| **Coq — WFST semantics**  | WFST/state/transition definitions; accepting-path connectivity; adjacency-matrix semantics; the weighted language $`L(A)`$ via duplicate-free path enumerations.          |
 | **Coq — algorithm specs** | Partial-correctness specifications and Bellman-update lemmas for Viterbi, shortest-distance, determinization, and minimization.                                       |
-| **TLA⁺ models**           | `RRWM` (bounded online-learning accounting), `LazyComposition` (cache/memory bounds), `CascadeOrder` (`H → C → L → G` ordering) — 9 TLC configs + 3 expected-failure mutants. |
+| **TLA⁺ models**           | `RRWM` (bounded online-learning accounting), `LazyComposition` (cache/memory bounds), `CascadeOrder` ($`H \to C \to L \to G`$ ordering) — 9 TLC configs + 3 expected-failure mutants. |
 
 Run everything from the repository root:
 
@@ -354,18 +354,18 @@ features pull in integrations and extra layers:
 | Feature                                                | Enables                                                    |
 |--------------------------------------------------------|------------------------------------------------------------|
 | `levenshtein`                                          | Fuzzy lexical correction via `liblevenshtein`.             |
-| `pcfg`                                                 | Probabilistic CFG support.                                 |
+| `pcfg`                                                 | *(reserved — no effect yet)* Probabilistic CFG support.    |
 | `phonetic-rescore`                                     | Phonetic lattice rescoring (Zompist-style rules).          |
 | `code-correction` / `latex-syntax` / `mathml-semantic` | Domain-specific correction layers.                         |
 | `pos-tagging` / `lm-rerank`                            | POS-tagging and language-model reranking layers.           |
-| `f1r3fly`                                              | Full F1R3FLY.io stack (PathMap, MORK, MeTTaIL, MeTTaTron). |
-| `pathmap-backend` / `sexpr`                            | PathMap-backed storage; S-expression path format.          |
+| `f1r3fly`                                              | F1R3FLY.io integration surface: PathMap backend + MeTTaIL type layer (MORK/MeTTaTron are roadmap — see [`docs/integration/f1r3fly/vision.md`](docs/integration/f1r3fly/vision.md)). |
+| `pathmap-backend` / `sexpr`                            | PathMap-backed storage; S-expression path format (`sexpr` reserved — not yet wired). |
 | `serde` / `bincode-ser`                                | Serialization.                                             |
 | `test-utils`                                           | Property-test strategies & fixtures for downstream crates. |
 
 ```toml
 [dependencies]
-lling-llang = { version = "0.1", features = ["levenshtein", "serde"] }
+lling-llang = { version = "0.2", features = ["levenshtein", "serde"] }
 ```
 
 See [`Cargo.toml`](Cargo.toml) for the complete, authoritative list.
@@ -379,7 +379,7 @@ Comprehensive guides live in [`docs/`](docs/) (start at [`docs/README.md`](docs/
 | Section                            | Contents                                                                                                                             |
 |------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
 | [Architecture](docs/architecture/) | Semirings, lattices, WFST traits & operations, backends, layers.                                                                     |
-| [Algorithms](docs/algorithms/)     | Path extraction, shortest-distance, pushing, `ε`-removal, determinization, minimization, composition, parsing, sampling, RRWM.         |
+| [Algorithms](docs/algorithms/)     | Path extraction, shortest-distance, pushing, $`\varepsilon`$-removal, determinization, minimization, composition, parsing, sampling, RRWM.         |
 | [Advanced](docs/advanced/)         | CTC topologies, subsequential transducers, differentiable ops, top-down autograd, ASR pipeline, beam optimization, GPU acceleration. |
 | [ASR & Acoustic](docs/asr/)        | Cascade construction, subword lexicons, acoustic-model integration.                                                                  |
 | [Training](docs/training/)         | Weak supervision and discriminative objectives.                                                                                      |

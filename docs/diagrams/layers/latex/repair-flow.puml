@@ -26,7 +26,7 @@ skinparam note {
 title <b>LaTeX validate → repair pipeline</b>\n<size:11><i>LatexSyntaxLayer.apply over a token lattice</i></size>
 
 start
-:Input lattice  Lattice⟨W, B⟩;
+:Input lattice  Lattice<latex>\langle W, B \rangle</latex>;
 
 if (prune_ungrammatical?) then (yes)
   :<b>Pass 1 — Grammar filter</b>\nEarleyParser over LatexGrammar;\nkeep only edges on a parse;
@@ -48,8 +48,8 @@ endif
 if (issues found?) then (yes)
   if (generate_repairs?) then (yes)
     :<b>Pass 3 — Repair generation</b>\nCompositeRepairStrategy:\nBrace · Environment · Math;
-    :sort suggestions by confidence\n(keep ≤ max_repairs_per_issue);
-    if (auto_repair ∧ confidence ≥ auto_repair_threshold?) then (yes)
+    :sort suggestions by confidence\n(keep <latex>\le</latex> max_repairs_per_issue);
+    if (auto_repair <latex>\land</latex> confidence <latex>\ge</latex> auto_repair_threshold?) then (yes)
       :apply high-confidence repairs\ninto the lattice;
     else (no)
       :stash in last_repairs()\nfor the caller;

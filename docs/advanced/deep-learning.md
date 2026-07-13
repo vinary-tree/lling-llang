@@ -8,29 +8,29 @@ Defined centrally in [`../NOTATION.md`](../NOTATION.md); repeated locally for th
 
 | Symbol | Meaning |
 |---|---|
-| `⊕` / `⊗` | semiring *plus* (combine alternative paths; Log: `⊕ₗₒg`) / *times* (combine arcs along a path). |
-| `∘` | composition — chains transducers; the output tape of one feeds the input tape of the next. |
-| `*` | Kleene closure of a transducer (`` `(T₁ + … + T_C)*` ``: any number of token graphs in sequence). |
-| `ε` | epsilon — a transition that consumes/emits nothing (the CTC blank/back-off arc). |
-| `E`, `B`, `Tᵢ`, `L`, `Y` | emissions · bigram graph · token graph for token `i` · lexicon transducer · target sequence. |
-| `A`, `Z` | constrained alignment graph `` `A = E ∘ (B ∘ ((T₁+…+T_C)* ∘ (L ∘ Y)))` `` · unconstrained normalizer `` `Z = E ∘ B` ``. |
-| `∣V∣` | vocabulary size (cardinality bar `∣` = U+2223); `` `∣E∣` `` = arc count in complexity bounds. |
-| `k`, `c_i`, `c_o`, `w` | kernel width · input / output channels · receptive-field width. |
+| $`\oplus`$ / $`\otimes`$ | semiring *plus* (combine alternative paths; Log: $`\oplus_{\log}`$) / *times* (combine arcs along a path). |
+| $`\circ`$ | composition — chains transducers; the output tape of one feeds the input tape of the next. |
+| $`*`$ | Kleene closure of a transducer ($`(T_1 + \dots + T_C)^*`$: any number of token graphs in sequence). |
+| $`\varepsilon`$ | epsilon — a transition that consumes/emits nothing (the CTC blank/back-off arc). |
+| $`E`$, $`B`$, $`T_i`$, $`L`$, $`Y`$ | emissions · bigram graph · token graph for token $`i`$ · lexicon transducer · target sequence. |
+| $`A`$, $`Z`$ | constrained alignment graph $`A = E \circ (B \circ ((T_1+\dots+T_C)^* \circ (L \circ Y)))`$ · unconstrained normalizer $`Z = E \circ B`$. |
+| $`\lvert V\rvert`$ | vocabulary size; $`\lvert E\rvert`$ = arc count in complexity bounds. |
+| $`k`$, $`c_i`$, $`c_o`$, $`w`$ | kernel width · input / output channels · receptive-field width. |
 | **CTC** | **C**onnectionist **T**emporal **C**lassification (alignment-free sequence labeling, [Graves 2006](../BIBLIOGRAPHY.md#ref-graves2006)). |
 
 ## Overview
 
 Deep learning integration enables:
-1. **WFST as Neural Layers**: Use WFSTs as convolutional layers with `38×` fewer parameters
+1. **WFST as Neural Layers**: Use WFSTs as convolutional layers with 38× fewer parameters
 2. **Flexible Token Graphs**: Different CTC variants for various training objectives
 3. **Learned Decompositions**: Marginalize over word piece segmentations
-4. **Scalable N-grams**: `87×` speedup through pruning and back-off
+4. **Scalable N-grams**: 87× speedup through pruning and back-off
 
-The data flows neural-network → emissions `E` → a stack of differentiable WFST layers → a scalar loss; the gradient of that loss flows back through the same graph to the network. The structural spine of the stack is the lexicon-marginalization alignment graph `` `A = E ∘ (B ∘ ((T₁ + … + T_C)* ∘ (L ∘ Y)))` ``, scored against the unconstrained normalizer `` `Z` `` to give `` `loss = −log P(Y∣X) = forwardScore(Z) − forwardScore(A)` ``.
+The data flows neural-network → emissions $`E`$ → a stack of differentiable WFST layers → a scalar loss; the gradient of that loss flows back through the same graph to the network. The structural spine of the stack is the lexicon-marginalization alignment graph $`A = E \circ (B \circ ((T_1 + \dots + T_C)^* \circ (L \circ Y)))`$, scored against the unconstrained normalizer $`Z`$ to give $`\text{loss} = -\log P(Y \mid X) = \operatorname{forwardScore}(Z) - \operatorname{forwardScore}(A)`$.
 
 ![WFST as a differentiable neural-network layer: neural emissions E feed a token graph (CTC variant) with an epsilon blank/repeat self-loop, then the Kleene closure of per-token graphs composed with a lexicon L and the target Y form the alignment graph A; a forward log-sum-exp score over A and over the normalizer Z combine into the loss, whose backward pass sends arc-posterior gradients back to the network](../diagrams/advanced/deep-learning-layers.svg)
 
-*Purple = deep-learning tier; the green-bold spine is the constrained path `` `E → token graph → closure → L → Y` `` and its forward score; grey-dashed `ε` arcs are the CTC blank/repeat self-loop and the unconstrained normalizer branch `` `Z` ``; the amber note marks the lexicon marginalization (sum over every valid word-piece decomposition of `Y`); the red-dashed arc is the gradient `` `∂Loss/∂E` `` returning to the encoder.*
+*Purple = deep-learning tier; the green-bold spine is the constrained path $`E \to \text{token graph} \to \text{closure} \to L \to Y`$ and its forward score; grey-dashed $`\varepsilon`$ arcs are the CTC blank/repeat self-loop and the unconstrained normalizer branch $`Z`$; the amber note marks the lexicon marginalization (sum over every valid word-piece decomposition of $`Y`$); the red-dashed arc is the gradient $`\partial\text{Loss}/\partial E`$ returning to the encoder.*
 
 <details><summary>Text view</summary>
 
@@ -58,14 +58,14 @@ WFST kernels can replace traditional convolutions with dramatic parameter reduct
 
 ### Concept
 
-Traditional convolution: `` `output[t] = Σ_k W[k] · input[t+k]` ``
+Traditional convolution: $`\text{output}[t] = \sum_k W[k] \cdot \text{input}[t+k]`$
 
-WFST convolution: `` `output[t] = ⊕ₗₒg { score(p) : p ∈ K ∘ R_t }` `` (a log-sum-exp over every path of the composed kernel-and-receptive-field automaton).
+WFST convolution: $`\text{output}[t] = \bigoplus_{\log} \{\, \operatorname{score}(p) : p \in K \circ R_t \,\}`$ (a log-sum-exp over every path of the composed kernel-and-receptive-field automaton).
 
 Where:
-- `K` = WFST kernel (encodes structural patterns)
-- `R_t` = receptive field (linear graph from hidden units at positions `t` to `t+k`)
-- The `` `⊕ₗₒg` `` (log-sum-exp) aggregates all path scores
+- $`K`$ = WFST kernel (encodes structural patterns)
+- $`R_t`$ = receptive field (linear graph from hidden units at positions $`t`$ to $`t+k`$)
+- The $`\oplus_{\log}`$ (log-sum-exp) aggregates all path scores
 
 ### API
 
@@ -132,10 +132,10 @@ let output = forward_score(&GradientWfst::from_wfst(&composed));
 
 | Layer Type | Parameters | Operations |
 |------------|------------|------------|
-| WFST Conv (`k=3`, `c_o=64`) | 2,048 | `O(k × w × c_o)` |
-| Traditional Conv (`k=3`, `c_i=256`, `c_o=64`) | 79,000 | `O(k × c_i × c_o)` |
+| WFST Conv ($`k=3`$, $`c_o=64`$) | 2,048 | $`O(k \times w \times c_o)`$ |
+| Traditional Conv ($`k=3`$, $`c_i=256`$, $`c_o=64`$) | 79,000 | $`O(k \times c_i \times c_o)`$ |
 
-`38×` **fewer parameters** with WFST convolution!
+38× **fewer parameters** with WFST convolution!
 
 ### Why It Works
 
@@ -275,8 +275,8 @@ let blank_graph = build_blank_graph(0, 3); // blank_id=0, 3 repetitions
 
 | Model Context | Recommended Graph |
 |---------------|-------------------|
-| Short context (Citrinet `γ=0.25`) | Standard (with self-loops) |
-| Long context (`γ=1.0`) | Spike or Duration-Limited |
+| Short context (Citrinet $`\gamma=0.25`$) | Standard (with self-loops) |
+| Long context ($`\gamma=1.0`$) | Spike or Duration-Limited |
 | Unlimited context (Conformer) | Spike |
 | Fixed frame rate output | Equally Spaced |
 | Memory-constrained training | Duration-Limited or Spike |
@@ -293,20 +293,19 @@ Fixed word piece decomposition (from SentencePiece) may not be optimal for the t
 
 ### The Solution
 
-Marginalize over all valid decompositions — the alignment graph is
-`A = E ∘ (B ∘ ((T₁ + … + T_C)* ∘ (L ∘ Y)))`:
+Marginalize over all valid decompositions — the alignment graph is:
 
-```text
-A = E ∘ (B ∘ ((T₁ + … + T_C)* ∘ (L ∘ Y)))
+```math
+A = E \circ (B \circ ((T_1 + \dots + T_C)^* \circ (L \circ Y)))
+```
 
 Where:
-  E   = emissions from neural network
-  B   = bigram transition graph
-  Tᵢ  = token graph for token i
-  *   = Kleene closure (any number of token graphs)
-  L   = lexicon transducer (word piece → graphemes)
-  Y   = target grapheme sequence
-```
+- $`E`$ = emissions from neural network
+- $`B`$ = bigram transition graph
+- $`T_i`$ = token graph for token $`i`$
+- $`(\cdot)^{*}`$ = Kleene closure (any number of token graphs)
+- $`L`$ = lexicon transducer (word piece → graphemes)
+- $`Y`$ = target grapheme sequence
 
 ### API
 
@@ -385,8 +384,8 @@ Scale to large vocabularies with `87×` speedup.
 ### The Problem
 
 Dense n-gram transitions:
-- Bigram: `O(∣V∣²)` transitions for vocabulary size `∣V∣`
-- Trigram: `O(∣V∣³)` transitions
+- Bigram: $`O(\lvert V\rvert^2)`$ transitions for vocabulary size $`\lvert V\rvert`$
+- Trigram: $`O(\lvert V\rvert^3)`$ transitions
 - 1000 word pieces: 1 million bigram arcs!
 
 ### The Solution
@@ -473,7 +472,7 @@ println!("Compression ratio: {:.1}x", stats.compression_ratio);
 | 1000 WP | None | 17,939 s/epoch |
 | 1000 WP | min_count=10 | **204 s/epoch** |
 
-`87×` **speedup** for 1000 word pieces with no accuracy loss!
+87× **speedup** for 1000 word pieces with no accuracy loss!
 
 ### Smoothing Options
 
@@ -526,7 +525,7 @@ let fisher = compute_fisher_information(&first_grads);
 
 ### Hessian-Vector Products
 
-Efficient `O(∣E∣)` computation without materializing the full Hessian:
+Efficient $`O(\lvert E\rvert)`$ computation without materializing the full Hessian:
 
 ```rust
 // Direction vector
@@ -634,9 +633,9 @@ let loss = z_score.value() - a_score.value();
 
 ## Performance Tips
 
-1. **Use Diagonal Hessian**: Full Hessian is `` `O(∣E∣²)` ``, diagonal is `` `O(∣E∣)` ``
+1. **Use Diagonal Hessian**: Full Hessian is $`O(\lvert E\rvert^2)`$, diagonal is $`O(\lvert E\rvert)`$
 
-2. **Prune Aggressively**: `min_count=10` gives `87×` speedup with no accuracy loss
+2. **Prune Aggressively**: `min_count=10` gives 87× speedup with no accuracy loss
 
 3. **Choose Right Token Graph**:
    - Wide context models → Spike CTC
@@ -655,5 +654,5 @@ let loss = z_score.value() - a_score.value();
 
 ## References
 
-- [Hannun 2020](../BIBLIOGRAPHY.md#ref-hannun2020) — *Differentiable Weighted Finite-State Transducers* (ICML 2020): the autograd-through-WFST framework this module implements — WFSTs as differentiable layers, convolutional WFST kernels, marginalized word-piece decompositions via the alignment graph `` `A = E ∘ (B ∘ ((T₁+…+T_C)* ∘ (L ∘ Y)))` ``, the token-graph (CTC variant) topologies, and pruned n-gram transitions with back-off.
-- [Graves 2006](../BIBLIOGRAPHY.md#ref-graves2006) — *Connectionist Temporal Classification*: the blank-augmented, alignment-free training objective whose WFST realization is the Standard token graph (and whose variants — Spike, Duration-Limited, Equally-Spaced — this module parameterizes); the `` `loss = forwardScore(Z) − forwardScore(A)` `` log-sum-exp marginalization is the CTC forward computation expressed over composed transducers.
+- [Hannun 2020](../BIBLIOGRAPHY.md#ref-hannun2020) — *Differentiable Weighted Finite-State Transducers* (ICML 2020): the autograd-through-WFST framework this module implements — WFSTs as differentiable layers, convolutional WFST kernels, marginalized word-piece decompositions via the alignment graph $`A = E \circ (B \circ ((T_1+\dots+T_C)^* \circ (L \circ Y)))`$, the token-graph (CTC variant) topologies, and pruned n-gram transitions with back-off.
+- [Graves 2006](../BIBLIOGRAPHY.md#ref-graves2006) — *Connectionist Temporal Classification*: the blank-augmented, alignment-free training objective whose WFST realization is the Standard token graph (and whose variants — Spike, Duration-Limited, Equally-Spaced — this module parameterizes); the $`\text{loss} = \operatorname{forwardScore}(Z) - \operatorname{forwardScore}(A)`$ log-sum-exp marginalization is the CTC forward computation expressed over composed transducers.

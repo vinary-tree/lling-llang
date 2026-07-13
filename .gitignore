@@ -79,6 +79,15 @@ vgcore.*
 docs/_build/
 docs/optimization/*.txt
 
+# LaTeX/TikZ diagram build intermediates (docs/diagrams/**/*.tex render via
+# lualatex → dvisvgm). render.sh builds in a tempdir, so `make diagrams` leaves
+# none of these behind; the patterns guard against a manual in-place render.
+docs/diagrams/**/*.aux
+docs/diagrams/**/*.dvi
+docs/diagrams/**/*.fls
+docs/diagrams/**/*.fdb_latexmk
+docs/diagrams/**/*.synctex.gz
+
 # Rocq/Coq proof build artifacts
 proofs/coq/CoqMakefile
 proofs/coq/CoqMakefile.conf

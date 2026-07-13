@@ -20,32 +20,32 @@ hide empty description
 
 title <b>Syntax-recovery state machine</b>  —  green marks acceptance (a parseable token sequence)
 
-[*] --> Scanning : begin / stack = ∅
+[*] --> Scanning : begin / stack = <latex>\emptyset</latex>
 
 state "Scanning" as Scanning : read next token;\nupdate bracket stack
 state "Insertion" as Ins : emit insertable token\n(+insertion_cost)
-state "Deletion" as Del : skip token via ε edge\n(+deletion_cost)
+state "Deletion" as Del : skip token via <latex>\varepsilon</latex> edge\n(+deletion_cost)
 state "Replacement" as Rep : swap token for a\nbracket-matched one\n(+replacement_cost)
 state "Balancing" as Bal : pop unmatched opens,\nappend their closers\n(+insertion_cost each)
 state "Recovered" as Done #C8E6C9 : parseable sequence
 
-Scanning --> Ins   : [Insertion ∈ strategies\n∧ count < max_insertions]
-Scanning --> Del   : [Deletion ∈ strategies\n∧ deletable ∧ count < max_deletions]
-Scanning --> Rep   : [Replacement ∈ strategies\n∧ wrong bracket type]
+Scanning --> Ins   : [Insertion <latex>\in</latex> strategies\n<latex>\land</latex> count < max_insertions]
+Scanning --> Del   : [Deletion <latex>\in</latex> strategies\n<latex>\land</latex> deletable <latex>\land</latex> count < max_deletions]
+Scanning --> Rep   : [Replacement <latex>\in</latex> strategies\n<latex>\land</latex> wrong bracket type]
 Ins --> Scanning   : token emitted
 Del --> Scanning   : token skipped
 Rep --> Scanning   : token replaced
 Scanning --> Scanning : ordinary token\n(push '(' / pop matching ')')
 
-Scanning -[#2E7D32,bold]-> Bal : end of input\n∧ balance_brackets ∧ stack ≠ ∅
-Scanning -[#2E7D32,bold]-> Done : end of input\n∧ stack = ∅
+Scanning -[#2E7D32,bold]-> Bal : end of input\n<latex>\land</latex> balance_brackets <latex>\land</latex> stack <latex>\ne \emptyset</latex>
+Scanning -[#2E7D32,bold]-> Done : end of input\n<latex>\land</latex> stack = <latex>\emptyset</latex>
 Bal -[#2E7D32,bold]-> Done : stack drained
 
 Done --> [*]
 
 note bottom of Bal
   Lower total cost = preferred path:
-  cost = original_cost + Σ recovery_costs.
+  cost = original_cost + <latex>\sum</latex> recovery_costs.
   Each repair is a parallel lattice edge,
   so all candidates coexist for later stages.
 end note

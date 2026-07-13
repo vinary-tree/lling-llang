@@ -9,7 +9,7 @@ performance characteristics, and worked examples — lives in
 The organizing idea is a single algebraic abstraction. The library treats a
 problem — spelling/grammar correction, speech decoding, text normalization,
 constrained generation — as a search for the **best path through a weighted graph
-of hypotheses**, and the **semiring** `(K, ⊕, ⊗, 0̄, 1̄)` lets the *same*
+of hypotheses**, and the **semiring** $`(K, \oplus, \otimes, \bar{0}, \bar{1})`$ lets the *same*
 algorithm compute the shortest path, the most probable string, a reachability
 set, or an expected gradient just by swapping the weight type. Symbols used here
 are defined in [`docs/NOTATION.md`](docs/NOTATION.md).
@@ -31,9 +31,9 @@ speech/ASR, red = verification); arrows show the bottom-up dependency.*
 
 The weight algebra and the automata/graph data structures everything else builds
 on. `semiring` provides ~15 weight types (Tropical, Log, Probability, Boolean,
-Expectation, Product, Lexicographic, `η`-power, String, …) behind one trait;
-`wfst` is the general transducer with its rational operations (`A ∪ B`, `A · B`,
-`A*`) and unary operations (invert, project, reverse); `lattice` is the weighted
+Expectation, Product, Lexicographic, $`\eta`$-power, String, …) behind one trait;
+`wfst` is the general transducer with its rational operations ($`A \cup B`$, $`A \cdot B`$,
+$`A^*`$) and unary operations (invert, project, reverse); `lattice` is the weighted
 DAG of hypotheses whose start→end paths are complete candidates; and `backend`
 abstracts vocabulary storage (`HashMapBackend`, PathMap-backed).
 → [`docs/architecture/semirings.md`](docs/architecture/semirings.md),
@@ -47,11 +47,11 @@ abstracts vocabulary storage (`HashMapBackend`, PathMap-backed).
 The generic WFST operations and path extraction. `path` extracts the best
 path(s) — `viterbi`, `nbest` (top-`k`), `beam_search` — as special cases of the
 **generalized single-source shortest-distance** algorithm; `algorithms` provides
-weight pushing, `ε`-removal, `connect`, determinization, minimization, and
-synchronization; `composition` lazily evaluates `A ∘ B` on demand to avoid
+weight pushing, $`\varepsilon`$-removal, `connect`, determinization, minimization, and
+synchronization; `composition` lazily evaluates $`A \circ B`$ on demand to avoid
 materializing the product; `optimization` prepares lattices for beam search
 (log-pushing, look-ahead tables, n-gram builders). Complexity for acyclic
-lattices is `O(∣V∣ + ∣E∣)`.
+lattices is $`O(\lvert V\rvert + \lvert E\rvert)`$.
 → [`docs/algorithms/shortest-distance.md`](docs/algorithms/shortest-distance.md),
 [`docs/algorithms/path-extraction.md`](docs/algorithms/path-extraction.md),
 [`docs/algorithms/composition.md`](docs/algorithms/composition.md),
@@ -63,7 +63,7 @@ Beyond string-to-string transduction. `cfg` is an **Earley parser** run over a
 *lattice* rather than a single string, intersecting a grammar with the hypothesis
 space; `multitape` provides `k`-tape transducers with projection and
 synchronization; `pushdown` provides weighted PDAs for context-free structure
-(stack alphabet `Γ`, instantaneous descriptions `(q, w, γ)`); `tree_transducers`
+(stack alphabet $`\Gamma`$, instantaneous descriptions $`(q, w, \gamma)`$); `tree_transducers`
 provides ranked-alphabet tree-to-tree transduction; and `subsequential` provides
 deterministic transducers with piecewise decomposition.
 → [`docs/algorithms/parsing.md`](docs/algorithms/parsing.md),
@@ -108,7 +108,7 @@ vectorization-friendly structures.
 ### Speech & ASR — `asr` · `acoustic` · `ctc` · `transducer` · `training`
 
 The speech-recognition stack. `asr` builds the canonical recognition network
-`N = π(min(det(H ∘ C ∘ L ∘ G)))` (context-dependency builders, n-gram LMs with
+$`N = \pi(\min(\det(H \circ C \circ L \circ G)))`$ (context-dependency builders, n-gram LMs with
 back-off, subword lexicons, multi-pass rescoring); `acoustic` fuses neural
 emission posteriors with the graph; `ctc` provides CTC topologies (`CorrectCtc`,
 `CompactCtc`, `MinimalCtc`, `SelflessCtc`); `transducer` provides neural
@@ -127,7 +127,7 @@ The machine-checked semantics and invariants that underwrite the foundation and
 algorithm tiers. Every Coq/Rocq file builds with no `admit`/`Axiom`/`sorry`; the
 TLA⁺ specs are model-checked with TLC and include deliberately-broken mutants
 that must fail. Coq covers the semiring laws, WFST/path semantics, the weighted
-language `L(A)` (with a full bidirectional accepting-path correspondence), and
+language $`L(A)`$ (with a full bidirectional accepting-path correspondence), and
 partial-correctness specs for Viterbi / shortest-distance / determinization /
 minimization. TLA⁺ covers `RRWM`, `LazyComposition` (cache/memory bounds), and
 `CascadeOrder`. Run `make verify-proofs`.
@@ -147,7 +147,7 @@ minimization. TLA⁺ covers `RRWM`, `LazyComposition` (cache/memory bounds), and
   [`CONTRIBUTING.md`](CONTRIBUTING.md) and the authoritative list in
   [`Cargo.toml`](Cargo.toml).
 - **Performance methodology** — the scientific optimization ledger lives in
-  [`docs/optimization/journal.md`](docs/optimization/journal.md).
+  [`docs/archive/journal.md`](docs/archive/journal.md).
 
 For the full architecture narrative — core design principles (algebraic
 foundation, pluggable storage, layered processing, lazy evaluation), the

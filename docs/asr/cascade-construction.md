@@ -13,34 +13,33 @@ The symbols below are the cascade-local subset of the central
 
 | Symbol | Name | Meaning |
 |---|---|---|
-| `H` | HMM transducer | Maps HMM-state ids → context-dependent phones (sub-phonetic topology). |
-| `C` | context-dependency | Maps context-dependent (triphone) phones → context-independent phones. |
-| `L` | lexicon | Maps phone strings → word ids (the pronunciation dictionary). |
-| `G` | grammar / LM | Maps word ids → word ids, carrying the n-gram language-model weights. |
-| `∘` | composition | `A ∘ B` chains transducers: `A`'s output tape feeds `B`'s input tape. |
-| `det` | determinization | Powerset construction; one transition per (state, input) pair. |
-| `min` | minimization | Merges equivalent states into the minimal equivalent machine. |
-| `π` | projection / erasing | Erases auxiliary symbols, projecting to the recognition network `N`. |
-| `∣Q∣`, `∣E∣` | cardinality | State / arc counts used in the size bounds below. |
+| $`H`$ | HMM transducer | Maps HMM-state ids → context-dependent phones (sub-phonetic topology). |
+| $`C`$ | context-dependency | Maps context-dependent (triphone) phones → context-independent phones. |
+| $`L`$ | lexicon | Maps phone strings → word ids (the pronunciation dictionary). |
+| $`G`$ | grammar / LM | Maps word ids → word ids, carrying the n-gram language-model weights. |
+| $`\circ`$ | composition | $`A \circ B`$ chains transducers: $`A`$'s output tape feeds $`B`$'s input tape. |
+| $`\det`$ | determinization | Powerset construction; one transition per (state, input) pair. |
+| $`\min`$ | minimization | Merges equivalent states into the minimal equivalent machine. |
+| $`\pi`$ | projection / erasing | Erases auxiliary symbols, projecting to the recognition network $`N`$. |
+| $`\lvert Q\rvert`$, $`\lvert E\rvert`$ | cardinality | State / arc counts used in the size bounds below. |
 
 ## The Recognition Network
 
 The full ASR cascade follows the Mohri–Pereira–Riley formulation
-([Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002)): the recognition network is
-`N = π(min(det(H ∘ det(C ∘ det(L ∘ G)))))`.
+([Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002)): the recognition network $`N`$ is
 
-```text
-N = π(min(det(H ∘ det(C ∘ det(L ∘ G)))))
+```math
+N = \pi(\min(\det(\tilde{H} \circ \det(\tilde{C} \circ \det(\tilde{L} \circ G)))))
 ```
 
 Where:
-- `G` = Grammar (word-level language model)
-- `L` = Lexicon (pronunciation dictionary)
-- `C` = Context-dependency transducer (triphone mapping)
-- `H` = HMM transducer (hidden Markov model structure)
-- `det` = Determinization (powerset construction)
-- `min` = Minimization (state reduction)
-- `π` = Projection/erasing (remove auxiliary symbols)
+- $`G`$ = Grammar (word-level language model)
+- $`L`$ = Lexicon (pronunciation dictionary)
+- $`C`$ = Context-dependency transducer (triphone mapping)
+- $`H`$ = HMM transducer (hidden Markov model structure)
+- $`\det`$ = Determinization (powerset construction)
+- $`\min`$ = Minimization (state reduction)
+- $`\pi`$ = Projection/erasing (remove auxiliary symbols)
 
 ### Why Pre-Compilation?
 
@@ -53,18 +52,18 @@ Pre-compiling the cascade offers significant advantages:
 
 ## Pipeline Components
 
-### Grammar (G): Word-Level Language Model
+### Grammar ($`G`$): Word-Level Language Model
 
-The grammar `G : WordId → WordId` is an identity transducer carrying LM weights;
+The grammar $`G : \text{WordId} \to \text{WordId}`$ is an identity transducer carrying LM weights;
 it assigns probabilities to word sequences, typically from n-gram language models.
-Seen n-grams take a direct word arc weighted by `−log P(wₙ∣h)`; unseen n-grams
-follow an `ε` **back-off** arc (cost `β(h)`) to a shorter-history state and retry
+Seen n-grams take a direct word arc weighted by $`-\log P(w_n \mid h)`$; unseen n-grams
+follow an $`\varepsilon`$ **back-off** arc (cost $`\beta(h)`$) to a shorter-history state and retry
 at the lower order — Katz back-off, encoded structurally so the machine stays
 sparse (`NgramBuilder`, `src/asr/ngram.rs`).
 
 ![n-gram grammar transducer G with Katz back-off arcs: bigram history states with direct seen-n-gram word arcs and dashed epsilon back-off arcs to a unigram state](../diagrams/asr/ngram-backoff.svg)
 
-*Solid arcs carry seen-n-gram cost `−log P(wₙ∣h)`; bold green is the live decode path; dashed grey are the `ε` back-off arcs (cost `β(h)`) to the orange unigram state.*
+*Solid arcs carry seen-n-gram cost $`-\log P(w_n \mid h)`$; bold green is the live decode path; dashed grey are the $`\varepsilon`$ back-off arcs (cost $`\beta(h)`$) to the orange unigram state.*
 
 <details><summary>Text view</summary>
 
@@ -92,16 +91,16 @@ The grammar FST encodes:
 - Backoff structure for unseen n-grams
 - Start/end sentence markers
 
-### Lexicon (L̃): Pronunciation Dictionary
+### Lexicon ($`\tilde{L}`$): Pronunciation Dictionary
 
-The lexicon maps phone sequences to words: `L : PhoneId → WordId`. For the entry
-`"cat" → [k, æ, t]` with weight `w`, the **first** phone arc emits the word id on
-the output tape, **interior** phones emit `ε` (the word is already emitted), and
+The lexicon maps phone sequences to words: $`L : \text{PhoneId} \to \text{WordId}`$. For the entry
+`"cat" → [k, æ, t]` with weight $`w`$, the **first** phone arc emits the word id on
+the output tape, **interior** phones emit $`\varepsilon`$ (the word is already emitted), and
 the **last** phone returns to the start state so consecutive words concatenate.
 
 ![lexicon transducer for the word "cat": start state emits k:cat, interior arc æ:ε, final arc t:ε returning to the start state](../diagrams/asr/lexicon-fst.svg)
 
-*Bold green `k:cat` emits the word id; dashed grey `æ:ε` / `t:ε` are `ε`-output arcs; the double-ring start state is also final, so word streams loop back through it.*
+*Bold green `k:cat` emits the word id; dashed grey `æ:ε` / `t:ε` are $`\varepsilon`$-output arcs; the double-ring start state is also final, so word streams loop back through it.*
 
 <details><summary>Text view</summary>
 
@@ -143,7 +142,7 @@ pub struct LexiconEntry<W: Semiring> {
 }
 ```
 
-### Context-Dependency (C̃): Triphone Mapping
+### Context-Dependency ($`\tilde{C}`$): Triphone Mapping
 
 The context-dependency transducer maps context-independent phones to context-dependent ones:
 
@@ -165,9 +164,9 @@ Context-dependent phone IDs typically encode:
 - Left context (preceding phone or word boundary)
 - Right context (following phone or word boundary)
 
-### HMM Transducer (H̃): Hidden Markov Model
+### HMM Transducer ($`\tilde{H}`$): Hidden Markov Model
 
-The HMM transducer models sub-phonetic states: `H : HMM-state-Id → PhoneId`. The
+The HMM transducer models sub-phonetic states: $`H : \text{HMM-state-Id} \to \text{PhoneId}`$. The
 standard topology is a 3-state left-to-right HMM per phone — each state carries a
 **self-loop** (duration modelling) and a **forward** arc to the next state, with
 the phone label emitted on the first arc only. This is exactly
@@ -175,7 +174,7 @@ the phone label emitted on the first arc only. This is exactly
 
 ![3-state left-to-right HMM transducer: states S0, S1, S2 with forward arcs and self-loops, then an exit state](../diagrams/asr/hmm-3state.svg)
 
-*Solid arcs (`pdfᵢ : …`) advance the sub-phonetic state and carry forward cost `aₒₙ`; dashed grey self-loops carry the stay cost `aₛₗ`; the first forward arc emits the phone id, the rest emit `ε`.*
+*Solid arcs (`pdfᵢ : …`) advance the sub-phonetic state and carry forward cost $`a_{on}`$; dashed grey self-loops carry the stay cost $`a_{sl}`$; the first forward arc emits the phone id, the rest emit $`\varepsilon`$.*
 
 <details><summary>Text view</summary>
 
@@ -198,7 +197,7 @@ Each state has:
 - Forward transition to next state
 - Output label on first state only
 
-### Erasing (π): Auxiliary Symbol Removal
+### Erasing ($`\pi`$): Auxiliary Symbol Removal
 
 Auxiliary symbols (disambiguation, word boundaries) are removed in the final step:
 
@@ -215,9 +214,9 @@ pub enum AuxiliarySymbol {
 }
 ```
 
-## L ∘ G Composition
+## $`L \circ G`$ Composition
 
-The key insight for efficient cascade construction is proper L ∘ G composition.
+The key insight for efficient cascade construction is proper $`L \circ G`$ composition.
 
 ### Label Flow
 
@@ -237,12 +236,12 @@ Composition L ∘ G:
   Result: Input=PhoneId, Output=WordId
 ```
 
-Visually, `L`'s output tape (`WordId`) feeds `G`'s input tape (`WordId`), and the
-composite `L ∘ G` reads phones and writes word ids:
+Visually, $`L`$'s output tape (`WordId`) feeds $`G`$'s input tape (`WordId`), and the
+composite $`L \circ G`$ reads phones and writes word ids:
 
 ![L ∘ G label flow: lexicon L (phone to word_id), grammar G (word_id to word_id), composite L ∘ G (phone to word_id), with a match annotation on the WordId tape](../diagrams/asr/cascade-lg-composition.svg)
 
-*Three clustered machines: `L` (phone → word_id), `G` (word_id → word_id), and the green composite `L ∘ G` (phone → word_id); the dotted blue arc marks the matched `word_id` label that makes composition defined, and the composite arc carries the summed weight `1.2`.*
+*Three clustered machines: $`L`$ (phone → word_id), $`G`$ (word_id → word_id), and the green composite $`L \circ G`$ (phone → word_id); the dotted blue arc marks the matched `word_id` label that makes composition defined, and the composite arc carries the summed weight `1.2`.*
 
 <details><summary>Text view</summary>
 
@@ -548,12 +547,12 @@ let words: Vec<WordId> = best_path
 ### Incremental Determinization Strategy
 
 Determinizing after each composition prevents exponential state explosion. The
-state count `∣Q∣` blows up at every raw composition and is pulled back down by the
-following `det`; the final `min` and `π` yield the minimal decoding graph `N`.
+state count $`\lvert Q\rvert`$ blows up at every raw composition and is pulled back down by the
+following $`\det`$; the final $`\min`$ and $`\pi`$ yield the minimal decoding graph $`N`$.
 
 ![cascade growth: G to L∘G to det(L∘G) to C∘det(L∘G) to det(C∘L∘G) to H∘det(C∘L∘G) to N, with state counts rising at each composition and falling after each determinization](../diagrams/asr/cascade-growth.svg)
 
-*Each `∘` (darker orange) inflates `∣Q∣`; the following `det` (lighter orange) deflates it; `min · π` (amber) produces the minimal recognition network `N`. Counts are illustrative figures matching `CascadeStats`.*
+*Each $`\circ`$ (darker orange) inflates $`\lvert Q\rvert`$; the following $`\det`$ (lighter orange) deflates it; $`\min \cdot \pi`$ (amber) produces the minimal recognition network $`N`$. Counts are illustrative figures matching `CascadeStats`.*
 
 <details><summary>Text view</summary>
 
@@ -639,7 +638,7 @@ let result = beam_search(&cascade, &acoustic_scores, beam_width);
 ## References
 
 - [Mohri, Pereira & Riley 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted
-  Finite-State Transducers in Speech Recognition.* The `N = π(min(det(H ∘ C ∘ L ∘ G)))`
+  Finite-State Transducers in Speech Recognition.* The $`N = \pi(\min(\det(H \circ C \circ L \circ G)))`$
   cascade and incremental optimization.
 - [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms.*
   The determinization, minimization, and weight-pushing algorithms applied after

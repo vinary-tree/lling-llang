@@ -76,6 +76,6 @@ TRN *-- LBL : carries
 note bottom of OPS
   <b>MultiTapeWfstOps</b> is auto-derived for every <b>MultiTapeWfst</b>
   via a blanket impl — concrete types implement only the query trait.
-  <b>transduce</b> walks the N synchronized tapes, taking ⊗ along a path.
+  <b>transduce</b> walks the N synchronized tapes, taking <latex>\otimes</latex> along a path.
 end note
 @enduml

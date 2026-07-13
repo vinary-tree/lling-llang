@@ -1,13 +1,13 @@
 # Weighted Pushdown Automata
 
 A **weighted pushdown automaton (PDA)** is a finite automaton augmented with an
-unbounded **stack**: on each transition it consumes an input symbol (or `ε`),
+unbounded **stack**: on each transition it consumes an input symbol (or $`\varepsilon`$),
 inspects the symbol on top of the stack, and rewrites the stack top. The stack is
 what lets a PDA count and nest — recognizing context-free languages such as
-balanced brackets or `` `aⁿbⁿ` `` that no finite-state machine can. This module
+balanced brackets or $`a^n b^n`$ that no finite-state machine can. This module
 ([`src/pushdown/`](../../src/pushdown/)) attaches semiring weights to that model,
-so each accepting computation carries a `⊗`-weight and a language gets a
-`⊕`-aggregated score.
+so each accepting computation carries a $`\otimes`$-weight and a language gets a
+$`\oplus`$-aggregated score.
 
 ---
 
@@ -19,20 +19,20 @@ Description) are expanded there. Locally:
 
 | Symbol / term | Meaning |
 |---|---|
-| `Q` | Finite set of states. |
-| `Σ` | Input alphabet (the Rust label type `L`). |
-| `Γ` | Stack alphabet (`StackSymbol`, a wrapped `u32`). |
-| `q₀` | Start state. |
-| `Z₀` | The initial / bottom-of-stack marker, `StackSymbol::BOTTOM` (= `γ0`). |
-| `F ⊆ Q` | Final states. |
-| `Δ` | Transition relation (weighted; see below). |
-| `ρ` | Final-weight function `ρ : F → K`. |
-| `K` | Carrier of the weight semiring `W`. |
-| `⊗`, `⊕` | Semiring *times* (sequential) and *plus* (alternative). |
-| `0̄`, `1̄` | The `⊕`- and `⊗`-identities. |
-| `γ` | A stack symbol in `Γ` (drawn `γ1`, `γ2`, …; `Z₀ = γ0`). |
-| `(q, w, γ)` | An **instantaneous description** (ID): current state, remaining input, stack. |
-| `⊢` | The "yields in one step" relation between IDs. |
+| $`Q`$ | Finite set of states. |
+| $`\Sigma`$ | Input alphabet (the Rust label type `L`). |
+| $`\Gamma`$ | Stack alphabet (`StackSymbol`, a wrapped `u32`). |
+| $`q_0`$ | Start state. |
+| $`Z_0`$ | The initial / bottom-of-stack marker, `StackSymbol::BOTTOM` (= $`\gamma_0`$). |
+| $`F \subseteq Q`$ | Final states. |
+| $`\Delta`$ | Transition relation (weighted; see below). |
+| $`\rho`$ | Final-weight function $`\rho : F \to K`$. |
+| $`K`$ | Carrier of the weight semiring `W`. |
+| $`\otimes`$, $`\oplus`$ | Semiring *times* (sequential) and *plus* (alternative). |
+| $`\bar{0}`$, $`\bar{1}`$ | The $`\oplus`$- and $`\otimes`$-identities. |
+| $`\gamma`$ | A stack symbol in $`\Gamma`$ (drawn $`\gamma_1`$, $`\gamma_2`$, …; $`Z_0 = \gamma_0`$). |
+| $`(q, w, \gamma)`$ | An **instantaneous description** (ID): current state, remaining input, stack. |
+| $`\vdash`$ | The "yields in one step" relation between IDs. |
 
 ---
 
@@ -40,35 +40,37 @@ Description) are expanded there. Locally:
 
 A weighted pushdown automaton is the tuple
 
-`` `P = (Q, Σ, Γ, q₀, Z₀, F, Δ, ρ)` ``
+```math
+P = (Q, \Sigma, \Gamma, q_0, Z_0, F, \Delta, \rho)
+```
 
 with components:
 
 | Component | Type | Role |
 |---|---|---|
-| `Q` | finite set | States. |
-| `Σ` | alphabet | Input symbols. |
-| `Γ` | alphabet | Stack symbols, with distinguished bottom `Z₀ ∈ Γ`. |
-| `q₀ ∈ Q` | state | Start state. |
-| `Z₀ ∈ Γ` | symbol | The symbol initially on the stack. |
-| `F ⊆ Q` | state subset | Final states. |
-| `Δ` | relation | Transitions `(q, a, X) → (q′, σ, w)`: from `q`, optionally reading `a ∈ Σ ∪ {ε}`, with `X ∈ Γ` on top, go to `q′`, apply stack action `σ`, weight `w ∈ K`. |
-| `ρ` | `F → K` | Final weight of an accepting state. |
+| $`Q`$ | finite set | States. |
+| $`\Sigma`$ | alphabet | Input symbols. |
+| $`\Gamma`$ | alphabet | Stack symbols, with distinguished bottom $`Z_0 \in \Gamma`$. |
+| $`q_0 \in Q`$ | state | Start state. |
+| $`Z_0 \in \Gamma`$ | symbol | The symbol initially on the stack. |
+| $`F \subseteq Q`$ | state subset | Final states. |
+| $`\Delta`$ | relation | Transitions $`(q, a, X) \to (q', \sigma, w)`$: from $`q`$, optionally reading $`a \in \Sigma \cup \{\varepsilon\}`$, with $`X \in \Gamma`$ on top, go to $`q'`$, apply stack action $`\sigma`$, weight $`w \in K`$. |
+| $`\rho`$ | $`F \to K`$ | Final weight of an accepting state. |
 
-A **stack action** `σ` (`StackAction`) is one of four operations applied to the
-top of the stack `X`:
+A **stack action** $`\sigma`$ (`StackAction`) is one of four operations applied to the
+top of the stack $`X`$:
 
 | Action | Effect on the stack (top at right) | Net height change |
 |---|---|---|
-| `Pop` | remove `X` | `−1` |
-| `Push(γ₁…γₘ)` | remove `X`, then push `γ₁…γₘ` (so `γₘ` ends on top) | `m − 1` |
-| `Replace(γ₁…γₘ)` | remove `X`, then push `γ₁…γₘ` (an explicit pop-then-push) | `m − 1` |
-| `Noop` | leave `X` in place | `0` |
+| $`\operatorname{Pop}`$ | remove $`X`$ | $`-1`$ |
+| $`\operatorname{Push}(\gamma_1\dots\gamma_m)`$ | remove $`X`$, then push $`\gamma_1\dots\gamma_m`$ (so $`\gamma_m`$ ends on top) | $`m - 1`$ |
+| $`\operatorname{Replace}(\gamma_1\dots\gamma_m)`$ | remove $`X`$, then push $`\gamma_1\dots\gamma_m`$ (an explicit pop-then-push) | $`m - 1`$ |
+| $`\operatorname{Noop}`$ | leave $`X`$ in place | $`0`$ |
 
 > **Why `Push` and `Replace` both pop first.** In this library a transition is
-> *guarded* by the required top symbol `X`, and applying the action always
-> consumes that matched `X` before pushing the new sequence — so
-> `` `Push([Z₀, γ])` `` on top `Z₀` yields stack `…Z₀γ`. `Replace` is the same
+> *guarded* by the required top symbol $`X`$, and applying the action always
+> consumes that matched $`X`$ before pushing the new sequence — so
+> $`\operatorname{Push}([Z_0, \gamma])`$ on top $`Z_0`$ yields stack $`\dots Z_0\gamma`$. `Replace` is the same
 > operation, named to document intent; only `Noop` leaves the matched symbol in
 > place. (See [`StackAction::apply`](../../src/pushdown/stack.rs).)
 
@@ -76,31 +78,35 @@ top of the stack `X`:
 
 A configuration, or **instantaneous description (ID)**, is the triple
 
-`` `(q, w, γ)` ``
-
-— state `q ∈ Q`, remaining input `w ∈ Σ*`, and stack contents `γ ∈ Γ*` (the
-top at the right end). One transition step is the relation `⊢`:
-
-```text
-(q, a·w, β·X)  ⊢  (q′, w, β·σ(X))     when (q, a, X) → (q′, σ, w′) ∈ Δ
-(q, w,   β·X)  ⊢  (q′, w, β·σ(X))     when (q, ε, X) → (q′, σ, w′) ∈ Δ   (ε-move, input unchanged)
+```math
+(q, w, \gamma)
 ```
 
-The start ID is `` `(q₀, w, Z₀)` `` for input `w`. The weight of a run is the
-`⊗`-product of the weights of the `Δ`-steps it uses (closed by `ρ` when accepting
+— state $`q \in Q`$, remaining input $`w \in \Sigma^*`$, and stack contents $`\gamma \in \Gamma^*`$ (the
+top at the right end). One transition step is the relation $`\vdash`$:
+
+```math
+\begin{aligned}
+(q, a \cdot w, \beta \cdot X) &\vdash (q', w, \beta \cdot \sigma(X)) && \text{when } (q, a, X) \to (q', \sigma, w') \in \Delta \\
+(q, w, \beta \cdot X) &\vdash (q', w, \beta \cdot \sigma(X)) && \text{when } (q, \varepsilon, X) \to (q', \sigma, w') \in \Delta \quad (\varepsilon\text{-move, input unchanged})
+\end{aligned}
+```
+
+The start ID is $`(q_0, w, Z_0)`$ for input $`w`$. The weight of a run is the
+$`\otimes`$-product of the weights of the $`\Delta`$-steps it uses (closed by $`\rho`$ when accepting
 in a final state).
 
 ### Acceptance modes
 
 The library supports the three classical acceptance conditions, selected by
 [`PdaAcceptMode`](../../src/pushdown/traits.rs); an ID is accepting only when the
-input is fully consumed (`w = ε`):
+input is fully consumed ($`w = \varepsilon`$):
 
 | `PdaAcceptMode` | Accepts when input is exhausted **and** … | Accepting weight |
 |---|---|---|
-| `FinalState` (default) | the state is in `F` | `ρ(q)` |
-| `EmptyStack` | the stack is empty | `1̄` |
-| `Both` | state ∈ `F` **or** stack empty | `ρ(q)`, else `1̄` |
+| `FinalState` (default) | the state is in $`F`$ | $`\rho(q)`$ |
+| `EmptyStack` | the stack is empty | $`\bar{1}`$ |
+| `Both` | state $`\in F`$ **or** stack empty | $`\rho(q)`$, else $`\bar{1}`$ |
 
 It is a standard result that the three modes recognize exactly the
 context-free languages and are inter-convertible
@@ -108,22 +114,22 @@ context-free languages and are inter-convertible
 
 ---
 
-## Intuition: recognizing `aⁿbⁿ`
+## Intuition: recognizing $`a^n b^n`$
 
-The canonical non-regular language `` `{ aⁿbⁿ ∣ n ≥ 1 }` `` needs memory of *how
+The canonical non-regular language $`\{\, a^n b^n \mid n \ge 1 \,\}`$ needs memory of *how
 many* `a`s were seen — exactly what a stack provides. The
 [`PdaBuilder::a_n_b_n`](../../src/pushdown/builder.rs) construction uses three
-states and one auxiliary stack symbol `γ` (`StackSymbol::new(1)`):
+states and one auxiliary stack symbol $`\gamma`$ (`StackSymbol::new(1)`):
 
-1. In `q₀` ("read `a`"), each `a` **pushes** a marker `γ` (the first on `Z₀`, the
-   rest on `γ`). The stack height records `n`.
-2. An `ε`-move on a `γ` top switches to `q₁` ("read `b`").
-3. In `q₁`, each `b` **pops** one `γ` — matching one `b` per `a`.
-4. An `ε`-move on `Z₀` (all markers gone) accepts in the final state `q₂`.
+1. In $`q_0`$ ("read `a`"), each `a` **pushes** a marker $`\gamma`$ (the first on $`Z_0`$, the
+   rest on $`\gamma`$). The stack height records $`n`$.
+2. An $`\varepsilon`$-move on a $`\gamma`$ top switches to $`q_1`$ ("read `b`").
+3. In $`q_1`$, each `b` **pops** one $`\gamma`$ — matching one `b` per `a`.
+4. An $`\varepsilon`$-move on $`Z_0`$ (all markers gone) accepts in the final state $`q_2`$.
 
-So `aabb` drives the stack `Z₀ → Z₀γ → Z₀γγ → Z₀γγ → Z₀γ → Z₀`, ending on `Z₀`
-with the input exhausted — accept. The string `aab` would leave a `γ` unmatched,
-and `abb` would try to pop from `Z₀` — both rejected. This machine is drawn in the
+So `aabb` drives the stack $`Z_0 \to Z_0\gamma \to Z_0\gamma\gamma \to Z_0\gamma\gamma \to Z_0\gamma \to Z_0`$, ending on $`Z_0`$
+with the input exhausted — accept. The string `aab` would leave a $`\gamma`$ unmatched,
+and `abb` would try to pop from $`Z_0`$ — both rejected. This machine is drawn in the
 [Diagrams](#diagrams) section, with its full ID trace.
 
 ---
@@ -136,15 +142,15 @@ and `abb` would try to pop from `Z₀` — both rejected. This machine is drawn 
 | [`VectorPda<L, W>`](../../src/pushdown/vector.rs) | struct | Default implementation; also hosts the executable `accepts` / `total_weight` / `approximate_fst`. |
 | [`PdaState<L, W>`](../../src/pushdown/vector.rs) | struct | One state: `is_final`, `final_weight`, outgoing `transitions`. |
 | [`PdaBuilder<L, W>`](../../src/pushdown/builder.rs) | struct | Construction with stack-symbol allocation and `add_push/pop/replace/read` helpers; canned `balanced_brackets`, `a_n_b_n`, `palindrome_with_center`. |
-| [`StackSymbol`](../../src/pushdown/stack.rs) | struct | A `u32` stack symbol; `BOTTOM` is `Z₀`. |
+| [`StackSymbol`](../../src/pushdown/stack.rs) | struct | A `u32` stack symbol; `BOTTOM` is $`Z_0`$. |
 | [`StackAction`](../../src/pushdown/stack.rs) | enum | `Pop` / `Push` / `Replace` / `Noop`, with `apply(&mut Vec<StackSymbol>)`. |
 | [`PdaTransition<L, W>`](../../src/pushdown/transition.rs) | struct | An arc `{ from, input, stack_top, stack_action, to, weight }`. |
 | [`PdaConfiguration<L>`](../../src/pushdown/traits.rs) | struct | An ID `{ state, remaining_input, stack }` with `apply_transition`. |
 | [`PdaAcceptMode`](../../src/pushdown/traits.rs) | enum | `FinalState` / `EmptyStack` / `Both`. |
 
-The `PdaConfiguration` *is* the ID `(q, w, γ)`: `state` is `q`, `remaining_input`
-is `w`, and `stack` is `γ` with the top at the end. Its `apply_transition`
-realizes a single `⊢` step — it checks the stack top, optionally consumes input,
+The `PdaConfiguration` *is* the ID $`(q, w, \gamma)`$: `state` is $`q`$, `remaining_input`
+is $`w`$, and `stack` is $`\gamma`$ with the top at the end. Its `apply_transition`
+realizes a single $`\vdash`$ step — it checks the stack top, optionally consumes input,
 and applies the stack action:
 
 ```rust
@@ -173,9 +179,9 @@ assert_eq!(next.stack, vec![StackSymbol::BOTTOM, StackSymbol::new(1)]);  // push
 
 `VectorPda::accepts` decides membership by exploring the space of reachable IDs
 breadth-first. The invariant is that the BFS queue holds exactly the IDs reachable
-from the start ID `` `(q₀, w, Z₀)` `` that have not yet been expanded, and the
-`visited` set keys on `(state, ∣remaining input∣, stack)` so that no ID is
-expanded twice — which terminates the search on `ε`-cycles that revisit a
+from the start ID $`(q_0, w, Z_0)`$ that have not yet been expanded, and the
+`visited` set keys on $`(\text{state}, \lvert \text{remaining input}\rvert, \text{stack})`$ so that no ID is
+expanded twice — which terminates the search on $`\varepsilon`$-cycles that revisit a
 configuration.
 
 ```text
@@ -199,20 +205,20 @@ configuration.
 
 The chunk `` ⟨ input exhausted, mode satisfied ⟩ `` calls `is_config_accepting`,
 which applies the [acceptance mode](#acceptance-modes) table. The two arc loops
-correspond to the `ε`-transition and input-consuming branches of `⊢`.
+correspond to the $`\varepsilon`$-transition and input-consuming branches of $`\vdash`$.
 
 **Complexity.** The state space is the set of distinct IDs. The `visited` key
 bounds revisits, but the *stack* component can grow without bound (a PDA's stack
 is unbounded by definition), so in the worst case the number of reachable IDs —
-and hence the running time — is not polynomial in `∣w∣`; for grammars whose stack
+and hence the running time — is not polynomial in $`\lvert w\rvert`$; for grammars whose stack
 stays shallow it is effectively linear. The companion `total_weight` runs the
-same search but accumulates the `⊕`-sum of `⊗`-path-weights over **all** accepting
+same search but accumulates the $`\oplus`$-sum of $`\otimes`$-path-weights over **all** accepting
 runs rather than stopping at the first.
 
 ### Weighted aggregation and FST approximation
 
-- `total_weight(w)` returns `` `⊕ { w(π) ∣ π accepts w }` `` (the language weight
-  of `w`), or `None` if `w ∉ L(P)`.
+- `total_weight(w)` returns $`\bigoplus \{\, w(\pi) \mid \pi \text{ accepts } w \,\}`$ (the language weight
+  of $`w`$), or `None` if $`w \notin L(P)`$.
 - `approximate_fst(max_depth)` unrolls the stack up to `max_depth` symbols,
   producing an ordinary [`VectorWfst`](../architecture/wfst-traits.md) whose
   states are `(PDA state, stack contents)` pairs. This is a *regular
@@ -225,7 +231,7 @@ runs rather than stopping at the first.
 
 ### Balanced parentheses
 
-The `balanced_brackets` constructor recognizes `` `{ (ⁿ )ⁿ ∣ n ≥ 0 }` `` and its
+The `balanced_brackets` constructor recognizes $`\{\, (^n\, )^n \mid n \ge 0 \,\}`$ and its
 nestings:
 
 ```rust
@@ -242,9 +248,9 @@ assert!(!pda.accepts("(".chars()));
 assert!(!pda.accepts("(()".chars()));
 ```
 
-### `aⁿbⁿ` from primitives
+### $`a^n b^n`$ from primitives
 
-The same language, built arc-by-arc to show the `push`/`pop`/`ε` structure
+The same language, built arc-by-arc to show the `push`/`pop`/$`\varepsilon`$ structure
 mirrored in the [diagram](#diagrams):
 
 ```rust
@@ -293,13 +299,13 @@ assert!(!pda.accepts("".chars()));    // stack still holds Z₀
 
 ## Diagrams
 
-### PDA for `aⁿbⁿ` with stack actions
+### PDA for $`a^n b^n`$ with stack actions
 
 ![A pushdown automaton recognizing a-to-the-n b-to-the-n: state q0 pushes a marker for each a, an epsilon move switches to q1 which pops a marker for each b, and an epsilon move on the bottom marker accepts in q2.](../diagrams/transducers/pda-stack.svg)
 
-*Teal nodes = PDA states; each arc reads `input , stack_top → action`; the green
-double-ring `q₂` is final; grey dashed arcs are `ε`-moves (phase switch and
-accept). `Z₀` is the bottom marker, `γ` the per-`a` marker.*
+*Teal nodes = PDA states; each arc reads $`\text{input}, \text{stack top} \to \text{action}`$; the green
+double-ring $`q_2`$ is final; grey dashed arcs are $`\varepsilon`$-moves (phase switch and
+accept). $`Z_0`$ is the bottom marker, $`\gamma`$ the per-`a` marker.*
 
 <details><summary>Text view</summary>
 
@@ -320,8 +326,8 @@ accept). `Z₀` is the bottom marker, `γ` the per-`a` marker.*
 ![A state-style trace of the instantaneous descriptions of the a-n-b-n PDA on input aabb, from (q0, aabb, Z0) through pushes and pops to the accepting (q2, epsilon, Z0).](../diagrams/transducers/pda-trace.svg)
 
 *Each node is an ID `(state, remaining input, stack)`; teal arcs are
-input-consuming steps, amber arcs are `ε`-moves, and the green node is the
-accepting ID (input `ε`, stack `Z₀`, state `q₂`).*
+input-consuming steps, amber arcs are $`\varepsilon`$-moves, and the green node is the
+accepting ID (input $`\varepsilon`$, stack $`Z_0`$, state $`q_2`$).*
 
 <details><summary>Text view</summary>
 
@@ -356,7 +362,7 @@ accepting ID (input `ε`, stack `Z₀`, state `q₂`).*
   `VectorWfst`, after which [composition](../algorithms/composition.md),
   [determinization](../algorithms/determinization.md), and
   [path extraction](../algorithms/path-extraction.md) all apply.
-- **Weights are any semiring.** `total_weight` aggregates with `⊕`/`⊗` over the
+- **Weights are any semiring.** `total_weight` aggregates with $`\oplus`$/$`\otimes`$ over the
   chosen [semiring](../architecture/semirings.md); the examples use
   `TropicalWeight`, but Log or Probability give expected counts / probabilities.
 - **No feature flag.** Always compiled (`pub mod pushdown;` in

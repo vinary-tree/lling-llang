@@ -17,26 +17,26 @@ skinparam activity {
   DiamondFontColor #5D4037
 }
 
-title <b>RRWM online learning loop</b>\n<size:11><i>cumulative automaton Wₜ over the η-power semiring; regret E[R_T] ≤ 2M√(T log N)</i></size>
+title <b>RRWM online learning loop</b>\n<size:11><i>cumulative automaton <latex>W_t</latex> over the <latex>\eta</latex>-power semiring; regret <latex>E[R_T] \le 2M\sqrt{T \log N}</latex></i></size>
 
 start
-:**W₀** ← one-state automaton\n(all paths weight 1̄);
+:**<latex>W_0</latex>** ← one-state automaton\n(all paths weight <latex>\bar{1}</latex>);
 repeat
-  #E1BEE7:**predict** ŷₜ ~ Wₜ₋₁\n(sample ∝ weight);
-  :observe outcome yₜ\nbuild loss transducer **Vₜ**;
-  #C8E6C9:**compose**  Wₜ ← Wₜ₋₁ ∘ Vₜ\n(combine all path experts);
-  #C8E6C9:**weight-push**  Wₜ ← push(Wₜ)\n(restore stochastic: out-weights sum to 1̄);
-  :accumulate loss ℓ(ŷₜ, yₜ);
+  #E1BEE7:**predict** <latex>\hat{y}_t \sim W_{t-1}</latex>\n(sample <latex>\propto</latex> weight);
+  :observe outcome <latex>y_t</latex>\nbuild loss transducer **<latex>V_t</latex>**;
+  #C8E6C9:**compose**  <latex>W_t</latex> ← <latex>W_{t-1} \circ V_t</latex>\n(combine all path experts);
+  #C8E6C9:**weight-push**  <latex>W_t</latex> ← push(<latex>W_t</latex>)\n(restore stochastic: out-weights sum to <latex>\bar{1}</latex>);
+  :accumulate loss <latex>\ell(\hat{y}_t, y_t)</latex>;
 repeat while (round < T  and  states < max_rounds?) is (yes)
-->no\n(reset Wₜ ← W₀ if cap hit);
-:return W_T\n(learned expert weighting);
+->no\n(reset <latex>W_t</latex> ← <latex>W_0</latex> if cap hit);
+:return <latex>W_T</latex>\n(learned expert weighting);
 stop
 
 legend right
   | Step | Operation |
-  |<#E1BEE7> predict | sample path from Wₜ₋₁ |
-  | observe | construct Vₜ from loss |
-  |<#C8E6C9> compose | Wₜ₋₁ ∘ Vₜ |
+  |<#E1BEE7> predict | sample path from <latex>W_{t-1}</latex> |
+  | observe | construct <latex>V_t</latex> from loss |
+  |<#C8E6C9> compose | <latex>W_{t-1} \circ V_t</latex> |
   |<#C8E6C9> push | make stochastic for next sample |
 endlegend
 @enduml

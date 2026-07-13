@@ -366,15 +366,15 @@ let improved = layer.apply(&correction_lattice)?;
 
 | Metric | Complexity |
 |--------|------------|
-| Pattern matching | `O(n × p × m)` |
-| Weight adjustment | `O(e)` |
-| Total | `O(n × p × m + e)` |
+| Pattern matching | $`O(n \times p \times m)`$ |
+| Weight adjustment | $`O(e)`$ |
+| Total | $`O(n \times p \times m + e)`$ |
 
 Where:
-- `n` = number of tokens
-- `p` = number of patterns
-- `m` = maximum pattern length
-- `e` = number of edges
+- $`n`$ = number of tokens
+- $`p`$ = number of patterns
+- $`m`$ = maximum pattern length
+- $`e`$ = number of edges
 
 The pattern index reduces average complexity by grouping patterns by first token.
 

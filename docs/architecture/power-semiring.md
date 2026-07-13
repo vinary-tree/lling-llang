@@ -1,6 +1,6 @@
 # Power Semiring
 
-The `` `η` ``-power semiring provides a parameterized family of semirings that interpolate between different optimization objectives, enabling "soft" path selection and differentiable WFST operations.
+The $`\eta`$-power semiring provides a parameterized family of semirings that interpolate between different optimization objectives, enabling "soft" path selection and differentiable WFST operations.
 
 ## Terms & symbols
 
@@ -8,43 +8,43 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); conventions in [`STYLE.md`](../
 
 | Symbol / term | Meaning |
 |---|---|
-| `` `S_η` `` | The `` `η` ``-power semiring `` `(ℝ₊ ∪ {+∞}, ⊕_η, ×, 0, 1)` ``. |
-| `` `η` `` | The power exponent (temperature) controlling softness of `` `⊕_η` ``. |
-| `` `⊕_η` `` | Power *plus*: `` `x ⊕_η y = (x^{1/η} + y^{1/η})^η` ``. |
-| `` `⊗` `` | Power *times*: ordinary `` `×` ``. |
-| `` `0̄` ` / ` `1̄` `` | The identities `` `0` `` (`` `⊕_η` ``) and `` `1` `` (`` `⊗` ``). |
-| `` `Ψ_η` `` | The isomorphism to the probability semiring, `` `Ψ_η(x) = x^η` ``, inverse `` `Ψ_η⁻¹(x) = x^{1/η}` ``. |
+| $`S_\eta`$ | The $`\eta`$-power semiring $`(\mathbb{R}_+ \cup \{+\infty\}, \oplus_\eta, \times, 0, 1)`$. |
+| $`\eta`$ | The power exponent (temperature) controlling softness of $`\oplus_\eta`$. |
+| $`\oplus_\eta`$ | Power *plus*: $`x \oplus_\eta y = (x^{1/\eta} + y^{1/\eta})^\eta`$. |
+| $`\otimes`$ | Power *times*: ordinary $`\times`$. |
+| $`\bar{0}`$ / $`\bar{1}`$ | The identities $`0`$ ($`\oplus_\eta`$) and $`1`$ ($`\otimes`$). |
+| $`\Psi_\eta`$ | The isomorphism to the probability semiring, $`\Psi_\eta(x) = x^\eta`$, inverse $`\Psi_\eta^{-1}(x) = x^{1/\eta}`$. |
 
 ## Concepts
 
 ### Mathematical Definition
 
-The **`` `η` ``-power semiring** `` `S_η = (ℝ₊ ∪ {+∞}, ⊕_η, ×, 0, 1)` `` is defined by the soft-plus `` `x ⊕_η y = (x^{1/η} + y^{1/η})^η` `` and ordinary multiplication `` `⊗ = ×` `` [[Cortes 2015](../BIBLIOGRAPHY.md#ref-cortes2015), Lemma 6]:
+The **$`\eta`$-power semiring** $`S_\eta = (\mathbb{R}_+ \cup \{+\infty\}, \oplus_\eta, \times, 0, 1)`$ is defined by the soft-plus $`x \oplus_\eta y = (x^{1/\eta} + y^{1/\eta})^\eta`$ and ordinary multiplication $`\otimes = \times`$ [[Cortes 2015](../BIBLIOGRAPHY.md#ref-cortes2015), Lemma 6]:
 
 | Operation | Definition | Intuition |
 |-----------|------------|-----------|
-| `` `⊕_η` `` | `` `(x^{1/η} + y^{1/η})^η` `` | Soft combination of alternatives |
-| `` `⊗` `` | `` `x × y` `` | Standard multiplication |
-| `` `0̄` `` | `` `0` `` | Additive identity |
-| `` `1̄` `` | `` `1` `` | Multiplicative identity |
+| $`\oplus_\eta`$ | $`(x^{1/\eta} + y^{1/\eta})^\eta`$ | Soft combination of alternatives |
+| $`\otimes`$ | $`x \times y`$ | Standard multiplication |
+| $`\bar{0}`$ | $`0`$ | Additive identity |
+| $`\bar{1}`$ | $`1`$ | Multiplicative identity |
 
-The key insight is that the addition operation is parameterized by `` `η` ``, which controls how "soft" the combination is: `` `x ⊕_η y = (x^{1/η} + y^{1/η})^η` ``.
+The key insight is that the addition operation is parameterized by $`\eta`$, which controls how "soft" the combination is: $`x \oplus_\eta y = (x^{1/\eta} + y^{1/\eta})^\eta`$.
 
-### The `` `η` `` Parameter
+### The $`\eta`$ Parameter
 
-The `` `η` `` parameter controls the "softness" of the plus operation — a temperature dial between hard winner-take-all and greedy `` `min` `` selection, with ordinary probability addition at `` `η = 1` ``:
+The $`\eta`$ parameter controls the "softness" of the plus operation — a temperature dial between hard winner-take-all and greedy $`\min`$ selection, with ordinary probability addition at $`\eta = 1`$:
 
-| `` `η` `` Value | Behavior | Use Case |
+| $`\eta`$ Value | Behavior | Use Case |
 |---------|----------|----------|
-| `` `η → 0` `` | Approaches `` `max` `` semiring | Winner-take-all selection |
-| `` `η = 1` `` | Equivalent to probability semiring | Standard probability combination |
-| `` `η → ∞` `` | Approaches `` `min` `` semiring | Greedy selection |
+| $`\eta \to 0`$ | Approaches $`\max`$ semiring | Winner-take-all selection |
+| $`\eta = 1`$ | Equivalent to probability semiring | Standard probability combination |
+| $`\eta \to \infty`$ | Approaches $`\min`$ semiring | Greedy selection |
 
-The figure below ties the three regimes to their algebra and to the isomorphism `` `Ψ_η` `` with the probability semiring:
+The figure below ties the three regimes to their algebra and to the isomorphism $`\Psi_\eta`$ with the probability semiring:
 
 ![The η-power semiring figure: the signature S_η = (ℝ₊∪{+∞}, ⊕_η, ×, 0, 1) with ⊕_η x y = (x^{1/η}+y^{1/η})^η branches to three limiting regimes — η→0 Max semiring (hard winner-take-all), η=1 Probability (soft log-sum-exp), η→∞ Min semiring (greedy argmin) — along an explore↔exploit axis, and an isomorphism box Ψ_η(x)=x^η, Ψ_η⁻¹(x)=x^{1/η} preserving plus and times.](../diagrams/architecture/power-semiring.svg)
 
-*Blue = the `` `S_η` `` signature; green = the three limiting semirings (`` `max` ``, probability, `` `min` ``); amber = the algebraic-property tags and the `` `Ψ_η` `` isomorphism; the amber explore/exploit arrows are the `` `η` `` temperature axis.*
+*Blue = the $`S_\eta`$ signature; green = the three limiting semirings ($`\max`$, probability, $`\min`$); amber = the algebraic-property tags and the $`\Psi_\eta`$ isomorphism; the amber explore/exploit arrows are the $`\eta`$ temperature axis.*
 
 <details><summary>Text view</summary>
 
@@ -61,33 +61,35 @@ The figure below ties the three regimes to their algebra and to the isomorphism 
 
 ### Isomorphism with Probability Semiring
 
-The power semiring is **isomorphic** to the probability semiring via the mapping `` `Ψ_η` ``:
+The power semiring is **isomorphic** to the probability semiring via the mapping $`\Psi_\eta`$:
 
-- **Forward**: `` `Ψ_η(x) = x^η` `` maps probability → power semiring
-- **Inverse**: `` `Ψ_η⁻¹(x) = x^{1/η}` `` maps power semiring → probability
+- **Forward**: $`\Psi_\eta(x) = x^\eta`$ maps probability → power semiring
+- **Inverse**: $`\Psi_\eta^{-1}(x) = x^{1/\eta}`$ maps power semiring → probability
 
-This isomorphism preserves both semiring operations — `` `Ψ_η(x + y) = Ψ_η(x) ⊕_η Ψ_η(y)` `` and `` `Ψ_η(x × y) = Ψ_η(x) × Ψ_η(y)` ``:
+This isomorphism preserves both semiring operations:
 
-```text
-Ψ_η(x + y) = Ψ_η(x) ⊕_η Ψ_η(y)
-Ψ_η(x × y) = Ψ_η(x) × Ψ_η(y)
+```math
+\begin{aligned}
+\Psi_\eta(x + y) &= \Psi_\eta(x) \oplus_\eta \Psi_\eta(y) \\
+\Psi_\eta(x \times y) &= \Psi_\eta(x) \times \Psi_\eta(y)
+\end{aligned}
 ```
 
 ### Practical Interpretation
 
-Consider two paths with probabilities `` `p₁ = 0.3` `` and `` `p₂ = 0.7` ``:
+Consider two paths with probabilities $`p_1 = 0.3`$ and $`p_2 = 0.7`$:
 
-| `` `η` `` | `` `⊕_η` `` Result | Interpretation |
+| $`\eta`$ | $`\oplus_\eta`$ Result | Interpretation |
 |---|------------|----------------|
-| `` `0.5` `` | `` `0.82` `` | Strongly favors the higher probability |
-| `` `1.0` `` | `` `1.0` `` | Standard sum (`` `p₁ + p₂` ``) |
-| `` `2.0` `` | `` `0.61` `` | Moderately smoothed combination |
+| $`0.5`$ | $`0.82`$ | Strongly favors the higher probability |
+| $`1.0`$ | $`1.0`$ | Standard sum ($`p_1 + p_2`$) |
+| $`2.0`$ | $`0.61`$ | Moderately smoothed combination |
 
 ## Core API
 
 ### PowerWeight
 
-The `PowerWeight` struct represents a weight in the `η`-power semiring:
+The `PowerWeight` struct represents a weight in the $`\eta`$-power semiring:
 
 ```rust
 use lling_llang::semiring::{PowerWeight, Semiring};
@@ -165,7 +167,7 @@ let product = a.times(&b);
 println!("a ⊗ b = {}", product.value());  // 36.0
 ```
 
-### `` `η = 1` `` Behaves Like Probability Semiring
+### $`\eta = 1`$ Behaves Like Probability Semiring
 
 ```rust
 let eta = 1.0;
@@ -285,7 +287,7 @@ push_weights(&mut wfst, PushConfig::backward())
 | Scenario | Why PowerWeight? |
 |----------|------------------|
 | Differentiable WFST operations | Smooth gradients through soft-min operations |
-| Temperature-controlled decoding | Adjust `` `η` `` to control exploration vs exploitation |
+| Temperature-controlled decoding | Adjust $`\eta`$ to control exploration vs exploitation |
 | RRWM algorithm | Required for online learning with rational losses |
 | Softmax-like path selection | Interpolate between argmax and uniform sampling |
 | Probabilistic lattice rescoring | Convert between log-probs and probability space |
@@ -300,7 +302,7 @@ push_weights(&mut wfst, PushConfig::backward())
 
 ## Relationship to Other Semirings
 
-`` `PowerWeight` `` is a one-parameter family that **degenerates** to three familiar semirings at the limits of `` `η` ``: `` `max` `` (as `` `η → 0` ``), Probability (at `` `η = 1` ``), and `` `min` `` (as `` `η → ∞` ``) — each retaining ordinary `` `×` `` for `` `⊗` ``.
+`PowerWeight` is a one-parameter family that **degenerates** to three familiar semirings at the limits of $`\eta`$: $`\max`$ (as $`\eta \to 0`$), Probability (at $`\eta = 1`$), and $`\min`$ (as $`\eta \to \infty`$) — each retaining ordinary $`\times`$ for $`\otimes`$.
 
 <details><summary>Text view</summary>
 
@@ -323,14 +325,14 @@ push_weights(&mut wfst, PushConfig::backward())
 
 </details>
 
-> The structural figure for this degeneration — with the `` `Ψ_η` `` isomorphism — is the [`power-semiring.svg`](#the-η-parameter) embedded above.
+> The structural figure for this degeneration — with the $`\Psi_\eta`$ isomorphism — is the [`power-semiring.svg`](#the-eta-parameter) embedded above.
 
 ## References
 
 Full entries — including DOIs — are in [`BIBLIOGRAPHY.md`](../BIBLIOGRAPHY.md).
 
-- [**Cortes 2015**](../BIBLIOGRAPHY.md#ref-cortes2015) — Cortes, C., Kuznetsov, V., Mohri, M., & Warmuth, M. K. (2015). *On-Line Learning Algorithms for Path Experts with Non-Additive Losses.* COLT 2015, PMLR 40:424–447. Lemma 6 defines the `` `η` ``-power semiring `` `S_η` `` and its `` `Ψ_η` `` isomorphism to the probability semiring. [PMLR 40:424–447](https://proceedings.mlr.press/v40/Cortes15.html)
-- [**Mohri 2009**](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, *Weighted Automata Algorithms*: weight pushing and the divisibility/star properties `` `PowerWeight` `` must supply for normalization and closure. [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)
+- [**Cortes 2015**](../BIBLIOGRAPHY.md#ref-cortes2015) — Cortes, C., Kuznetsov, V., Mohri, M., & Warmuth, M. K. (2015). *On-Line Learning Algorithms for Path Experts with Non-Additive Losses.* COLT 2015, PMLR 40:424–447. Lemma 6 defines the $`\eta`$-power semiring $`S_\eta`$ and its $`\Psi_\eta`$ isomorphism to the probability semiring. [PMLR 40:424–447](https://proceedings.mlr.press/v40/Cortes15.html)
+- [**Mohri 2009**](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, *Weighted Automata Algorithms*: weight pushing and the divisibility/star properties `PowerWeight` must supply for normalization and closure. [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)
 
 ## Related Documentation
 

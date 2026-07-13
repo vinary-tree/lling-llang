@@ -33,7 +33,7 @@ GPUs excel at this because:
 | CPU Single Core | 3.8 - 57 |
 | CPU Socket (20 cores) | 30 - 615 |
 | Prior GPU Work | 71 - 220 |
-| **This Approach** | **650 - 9,031** |
+| **Braun et al. (literature)** | **650 - 9,031** |
 
 ## Core Components
 
@@ -41,7 +41,7 @@ GPUs excel at this because:
 
 Compressed Sparse Row (CSR) format provides an efficient GPU memory layout. Each state's
 `(arc_start, arc_count)` slices contiguous arc and label arrays, so the total footprint is
-`M_fst = 12·∣Q∣ + 8·∣E∣ + 4·∣E∣` bytes:
+$`M_{\text{fst}} = 12 \cdot \lvert Q\rvert + 8 \cdot \lvert E\rvert + 4 \cdot \lvert E\rvert`$ bytes:
 
 ```rust
 use lling_llang::gpu::{CsrWfst, CsrBuilder};
@@ -83,7 +83,7 @@ Label Array (4 bytes per arc):
 </details>
 
 **Benefits**:
-- GPU FST ≈ **1/3 size** of disk FST
+- GPU FST $`\approx`$ **1/3 size** of disk FST
 - Contiguous memory for coalesced access
 - Direct indexing for efficient traversal
 
@@ -128,7 +128,7 @@ let survivors = buffer.collect_survivors();
 
 The cost is placed in the high bits so `atomicMin` naturally selects lower costs.
 
-**Float Ordering Transformation** — `ordered = (cost_bits ≥ 0) ? cost_bits ⊕ 0x80000000 : ¬cost_bits`,
+**Float Ordering Transformation** — $`\texttt{ordered} = (\texttt{cost\_bits} \ge 0)\ ?\ \texttt{cost\_bits} \oplus \texttt{0x80000000} : \lnot\,\texttt{cost\_bits}`$,
 which makes integer comparison agree with IEEE-754 float comparison:
 ```rust
 // Positive floats: XOR with 0x80000000
@@ -231,7 +231,7 @@ With K-vectors (K=32):
 **Performance**:
 - K=32 provides **10× speedup** for lattice arc accumulation
 - Random distribution balances load across vectors
-- Final merge is `O(K)` with no contention
+- Final merge is $`O(K)`$ with no contention
 
 ### 5. Channels/Lanes for Batched Streaming
 
@@ -278,15 +278,16 @@ Channels (n_c = 5000)          Lanes (n_l = 500)
 └─────────┘
 ```
 
-**Memory Model** — `M_state = 64α·n_c + 544α·n_l + 1024·n_l`:
-```text
-M_state = 64α·n_c + 544α·n_l + 1024·n_l
+**Memory Model** — the per-decode state, in bytes:
+
+```math
+M_{\text{state}} = 64\alpha \cdot n_c + 544\alpha \cdot n_l + 1024 \cdot n_l
+```
 
 Where:
-  α   = max active tokens after pruning
-  n_c = maximum number of channels
-  n_l = maximum number of lanes
-```
+- $`\alpha`$ = max active tokens after pruning
+- $`n_c`$ = maximum number of channels
+- $`n_l`$ = maximum number of lanes
 
 **Configuration Presets**:
 
@@ -439,33 +440,33 @@ while decoder.stats().active_channels > 0 {
 
 ### WFST Storage (CSR)
 
-The CSR footprint is `M_fst = 12·∣Q∣ + 8·∣E∣ + 4·∣E_E∣` bytes:
+The CSR footprint (in bytes):
 
-```text
-M_fst = 12·∣Q∣ + 8·∣E∣ + 4·∣E_E∣
+```math
+M_{\text{fst}} = 12 \cdot \lvert Q\rvert + 8 \cdot \lvert E\rvert + 4 \cdot \lvert E_E\rvert
+```
 
 Where:
-  ∣Q∣   = number of states         (12 bytes each: row_offset · final_wt · flags)
-  ∣E∣   = number of arcs           (8 bytes each: next_state · weight)
-  ∣E_E∣ = number of emitting arcs  (4 bytes each: label)
-```
+- $`\lvert Q\rvert`$ = number of states (12 bytes each: `row_offset` · `final_wt` · `flags`)
+- $`\lvert E\rvert`$ = number of arcs (8 bytes each: `next_state` · `weight`)
+- $`\lvert E_E\rvert`$ = number of emitting arcs (4 bytes each: `label`)
 
 ### Decoder State
 
-The per-decode state is `M_state = 64α·n_c + 544α·n_l + 1024·n_l` bytes:
+The per-decode state (in bytes):
 
-```text
-M_state = 64α·n_c + 544α·n_l + 1024·n_l
+```math
+M_{\text{state}} = 64\alpha \cdot n_c + 544\alpha \cdot n_l + 1024 \cdot n_l
+```
 
 Where:
-  α   = max active tokens after pruning
-  n_c = maximum number of channels
-  n_l = maximum number of lanes
-```
+- $`\alpha`$ = max active tokens after pruning
+- $`n_c`$ = maximum number of channels
+- $`n_l`$ = maximum number of lanes
 
 ### Memory Examples
 
-| Use Case | α | n_c | n_l | Memory |
+| Use Case | $`\alpha`$ | $`n_c`$ | $`n_l`$ | Memory |
 |----------|---|-----|-----|--------|
 | Edge device | 10,000 | 1 | 1 | 5.8 MB |
 | Desktop | 10,000 | 100 | 10 | 120 MB |
@@ -590,7 +591,7 @@ use lling_llang::gpu::wgpu::{WgpuRecombinationBuffer, WgpuLoadBalancer};
   uint64 token recombination, K-vector reduction, channels/lanes batching, soft pruning,
   and all xRTF/WER figures reproduced above.
 - [Mohri et al. 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — Mohri, M., Pereira, F., & Riley, M.
-  *Weighted Finite-State Transducers in Speech Recognition.* The `H ∘ C ∘ L ∘ G` decoding
+  *Weighted Finite-State Transducers in Speech Recognition.* The $`H \circ C \circ L \circ G`$ decoding
   graph these kernels traverse, and the log-semiring pushing that feeds beam pruning.
 
 ## Related Topics

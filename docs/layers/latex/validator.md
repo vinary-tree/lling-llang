@@ -311,5 +311,5 @@ assert!(!invalid.is_valid);
 
 - [Earley 1970](../../BIBLIOGRAPHY.md#ref-earley1970) — context-free parsing;
   structural validation complements the parser by checking the non-context-free
-  constraints (`` `\begin{X}` `` ⇄ `` `\end{X}` `` name agreement, delimiter
+  constraints (`\begin{X}` $`\rightleftarrows`$ `\end{X}` name agreement, delimiter
   nesting) that a CFG alone does not enforce.

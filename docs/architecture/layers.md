@@ -8,10 +8,10 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); conventions in [`STYLE.md`](../
 
 | Symbol / term | Meaning |
 |---|---|
-| **Correction layer** | A transformation stage (`` `CorrectionLayer` `` trait) mapping a lattice to a lattice. |
-| **Pipeline** | An ordered sequence of layers (`` `LayerPipeline` ``), applied left-to-right. |
+| **Correction layer** | A transformation stage (`CorrectionLayer` trait) mapping a lattice to a lattice. |
+| **Pipeline** | An ordered sequence of layers (`LayerPipeline`), applied left-to-right. |
 | **Lattice** | The weighted DAG of hypotheses flowing between layers (see [lattices](lattices.md)). |
-| `λ` | A back-off mixing coefficient in LM reranking, `` `P(w∣h) = λ·P̂(w∣h) + (1−λ)·P(w∣h′)` ``. |
+| $`\lambda`$ | A back-off mixing coefficient in LM reranking, $`P(w \mid h) = \lambda \cdot \hat{P}(w \mid h) + (1 - \lambda) \cdot P(w \mid h')`$. |
 
 ## Concepts
 
@@ -567,5 +567,5 @@ impl PipelineMetrics {
 Full entries — including DOIs — are in [`BIBLIOGRAPHY.md`](../BIBLIOGRAPHY.md).
 
 - [**Mohri 2002**](../BIBLIOGRAPHY.md#ref-mohri2002) — Mohri, Pereira & Riley, *Weighted Finite-State Transducers in Speech Recognition*: cascaded WFST composition as the model for a sequential layer pipeline. [doi:10.1006/csla.2001.0184](https://doi.org/10.1006/csla.2001.0184)
-- [**Earley 1970**](../BIBLIOGRAPHY.md#ref-earley1970) — Earley, *An Efficient Context-Free Parsing Algorithm*: the parser underlying `` `CfgFilterLayer` ``'s syntactic filtering. [doi:10.1145/362007.362035](https://doi.org/10.1145/362007.362035)
+- [**Earley 1970**](../BIBLIOGRAPHY.md#ref-earley1970) — Earley, *An Efficient Context-Free Parsing Algorithm*: the parser underlying `CfgFilterLayer`'s syntactic filtering. [doi:10.1145/362007.362035](https://doi.org/10.1145/362007.362035)
 - [**Goodman 1999**](../BIBLIOGRAPHY.md#ref-goodman1999) — Goodman, *Semiring Parsing*: filtering vs. reweighting expressed uniformly through the choice of semiring. [ACL J99-4004](https://aclanthology.org/J99-4004/)

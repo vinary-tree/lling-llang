@@ -3,7 +3,7 @@
 > **Thesis.** The `error_models` module compiles the *ways text goes wrong* —
 > spelling slips, keyboard and OCR confusions, homophones, and surface noise —
 > into weighted finite-state transducers (WFSTs) so that correction becomes a
-> single weighted composition `query ∘ error-model ∘ dictionary` whose best path
+> single weighted composition $`\text{query} \circ \text{error-model} \circ \text{dictionary}`$ whose best path
 > is the most probable intended string.
 
 This document covers the module `src/error_models/`
@@ -23,19 +23,19 @@ link to [`NOTATION.md`](../NOTATION.md).
 | Symbol / term | Meaning |
 |---|---|
 | **WFST** | Weighted Finite-State Transducer: each arc has an input label, an output label, and a weight (see [wfst-traits](../architecture/wfst-traits.md)). |
-| `` `x` `` | An *observed* (potentially erroneous) string — what was typed/scanned/heard. |
-| `` `y` `` | An *intended* (candidate correct) string — what the writer meant. |
-| `` `d(i,j)` `` | Edit distance between the length-`` `i` `` prefix of `` `x` `` and the length-`` `j` `` prefix of `` `y` ``. |
-| `` `k` `` | The maximum edit distance the transducer admits (`EditDistanceConfig::max_distance`). |
-| `` `C[i][j]` `` | Confusion-matrix cost `` `C[i][j] = −log P(observe j ∣ true i)` `` (lower = more likely confusion). |
-| `` `P(j ∣ i)` `` | Conditional probability of observing symbol `` `j` `` given the intended symbol `` `i` ``. |
-| `` `Σ` `` | The character alphabet over which a transducer is built (`EditDistanceConfig::alphabet`). |
-| `` `⊕` ` / ` `⊗` `` | Semiring *plus* (combine alternatives) / *times* (combine sequential costs). For Tropical: `` `⊕ = min` ``, `` `⊗ = +` ``. |
-| `` `0̄` ` / ` `1̄` `` | The `` `⊕` ``-identity ("no path", Tropical `` `∞` ``) and `` `⊗` ``-identity ("empty path", Tropical `` `0` ``). |
+| $`x`$ | An *observed* (potentially erroneous) string — what was typed/scanned/heard. |
+| $`y`$ | An *intended* (candidate correct) string — what the writer meant. |
+| $`d(i,j)`$ | Edit distance between the length-$`i`$ prefix of $`x`$ and the length-$`j`$ prefix of $`y`$. |
+| $`k`$ | The maximum edit distance the transducer admits (`EditDistanceConfig::max_distance`). |
+| $`C[i][j]`$ | Confusion-matrix cost $`C[i][j] = -\log P(\text{observe } j \mid \text{true } i)`$ (lower = more likely confusion). |
+| $`P(j \mid i)`$ | Conditional probability of observing symbol $`j`$ given the intended symbol $`i`$. |
+| $`\Sigma`$ | The character alphabet over which a transducer is built (`EditDistanceConfig::alphabet`). |
+| $`\oplus`$ / $`\otimes`$ | Semiring *plus* (combine alternatives) / *times* (combine sequential costs). For Tropical: $`\oplus = \min`$, $`\otimes = +`$. |
+| $`\bar{0}`$ / $`\bar{1}`$ | The $`\oplus`$-identity ("no path", Tropical $`\infty`$) and $`\otimes`$-identity ("empty path", Tropical $`0`$). |
 | **Semiotic class** | The category of a token for normalization (handled in [text-normalization](text-normalization.md)); here we use only the character-level error models. |
 
-The default weight throughout this module is `` `TropicalWeight` `` — costs in
-`` `ℝ ∪ {∞}` `` combined by `` `(min, +)` `` — because a correction cost is a
+The default weight throughout this module is `TropicalWeight` — costs in
+$`\mathbb{R} \cup \{\infty\}`$ combined by $`(\min, +)`$ — because a correction cost is a
 shortest-path problem: the cheapest sequence of edits wins.
 
 ---
@@ -44,70 +44,73 @@ shortest-path problem: the cheapest sequence of edits wins.
 
 ### Edit-distance transducer
 
-For a maximum distance `` `k` ``, the edit-distance transducer `` `T_k` ``
-accepts exactly the `` `(x, y)` `` pairs within distance `` `k` ``:
+For a maximum distance $`k`$, the edit-distance transducer $`T_k`$
+accepts exactly the $`(x, y)`$ pairs within distance $`k`$:
 
-```text
-L(T_k) = { (x, y) ∣ d(x, y) ≤ k }
+```math
+\mathcal{L}(T_k) = \{\, (x, y) \mid d(x, y) \le k \,\}
 ```
 
-where `` `d` `` is the **Levenshtein** distance (insertions, deletions,
+where $`d`$ is the **Levenshtein** distance (insertions, deletions,
 substitutions) or, with transpositions enabled, the **Damerau–Levenshtein**
-distance. `` `d(i,j)` `` obeys the classic dynamic-programming recurrence
+distance. $`d(i,j)`$ obeys the classic dynamic-programming recurrence
 ([Levenshtein 1966](#ref-levenshtein1966); [Wagner & Fischer 1974](#ref-wagner1974)):
 
-```text
-d(0,0) = 0
-d(i,0) = i · c_del          (delete x₁…xᵢ)
-d(0,j) = j · c_ins          (insert y₁…yⱼ)
-
-           ⎧ d(i−1, j−1) + (xᵢ = yⱼ ? 0 : c_sub)      substitute / match
-d(i,j) = min ⎨ d(i−1, j  ) + c_del                      delete  xᵢ
-           ⎩ d(i,   j−1) + c_ins                      insert  yⱼ
-           ( Damerau: also d(i−2, j−2) + c_tr  when xᵢ = yⱼ₋₁ ∧ xᵢ₋₁ = yⱼ )
+```math
+\begin{aligned}
+d(0,0) &= 0 \\
+d(i,0) &= i \cdot c_{\text{del}} && \text{(delete } x_1 \dots x_i\text{)} \\
+d(0,j) &= j \cdot c_{\text{ins}} && \text{(insert } y_1 \dots y_j\text{)} \\
+d(i,j) &= \min \begin{cases}
+  d(i{-}1,\, j{-}1) + (x_i = y_j\ ?\ 0 : c_{\text{sub}}) & \text{substitute / match} \\
+  d(i{-}1,\, j) + c_{\text{del}} & \text{delete } x_i \\
+  d(i,\, j{-}1) + c_{\text{ins}} & \text{insert } y_j
+\end{cases} \\
+&\quad (\text{Damerau: also } d(i{-}2,\, j{-}2) + c_{\text{tr}} \text{ when } x_i = y_{j-1} \wedge x_{i-1} = y_j)
+\end{aligned}
 ```
 
-The per-operation costs `` `c_ins, c_del, c_sub, c_tr` `` are the fields of
+The per-operation costs $`c_{\text{ins}}, c_{\text{del}}, c_{\text{sub}}, c_{\text{tr}}`$ are the fields of
 [`EditCosts`](../../src/error_models/edit_distance.rs); the recurrence above is
-exactly what each arc of `` `T_k` `` realizes incrementally — a *match* arc adds
-`` `0` ``, an *error* arc adds the relevant `` `c` `` and advances the error
+exactly what each arc of $`T_k`$ realizes incrementally — a *match* arc adds
+$`0`$, an *error* arc adds the relevant $`c`$ and advances the error
 counter.
 
 The transducer encodes the DP table's frontier as a state. Two encodings ship:
 
 | Builder | State = | State count |
 |---|---|---|
-| [`build`](../../src/error_models/edit_distance.rs) (alphabet-general) | error count `` `e ∈ {0,…,k}` `` | `` `k + 1` `` |
-| [`build_for_query`](../../src/error_models/edit_distance.rs) (query-specific) | `` `(pos, e)` `` with `` `pos ∈ {0,…,n}` ``, `` `e ∈ {0,…,k}` `` | `` `(n+1)(k+1)` `` |
+| [`build`](../../src/error_models/edit_distance.rs) (alphabet-general) | error count $`e \in \{0, \dots, k\}`$ | $`k + 1`$ |
+| [`build_for_query`](../../src/error_models/edit_distance.rs) (query-specific) | $`(\text{pos}, e)`$ with $`\text{pos} \in \{0, \dots, n\}`$, $`e \in \{0, \dots, k\}`$ | $`(n+1)(k+1)`$ |
 
 For the query-specific form the state ID is the linearization
-`` `state(pos, e) = pos · (k+1) + e` `` (see
+$`\text{state}(\text{pos}, e) = \text{pos} \cdot (k+1) + e`$ (see
 [`encode_state`](../../src/error_models/edit_distance.rs)), giving an
-`` `O(n · (2k+1))` `` state space as documented in the module header.
+$`O(n \cdot (2k+1))`$ state space as documented in the module header.
 
 ### Confusion matrix
 
-A **confusion matrix** `` `C` `` stores, for each ordered pair of characters,
+A **confusion matrix** $`C`$ stores, for each ordered pair of characters,
 the negative-log conditional probability of confusing them:
 
-```text
-C[i][j] = −log P(observe j ∣ true i)
+```math
+C[i][j] = -\log P(\text{observe } j \mid \text{true } i)
 ```
 
-so a *more likely* confusion has a *lower* cost. `` `C` `` is sparse — only
+so a *more likely* confusion has a *lower* cost. $`C`$ is sparse — only
 observed confusions are stored — with three companion maps for deletions
-`` `−log P(delete i)` ``, insertions `` `−log P(spurious j)` ``, and
+$`-\log P(\text{delete } i)`$, insertions $`-\log P(\text{spurious } j)`$, and
 transpositions (see [`ConfusionMatrix`](../../src/error_models/confusion.rs)).
-The induced transducer maps intended `` `→` `` observed with weight
-`` `C[i][j]` `` on each arc; composing it with an observed string scores every
-intended candidate by `` `Σ` `` of its arc costs, i.e. by
-`` `−log Πₜ P(observe xₜ ∣ true yₜ)` ``.
+The induced transducer maps intended $`\to`$ observed with weight
+$`C[i][j]`$ on each arc; composing it with an observed string scores every
+intended candidate by $`\sum`$ of its arc costs, i.e. by
+$`-\log \prod_t P(\text{observe } x_t \mid \text{true } y_t)`$.
 
 ### Homophones
 
-Two words are **homophones** when a phonetic encoder `` `φ` `` maps them to the
-same code: `` `φ(w₁) = φ(w₂)` ``. The homophone transducer groups a vocabulary
-by `` `φ` `` and maps each word to its sound-alikes with a tunable cost; this is
+Two words are **homophones** when a phonetic encoder $`\varphi`$ maps them to the
+same code: $`\varphi(w_1) = \varphi(w_2)`$. The homophone transducer groups a vocabulary
+by $`\varphi`$ and maps each word to its sound-alikes with a tunable cost; this is
 the spoken-language analogue of the confusion matrix, but keyed on pronunciation
 rather than glyph shape.
 
@@ -115,11 +118,11 @@ rather than glyph shape.
 
 ## Intuition — a worked spelling correction
 
-Take the misspelling `` `x = "helo"` `` and ask for corrections within
-`` `k = 1` `` over the alphabet of `` `"hello"` ``. The query-specific builder
-lays out a `` `(n+1)(k+1) = 5 × 2 = 10` ``-state grid indexed by
-`` `(pos, error)` ``. The cheapest accepting path inserts a single `` `l` ``
-between `` `"hel"` `` and `` `"o"` ``:
+Take the misspelling $`x = \text{"helo"}`$ and ask for corrections within
+$`k = 1`$ over the alphabet of `"hello"`. The query-specific builder
+lays out a $`(n+1)(k+1) = 5 \times 2 = 10`$-state grid indexed by
+$`(\text{pos}, \text{error})`$. The cheapest accepting path inserts a single $`l`$
+between `"hel"` and `"o"`:
 
 ```text
 (0,0) --h:h/0--> (1,0) --e:e/0--> (2,0) --l:l/0--> (3,0)
@@ -128,8 +131,8 @@ between `` `"hel"` `` and `` `"o"` ``:
                                                   (3,1) --o:o/0--> (4,1)   ✔ final, total cost 1.0
 ```
 
-The best path has weight `` `1.0` `` (one insertion) and emits the output
-`` `"hello"` ``. Any candidate reachable with `` `≤ 1` `` edit is enumerated;
+The best path has weight $`1.0`$ (one insertion) and emits the output
+`"hello"`. Any candidate reachable with $`\le 1`$ edit is enumerated;
 composing this transducer against a dictionary acceptor keeps only candidates
 that are real words. This is the diagram in
 [§ Diagrams](#diagrams) below.
@@ -152,13 +155,13 @@ error_models
 
 | Type | Responsibility |
 |---|---|
-| [`EditDistanceTransducer`](../../src/error_models/edit_distance.rs) | Builds a `` `VectorWfst<char, TropicalWeight>` `` accepting `` `(x,y)` `` within `` `k` `` edits. `build` is alphabet-general; `build_for_query` is query-specialized. |
+| [`EditDistanceTransducer`](../../src/error_models/edit_distance.rs) | Builds a `VectorWfst<char, TropicalWeight>` accepting $`(x,y)`$ within $`k`$ edits. `build` is alphabet-general; `build_for_query` is query-specialized. |
 | [`EditCosts`](../../src/error_models/edit_distance.rs) | Per-operation costs (`insert`, `delete`, `substitute`, `transpose`); `uniform`, `prefer_transpose` presets. |
 | [`EditDistanceConfig`](../../src/error_models/edit_distance.rs) | `max_distance`, `costs`, `include_transpositions` (Damerau), `alphabet`; `levenshtein`/`damerau_levenshtein` constructors. |
-| [`LazyEditDistanceTransducer`](../../src/error_models/edit_distance.rs) | On-demand `` `(pos, error)` `` expansion via `encode_state`/`decode_state`, for composition where only reachable states matter. |
-| [`ConfusionMatrix`](../../src/error_models/confusion.rs) | Sparse `` `C[i][j]` `` plus deletion/insertion/transposition maps; `merge` keeps the lower (more likely) cost. |
-| [`ConfusionTransducer<W>`](../../src/error_models/confusion.rs) | Compiles a matrix into a single-state WFST (`build`) or an indel-aware WFST over `` `Option<char>` `` (`build_with_indels`). |
-| [`PhoneticEncoder`](../../src/error_models/homophone.rs) | Computes a `` `PhoneticCode` `` under one of seven `PhoneticAlgorithm`s (Soundex, Metaphone, Double Metaphone, NYSIIS, Caverphone, Cologne, Refined Soundex). |
+| [`LazyEditDistanceTransducer`](../../src/error_models/edit_distance.rs) | On-demand $`(\text{pos}, \text{error})`$ expansion via `encode_state`/`decode_state`, for composition where only reachable states matter. |
+| [`ConfusionMatrix`](../../src/error_models/confusion.rs) | Sparse $`C[i][j]`$ plus deletion/insertion/transposition maps; `merge` keeps the lower (more likely) cost. |
+| [`ConfusionTransducer<W>`](../../src/error_models/confusion.rs) | Compiles a matrix into a single-state WFST (`build`) or an indel-aware WFST over `Option<char>` (`build_with_indels`). |
+| [`PhoneticEncoder`](../../src/error_models/homophone.rs) | Computes a `PhoneticCode` under one of seven `PhoneticAlgorithm`s (Soundex, Metaphone, Double Metaphone, NYSIIS, Caverphone, Cologne, Refined Soundex). |
 | [`HomophoneTransducer<W>`](../../src/error_models/homophone.rs) | Indexes a vocabulary by phonetic code; `homophones(word)` returns ranked sound-alikes; `build` emits a word-level WFST. |
 | [`NormalizationTransducer<W>`](../../src/error_models/normalize.rs) | Surface cleanup (case-fold, smart-quotes, dashes, zero-width removal, diacritics, whitespace) as a WFST and/or a string pass. |
 
@@ -172,10 +175,10 @@ distance, n-best).
 ## Algorithms — building the query-specific Levenshtein transducer
 
 The query-specific builder is the workhorse for fuzzy lookup. Its intent: given
-a fixed query `` `x = x₁…xₙ` `` and budget `` `k` ``, materialize only the states
-the query can reach, indexed by `` `(pos, error)` ``, with one arc per edit
-operation. The loop invariant is *every arc out of `` `(pos, e)` `` advances
-`` `pos` `` and/or `` `e` `` monotonically*, so the graph is a DAG and the
+a fixed query $`x = x_1 \dots x_n`$ and budget $`k`$, materialize only the states
+the query can reach, indexed by $`(\text{pos}, \text{error})`$, with one arc per edit
+operation. The loop invariant is *every arc out of $`(\text{pos}, e)`$ advances
+$`\text{pos}`$ and/or $`e`$ monotonically*, so the graph is a DAG and the
 shortest path is well-defined.
 
 ```text
@@ -198,21 +201,21 @@ shortest path is well-defined.
           add_arc(from, ε, d, state(pos, e+1), c_ins)           ▷ insertion
 ```
 
-Here `` `ε` `` is the empty label (Rust `` `None` ``), `` `1̄` `` is
-`` `TropicalWeight::one()` `` (cost `` `0` ``), and `` `c_del, c_sub, c_ins` ``
+Here $`\varepsilon`$ is the empty label (Rust `None`), $`\bar{1}`$ is
+`TropicalWeight::one()` (cost $`0`$), and $`c_{\text{del}}, c_{\text{sub}}, c_{\text{ins}}`$
 come from [`EditCosts`](../../src/error_models/edit_distance.rs). Each cell
-emits `` `O(∣Σ∣)` `` arcs, so construction is
-`` `O(n · k · ∣Σ∣)` `` time and `` `O(n · k)` `` states — matching the
-`` `O(n·(2k+1))` `` bound in the module header. Because every arc strictly
-advances `` `pos` `` or `` `e` ``, a single topological shortest-distance pass
+emits $`O(\lvert \Sigma\rvert)`$ arcs, so construction is
+$`O(n \cdot k \cdot \lvert \Sigma\rvert)`$ time and $`O(n \cdot k)`$ states — matching the
+$`O(n \cdot (2k+1))`$ bound in the module header. Because every arc strictly
+advances $`\text{pos}`$ or $`e`$, a single topological shortest-distance pass
 (see [shortest-distance](../algorithms/shortest-distance.md)) recovers the best
 alignment.
 
-**Trace** (`` `x = "helo"` ``, `` `k = 1` ``, target `` `"hello"` ``): the path
-`` `(0,0)→(1,0)→(2,0)→(3,0)` `` matches `` `h,e,l` `` at cost `` `0` ``; the
-insertion arc `` `(3,0) →[ε:l / 1.0]→ (3,1)` `` spends the one edit; then
-`` `(3,1) →[o:o/0]→ (4,1)` `` matches the final `` `o` ``. Total `` `1.0` ``,
-output `` `"hello"` ``. ∎
+**Trace** ($`x = \text{"helo"}`$, $`k = 1`$, target `"hello"`): the path
+$`(0,0) \to (1,0) \to (2,0) \to (3,0)`$ matches $`h, e, l`$ at cost $`0`$; the
+insertion arc $`(3,0) \xrightarrow{\varepsilon:l\,/\,1.0} (3,1)`$ spends the one edit; then
+$`(3,1) \xrightarrow{o:o/0} (4,1)`$ matches the final $`o`$. Total $`1.0`$,
+output `"hello"`. ∎
 
 ---
 
@@ -264,8 +267,8 @@ let transducer = ConfusionTransducer::<TropicalWeight>::from_matrix(matrix);
 let _fst = transducer.build();
 ```
 
-Training a matrix from aligned `` `(correct, observed)` `` pairs (add-`` `α` ``
-smoothing) converts counts to `` `C[i][j] = −log P(observe j ∣ true i)` ``:
+Training a matrix from aligned `(correct, observed)` pairs (add-$`\alpha`$
+smoothing) converts counts to $`C[i][j] = -\log P(\text{observe } j \mid \text{true } i)`$:
 
 ```rust,ignore
 use lling_llang::error_models::train_confusion_matrix;
@@ -315,10 +318,10 @@ assert_eq!(normalizer.normalize_string("  “Hello”  WORLD  "), "\"hello\" wor
 
 ![Levenshtein edit-distance transducer for the query "helo" with k=1, showing match, insertion, deletion and substitution arcs; the best alignment to "hello" is highlighted.](../diagrams/correction/edit-distance.svg)
 
-*Blue = states `` `(position, error)` ``; double green ring = final (all input
-consumed); bold green = the best alignment `` `"helo" → "hello"` `` (one
+*Blue = states $`(\text{position}, \text{error})`$; double green ring = final (all input
+consumed); bold green = the best alignment `"helo" → "hello"` (one
 insertion); grey/dashed = alternative delete/substitute/insert arcs; arc labels
-read `` `in:out/weight` `` with `` `ε` `` the empty label.*
+read `in:out/weight` with $`\varepsilon`$ the empty label.*
 
 <details><summary>Text view</summary>
 
@@ -337,24 +340,24 @@ read `` `in:out/weight` `` with `` `ε` `` the empty label.*
 ### QWERTY confusion submatrix (heat-table)
 
 A fragment of [`qwerty_confusion_matrix`](../../src/error_models/confusion.rs):
-horizontally/vertically adjacent keys cost `` `0.5` ``, diagonally adjacent keys
-cost `` `0.5 + 0.2 = 0.7` `` (the `base_cost` and `diagonal_penalty`), and
-non-adjacent keys are absent (no arc, i.e. cost `` `0̄ = ∞` ``). Lower cost =
+horizontally/vertically adjacent keys cost `0.5`, diagonally adjacent keys
+cost `0.5 + 0.2 = 0.7` (the `base_cost` and `diagonal_penalty`), and
+non-adjacent keys are absent (no arc, i.e. cost $`\bar{0} = \infty`$). Lower cost =
 more likely confusion = warmer cell.
 
-| `` `C[i][j]` `` (cost) | → `q` | → `w` | → `e` | → `a` | → `s` | → `d` |
+| $`C[i][j]`$ (cost) | → `q` | → `w` | → `e` | → `a` | → `s` | → `d` |
 |---|---|---|---|---|---|---|
-| **from `q`** | — | `0.5` | `∞` | `0.7` | `0.7` | `∞` |
+| **from `q`** | — | `0.5` | $`\infty`$ | `0.7` | `0.7` | $`\infty`$ |
 | **from `w`** | `0.5` | — | `0.5` | `0.7` | `0.7` | `0.7` |
-| **from `e`** | `∞` | `0.5` | — | `∞` | `0.7` | `0.7` |
-| **from `a`** | `0.7` | `0.7` | `∞` | — | `0.5` | `∞` |
+| **from `e`** | $`\infty`$ | `0.5` | — | $`\infty`$ | `0.7` | `0.7` |
+| **from `a`** | `0.7` | `0.7` | $`\infty`$ | — | `0.5` | $`\infty`$ |
 | **from `s`** | `0.7` | `0.7` | `0.7` | `0.5` | — | `0.5` |
-| **from `d`** | `∞` | `0.7` | `0.7` | `∞` | `0.5` | — |
+| **from `d`** | $`\infty`$ | `0.7` | `0.7` | $`\infty`$ | `0.5` | — |
 
-Reading the table: `` `q→w` `` is a same-row neighbor (`` `0.5` ``); `` `q→a` ``
-and `` `q→s` `` are diagonal neighbors (`` `0.7` ``); `` `q→e` `` and
-`` `q→d` `` are not adjacent on QWERTY, so the model assigns them no
-substitution arc (cost `` `∞` ``). The matrix is symmetric because
+Reading the table: $`q \to w`$ is a same-row neighbor (`0.5`); $`q \to a`$
+and $`q \to s`$ are diagonal neighbors (`0.7`); $`q \to e`$ and
+$`q \to d`$ are not adjacent on QWERTY, so the model assigns them no
+substitution arc (cost $`\infty`$). The matrix is symmetric because
 [`add_symmetric_substitution`](../../src/error_models/confusion.rs) inserts both
 directions with equal cost.
 
@@ -363,21 +366,21 @@ directions with equal cost.
 ## Relation to the library
 
 - **Composition is the correction operator.** Each error model is a
-  `` `VectorWfst` `` consumed by `compose` (see
-  [composition](../algorithms/composition.md)): `` `query ∘ error ∘ lexicon` ``
+  `VectorWfst` consumed by `compose` (see
+  [composition](../algorithms/composition.md)): $`\text{query} \circ \text{error} \circ \text{lexicon}`$
   yields a lattice of weighted candidates, and `viterbi`/`nbest` (see
   [path-extraction](../algorithms/path-extraction.md)) reads off the best ones.
-- **Weights.** The models default to `` `TropicalWeight` `` so that
+- **Weights.** The models default to `TropicalWeight` so that
   shortest-path = most-likely correction; because all costs are
-  `` `−log P` ``, summing arc costs along a path multiplies probabilities. Any
+  $`-\log P`$, summing arc costs along a path multiplies probabilities. Any
   [`Semiring`](../architecture/semirings.md) implementing
-  `` `From<TropicalWeight>` `` works in `ConfusionTransducer::build` and
+  `From<TropicalWeight>` works in `ConfusionTransducer::build` and
   `HomophoneTransducer::build`.
 - **liblevenshtein bridge.** With the `levenshtein` feature, the
   query-specific automaton aligns with the trie automata in
   [`integration`](../../src/integration/liblevenshtein_bridge.rs) for
   dictionary-backed fuzzy lookup; the lazy variant exists precisely so
-  composition expands only reachable `` `(pos, error)` `` states.
+  composition expands only reachable $`(\text{pos}, \text{error})`$ states.
 - **Pipeline placement.** Normalization runs *first* (surface cleanup), then
   edit-distance / confusion / homophone candidates feed the
   [layer stack](../architecture/layers.md). Token-level normalization of

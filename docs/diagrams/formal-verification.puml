@@ -11,7 +11,7 @@ skinparam ArrowColor #B71C1C
 skinparam ArrowThickness 1.4
 hide stereotype
 
-title <b>Formal verification</b>  —  Coq/Rocq proofs  ·  TLA⁺ models\n<size:11><i>no admits, axioms, or sorry — every proof file builds clean</i></size>
+title <b>Formal verification</b>  —  Coq/Rocq proofs  ·  <latex>\text{TLA}^{+}</latex> models\n<size:11><i>no admits, axioms, or sorry — every proof file builds clean</i></size>
 
 rectangle "<b>Coq / Rocq</b>" as COQ #FFEBEE {
   rectangle "<b>Foundations</b>\nsemiring laws · tropical & log\nquantization · interval · roundoff\nmatrix closure" as F1 #FFCDD2
@@ -21,7 +21,7 @@ rectangle "<b>Coq / Rocq</b>" as COQ #FFEBEE {
   F2 -down-> F3
 }
 
-rectangle "<b>TLA⁺ (TLC model checking)</b>" as TLA #FFEBEE {
+rectangle "<b><latex>\text{TLA}^{+}</latex> (TLC model checking)</b>" as TLA #FFEBEE {
   rectangle "RRWM\nbounded online-learning accounting" as T1 #FFCDD2
   rectangle "LazyComposition\ncache / memory bounds" as T2 #FFCDD2
   rectangle "CascadeOrder\nH → C → L → G ordering" as T3 #FFCDD2

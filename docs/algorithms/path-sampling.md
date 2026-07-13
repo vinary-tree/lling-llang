@@ -8,12 +8,12 @@ Defined centrally in [`../NOTATION.md`](../NOTATION.md); repeated locally for th
 
 | Symbol | Meaning |
 |---|---|
-| `⊕` / `⊗` | semiring *plus* (combine alternatives) / *times* (accumulate a path's arcs). |
-| `0̄` / `1̄` | `⊕`-identity / `⊗`-identity. |
-| `ρ(q)` | final-weight function `ρ : F → K` — used in the stop-vs-continue decision. |
-| `ε` | the empty label (optionally excluded from the emitted output). |
-| `P(t)` | sampling probability of transition `t`. |
-| `η` | power-semiring exponent (soft weights for proportional sampling). |
+| $`\oplus`$ / $`\otimes`$ | semiring *plus* (combine alternatives) / *times* (accumulate a path's arcs). |
+| $`\bar{0}`$ / $`\bar{1}`$ | $`\oplus`$-identity / $`\otimes`$-identity. |
+| $`\rho(q)`$ | final-weight function $`\rho : F \to K`$ — used in the stop-vs-continue decision. |
+| $`\varepsilon`$ | the empty label (optionally excluded from the emitted output). |
+| $`P(t)`$ | sampling probability of transition $`t`$. |
+| $`\eta`$ | power-semiring exponent (soft weights for proportional sampling). |
 
 ## Concepts
 
@@ -38,7 +38,7 @@ walk; the per-arc probabilities annotate the proportional choice.
 
 ![Forward path sampling: a random walk from start state 0 drawing each arc proportional to its weight (a/P=0.3 sampled over b/0.5 and c/0.2), then a/P=1.0 into a final state, with an inset showing the stop decision P(stop)=ρ/(ρ ⊕ Σ out-weights)](../diagrams/algorithms/path-sampling.svg)
 
-*Green bold = one sampled path; grey = the alternatives not taken; arc labels carry the proportional `` `P` ``; the dotted inset is the final-state stop rule `` `P(stop) = ρ ∕ (ρ ⊕ Σ out-weights)` ``.*
+*Green bold = one sampled path; grey = the alternatives not taken; arc labels carry the proportional $`P`$; the dotted inset is the final-state stop rule $`P(\text{stop}) = \rho / (\rho \oplus \sum \text{out-weights})`$.*
 
 <details><summary>Text view</summary>
 
@@ -86,17 +86,17 @@ both.
         if ∣path∣ > max_length:  error MaxLengthExceeded
 ```
 
-The key decision is how `` `⟨ sample one transition ⟩` `` weights the choice. This is
+The key decision is how `⟨ sample one transition ⟩` weights the choice. This is
 controlled by the **sampling strategy**.
 
 ### Sampling Strategies
 
 Two strategies are supported:
 
-**Proportional Sampling** — `` `P(t) = weight(t) ∕ Σ weight(out)` ``:
+**Proportional Sampling**:
 
-```text
-P(transition t) = weight(t) ∕ Σ weight(all transitions)
+```math
+P(\text{transition } t) = \operatorname{weight}(t) / \sum \operatorname{weight}(\text{all transitions})
 ```
 
 Transitions are chosen proportional to their weights. For a stochastic (weight-pushed) WFST, this gives proper probability sampling.
@@ -108,10 +108,10 @@ State 0:                         Proportional sampling:
   └─ c/0.2 → State 3            P(c) = 0.2 ∕ (0.3+0.5+0.2) = 0.2
 ```
 
-**Uniform Sampling** — `` `P(t) = 1 ∕ ∣out∣` ``:
+**Uniform Sampling**:
 
-```text
-P(transition t) = 1 ∕ (number of transitions)
+```math
+P(\text{transition } t) = 1 / (\text{number of transitions})
 ```
 
 All transitions have equal probability, regardless of weights. Useful for exploration.
@@ -415,7 +415,7 @@ match result {
 | Factor | Impact | Recommendation |
 |--------|--------|----------------|
 | Path length | Linear in length | Set reasonable `max_length` |
-| Number of transitions | Constant per state | Proportional sampling has O(n) per state |
+| Number of transitions | Constant per state | Proportional sampling has $`O(n)`$ per state |
 | Stochastic vs raw | Same complexity | Push weights once, sample many times |
 | Seed setting | Minor overhead | Use for reproducibility |
 
@@ -425,25 +425,27 @@ match result {
 
 When the current state is final but has outgoing transitions, the algorithm must decide whether to stop or continue:
 
-**Proportional strategy** — `` `P(stop) = ρ(q) ∕ (ρ(q) ⊕ Σ transition_weights)` ``:
-```text
-P(stop) = final_weight ∕ (final_weight ⊕ Σ transition_weights)
+**Proportional strategy**:
+
+```math
+P(\text{stop}) = \text{final\_weight} / (\text{final\_weight} \oplus \sum \text{transition\_weights})
 ```
 
-**Uniform strategy** — `` `P(stop) = 1 ∕ (1 + ∣out∣)` ``:
-```text
-P(stop) = 1 ∕ (1 + number_of_transitions)
+**Uniform strategy**:
+
+```math
+P(\text{stop}) = 1 / (1 + \text{number\_of\_transitions})
 ```
 
 ### Weight Accumulation
 
-Path weight is accumulated using semiring multiplication, i.e. `` `w = w₁ ⊗ w₂ ⊗ … ⊗ wₙ ⊗ ρ(qₙ)` ``:
+Path weight is accumulated using semiring multiplication:
 
-```text
-path_weight = w₁ ⊗ w₂ ⊗ ... ⊗ wₙ ⊗ final_weight
+```math
+\text{path\_weight} = w_1 \otimes w_2 \otimes \dots \otimes w_n \otimes \text{final\_weight}
 ```
 
-For the tropical semiring, `` `⊗` `` is addition. For the probability semiring, multiplication.
+For the tropical semiring, $`\otimes`$ is addition. For the probability semiring, multiplication.
 
 ## References
 

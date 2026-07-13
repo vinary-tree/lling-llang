@@ -5,7 +5,7 @@ that go beyond the single-input/single-output [WFST](../architecture/wfst-traits
 core by adding tapes, a stack, tree structure, determinism guarantees, or a
 neural alignment lattice. Each family targets a different language class and a
 different application, but all share the library's semiring-weighted foundation
-(`⊕` over alternatives, `⊗` along a path; identities `0̄` and `1̄`).
+($`\oplus`$ over alternatives, $`\otimes`$ along a path; identities $`\bar{0}`$ and $`\bar{1}`$).
 
 The family palette throughout these docs is teal
 (`#B2DFDB` fill / `#00695C` border) for the finite-state transducer families and
@@ -27,7 +27,7 @@ Graph).
 |---|---|
 | **tape** | One input/output stream an automaton reads or writes in lock-step. |
 | **determinizable** | Whether the family admits an equivalent deterministic form (key for fast, unambiguous application). |
-| **language class** | The formal-language family the model recognizes/relates (regular ⊂ context-free ⊂ …). |
+| **language class** | The formal-language family the model recognizes/relates (regular $`\subset`$ context-free $`\subset`$ …). |
 | **memory model** | The auxiliary memory beyond the finite control: none, a stack, the tree itself, or a neural label-history state. |
 
 ---
@@ -37,11 +37,11 @@ Graph).
 | Family | Tapes | Memory model | Language class | Determinizable? | Primary use | Primary citation |
 |---|---|---|---|---|---|---|
 | **cfg** — [Earley parsing](../algorithms/parsing.md) | input lattice → parse forest | Earley chart (item sets) | context-free | n/a (chart parser, not a single automaton) | parse a lattice against a grammar; filter to grammatical paths | [Earley 1970](../BIBLIOGRAPHY.md#ref-earley1970) |
-| **multitape** — [multitape.md](multitape.md) | `N ≥ 1` (const generic) | none (finite control) | `N`-ary rational relations | partially (per-tape; via [synchronization](../algorithms/synchronization.md)) | word alignment, morphology, multi-stream relations | [Mohri 1997](../BIBLIOGRAPHY.md#ref-mohri1997) |
-| **pushdown** — [pushdown.md](pushdown.md) | 1 input | a **stack** (`Γ*`) | context-free | not in general (CFLs aren't closed under it) | nested-structure recognition (`aⁿbⁿ`, brackets, palindromes) | [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) |
+| **multitape** — [multitape.md](multitape.md) | $`N \ge 1`$ (const generic) | none (finite control) | $`N`$-ary rational relations | partially (per-tape; via [synchronization](../algorithms/synchronization.md)) | word alignment, morphology, multi-stream relations | [Mohri 1997](../BIBLIOGRAPHY.md#ref-mohri1997) |
+| **pushdown** — [pushdown.md](pushdown.md) | 1 input | a **stack** ($`\Gamma^*`$) | context-free | not in general (CFLs aren't closed under it) | nested-structure recognition ($`a^n b^n`$, brackets, palindromes) | [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) |
 | **tree_transducers** — [tree-transducers.md](tree-transducers.md) | input tree → output tree | the tree (recursion) | (weighted) tree transformations | depends on rule class (linear/non-copying) | syntax-directed translation, AST/parse-tree rewriting | [Fülöp & Vogler 2009](../BIBLIOGRAPHY.md#ref-fulop2009) |
-| **subsequential** — [../advanced/subsequential-transducers.md](../advanced/subsequential-transducers.md) | 2 (input/output) | none (deterministic control) | subsequential functions (∪ of pieces) | **yes, by construction** (input-deterministic) | fast, backtrack-free application of (decomposed) functions | [Mohri 2000](../BIBLIOGRAPHY.md#ref-mohri2000) |
-| **neural-transducer** — [neural-transducer.md](neural-transducer.md) | acoustic `x` → labels `y` | neural label-history state + `T×U` lattice | learned alignment distribution | n/a (probabilistic, marginalized) | streaming ASR (RNN-T) | [Graves 2012](../BIBLIOGRAPHY.md#ref-graves2012) |
+| **subsequential** — [../advanced/subsequential-transducers.md](../advanced/subsequential-transducers.md) | 2 (input/output) | none (deterministic control) | subsequential functions ($`\cup`$ of pieces) | **yes, by construction** (input-deterministic) | fast, backtrack-free application of (decomposed) functions | [Mohri 2000](../BIBLIOGRAPHY.md#ref-mohri2000) |
+| **neural-transducer** — [neural-transducer.md](neural-transducer.md) | acoustic $`x`$ → labels $`y`$ | neural label-history state + $`T \times U`$ lattice | learned alignment distribution | n/a (probabilistic, marginalized) | streaming ASR (RNN-T) | [Graves 2012](../BIBLIOGRAPHY.md#ref-graves2012) |
 
 **How to read "determinizable?"** Determinism makes application linear-time and
 unambiguous. Finite-state transducers are sometimes determinizable; pushdown
@@ -77,7 +77,7 @@ to determinize, only an alignment distribution to marginalize.
 | [Multi-Tape Transducers](multitape.md) | [`src/multitape/`](../../src/multitape/) | `MultiTapeWfst`, `VectorMultiTapeWfst`, builder, projection, synchronization (`TapeDelay`). |
 | [Weighted Pushdown Automata](pushdown.md) | [`src/pushdown/`](../../src/pushdown/) | `WeightedPda`, `VectorPda`, `StackSymbol`/`StackAction`, `PdaConfiguration`, accept modes. |
 | [Weighted Tree Transducers](tree-transducers.md) | [`src/tree_transducers/`](../../src/tree_transducers/) | `WeightedTreeTransducer`, `RankedAlphabet`, `Tree`, `TreeRule`/`TreePattern`. |
-| [Neural Transducer (RNN-T)](neural-transducer.md) | [`src/transducer/`](../../src/transducer/) | `NeuralTransducer`, encoder/predictor/joiner, `T×U` lattice, loss/decoding. |
+| [Neural Transducer (RNN-T)](neural-transducer.md) | [`src/transducer/`](../../src/transducer/) | `NeuralTransducer`, encoder/predictor/joiner, $`T \times U`$ lattice, loss/decoding. |
 
 The **subsequential** family is documented one tier up, alongside the other
 advanced finite-state topics, at

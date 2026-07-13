@@ -19,19 +19,19 @@ hide empty description
 title <b>ID trace</b>  —  PDA on "aabb"; each node is (state, remaining input, stack)
 
 [*] --> id0
-state "id0\n(q₀, aabb, Z₀)" as id0
-state "id1\n(q₀, abb, Z₀γ)" as id1
-state "id2\n(q₀, bb, Z₀γγ)" as id2
-state "id3\n(q₁, bb, Z₀γγ)" as id3
-state "id4\n(q₁, b, Z₀γ)" as id4
-state "id5\n(q₁, ε, Z₀)" as id5
-state "id6\n(q₂, ε, Z₀)" as id6 #C8E6C9
+state "id0\n<latex>(q_0, aabb, Z_0)</latex>" as id0
+state "id1\n<latex>(q_0, abb, Z_0\gamma)</latex>" as id1
+state "id2\n<latex>(q_0, bb, Z_0\gamma\gamma)</latex>" as id2
+state "id3\n<latex>(q_1, bb, Z_0\gamma\gamma)</latex>" as id3
+state "id4\n<latex>(q_1, b, Z_0\gamma)</latex>" as id4
+state "id5\n<latex>(q_1, \varepsilon, Z_0)</latex>" as id5
+state "id6\n<latex>(q_2, \varepsilon, Z_0)</latex>" as id6 #C8E6C9
 
-id0 -[#00695C,bold]-> id1 : read a · push γ
-id1 -[#00695C,bold]-> id2 : read a · push γ
-id2 -[#F9A825,bold]-> id3 : ε · switch phase
-id3 -[#00695C,bold]-> id4 : read b · pop γ
-id4 -[#00695C,bold]-> id5 : read b · pop γ
-id5 -[#F9A825,bold]-> id6 : ε · accept (Z₀, input ε)
+id0 -[#00695C,bold]-> id1 : read a · push <latex>\gamma</latex>
+id1 -[#00695C,bold]-> id2 : read a · push <latex>\gamma</latex>
+id2 -[#F9A825,bold]-> id3 : <latex>\varepsilon</latex> · switch phase
+id3 -[#00695C,bold]-> id4 : read b · pop <latex>\gamma</latex>
+id4 -[#00695C,bold]-> id5 : read b · pop <latex>\gamma</latex>
+id5 -[#F9A825,bold]-> id6 : <latex>\varepsilon</latex> · accept (<latex>Z_0</latex>, input <latex>\varepsilon</latex>)
 id6 --> [*]
 @enduml

@@ -2,16 +2,16 @@
 
 **Thesis.** A back-off n-gram language model represents an exponentially large
 distribution compactly by storing only *observed* n-grams and, for everything
-else, **backing off** to a shorter context: when the bigram `` `w₁w₂` `` is
+else, **backing off** to a shorter context: when the bigram $`w_1 w_2`$ is
 unseen, the model interpolates with the unigram estimate via
-`` `P(w∣h) = λ·P̂(w∣h) + (1−λ)·P(w∣h′)` ``, where `` `h′` `` is `` `h` `` with
+$`P(w \mid h) = \lambda \cdot \hat{P}(w \mid h) + (1 - \lambda) \cdot P(w \mid h')`$, where $`h'`$ is $`h`$ with
 its oldest word dropped.
 
-As a WFST this is realized with **back-off states** reached by `` `ε` ``-arcs:
+As a WFST this is realized with **back-off states** reached by $`\varepsilon`$-arcs:
 seen n-grams are direct arcs, and an unseen continuation falls through an
-`` `ε` ``-arc of weight `` `−log β(h)` `` to the state for `` `h′` ``, where the
+$`\varepsilon`$-arc of weight $`-\log \beta(h)`$ to the state for $`h'`$, where the
 shorter-context arc is tried instead. This keeps the graph linear in the number
-of *observed* n-grams rather than `` `O(∣V∣ⁿ)` ``. Source:
+of *observed* n-grams rather than $`O(\lvert V\rvert^n)`$. Source:
 [`src/optimization/ngram_backoff.rs`](../../src/optimization/ngram_backoff.rs).
 
 ---
@@ -21,16 +21,16 @@ of *observed* n-grams rather than `` `O(∣V∣ⁿ)` ``. Source:
 | Term | Meaning |
 |---|---|
 | **LM** | Language Model — a distribution over token sequences. |
-| `` `w` `` | A word/token; `` `VocabId = u32` `` identifies it. |
-| `` `h` `` | History/context, e.g. `` `(w₁, w₂)` `` for a trigram ending in `` `w₃` ``. |
-| `` `h′` `` | Backed-off history — `` `h` `` with its oldest word removed (`backoff_context`). |
-| `` `P(w∣h)` `` | Probability of `` `w` `` given history `` `h` ``. |
-| `` `P̂(w∣h)` `` | The directly-estimated (observed) probability for context `` `h` ``. |
-| `` `λ` `` | Interpolation weight — mixes the higher- and lower-order estimates. ([NOTATION](../NOTATION.md)) |
-| `` `β(h)` `` | Back-off weight for context `` `h` ``; the arc carries `` `−log β(h)` ``. |
-| `` `ε` `` | Empty label — the back-off arc consumes/emits nothing. |
-| `` `⊕ₗₒg` `` | Log-add — the log-semiring `` `⊕` `` used to combine paths. |
-| `` `∣V∣` `` | Vocabulary size (cardinality, U+2223, not ASCII `|`). |
+| $`w`$ | A word/token; `VocabId = u32` identifies it. |
+| $`h`$ | History/context, e.g. $`(w_1, w_2)`$ for a trigram ending in $`w_3`$. |
+| $`h'`$ | Backed-off history — $`h`$ with its oldest word removed (`backoff_context`). |
+| $`P(w \mid h)`$ | Probability of $`w`$ given history $`h`$. |
+| $`\hat{P}(w \mid h)`$ | The directly-estimated (observed) probability for context $`h`$. |
+| $`\lambda`$ | Interpolation weight — mixes the higher- and lower-order estimates. ([NOTATION](../NOTATION.md)) |
+| $`\beta(h)`$ | Back-off weight for context $`h`$; the arc carries $`-\log \beta(h)`$. |
+| $`\varepsilon`$ | Empty label — the back-off arc consumes/emits nothing. |
+| $`\oplus_{\log}`$ | Log-add — the log-semiring $`\oplus`$ used to combine paths. |
+| $`\lvert V\rvert`$ | Vocabulary size (cardinality, U+2223, not ASCII `|`). |
 
 WFST = Weighted Finite-State Transducer
 ([`architecture/wfst-traits.md`](../architecture/wfst-traits.md)).
@@ -39,50 +39,54 @@ WFST = Weighted Finite-State Transducer
 
 ## Formal model
 
-A back-off LM defines `` `P(w∣h)` `` recursively on the length of the history.
-With a directly-estimated probability `` `P̂` `` where the n-gram was observed and
-a back-off weight `` `β(h)` `` otherwise, the standard interpolated form is
+A back-off LM defines $`P(w \mid h)`$ recursively on the length of the history.
+With a directly-estimated probability $`\hat{P}`$ where the n-gram was observed and
+a back-off weight $`\beta(h)`$ otherwise, the standard interpolated form is
 
-```text
-P(w∣h) = λ·P̂(w∣h) + (1 − λ)·P(w∣h′)      if (h, w) observed
-P(w∣h) = β(h) · P(w∣h′)                   if (h, w) unobserved   (back off to h′)
+```math
+\begin{aligned}
+P(w \mid h) &= \lambda \cdot \hat{P}(w \mid h) + (1 - \lambda) \cdot P(w \mid h') && \text{if } (h, w) \text{ observed} \\
+P(w \mid h) &= \beta(h) \cdot P(w \mid h') && \text{if } (h, w) \text{ unobserved (back off to } h' \text{)}
+\end{aligned}
 ```
 
-bottoming out at the unigram `` `P(w∣ε) = P̂(w)` ``. The module works in
-**negative log space**, so a stored value is `` `−log p` ``, products become
-sums, and the unobserved case is `` `−log P(w∣h) = −log β(h) − log P(w∣h′)` `` —
-exactly the `` `unigram + backoff` `` arithmetic in `BigramLm::prob`.
+bottoming out at the unigram $`P(w \mid \varepsilon) = \hat{P}(w)`$. The module works in
+**negative log space**, so a stored value is $`-\log p`$, products become
+sums, and the unobserved case is $`-\log P(w \mid h) = -\log \beta(h) - \log P(w \mid h')`$ —
+exactly the $`\text{unigram} + \text{backoff}`$ arithmetic in `BigramLm::prob`.
 
 As an automaton (`NgramLmBuilder::build` / `BigramLm::to_wfst`):
 
 | Construct | Arc | Weight |
 |---|---|---|
-| seen n-gram `` `h --w--> h·w` `` | `` `w : w` `` | `` `−log P̂(w∣h)` `` |
-| back-off `` `h --ε--> h′` `` | `` `ε : ε` `` | `` `−log β(h)` `` |
-| final (can end here) | — | `` `1̄` `` (log `` `0` ``) for states ending in `EOS` |
+| seen n-gram $`h \xrightarrow{w} h \cdot w`$ | $`w : w`$ | $`-\log \hat{P}(w \mid h)`$ |
+| back-off $`h \xrightarrow{\varepsilon} h'`$ | $`\varepsilon : \varepsilon`$ | $`-\log \beta(h)`$ |
+| final (can end here) | — | $`\bar{1}`$ (log $`0`$) for states ending in `EOS` |
 
 The crucial relation in one line is the back-off recurrence
-`` `P(w∣h) = λ·P̂(w∣h) + (1−λ)·P(w∣h′)` ``; following the `` `ε` `` chain
-`` `h → h′ → … → ε` `` realizes the `` `(1−λ)·P(w∣h′)` `` term when the
+$`P(w \mid h) = \lambda \cdot \hat{P}(w \mid h) + (1 - \lambda) \cdot P(w \mid h')`$; following the $`\varepsilon`$ chain
+$`h \to h' \to \dots \to \varepsilon`$ realizes the $`(1 - \lambda) \cdot P(w \mid h')`$ term when the
 higher-order arc is absent.
 
 | Component | Type | Role |
 |---|---|---|
-| `NgramEntry` | `{ context, word, log_prob }` | One observed n-gram `` `−log P̂(w∣h)` ``. |
-| `BackoffWeight` | `{ context, weight }` | `` `−log β(h)` `` for context `` `h` ``. |
-| context state | `StateId` | One state per observed context `` `h` ``. |
+| `NgramEntry` | `{ context, word, log_prob }` | One observed n-gram $`-\log \hat{P}(w \mid h)`$. |
+| `BackoffWeight` | `{ context, weight }` | $`-\log \beta(h)`$ for context $`h`$. |
+| context state | `StateId` | One state per observed context $`h`$. |
 
 ---
 
 ## Intuition — seen vs. backed-off bigram
 
-Take a 5-word vocabulary with `` `P̂(2) = 1.0` `` (i.e. `` `−log = 1.0` ``),
-a seen bigram `` `P̂(1∣0) = 0.5` ``, and a back-off weight
-`` `−log β(0) = 0.1` ``:
+Take a 5-word vocabulary with $`\hat{P}(2) = 1.0`$ (i.e. $`-\log = 1.0`$),
+a seen bigram $`\hat{P}(1 \mid 0) = 0.5`$, and a back-off weight
+$`-\log \beta(0) = 0.1`$:
 
-```text
-query (0, 1):  bigram observed  →  −log P(1∣0) = 0.5
-query (0, 2):  bigram unseen    →  back off: −log P(2) + (−log β(0)) = 1.0 + 0.1 = 1.1
+```math
+\begin{aligned}
+&\text{query } (0, 1): \text{ bigram observed} \to -\log P(1 \mid 0) = 0.5 \\
+&\text{query } (0, 2): \text{ bigram unseen} \to \text{back off: } -\log P(2) + (-\log \beta(0)) = 1.0 + 0.1 = 1.1
+\end{aligned}
 ```
 
 This is `test_bigram_lm_basic`: `lm.prob(0, 1) == 0.5` (direct) and
@@ -94,9 +98,9 @@ This is `test_bigram_lm_basic`: `lm.prob(0, 1) == 0.5` (direct) and
 
 ### `BigramLm` — the specialized fast path
 
-`BigramLm` stores unigrams in a dense `` `Vec<f64>` `` and bigrams in a sparse
+`BigramLm` stores unigrams in a dense `Vec<f64>` and bigrams in a sparse
 map, with one back-off weight per word. `prob(w1, w2)` returns the seen bigram if
-present, else `` `unigram(w2) + backoff(w1)` `` — the log-space back-off. It
+present, else $`\text{unigram}(w_2) + \text{backoff}(w_1)`$ — the log-space back-off. It
 converts to a WFST with one state per word plus a shared back-off state:
 
 ```rust
@@ -113,14 +117,14 @@ assert!((lm.prob(0, 2) - (1.0 + 0.1)).abs() < 1e-10);  // backed off to unigram
 
 | Method | Role |
 |---|---|
-| `set_unigram` / `set_bigram` / `set_backoff` | Populate `` `−log P̂` `` and `` `−log β` ``. |
-| `prob(w1, w2)` | `` `−log P(w2∣w1)` `` with back-off. |
+| `set_unigram` / `set_bigram` / `set_backoff` | Populate $`-\log \hat{P}`$ and $`-\log \beta`$. |
+| `prob(w1, w2)` | $`-\log P(w_2 \mid w_1)`$ with back-off. |
 | `to_wfst()` | Build the `VectorWfst<VocabId, LogWeight>` (word states + back-off state). |
 | `stats()` | `BigramStats { vocab_size, num_unigrams, num_bigrams, sparsity }`. |
 
-### `NgramLmBuilder` — general order with `ε` back-off chains
+### `NgramLmBuilder` — general order with $`\varepsilon`$ back-off chains
 
-`NgramLmBuilder` handles arbitrary order `` `n` `` via `NgramLmConfig`. It adds
+`NgramLmBuilder` handles arbitrary order $`n`$ via `NgramLmConfig`. It adds
 n-grams and back-off weights, then `build()` emits a WFST whose contexts are
 states, observed n-grams are arcs, and each non-empty context has a back-off arc
 to its `backoff_context` (one word shorter). States whose context ends in `EOS`
@@ -145,20 +149,20 @@ let fst = builder.build();            // contexts → states, ε back-off arcs
 |---|---|
 | `NgramLmConfig` | `{ order, use_backoff_symbol, vocab_size, prune_threshold }`. |
 | `add_ngram(context, word, log_prob)` | Register one observed n-gram (pruned if above `prune_threshold`). |
-| `add_backoff(context, weight)` | Register `` `−log β(context)` ``. |
-| `build()` | Materialize the WFST with `` `ε` `` back-off chains. |
+| `add_backoff(context, weight)` | Register $`-\log \beta(\text{context})`$. |
+| `build()` | Materialize the WFST with $`\varepsilon`$ back-off chains. |
 | `stats()` | `NgramStats` with per-order counts. |
 
-`use_backoff_symbol` controls whether the back-off arc is a plain `` `ε` `` (may
-be expanded by `` `ε` ``-removal) or a dedicated symbol that *prevents* such
-expansion — important because expanding back-off `` `ε` ``-arcs would defeat the
+`use_backoff_symbol` controls whether the back-off arc is a plain $`\varepsilon`$ (may
+be expanded by $`\varepsilon`$-removal) or a dedicated symbol that *prevents* such
+expansion — important because expanding back-off $`\varepsilon`$-arcs would defeat the
 compactness the structure exists to provide.
 
 ### Quantifying the saving — `compute_size_reduction`
 
 `compute_size_reduction(vocab_size, num_observed, order)` contrasts the dense
-representation (`` `∣V∣^{n−1}` `` states, `` `∣V∣ⁿ` `` arcs) with the sparse one
-(≈ observed contexts and arcs), returning a `SizeReduction` with state/arc
+representation ($`\lvert V\rvert^{n-1}`$ states, $`\lvert V\rvert^n`$ arcs) with the sparse one
+($`\approx`$ observed contexts and arcs), returning a `SizeReduction` with state/arc
 reduction ratios. `PruningStrategy` enumerates the supported thinning policies
 (`CountThreshold`, `ProbabilityThreshold`, `EntropyThreshold`).
 
@@ -170,8 +174,8 @@ reduction ratios. `PruningStrategy` enumerates the supported thinning policies
 
 The intent is to *emit a WFST that is linear in observed n-grams yet assigns the
 correct backed-off probability to every continuation*. The invariant is that
-**every non-empty context state has exactly one back-off `` `ε` ``-arc to its
-`` `h′` `` state**, so any unseen continuation has a defined fall-through.
+**every non-empty context state has exactly one back-off $`\varepsilon`$-arc to its
+$`h'`$ state**, so any unseen continuation has a defined fall-through.
 
 ```text
 ⟨ build back-off LM WFST ⟩ ≡
@@ -187,15 +191,15 @@ correct backed-off probability to every continuation*. The invariant is that
   mark states whose context ends in EOS as final; make ε final too
 ```
 
-The build is `` `O(∣observed∣)` `` states and arcs — independent of `` `∣V∣ⁿ` ``.
+The build is $`O(\lvert \text{observed}\rvert)`$ states and arcs — independent of $`\lvert V\rvert^n`$.
 At query/decoding time, scoring a continuation is: try the emission arc at the
-current context; if absent, take the back-off `` `ε` `` and retry at `` `h′` ``,
-repeating down the chain `` `h → h′ → … → ε` `` until an emission arc exists
+current context; if absent, take the back-off $`\varepsilon`$ and retry at $`h'`$,
+repeating down the chain $`h \to h' \to \dots \to \varepsilon`$ until an emission arc exists
 (the unigram always does).
 
 ![N-gram back-off chain: trigram, bigram, and unigram context states each carry a direct emission arc, linked by dashed epsilon back-off arcs of weight minus-log-beta that shorten the history one word at a time down to the unigram root.](../diagrams/optimization/ngram-backoff.svg)
 
-*Blue = context states with their observed emission self-arcs; grey dashed = the back-off `` `ε` ``-arcs carrying `` `−log β(h)` ``; green double ring = the unigram root `` `ε` `` every chain bottoms out in; the note restates the interpolation identity.*
+*Blue = context states with their observed emission self-arcs; grey dashed = the back-off $`\varepsilon`$-arcs carrying $`-\log \beta(h)`$; green double ring = the unigram root $`\varepsilon`$ every chain bottoms out in; the note restates the interpolation identity.*
 
 <details><summary>Text view</summary>
 
@@ -253,12 +257,12 @@ assert!(reduction.arc_reduction > 0.9);          // > 90% fewer arcs
 ## Relation to the library
 
 - **ASR grammar (G).** A back-off LM is the **G** transducer of the ASR cascade
-  `` `N = π(min(det(H ∘ C ∘ L ∘ G)))` ``
+  $`N = \pi(\min(\det(H \circ C \circ L \circ G)))`$
   ([`asr/cascade-construction.md`](../asr/cascade-construction.md)); its compact
   form keeps the cascade tractable.
-- **Log semiring.** Weights are `LogWeight` (`` `−log p` ``); paths combine with
-  `` `⊕ₗₒg` `` ([`architecture/semirings.md`](../architecture/semirings.md)).
-- **`ε`-removal.** `use_backoff_symbol` interacts with
+- **Log semiring.** Weights are `LogWeight` ($`-\log p`$); paths combine with
+  $`\oplus_{\log}`$ ([`architecture/semirings.md`](../architecture/semirings.md)).
+- **$`\varepsilon`$-removal.** `use_backoff_symbol` interacts with
   [`algorithms/epsilon-removal.md`](../algorithms/epsilon-removal.md): a dedicated
   back-off symbol resists expansion that would inflate the graph.
 - **Composition.** The built WFST composes with acoustic and lexicon transducers
@@ -272,7 +276,7 @@ assert!(reduction.arc_reduction > 0.9);          // > 90% fewer arcs
 ## References
 
 - [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted Finite-State
-  Transducers in Speech Recognition.* Back-off LMs as WFSTs with `` `ε` `` back-off
+  Transducers in Speech Recognition.* Back-off LMs as WFSTs with $`\varepsilon`$ back-off
   states.
 - [Hannun 2020](../BIBLIOGRAPHY.md#ref-hannun2020) — *Differentiable Weighted
   Finite-State Transducers.* Compact n-gram representations and their role in

@@ -15,22 +15,22 @@ skinparam rectangle {
   BorderColor #E65100
 }
 
-title <b>Neural posterior fusion into the decoding graph</b>\n<size:11>combined = λ_am · log P(unit∣frame) + λ_lm · log P(word∣context) + penalties</size>
+title <b>Neural posterior fusion into the decoding graph</b>\n<size:11><latex>\text{combined} = \lambda_{am} \cdot \log P(\text{unit} \mid \text{frame}) + \lambda_{lm} \cdot \log P(\text{word} \mid \text{context}) + \text{penalties}</latex></size>
 
-rectangle "<b>Audio frames</b>\n[T × feature_dim]" as X #ECEFF1
+rectangle "<b>Audio frames</b>\n[<latex>T \times</latex> feature_dim]" as X #ECEFF1
 rectangle "<b>AcousticModel</b>\nneural net · forward()" as AM #E1BEE7
-rectangle "<b>Posteriors</b>\nlog P(unit∣frame)\nFramePosterior / PosteriorSequence" as POST #E1BEE7
+rectangle "<b>Posteriors</b>\n<latex>\log P(\text{unit} \mid \text{frame})</latex>\nFramePosterior / PosteriorSequence" as POST #E1BEE7
 
 X  -down-> AM  : features
 AM -down-> POST : per-frame log-probs
 
-rectangle "<b>Recognition network N</b>\nH ∘ C ∘ L ∘ G   (unit → word)" as N #FFB74D
-rectangle "<b>FusionConfig</b>\nλ_am · acoustic_weight\nλ_lm · lm_weight\nword/blank penalties" as FUSE #FFE0B2
+rectangle "<b>Recognition network N</b>\n<latex>H \circ C \circ L \circ G</latex>   (unit → word)" as N #FFB74D
+rectangle "<b>FusionConfig</b>\n<latex>\lambda_{am}</latex> · acoustic_weight\n<latex>\lambda_{lm}</latex> · lm_weight\nword/blank penalties" as FUSE #FFE0B2
 
-POST -down-> FUSE : λ_am · log P(unit∣frame)
-N    -down-> FUSE : λ_lm · log P(word∣context)
+POST -down-> FUSE : <latex>\lambda_{am} \cdot \log P(\text{unit} \mid \text{frame})</latex>
+N    -down-> FUSE : <latex>\lambda_{lm} \cdot \log P(\text{word} \mid \text{context})</latex>
 
-rectangle "<b>Search</b>\nViterbi / beam over  posteriors ⊗ N" as DEC #C8E6C9
+rectangle "<b>Search</b>\nViterbi / beam over  <latex>\text{posteriors} \otimes N</latex>" as DEC #C8E6C9
 rectangle "<b>Words</b>" as W #ECEFF1
 
 FUSE -down-> DEC : weighted product
@@ -38,8 +38,8 @@ DEC  -down-> W
 
 note right of FUSE
   Scores live in a log-domain semiring (LogWeight), so
-  the fused product is a semiring ⊗ and alternative paths
-  combine with ⊕. AcousticLanguageModel::to_log_weight
+  the fused product is a semiring <latex>\otimes</latex> and alternative paths
+  combine with <latex>\oplus</latex>. AcousticLanguageModel::to_log_weight
   packages the result as a WFST arc weight.
 end note
 @enduml

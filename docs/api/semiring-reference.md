@@ -51,7 +51,7 @@ pub trait Semiring: Clone + Default + PartialEq + Debug + Send + Sync + 'static 
 
 Tropical semiring for shortest-path problems.
 
-**Definition**: (ℝ ∪ {∞}, min, +, ∞, 0)
+**Definition**: $`(\mathbb{R} \cup \{\infty\}, \min, +, \infty, 0)`$
 
 ```rust
 pub struct TropicalWeight(f64);
@@ -105,7 +105,7 @@ assert_eq!(TropicalWeight::one().value(), 0.0);
 
 Log semiring for probability computations.
 
-**Definition**: (ℝ ∪ {-∞, +∞}, log-add, +, +∞, 0)
+**Definition**: $`(\mathbb{R} \cup \{-\infty, +\infty\}, \text{log-add}, +, +\infty, 0)`$
 
 ```rust
 pub struct LogWeight(f64);
@@ -172,7 +172,7 @@ assert!((product.to_prob() - 0.21).abs() < 0.001);  // 0.7 * 0.3 = 0.21
 
 Boolean semiring for reachability.
 
-**Definition**: ({false, true}, ∨, ∧, false, true)
+**Definition**: $`(\{\text{false}, \text{true}\}, \lor, \land, \text{false}, \text{true})`$
 
 ```rust
 pub struct BooleanWeight(bool);
@@ -192,8 +192,8 @@ impl BooleanWeight {
 |-----------|----------------|
 | `zero()` | `false` |
 | `one()` | `true` |
-| `plus(a, b)` | `a ∨ b` |
-| `times(a, b)` | `a ∧ b` |
+| `plus(a, b)` | $`a \lor b`$ |
+| `times(a, b)` | $`a \land b`$ |
 | `natural_less(a, b)` | `!a && b` |
 
 ### Usage
@@ -243,8 +243,8 @@ Component-wise operations:
 |-----------|----------------|
 | `zero()` | `(W1::zero(), W2::zero())` |
 | `one()` | `(W1::one(), W2::one())` |
-| `plus(a, b)` | `(a.0 ⊕ b.0, a.1 ⊕ b.1)` |
-| `times(a, b)` | `(a.0 ⊗ b.0, a.1 ⊗ b.1)` |
+| `plus(a, b)` | $`(a_0 \oplus b_0, a_1 \oplus b_1)`$ |
+| `times(a, b)` | $`(a_0 \otimes b_0, a_1 \otimes b_1)`$ |
 | `natural_less` | Lexicographic comparison |
 
 ### Usage

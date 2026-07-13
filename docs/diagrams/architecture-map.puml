@@ -18,7 +18,7 @@ title <b>lling-llang</b> — module architecture\n<size:11><i>each tier builds o
 
 rectangle "<b>Applications</b>  ·  grammar correction  ·  speech recognition  ·  constrained generation" as APP #ECEFF1
 
-rectangle "<b>Speech & sequence models</b>\nasr  (H ∘ C ∘ L ∘ G cascade)  ·  acoustic  ·  ctc topologies  ·  transducer (RNN-T)  ·  training (LF-MMI · weak-supervision)" as SPEECH #FFE0B2
+rectangle "<b>Speech & sequence models</b>\nasr  (<latex>H \circ C \circ L \circ G</latex> cascade)  ·  acoustic  ·  ctc topologies  ·  transducer (RNN-T)  ·  training (LF-MMI · weak-supervision)" as SPEECH #FFE0B2
 
 rectangle "<b>Deep learning & acceleration</b>\ndifferentiable  (GTN-style autograd, top-down/k2)  ·  gpu  (CSR · uint64 token-packing · k-vector)  ·  simd" as DL #E1BEE7
 
@@ -26,11 +26,11 @@ rectangle "<b>Correction & NLP layers</b>\nlayers  ·  error_models  ·  text_pr
 
 rectangle "<b>Grammar & transducer families</b>\ncfg  (Earley on lattices)  ·  multitape  ·  pushdown (PDA)  ·  tree_transducers  ·  subsequential" as TRANS #B2DFDB
 
-rectangle "<b>Algorithms</b>\nalgorithms  (shortest-distance · weight-pushing · ε-removal · determinize · minimize · connect)  ·  path  (viterbi · nbest · beam)  ·  composition  ·  optimization" as ALG #C8E6C9
+rectangle "<b>Algorithms</b>\nalgorithms  (shortest-distance · weight-pushing · <latex>\varepsilon</latex>-removal · determinize · minimize · connect)  ·  path  (viterbi · nbest · beam)  ·  composition  ·  optimization" as ALG #C8E6C9
 
-rectangle "<b>Foundation — weighted-automata algebra</b>\nsemiring  (K, ⊕, ⊗, 0̄, 1̄)  ·  wfst  (states · arcs · lazy ops)  ·  lattice  (weighted DAG)  ·  backend  (vocab storage)" as FND #BBDEFB
+rectangle "<b>Foundation — weighted-automata algebra</b>\nsemiring  <latex>(K, \oplus, \otimes, \bar{0}, \bar{1})</latex>  ·  wfst  (states · arcs · lazy ops)  ·  lattice  (weighted DAG)  ·  backend  (vocab storage)" as FND #BBDEFB
 
-rectangle "<b>Formal verification</b>\nCoq/Rocq proofs\nTLA⁺ models" as FV #FFCDD2
+rectangle "<b>Formal verification</b>\nCoq/Rocq proofs\n<latex>\text{TLA}^{+}</latex> models" as FV #FFCDD2
 
 FND -up-> ALG
 ALG -up-> TRANS

@@ -8,12 +8,12 @@ Defined centrally in [`../NOTATION.md`](../NOTATION.md); repeated locally for th
 
 | Symbol | Meaning |
 |---|---|
-| `⊕` / `⊗` | semiring *plus* (combine alternatives; tropical `min`) / *times* (combine arcs). |
-| `⊘` | semiring divide (`divide` on a `DivisibleSemiring`); residual `` `w ⊘ min` ``. |
-| `0̄` / `1̄` | `⊕`-identity ("no path") / `⊗`-identity ("empty path", zero cost). |
-| `ρ(q)` | final-weight function `ρ : F → K`. |
-| `F` | set of final states. |
-| `∣Q∣`, `∣E∣` | number of states / transitions (cardinality bar `∣` = U+2223). |
+| $`\oplus`$ / $`\otimes`$ | semiring *plus* (combine alternatives; tropical $`\min`$) / *times* (combine arcs). |
+| $`\oslash`$ | semiring divide (`divide` on a `DivisibleSemiring`); residual $`w \oslash \min`$. |
+| $`\bar{0}`$ / $`\bar{1}`$ | $`\oplus`$-identity ("no path") / $`\otimes`$-identity ("empty path", zero cost). |
+| $`\rho(q)`$ | final-weight function $`\rho : F \to K`$. |
+| $`F`$ | set of final states. |
+| $`\lvert Q\rvert`$, $`\lvert E\rvert`$ | number of states / transitions. |
 
 ## Concepts
 
@@ -22,7 +22,7 @@ Defined centrally in [`../NOTATION.md`](../NOTATION.md); repeated locally for th
 A WFST (**W**eighted **F**inite-**S**tate **T**ransducer) is **deterministic** if:
 1. It has exactly one start state
 2. For each state, all outgoing transitions have distinct input labels
-3. There are no epsilon (`ε`) transitions on the input
+3. There are no epsilon ($`\varepsilon`$) transitions on the input
 
 ```text
 Non-deterministic:              Deterministic:
@@ -60,11 +60,11 @@ Weighted subset:  {(1, 0.5), (2, 1.5)}
                     └─ state 1
 ```
 
-The residual weight tracks "how much extra weight" each original state carries compared to the minimum. The figure below shows the construction collapsing two `a`-arcs into one: the arc carries the factored-out minimum `` `min(1.0, 2.0) = 1.0` `` and the loser's surplus rides inside the destination subset as a residual.
+The residual weight tracks "how much extra weight" each original state carries compared to the minimum. The figure below shows the construction collapsing two $`a`$-arcs into one: the arc carries the factored-out minimum $`\min(1.0, 2.0) = 1.0`$ and the loser's surplus rides inside the destination subset as a residual.
 
 ![Determinization before/after: non-deterministic input with two a-arcs out of state 0 becomes a deterministic automaton whose state is the weighted subset {(1,0̄),(2,1.0)}, the a-arc carrying the factored-out minimum weight 1.0](../diagrams/algorithms/determinize-before-after.svg)
 
-*Red panel = non-deterministic input (two `a`-arcs share a label); green panel = deterministic output. The arc weight is the factored-out `` `min` ``; residuals `` `(state, w ⊘ min)` `` live inside the subset state; double rings are final.*
+*Red panel = non-deterministic input (two $`a`$-arcs share a label); green panel = deterministic output. The arc weight is the factored-out $`\min`$; residuals $`(\text{state}, w \oslash \min)`$ live inside the subset state; double rings are final.*
 
 <details><summary>Text view</summary>
 
@@ -204,8 +204,8 @@ The algorithm maintains a mapping from weighted subsets to deterministic output
 states, expanding one subset at a time ([Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009)).
 The invariant is that each output state names a unique *normalized* weighted subset:
 for every input label leaving that subset, all destination states are gathered, their
-common weight factor `` `⊕`-`min` `` is factored onto the arc, and the per-state
-surplus `` `w ⊘ min` `` is retained as a residual so that **total path weight is
+common weight factor $`\oplus`$-$`\min`$ is factored onto the arc, and the per-state
+surplus $`w \oslash \min`$ is retained as a residual so that **total path weight is
 preserved**. The literate chunks below name the three phases.
 
 <details><summary>Text view</summary>
@@ -266,13 +266,13 @@ procedure DETERMINIZE(fst):
     return result
 ```
 
-The `` `get_or_create` `` cache is what bounds the construction: two states reached by
+The `get_or_create` cache is what bounds the construction: two states reached by
 label sequences with identical *normalized* residual profiles map to the same output
 state, so the determinized automaton stays finite whenever the input is determinizable.
 
 ### Weight Normalization
 
-The key insight is **weight normalization** using the semiring's divide operation `` `⊘` `` (`` `divide` `` on a `DivisibleSemiring`):
+The key insight is **weight normalization** using the semiring's divide operation $`\oslash`$ (`divide` on a `DivisibleSemiring`):
 
 ```text
 Before normalization:
@@ -294,15 +294,16 @@ This ensures:
 
 ### Handling Final Weights
 
-When a weighted subset contains final states, the deterministic state's final weight combines all contributions, i.e. `` `ρ'(subset) = ⊕ᵢ { rᵢ ⊗ ρ(qᵢ) : qᵢ ∈ F }` ``:
+When a weighted subset contains final states, the deterministic state's final weight combines all contributions:
 
-```text
-subset = {(q₁, r₁), (q₂, r₂), ...}
-
-final_weight = ⊕ᵢ { rᵢ ⊗ ρ(qᵢ) : qᵢ is final }
-
-where ρ(q) is the final weight of state q
+```math
+\begin{aligned}
+\text{subset} &= \{(q_1, r_1), (q_2, r_2), \dots\} \\
+\text{final\_weight} &= \bigoplus_i \{\, r_i \otimes \rho(q_i) : q_i \text{ is final} \,\}
+\end{aligned}
 ```
+
+where $`\rho(q)`$ is the final weight of state $`q`$.
 
 ## Complexity
 
@@ -310,21 +311,21 @@ where ρ(q) is the final weight of state q
 
 | Case | Complexity |
 |------|------------|
-| Worst case | `` `O(2^∣Q∣)` `` — exponential (powerset) |
-| Unambiguous input | `` `O(∣Q∣ + ∣E∣)` `` — linear |
+| Worst case | $`O(2^{\lvert Q\rvert})`$ — exponential (powerset) |
+| Unambiguous input | $`O(\lvert Q\rvert + \lvert E\rvert)`$ — linear |
 | Practical | Often near-linear for speech/NLP |
 
 ### Space Complexity
 
 | Structure | Size |
 |-----------|------|
-| Subset cache | `O(#unique_subsets)` |
-| Queue | `O(#active_subsets)` |
-| Output WFST | `` `O(∣Q'∣ + ∣E'∣)` `` |
+| Subset cache | $`O(\#\,\text{unique subsets})`$ |
+| Queue | $`O(\#\,\text{active subsets})`$ |
+| Output WFST | $`O(\lvert Q'\rvert + \lvert E'\rvert)`$ |
 
 ### Why Exponential Worst Case?
 
-The powerset construction can create `` `2^∣Q∣` `` subsets in pathological cases:
+The powerset construction can create $`2^{\lvert Q\rvert}`$ subsets in pathological cases:
 
 ```text
 Exponential blowup example:
@@ -359,7 +360,7 @@ let config = DeterminizeConfig {
 };
 ```
 
-If `remove_epsilon_first` is true, the algorithm handles ε-removal internally.
+If `remove_epsilon_first` is true, the algorithm handles $`\varepsilon`$-removal internally.
 
 ### Already Deterministic Input
 
@@ -393,13 +394,13 @@ pub trait DivisibleSemiring: Semiring {
 
 | Semiring | Divisible | Division Operation |
 |----------|-----------|-------------------|
-| Tropical | Yes | `` `a ⊘ b = a − b` `` |
-| Log | Yes | `` `a ⊘ b = a − b` `` |
-| Probability | Yes | `` `a ⊘ b = a ∕ b` `` |
+| Tropical | Yes | $`a \oslash b = a - b`$ |
+| Log | Yes | $`a \oslash b = a - b`$ |
+| Probability | Yes | $`a \oslash b = a / b`$ |
 | Boolean | No | N/A |
 | String | No | N/A |
 
-**Why division?** Weight normalization requires dividing each weight by the minimum (`` `w ⊘ min` ``) to compute residuals.
+**Why division?** Weight normalization requires dividing each weight by the minimum ($`w \oslash \min`$) to compute residuals.
 
 ## Common Patterns
 

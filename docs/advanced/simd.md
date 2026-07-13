@@ -1,12 +1,12 @@
 # SIMD-Accelerated Semiring Operations
 
-**Thesis.** The `simd` module vectorizes the two semiring primitives — `` `⊕` ``
-(combine alternatives) and `` `⊗` `` (combine sequential steps) — across many
+**Thesis.** The `simd` module vectorizes the two semiring primitives — $`\oplus`$
+(combine alternatives) and $`\otimes`$ (combine sequential steps) — across many
 weight *lanes* at once, so that the inner loops of shortest-distance, forward
 scoring, and beam pruning run 2–8× faster than the scalar fallback while
 returning bit-identical results.
 
-A *lane* is one `` `f64` `` slot of a SIMD register; a 256-bit AVX2 register
+A *lane* is one `f64` slot of a SIMD register; a 256-bit AVX2 register
 holds 4 lanes, a 512-bit AVX-512 register holds 8. The module probes the CPU
 once, picks the widest instruction set available, and falls through a fixed
 ladder — **AVX-512 → AVX2 → SSE4.2 → NEON → scalar** — so the same source runs
@@ -18,16 +18,16 @@ on any target. Source: [`src/simd/mod.rs`](../../src/simd/mod.rs).
 
 | Term | Meaning |
 |---|---|
-| `` `⊕` `` | Semiring *plus* — combines alternative paths. Tropical: `` `min` ``; Log: `` `⊕ₗₒg` ``. ([NOTATION](../NOTATION.md)) |
-| `` `⊗` `` | Semiring *times* — combines sequential steps. Tropical/Log: `` `+` ``. ([NOTATION](../NOTATION.md)) |
-| `` `0̄` `` | Additive identity (`` `⊕` ``-identity). Tropical/Log: `` `∞` `` / `` `−∞` ``. |
-| `` `⊕ₗₒg` `` | Log-add: `` `x ⊕ₗₒg y = −ln(e⁻ˣ + e⁻ʸ)` ``. |
-| **lane** | One `` `f64` `` slot of a SIMD vector register. |
-| **vector width** `` `w` `` | Lanes per register: AVX-512 → 8, AVX2 → 4, SSE4.2/NEON → 2, scalar → 1. |
+| $`\oplus`$ | Semiring *plus* — combines alternative paths. Tropical: $`\min`$; Log: $`\oplus_{\log}`$. ([NOTATION](../NOTATION.md)) |
+| $`\otimes`$ | Semiring *times* — combines sequential steps. Tropical/Log: $`+`$. ([NOTATION](../NOTATION.md)) |
+| $`\bar{0}`$ | Additive identity ($`\oplus`$-identity). Tropical/Log: $`\infty`$ / $`-\infty`$. |
+| $`\oplus_{\log}`$ | Log-add: $`x \oplus_{\log} y = -\ln(e^{-x} + e^{-y})`$. |
+| **lane** | One `f64` slot of a SIMD vector register. |
+| **vector width** $`w`$ | Lanes per register: AVX-512 → 8, AVX2 → 4, SSE4.2/NEON → 2, scalar → 1. |
 | **ISA** | Instruction-Set Architecture (here, an x86/ARM SIMD extension). |
-| **horizontal reduction** | Folding the `` `w` `` lanes of one register down to a single scalar. |
-| **log-sum-exp** | `` `log Σ e^{xᵢ} = m + log Σ e^{xᵢ − m}` `` with `` `m = max xᵢ` `` for numerical stability. |
-| `` `∣a∣` `` | Length (cardinality) of slice `` `a` ``; uses U+2223, not ASCII `|`. |
+| **horizontal reduction** | Folding the $`w`$ lanes of one register down to a single scalar. |
+| **log-sum-exp** | $`\log \sum e^{x_i} = m + \log \sum e^{x_i - m}`$ with $`m = \max x_i`$ for numerical stability. |
+| $`\lvert a\rvert`$ | Length (cardinality) of slice $`a`$. |
 
 WFST = Weighted Finite-State Transducer (see
 [`architecture/wfst-traits.md`](../architecture/wfst-traits.md)).
@@ -37,45 +37,47 @@ WFST = Weighted Finite-State Transducer (see
 ## Formal model
 
 A SIMD kernel computes a *pointwise* or *reduction* image of the semiring
-operation over two equal-length weight slices. For element-wise `` `⊗` `` over
-the tropical/log semiring (where `` `⊗ = +` ``):
+operation over two equal-length weight slices. For element-wise $`\otimes`$ over
+the tropical/log semiring (where $`\otimes = +`$):
 
-```text
-simd_add(a, b)[i] = a[i] + b[i]              for i ∈ [0, ∣a∣),   ∣a∣ = ∣b∣
+```math
+\operatorname{simd\_add}(a, b)[i] = a[i] + b[i] \qquad \text{for } i \in [0, \lvert a\rvert), \quad \lvert a\rvert = \lvert b\rvert
 ```
 
-For the tropical `` `⊕ = min` `` reduction (the additive collapse of many
+For the tropical $`\oplus = \min`$ reduction (the additive collapse of many
 alternatives into one):
 
-```text
-simd_tropical_reduce_min(a) = ⊕ᵢ a[i] = min{ a[0], …, a[∣a∣−1] },   ⊕ = min
-                            = ∞ = 0̄        when ∣a∣ = 0
+```math
+\begin{aligned}
+\operatorname{simd\_tropical\_reduce\_min}(a) &= \bigoplus_i a[i] = \min\{\, a[0], \dots, a[\lvert a\rvert - 1] \,\}, \quad \oplus = \min \\
+&= \infty = \bar{0} \qquad \text{when } \lvert a\rvert = 0
+\end{aligned}
 ```
 
 The key relation for the log semiring is the numerically stable identity
-`` `log Σ e^{−aᵢ} = max(a) + log Σ e^{−(aᵢ − max a)}` ``, which
-`simd_log_sum_exp` evaluates so that no intermediate `` `e^{−aᵢ}` `` overflows.
+$`\log \sum e^{-a_i} = \max(a) + \log \sum e^{-(a_i - \max a)}`$, which
+`simd_log_sum_exp` evaluates so that no intermediate $`e^{-a_i}`$ overflows.
 
-Every kernel is **lane-decomposable**: the slice splits into `` `⌊∣a∣ / w⌋` ``
+Every kernel is **lane-decomposable**: the slice splits into $`\lfloor \lvert a\rvert / w\rfloor`$
 full vectors processed with one SIMD instruction each, plus a scalar *tail* of
-`` `∣a∣ mod w` `` elements. Because `` `⊕` `` and `` `⊗` `` are associative and
+$`\lvert a\rvert \bmod w`$ elements. Because $`\oplus`$ and $`\otimes`$ are associative and
 commutative ([Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009)), regrouping the
 sum across lanes leaves the result unchanged — vectorization is *exact*, not an
 approximation.
 
 | Component | Type | Role |
 |---|---|---|
-| `` `a, b` `` | `` `&[f64]` `` | Input weight lanes (raw semiring values). |
-| `` `w` `` | `` `usize` `` | Vector width from `SimdCapability::vector_width`. |
-| result | `` `Vec<f64>` `` (pointwise) or `` `f64` `` (reduction) | Image under the kernel. |
+| $`a, b`$ | `&[f64]` | Input weight lanes (raw semiring values). |
+| $`w`$ | `usize` | Vector width from `SimdCapability::vector_width`. |
+| result | `Vec<f64>` (pointwise) or `f64` (reduction) | Image under the kernel. |
 
 ---
 
 ## Intuition — one register, four costs at once
 
-Take the tropical `` `⊕ = min` `` of two cost vectors. Scalar code touches one
-pair per loop iteration; an AVX2 kernel loads 4 costs from `` `a` `` and 4 from
-`` `b` `` into two registers and emits a single `` `_mm256_min_pd` `` that
+Take the tropical $`\oplus = \min`$ of two cost vectors. Scalar code touches one
+pair per loop iteration; an AVX2 kernel loads 4 costs from $`a`$ and 4 from
+$`b`$ into two registers and emits a single `_mm256_min_pd` that
 produces all 4 minima simultaneously:
 
 ```text
@@ -86,7 +88,7 @@ result            = [1, 4, 3, 2]      (one instruction, 4 lanes)
 
 This is exactly the first test in the module
 (`test_tropical_min`): `simd_tropical_min(&a, &b)` over 8 elements returns
-`` `[1, 4, 3, 2, 2, 3, 4, 1]` ``, computed as two AVX2 chunks.
+`[1, 4, 3, 2, 2, 3, 4, 1]`, computed as two AVX2 chunks.
 
 ---
 
@@ -110,24 +112,24 @@ assert!(cap.vector_width() >= 1);          // 8 / 4 / 2 / 1 depending on CPU
 
 | Function | Semiring role | Signature (abridged) |
 |---|---|---|
-| `simd_tropical_min` | element-wise tropical `` `⊕ = min` `` | `(a: &[f64], b: &[f64]) -> Vec<f64>` |
-| `simd_log_add` | element-wise log `` `⊕ = ⊕ₗₒg` `` | `(a: &[f64], b: &[f64]) -> Vec<f64>` |
-| `simd_add` | element-wise `` `⊗ = +` `` (tropical/log) | `(a: &[f64], b: &[f64]) -> Vec<f64>` |
-| `simd_forward_scores` (`BatchForwardScores`) | batched forward `` `⊕` `` + pruning | `add` / `prune` / `merge_duplicates_*` |
+| `simd_tropical_min` | element-wise tropical $`\oplus = \min`$ | `(a: &[f64], b: &[f64]) -> Vec<f64>` |
+| `simd_log_add` | element-wise log $`\oplus = \oplus_{\log}`$ | `(a: &[f64], b: &[f64]) -> Vec<f64>` |
+| `simd_add` | element-wise $`\otimes = +`$ (tropical/log) | `(a: &[f64], b: &[f64]) -> Vec<f64>` |
+| `simd_forward_scores` (`BatchForwardScores`) | batched forward $`\oplus`$ + pruning | `add` / `prune` / `merge_duplicates_*` |
 
 `simd_tropical_min` and `simd_add` dispatch to a `#[target_feature(enable = "avx2")]`
 kernel when AVX2 is present, else a portable scalar loop. `simd_log_add` is
-intentionally **scalar-per-lane**: vectorized `` `exp` ``/`` `ln` `` need a
+intentionally **scalar-per-lane**: vectorized $`\exp`$/$`\ln`$ need a
 polynomial approximation that would perturb the last bits, so the module keeps
-the stable closed form `` `x + ln(1 + e^{y−x})` `` (with `` `x = max(aᵢ,bᵢ)` ``)
+the stable closed form $`x + \ln(1 + e^{y-x})`$ (with $`x = \max(a_i, b_i)`$)
 and lets autovectorization handle what it safely can.
 
 `simd_forward_scores` is realized by the **`BatchForwardScores`** sparse vector:
 `add(state, score)` appends a hypothesis and tracks `best_score` via
-`` `min` ``; `prune(beam)` drops every state whose score exceeds
-`` `best_score + beam` `` (a tropical threshold); and the two `merge_duplicates_*`
-methods fold scores for repeated states using either log-add (`` `⊕ₗₒg` ``) or
-tropical `` `min` ``. `merge_duplicates_log` is where `simd_tropical_reduce_min`
+$`\min`$; `prune(beam)` drops every state whose score exceeds
+`best_score + beam` (a tropical threshold); and the two `merge_duplicates_*`
+methods fold scores for repeated states using either log-add ($`\oplus_{\log}`$) or
+tropical $`\min`$. `merge_duplicates_log` is where `simd_tropical_reduce_min`
 recomputes `best_score` after the merge.
 
 ### Supporting reductions and maps
@@ -135,7 +137,7 @@ recomputes `best_score` after the merge.
 `simd_reduce_sum`, `simd_reduce_max`, `simd_tropical_reduce_min`, and
 `simd_log_sum_exp` collapse a slice to one scalar; `simd_scale` / `simd_shift`
 apply an affine map in place; and `simd_min_plus_update` does a Floyd-Warshall
-min-plus relaxation row over a dense `` `n × n` `` distance matrix — the
+min-plus relaxation row over a dense $`n \times n`$ distance matrix — the
 all-pairs shortest-distance kernel.
 
 ---
@@ -167,9 +169,9 @@ differs.
         result[i] ← a[i] ∘ b[i]
 ```
 
-Complexity is `` `O(∣a∣ / w)` `` SIMD instructions plus `` `O(w)` `` tail steps,
-i.e. `` `O(∣a∣)` `` work with a `` `w` ``-fold constant-factor speedup. The
-current build wires AVX2 (`` `w = 4` ``) on x86-64 and scalar elsewhere; the
+Complexity is $`O(\lvert a\rvert / w)`$ SIMD instructions plus $`O(w)`$ tail steps,
+i.e. $`O(\lvert a\rvert)`$ work with a $`w`$-fold constant-factor speedup. The
+current build wires AVX2 ($`w = 4`$) on x86-64 and scalar elsewhere; the
 ladder is the contract that lets wider tiers drop in without touching callers.
 
 ![SIMD ISA-dispatch ladder: a runtime feature probe routes to the widest available kernel, then a vector body plus a scalar tail produce the result.](../diagrams/advanced/simd-dispatch.svg)
@@ -203,11 +205,11 @@ slice pair (a, b): &[f64]
 ### ⟨ horizontal lane reduction ⟩
 
 A reduction such as `simd_tropical_reduce_min` keeps a *vector accumulator* of
-`` `w` `` running partials and absorbs the slice `` `w` `` elements at a time
-(`` `acc ← min(acc, chunk)` ``), then performs one **horizontal fold** to
-collapse the `` `w` `` lanes into the final scalar, and finishes the tail in
-scalar. The accumulator starts at the identity `` `0̄ = ∞` `` so empty input
-yields `` `∞` `` and short input is handled by the tail alone.
+$`w`$ running partials and absorbs the slice $`w`$ elements at a time
+(`acc ← min(acc, chunk)`), then performs one **horizontal fold** to
+collapse the $`w`$ lanes into the final scalar, and finishes the tail in
+scalar. The accumulator starts at the identity $`\bar{0} = \infty`$ so empty input
+yields $`\infty`$ and short input is handled by the tail alone.
 
 ![SIMD lane reduction: a 4-lane AVX2 accumulator absorbs four elements per step with vertical min, then a horizontal fold collapses the lanes to one scalar.](../diagrams/advanced/simd-lanes.svg)
 
@@ -234,7 +236,7 @@ horizontal fold (scalar): min(l0, l1, l2, l3)
 All snippets below are lifted from the module's compiler-checked doctest and
 `#[cfg(test)]` tests in [`src/simd/mod.rs`](../../src/simd/mod.rs).
 
-### Element-wise `⊕` (min) and `⊗` (+)
+### Element-wise $`\oplus`$ (min) and $`\otimes`$ (+)
 
 ```rust
 use lling_llang::simd::{simd_tropical_min, simd_add};
@@ -251,7 +253,7 @@ let sum_result = simd_add(&a, &b);
 assert_eq!(sum_result, vec![9.0, 9.0, 9.0, 9.0, 9.0, 9.0, 9.0, 9.0]);
 ```
 
-### Stable log `⊕` and log-sum-exp
+### Stable log $`\oplus`$ and log-sum-exp
 
 ```rust
 use lling_llang::simd::{simd_log_add, simd_log_sum_exp};
@@ -292,10 +294,10 @@ assert!(scores.scores.iter().all(|&s| s <= 4.0));
 - **Shortest distance & forward scoring.** `BatchForwardScores` mirrors the
   pruned forward pass in
   [`algorithms/shortest-distance.md`](../algorithms/shortest-distance.md); its
-  `merge_duplicates_log` is the per-state `` `⊕ₗₒg` `` accumulation used by the
+  `merge_duplicates_log` is the per-state $`\oplus_{\log}`$ accumulation used by the
   differentiable forward score
   ([`advanced/differentiable.md`](differentiable.md)).
-- **Beam search.** `prune` implements the tropical `` `best + beam` `` cutoff
+- **Beam search.** `prune` implements the tropical `best + beam` cutoff
   that [`advanced/beam-optimization.md`](beam-optimization.md) and the
   lookahead table ([`optimization/lookahead.md`](../optimization/lookahead.md))
   rely on; `simd_tropical_reduce_min` is the `best_score` recomputation.
@@ -304,17 +306,17 @@ assert!(scores.scores.iter().all(|&s| s <= 4.0));
 - **Feature flags.** The doc comment lists `simd-avx512`, `simd-avx2`, and
   `simd-neon`; AVX-512 requires nightly. With no feature and no detected ISA the
   scalar path is always compiled, so results are portable.
-- **Semirings.** The kernels operate on raw `` `f64` `` lanes that correspond to
+- **Semirings.** The kernels operate on raw `f64` lanes that correspond to
   `TropicalWeight::value()` / `LogWeight::value()` from
   [`architecture/semirings.md`](../architecture/semirings.md); the algebra they
-  implement is the `` `⊕` ``/`` `⊗` `` of those weights.
+  implement is the $`\oplus`$/$`\otimes`$ of those weights.
 
 ---
 
 ## References
 
 - [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms.*
-  Associativity/commutativity of `` `⊕` `` and `` `⊗` `` justify the
+  Associativity/commutativity of $`\oplus`$ and $`\otimes`$ justify the
   lane-regrouping that makes vectorized reductions exact.
 - [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted Finite-State
   Transducers in Speech Recognition.* The forward/beam computations these kernels

@@ -16,9 +16,9 @@ skinparam rectangle {
   BorderColor #E65100
 }
 
-title <b>Lattice-Free MMI</b>\n<size:11>L_MMI = −( log P_num(x) − log P_den(x) ) ;  warm-started with cross-entropy (xent_regularize)</size>
+title <b>Lattice-Free MMI</b>\n<size:11><latex>L_{\text{MMI}} = -( \log P_{\text{num}}(x) - \log P_{\text{den}}(x) )</latex> ;  warm-started with cross-entropy (xent_regularize)</size>
 
-rectangle "<b>Acoustic posteriors</b>\nlog P(pdf∣frame)  [T × num_pdfs]" as X #E1BEE7
+rectangle "<b>Acoustic posteriors</b>\n<latex>\log P(\text{pdf} \mid \text{frame})</latex>  [<latex>T \times</latex> num_pdfs]" as X #E1BEE7
 
 rectangle "<b>Numerator graph</b>\ncorrect transcript · HMM topology\nbuild_numerator_graph" as NUM #FFE0B2
 rectangle "<b>Denominator graph</b>\nphone loop + phone-LM (all hypotheses)\nbuild_denominator_graph" as DEN #FFCC80
@@ -26,20 +26,20 @@ rectangle "<b>Denominator graph</b>\nphone loop + phone-LM (all hypotheses)\nbui
 X -down-> NUM : forward-backward
 X -down-> DEN : forward-backward
 
-rectangle "<b>log P_num(x)</b>\nscore of the reference path" as PNUM #C8E6C9
-rectangle "<b>log P_den(x)</b>\nlog Σ_y P(y∣x)  (leaky-HMM smoothed)" as PDEN #C8E6C9
+rectangle "<b><latex>\log P_{\text{num}}(x)</latex></b>\nscore of the reference path" as PNUM #C8E6C9
+rectangle "<b><latex>\log P_{\text{den}}(x)</latex></b>\n<latex>\log \Sigma_y P(y \mid x)</latex>  (leaky-HMM smoothed)" as PDEN #C8E6C9
 
 NUM -down-> PNUM
 DEN -down-> PDEN
 
-rectangle "<b>MMI objective</b>\nL = −(log P_num − log P_den)" as MMI #FFB74D
+rectangle "<b>MMI objective</b>\n<latex>L = -(\log P_{\text{num}} - \log P_{\text{den}})</latex>" as MMI #FFB74D
 PNUM -down-> MMI
 PDEN -down-> MMI
 
-rectangle "<b>Warmup / regularization</b>\n+ xent_regularize · L_xent\n+ l2_regularize · ∥out∥²\n+ leaky_hmm_coefficient" as REG #FFCDD2
+rectangle "<b>Warmup / regularization</b>\n+ xent_regularize · <latex>L_{\text{xent}}</latex>\n+ l2_regularize · <latex>\|\text{out}\|^2</latex>\n+ leaky_hmm_coefficient" as REG #FFCDD2
 MMI -down-> REG : interpolate
 
-rectangle "<b>Gradients</b>\n∂L / ∂(acoustic scores)\nLfMmiGradients" as GRAD #ECEFF1
+rectangle "<b>Gradients</b>\n<latex>\partial L / \partial(\text{acoustic scores})</latex>\nLfMmiGradients" as GRAD #ECEFF1
 REG -down-> GRAD : backprop
 
 note right of DEN

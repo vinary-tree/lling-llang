@@ -19,19 +19,27 @@ The extension of the source file selects the render engine.
 | Concept | Tool | Source ext | Why this tool |
 |---|---|---|---|
 | WFSA/WFST state graphs, weighted lattices (DAGs) | **Graphviz** | `.dot` | Canonical node-edge automaton; arc labels `in:out/weight`; trivial per-edge recoloring for the best path. |
-| CTC topologies, composition products, ε-filters | **Graphviz** | `.dot` | Auto-laid-out automata that change with the API; `circo` for all-to-all, `dot` for the rest. |
+| CTC topologies, composition products, $`\varepsilon`$-filters | **Graphviz** | `.dot` | Auto-laid-out automata that change with the API; `circo` for all-to-all, `dot` for the rest. |
 | HMM / lexicon / n-gram / PDA-stack / tree-rewrite / RNN-T grid | **Graphviz** | `.dot` | All are relationship graphs whose layout should follow the relation. |
 | GPU CSR layout / token-recombination dataflow | **Graphviz** | `.dot` | `record` nodes model array layouts; arrows model dataflow. |
 | Trait hierarchies (Semiring, Wfst, backend) | **PlantUML** | `.puml` | Default for *semantic* class diagrams kept under version control; matches the repo's established style. |
 | Pipelines / dataflow / state machines (correction, ASR, RRWM, TN-ITN, LaTeX/MathML/syntax flows) | **PlantUML** | `.puml` | Activity/state/sequence/component diagrams read cleanly and diff well. |
 | Forward/backward autograd message passing | **PlantUML** | `.puml` | A two-pass sequence diagram. |
-| Polished high-level system overviews (≤ 3: whole library, liblevenshtein, F1R3FLY) | **D2** | `.d2` | Container model + `elk` layout yields the cleanest big-picture diagrams. |
-| Publication-grade math figures (semiring property lattice, η-power, signed-tropical) | **TikZ/PGF** | `.tex` | Native `⊕`/`⊗`/`0̄`/`1̄` typography for paper-quality figures. |
+| Polished high-level system overviews ($`\le 3`$: whole library, liblevenshtein, F1R3FLY) | **D2** | `.d2` | Container model + `elk` layout yields the cleanest big-picture diagrams. |
+| Publication-grade math figures (semiring property lattice, $`\eta`$-power, signed-tropical) | **TikZ/PGF** | `.tex` | Native LaTeX math typography ($`\oplus`$/$`\otimes`$/$`\bar{0}`$/$`\bar{1}`$) for paper-quality figures. |
 
 **Mermaid** (`.mmd`) is supported by the pipeline but deliberately unused for new
 diagrams: committed SVGs make its inline-preview advantage moot, and avoiding a
 fifth toolchain keeps the visual style consistent. **Kroki** (the pgmcp HTTP
 gateway) is an optional fallback; the local engines above are the required path.
+
+**Math in diagram labels.** PlantUML (`.puml`) and TikZ (`.tex`) typeset
+mathematics with LaTeX — `<latex>\oplus</latex>` via JLaTeXMath in PlantUML, math
+macros in TikZ — rather than Unicode literals, per the pgmcp
+*diagrams-plantuml-latex* guideline and [`STYLE.md`](../STYLE.md) §4. Graphviz
+(`.dot`) and D2 (`.d2`) have no LaTeX facility, so their automaton and dataflow
+labels keep the readable Unicode forms (`a:ε/0.5`, `q₀`) — which render
+identically in the SVG.
 
 ## 2. Color palette — one intuitive color per concept
 

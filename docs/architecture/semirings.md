@@ -8,27 +8,27 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); conventions in [`STYLE.md`](../
 
 | Symbol / term | Meaning |
 |---|---|
-| **Semiring** | `` `(K, ⊕, ⊗, 0̄, 1̄)` `` — a set of weights with two operations and two identities (defined below). |
-| `K` | The carrier set of weights (e.g. `` `ℝ ∪ {∞}` `` for Tropical). |
-| `` `⊕` `` | Semiring *plus*: combines **alternative** paths. Associative, commutative, identity `` `0̄` ``. |
-| `` `⊗` `` | Semiring *times*: combines **sequential** steps. Associative, identity `` `1̄` ``, distributes over `` `⊕` ``. |
-| `` `0̄` `` | The `` `⊕` ``-identity ("no path" / unreachable). |
-| `` `1̄` `` | The `` `⊗` ``-identity ("empty path" / zero cost). |
-| `` `a*` `` | Kleene closure `` `a* = 1̄ ⊕ a ⊕ (a⊗a) ⊕ …` `` (when it converges). |
-| `` `η` `` | Power exponent of the `` `S_η` `` power semiring (soft path selection). |
-| `` `∣K∣` `` | Cardinality of the carrier set (uses U+2223, not ASCII `|`). |
+| **Semiring** | $`(K, \oplus, \otimes, \bar{0}, \bar{1})`$ — a set of weights with two operations and two identities (defined below). |
+| $`K`$ | The carrier set of weights (e.g. $`\mathbb{R} \cup \{\infty\}`$ for Tropical). |
+| $`\oplus`$ | Semiring *plus*: combines **alternative** paths. Associative, commutative, identity $`\bar{0}`$. |
+| $`\otimes`$ | Semiring *times*: combines **sequential** steps. Associative, identity $`\bar{1}`$, distributes over $`\oplus`$. |
+| $`\bar{0}`$ | The $`\oplus`$-identity ("no path" / unreachable). |
+| $`\bar{1}`$ | The $`\otimes`$-identity ("empty path" / zero cost). |
+| $`a^*`$ | Kleene closure $`a^* = \bar{1} \oplus a \oplus (a \otimes a) \oplus \cdots`$ (when it converges). |
+| $`\eta`$ | Power exponent of the $`S_\eta`$ power semiring (soft path selection). |
+| $`\lvert K\rvert`$ | Cardinality of the carrier set. |
 
 ## Concepts
 
 ### What is a Semiring?
 
-A **semiring** is an algebraic structure that generalizes addition and multiplication. Formally, a semiring `` `(K, ⊕, ⊗, 0̄, 1̄)` `` consists of:
+A **semiring** is an algebraic structure that generalizes addition and multiplication. Formally, a semiring $`(K, \oplus, \otimes, \bar{0}, \bar{1})`$ consists of:
 
-- A set `` `K` `` of elements (weights)
-- An addition operation `` `⊕` `` (called "plus")
-- A multiplication operation `` `⊗` `` (called "times")
-- An additive identity `` `0̄` `` (called "zero")
-- A multiplicative identity `` `1̄` `` (called "one")
+- A set $`K`$ of elements (weights)
+- An addition operation $`\oplus`$ (called "plus")
+- A multiplication operation $`\otimes`$ (called "times")
+- An additive identity $`\bar{0}`$ (called "zero")
+- A multiplicative identity $`\bar{1}`$ (called "one")
 
 ### Why Semirings?
 
@@ -37,38 +37,48 @@ In path-finding problems, we often want to:
 2. **Combine sequential steps** (e.g., add the costs of consecutive edges)
 
 Different problems have different combination rules:
-- **Shortest path**: `` `min` `` for parallel, `` `+` `` for sequential
-- **Probability**: `` `+` `` for parallel (sum), `` `×` `` for sequential (product)
-- **Reachability**: `` `∨` `` (OR) for parallel, `` `∧` `` (AND) for sequential
+- **Shortest path**: $`\min`$ for parallel, $`+`$ for sequential
+- **Probability**: $`+`$ for parallel (sum), $`\times`$ for sequential (product)
+- **Reachability**: $`\lor`$ (OR) for parallel, $`\land`$ (AND) for sequential
 
 Semirings unify these operations under a common interface, allowing the same algorithms to work with different optimization objectives [[Goodman 1999](../BIBLIOGRAPHY.md#ref-goodman1999); [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009)].
 
 ### Semiring Axioms
 
-A semiring must satisfy four axiom groups. In words: `` `⊕` `` is **commutative** (`` `a ⊕ b = b ⊕ a` ``), **associative** (`` `(a ⊕ b) ⊕ c = a ⊕ (b ⊕ c)` ``), with identity `` `0̄` `` (`` `a ⊕ 0̄ = a` ``); `` `⊗` `` is **associative** (`` `(a ⊗ b) ⊗ c = a ⊗ (b ⊗ c)` ``) with identity `` `1̄` `` (`` `a ⊗ 1̄ = 1̄ ⊗ a = a` ``); `` `⊗` `` **distributes** over `` `⊕` `` on both sides (`` `a ⊗ (b ⊕ c) = (a ⊗ b) ⊕ (a ⊗ c)` `` and `` `(a ⊕ b) ⊗ c = (a ⊗ c) ⊕ (b ⊗ c)` ``); and `` `0̄` `` **annihilates** `` `⊗` `` (`` `a ⊗ 0̄ = 0̄ ⊗ a = 0̄` ``). The display forms:
+A semiring must satisfy four axiom groups: $`\oplus`$ is a commutative monoid with identity $`\bar{0}`$; $`\otimes`$ is a monoid with identity $`\bar{1}`$; $`\otimes`$ distributes over $`\oplus`$ on both sides; and $`\bar{0}`$ annihilates $`\otimes`$.
 
-**1. Additive Monoid** `` `(K, ⊕, 0̄)` `` — commutativity, associativity, identity `` `0̄` ``:
-```text
-a ⊕ b = b ⊕ a                    (commutativity)
-(a ⊕ b) ⊕ c = a ⊕ (b ⊕ c)        (associativity)
-a ⊕ 0̄ = a                        (identity)
+**1. Additive Monoid** $`(K, \oplus, \bar{0})`$ — commutativity, associativity, identity $`\bar{0}`$:
+
+```math
+\begin{aligned}
+a \oplus b &= b \oplus a && \text{(commutativity)} \\
+(a \oplus b) \oplus c &= a \oplus (b \oplus c) && \text{(associativity)} \\
+a \oplus \bar{0} &= a && \text{(identity)}
+\end{aligned}
 ```
 
-**2. Multiplicative Monoid** `` `(K, ⊗, 1̄)` `` — associativity, identity `` `1̄` ``:
-```text
-(a ⊗ b) ⊗ c = a ⊗ (b ⊗ c)        (associativity)
-a ⊗ 1̄ = 1̄ ⊗ a = a               (identity)
+**2. Multiplicative Monoid** $`(K, \otimes, \bar{1})`$ — associativity, identity $`\bar{1}`$:
+
+```math
+\begin{aligned}
+(a \otimes b) \otimes c &= a \otimes (b \otimes c) && \text{(associativity)} \\
+a \otimes \bar{1} = \bar{1} \otimes a &= a && \text{(identity)}
+\end{aligned}
 ```
 
-**3. Distributivity** — `` `⊗` `` distributes over `` `⊕` `` (left and right):
-```text
-a ⊗ (b ⊕ c) = (a ⊗ b) ⊕ (a ⊗ c)  (left)
-(a ⊕ b) ⊗ c = (a ⊗ c) ⊕ (b ⊗ c)  (right)
+**3. Distributivity** — $`\otimes`$ distributes over $`\oplus`$ (left and right):
+
+```math
+\begin{aligned}
+a \otimes (b \oplus c) &= (a \otimes b) \oplus (a \otimes c) && \text{(left)} \\
+(a \oplus b) \otimes c &= (a \otimes c) \oplus (b \otimes c) && \text{(right)}
+\end{aligned}
 ```
 
-**4. Annihilation** — `` `0̄` `` annihilates under `` `⊗` ``:
-```text
-a ⊗ 0̄ = 0̄ ⊗ a = 0̄               (zero annihilates)
+**4. Annihilation** — $`\bar{0}`$ annihilates under $`\otimes`$:
+
+```math
+a \otimes \bar{0} = \bar{0} \otimes a = \bar{0} \qquad \text{(zero annihilates)}
 ```
 
 ### Semantic Interpretation
@@ -77,18 +87,18 @@ In the context of WFSTs and lattices:
 
 | Operation | Meaning | Example (Tropical) |
 |-----------|---------|-------------------|
-| `` `⊕` `` (plus) | Combine parallel path weights | `` `min(2, 3) = 2` `` |
-| `` `⊗` `` (times) | Combine sequential edge weights | `` `2 + 3 = 5` `` |
-| `` `0̄` `` (zero) | Identity for `` `⊕` ``, worst possible weight | `` `∞` `` |
-| `` `1̄` `` (one) | Identity for `` `⊗` ``, neutral weight | `` `0` `` |
+| $`\oplus`$ (plus) | Combine parallel path weights | $`\min(2, 3) = 2`$ |
+| $`\otimes`$ (times) | Combine sequential edge weights | $`2 + 3 = 5`$ |
+| $`\bar{0}`$ (zero) | Identity for $`\oplus`$, worst possible weight | $`\infty`$ |
+| $`\bar{1}`$ (one) | Identity for $`\otimes`$, neutral weight | $`0`$ |
 
 ## The Semiring Trait
 
-The core algebra `` `Semiring` `` is refined by **capability** traits (green — divisibility, star/closure) and **property marker** traits (amber — idempotency, ordering, …); concrete weights implement exactly the subset their algebra supports.
+The core algebra `Semiring` is refined by **capability** traits (green — divisibility, star/closure) and **property marker** traits (amber — idempotency, ordering, …); concrete weights implement exactly the subset their algebra supports.
 
 ![Semiring trait hierarchy: the core Semiring interface (blue) with zero/one/plus/times/is_zero/is_one/approx_eq/natural_less/to_bytes, refined by capability traits (green) DivisibleSemiring, StarSemiring, FallibleStarSemiring, WeaklyLeftDivisibleSemiring, KClosedSemiring, and property-marker traits (amber) IdempotentSemiring, CommutativeTimesSemiring, ZeroSumFreeSemiring, NonnegativeSemiring, TotallyOrderedSemiring, StochasticSemiring, QuantizableSemiring.](../diagrams/architecture/semiring-traits.svg)
 
-*Blue = the core `` `Semiring` `` algebra `` `(K, ⊕, ⊗, 0̄, 1̄)` ``; green = capability traits (division, Kleene `` `star` ``); amber = algebraic-property marker traits used for compile-time algorithm requirements.*
+*Blue = the core `Semiring` algebra $`(K, \oplus, \otimes, \bar{0}, \bar{1})`$; green = capability traits (division, Kleene `star`); amber = algebraic-property marker traits used for compile-time algorithm requirements.*
 
 <details><summary>Text view</summary>
 
@@ -155,7 +165,7 @@ pub trait DivisibleSemiring: Semiring {
 }
 ```
 
-**StarSemiring**: Supports Kleene closure (needed for epsilon removal). Computes the closure `` `a* = ⨁_{n=0}^∞ aⁿ = 1̄ ⊕ a ⊕ (a⊗a) ⊕ …` `` when it converges:
+**StarSemiring**: Supports Kleene closure (needed for epsilon removal). Computes the closure $`a^* = \bigoplus_{n=0}^{\infty} a^n = \bar{1} \oplus a \oplus (a \otimes a) \oplus \cdots`$ when it converges:
 
 ```rust
 pub trait StarSemiring: Semiring {
@@ -168,7 +178,7 @@ pub trait StarSemiring: Semiring {
 
 These marker traits document algebraic properties of semirings, enabling compile-time verification of algorithm requirements:
 
-**IdempotentSemiring**: Addition is idempotent (`` `a ⊕ a = a` ``):
+**IdempotentSemiring**: Addition is idempotent ($`a \oplus a = a`$):
 ```rust
 pub trait IdempotentSemiring: Semiring {}
 ```
@@ -183,7 +193,7 @@ pub trait KClosedSemiring: Semiring {
 ```
 Implementations: `TropicalWeight` (k=0), `BoolWeight` (k=0), `LogWeight` (None), `ProbabilityWeight` (None), `ExpectationWeight` (None), `PowerWeight` (None)
 
-**ZeroSumFreeSemiring**: `` `a ⊕ b = 0̄` `` implies `` `a = b = 0̄` ``:
+**ZeroSumFreeSemiring**: $`a \oplus b = \bar{0}`$ implies $`a = b = \bar{0}`$:
 ```rust
 pub trait ZeroSumFreeSemiring: Semiring {}
 ```
@@ -198,7 +208,7 @@ pub trait WeaklyLeftDivisibleSemiring: Semiring {
 ```
 Implementations: `TropicalWeight`, `LogWeight`, `ProbabilityWeight`, `ExpectationWeight`, `ProductWeight<S1, S2>` (when both are weakly left divisible)
 
-**CommutativeTimesSemiring**: Multiplication is commutative (`` `a ⊗ b = b ⊗ a` ``):
+**CommutativeTimesSemiring**: Multiplication is commutative ($`a \otimes b = b \otimes a`$):
 ```rust
 pub trait CommutativeTimesSemiring: Semiring {}
 ```
@@ -245,7 +255,7 @@ Used by `sample_path` for proportional path sampling.
 
 ### Semiring Property Summary
 
-| Semiring | Idempotent | K-Closed | Zero-Sum-Free | Weakly Left Divisible | Commutative `` `⊗` `` | TotallyOrdered | Nonnegative | Quantizable | Stochastic |
+| Semiring | Idempotent | K-Closed | Zero-Sum-Free | Weakly Left Divisible | Commutative $`\otimes`$ | TotallyOrdered | Nonnegative | Quantizable | Stochastic |
 |----------|------------|----------|---------------|----------------------|---------------|----------------|-------------|-------------|------------|
 | TropicalWeight | Yes | k=0 | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 | LogWeight | No | None | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
@@ -258,11 +268,11 @@ Used by `sample_path` for proportional path sampling.
 
 *Cond.: Inherits property from component semirings.*
 
-The five core concrete semirings classify by their algebraic properties as follows — **choosing the semiring chooses the question** [[Goodman 1999](../BIBLIOGRAPHY.md#ref-goodman1999)]: Tropical ⇒ best path (Viterbi), Log ⇒ marginal (forward), Probability ⇒ inside score, Boolean ⇒ reachability.
+The five core concrete semirings classify by their algebraic properties as follows — **choosing the semiring chooses the question** [[Goodman 1999](../BIBLIOGRAPHY.md#ref-goodman1999)]: Tropical yields the best path (Viterbi), Log the marginal (forward), Probability the inside score, and Boolean reachability.
 
 ![Semiring property classification: the Semiring signature (K, ⊕, ⊗, 0̄, 1̄) at the top branches to four concrete semirings — Tropical (ℝ∪{∞}, min, +, ∞, 0), Log (ℝ∪{∞}, ⊕log, +, ∞, 0), Probability ([0,1], +, ×, 0, 1), Boolean ({0,1}, ∨, ∧, 0, 1) — each tagged with its algebraic properties (idempotent/k-closed, divisible, stochastic).](../diagrams/architecture/semiring-hasse.svg)
 
-*Blue = the `` `Semiring` `` signature and axioms; green = the four core concrete semirings; amber = their distinguishing algebraic-property tags. The caption records which inference question each semiring answers.*
+*Blue = the `Semiring` signature and axioms; green = the four core concrete semirings; amber = their distinguishing algebraic-property tags. The caption records which inference question each semiring answers.*
 
 <details><summary>Text view</summary>
 
@@ -287,14 +297,14 @@ The five core concrete semirings classify by their algebraic properties as follo
 
 ### TropicalWeight
 
-The **tropical semiring** `` `(ℝ ∪ {∞}, min, +, ∞, 0)` `` is the standard choice for shortest-path problems.
+The **tropical semiring** $`(\mathbb{R} \cup \{\infty\}, \min, +, \infty, 0)`$ is the standard choice for shortest-path problems.
 
 | Operation | Definition | Intuition |
 |-----------|------------|-----------|
-| `` `⊕` `` | `` `min(a, b)` `` | Pick the shorter path |
-| `` `⊗` `` | `` `a + b` `` | Accumulate costs |
-| `` `0̄` `` | `` `∞` `` | Unreachable |
-| `` `1̄` `` | `` `0` `` | Free (zero cost) |
+| $`\oplus`$ | $`\min(a, b)`$ | Pick the shorter path |
+| $`\otimes`$ | $`a + b`$ | Accumulate costs |
+| $`\bar{0}`$ | $`\infty`$ | Unreachable |
+| $`\bar{1}`$ | $`0`$ | Free (zero cost) |
 
 ```rust
 use lling_llang::semiring::{Semiring, TropicalWeight};
@@ -317,14 +327,14 @@ assert_eq!(a.times(&TropicalWeight::one()), a);     // a ⊗ 0 = a
 
 ### LogWeight
 
-The **log semiring** `` `(ℝ ∪ {∞}, ⊕ₗₒg, +, ∞, 0)` `` operates in negative log probability space for numerical stability, where `` `x ⊕ₗₒg y = −ln(e⁻ˣ + e⁻ʸ)` ``.
+The **log semiring** $`(\mathbb{R} \cup \{\infty\}, \oplus_{\log}, +, \infty, 0)`$ operates in negative log probability space for numerical stability, where $`x \oplus_{\log} y = -\ln(e^{-x} + e^{-y})`$.
 
 | Operation | Definition | Intuition |
 |-----------|------------|-----------|
-| `` `⊕` `` | `` `−ln(e⁻ᵃ + e⁻ᵇ)` `` | Sum probabilities |
-| `` `⊗` `` | `` `a + b` `` | Multiply probabilities |
-| `` `0̄` `` | `` `∞` `` | Probability `` `0` `` |
-| `` `1̄` `` | `` `0` `` | Probability `` `1` `` |
+| $`\oplus`$ | $`-\ln(e^{-a} + e^{-b})`$ | Sum probabilities |
+| $`\otimes`$ | $`a + b`$ | Multiply probabilities |
+| $`\bar{0}`$ | $`\infty`$ | Probability $`0`$ |
+| $`\bar{1}`$ | $`0`$ | Probability $`1`$ |
 
 ```rust
 use lling_llang::semiring::{Semiring, LogWeight};
@@ -351,14 +361,14 @@ assert!((prod.to_probability() - 0.15).abs() < 1e-10);
 
 ### BoolWeight
 
-The **boolean semiring** `` `({0, 1}, ∨, ∧, 0, 1)` `` for reachability queries.
+The **boolean semiring** $`(\{0, 1\}, \lor, \land, 0, 1)`$ for reachability queries.
 
 | Operation | Definition | Intuition |
 |-----------|------------|-----------|
-| `` `⊕` `` | `` `a ∨ b` `` (OR) | Path exists from either |
-| `` `⊗` `` | `` `a ∧ b` `` (AND) | Path exists through both |
-| `` `0̄` `` | `` `false` `` | Unreachable |
-| `` `1̄` `` | `` `true` `` | Reachable |
+| $`\oplus`$ | $`a \lor b`$ (OR) | Path exists from either |
+| $`\otimes`$ | $`a \land b`$ (AND) | Path exists through both |
+| $`\bar{0}`$ | `false` | Unreachable |
+| $`\bar{1}`$ | `true` | Reachable |
 
 ```rust
 use lling_llang::semiring::{Semiring, BoolWeight};
@@ -378,10 +388,10 @@ The **product semiring** combines two semirings component-wise. This is useful w
 
 | Operation | Definition |
 |-----------|------------|
-| `` `⊕` `` | `` `(a₁ ⊕₁ b₁, a₂ ⊕₂ b₂)` `` |
-| `` `⊗` `` | `` `(a₁ ⊗₁ b₁, a₂ ⊗₂ b₂)` `` |
-| `` `0̄` `` | `` `(0̄₁, 0̄₂)` `` |
-| `` `1̄` `` | `` `(1̄₁, 1̄₂)` `` |
+| $`\oplus`$ | $`(a_1 \oplus_1 b_1, a_2 \oplus_2 b_2)`$ |
+| $`\otimes`$ | $`(a_1 \otimes_1 b_1, a_2 \otimes_2 b_2)`$ |
+| $`\bar{0}`$ | $`(\bar{0}_1, \bar{0}_2)`$ |
+| $`\bar{1}`$ | $`(\bar{1}_1, \bar{1}_2)`$ |
 
 ```rust
 use lling_llang::semiring::{Semiring, TropicalWeight, LogWeight, ProductWeight};
@@ -407,14 +417,14 @@ let prod = a.times(&b);
 
 ### ProbabilityWeight
 
-The **probability semiring** `` `(ℝ₊ ∪ {0}, +, ×, 0, 1)` `` operates directly on probability values, unlike `` `LogWeight` `` which uses negative log space.
+The **probability semiring** $`(\mathbb{R}_+ \cup \{0\}, +, \times, 0, 1)`$ operates directly on probability values, unlike `LogWeight` which uses negative log space.
 
 | Operation | Definition | Intuition |
 |-----------|------------|-----------|
-| `` `⊕` `` | `` `a + b` `` | Sum probabilities |
-| `` `⊗` `` | `` `a × b` `` | Multiply probabilities |
-| `` `0̄` `` | `` `0` `` | Impossible event |
-| `` `1̄` `` | `` `1` `` | Certain event |
+| $`\oplus`$ | $`a + b`$ | Sum probabilities |
+| $`\otimes`$ | $`a \times b`$ | Multiply probabilities |
+| $`\bar{0}`$ | $`0`$ | Impossible event |
+| $`\bar{1}`$ | $`1`$ | Certain event |
 
 ```rust
 use lling_llang::semiring::{Semiring, ProbabilityWeight};
@@ -454,17 +464,17 @@ let from_log: ProbabilityWeight = log.into();
 
 The **string semiring** operates on strings with longest common prefix/suffix for addition and concatenation for multiplication.
 
-| Variant | `` `⊕` `` Operation | Distributivity |
+| Variant | $`\oplus`$ operation | Distributivity |
 |---------|-------------|----------------|
-| `LeftStringWeight` | Longest common prefix (`lcp`) | Left-distributive |
-| `RightStringWeight` | Longest common suffix (`lcs`) | Right-distributive |
+| `LeftStringWeight` | Longest common prefix ($`\operatorname{lcp}`$) | Left-distributive |
+| `RightStringWeight` | Longest common suffix ($`\operatorname{lcs}`$) | Right-distributive |
 
 | Operation | Definition | Intuition |
 |-----------|------------|-----------|
-| `` `⊕` `` | `` `lcp(a, b)` `` or `` `lcs(a, b)` `` | Common part of strings |
-| `` `⊗` `` | `` `a · b` `` (concatenation) | Join strings |
-| `` `0̄` `` | `` `∞` `` (infinite string) | Identity for `` `lcp`/`lcs` `` |
-| `` `1̄` `` | `` `ε` `` (empty string) | Identity for concatenation |
+| $`\oplus`$ | $`\operatorname{lcp}(a, b)`$ or $`\operatorname{lcs}(a, b)`$ | Common part of strings |
+| $`\otimes`$ | $`a \cdot b`$ (concatenation) | Join strings |
+| $`\bar{0}`$ | $`\infty`$ (infinite string) | Identity for $`\operatorname{lcp}`$/$`\operatorname{lcs}`$ |
+| $`\bar{1}`$ | $`\varepsilon`$ (empty string) | Identity for concatenation |
 
 ```rust
 use lling_llang::semiring::LeftStringWeight;
@@ -486,7 +496,7 @@ let concat = abc.times(&def);
 assert_eq!(concat.as_str(), Some("abcdef"));
 ```
 
-**Important**: String semirings are only **weakly distributive** — `` `LeftStringWeight` `` satisfies only the left law `` `a ⊗ (b ⊕ c) = (a ⊗ b) ⊕ (a ⊗ c)` ``, and `` `RightStringWeight` `` only the right law `` `(a ⊕ b) ⊗ c = (a ⊗ c) ⊕ (b ⊗ c)` `` (not both):
+**Important**: String semirings are only **weakly distributive** — `LeftStringWeight` satisfies only the left law $`a \otimes (b \oplus c) = (a \otimes b) \oplus (a \otimes c)`$, and `RightStringWeight` only the right law $`(a \oplus b) \otimes c = (a \otimes c) \oplus (b \otimes c)`$ (not both):
 ```rust
 // LeftStringWeight: Left-distributive
 // a ⊗ (b ⊕ c) = (a ⊗ b) ⊕ (a ⊗ c)  ✓
@@ -499,14 +509,14 @@ assert_eq!(concat.as_str(), Some("abcdef"));
 
 ### ExpectationWeight
 
-The **expectation semiring** `` `(ℝ × ℝ, ⊕, ⊗, (0,0), (1,0))` `` combines probabilities with expected value computation [[Cortes 2015](../BIBLIOGRAPHY.md#ref-cortes2015)].
+The **expectation semiring** $`(\mathbb{R} \times \mathbb{R}, \oplus, \otimes, (0,0), (1,0))`$ combines probabilities with expected value computation [[Cortes 2015](../BIBLIOGRAPHY.md#ref-cortes2015)].
 
 | Operation | Definition | Intuition |
 |-----------|------------|-----------|
-| `` `⊕` `` | `` `(x₁ + x₂, y₁ + y₂)` `` | Sum probabilities and expectations |
-| `` `⊗` `` | `` `(x₁·x₂, x₁·y₂ + x₂·y₁)` `` | Product rule for expectations |
-| `` `0̄` `` | `` `(0, 0)` `` | Zero probability, zero expectation |
-| `` `1̄` `` | `` `(1, 0)` `` | Certain event, zero cost |
+| $`\oplus`$ | $`(x_1 + x_2, y_1 + y_2)`$ | Sum probabilities and expectations |
+| $`\otimes`$ | $`(x_1 \cdot x_2, x_1 \cdot y_2 + x_2 \cdot y_1)`$ | Product rule for expectations |
+| $`\bar{0}`$ | $`(0, 0)`$ | Zero probability, zero expectation |
+| $`\bar{1}`$ | $`(1, 0)`$ | Certain event, zero cost |
 
 The weight stores two components:
 - **value**: The probability component
@@ -561,7 +571,7 @@ assert_eq!(quotient, Some(a));
 
 ### Kleene Closure
 
-The star operation computes the infinite sum `` `a* = 1̄ ⊕ a ⊕ a² ⊕ a³ ⊕ …` ``, needed for epsilon removal in WFSTs:
+The star operation computes the infinite sum $`a^* = \bar{1} \oplus a \oplus a^2 \oplus a^3 \oplus \cdots`$, needed for epsilon removal in WFSTs:
 
 ```rust
 // TropicalWeight: star converges for non-negative weights
@@ -580,15 +590,15 @@ The `natural_less` method defines what "better" means for each semiring:
 
 | Semiring | "Better" means | `natural_less(a, b)` returns `true` when |
 |----------|----------------|--------------------------------------|
-| Tropical | Lower cost | `` `a < b` `` |
-| Log | Higher probability (lower neg-log) | `` `a < b` `` |
-| Boolean | `` `true` `` is better than `` `false` `` | `` `a ∧ ¬b` `` |
+| Tropical | Lower cost | $`a < b`$ |
+| Log | Higher probability (lower neg-log) | $`a < b`$ |
+| Boolean | `true` is better than `false` | $`a \land \lnot b`$ |
 
 This is used by path extraction algorithms to compare paths.
 
 ### Numerical Stability
 
-`` `LogWeight` `` includes a fast-path optimization for log-sum-exp: when `` `∣a − b∣ > 20` ``, the term `` `e⁻∣ᵃ⁻ᵇ∣ ≈ 0` ``, so `` `ln(1 + e⁻∣ᵃ⁻ᵇ∣) ≈ ln(1) = 0` `` and the result is just `` `min(a, b)` ``:
+`LogWeight` includes a fast-path optimization for log-sum-exp: when $`\lvert a - b\rvert > 20`$, the term $`e^{-\lvert a-b\rvert} \approx 0`$, so $`\ln(1 + e^{-\lvert a-b\rvert}) \approx \ln(1) = 0`$ and the result is just $`\min(a, b)`$:
 
 ```rust
 // When |a - b| > 20, exp(-|a-b|) ≈ 0
@@ -623,7 +633,7 @@ fn log_sum_exp(a: f64, b: f64) -> f64 {
 
 ### Decision Tree
 
-```
+```text
 Need weights?
 ├── No → BoolWeight
 └── Yes
@@ -695,7 +705,7 @@ fn test_my_semiring() {
 ## Related Topics
 
 - [Signed Tropical Semiring](signed-tropical-semiring.md): Extended tropical semiring with negative weights (rewards)
-- [Power Semiring](power-semiring.md): `η`-power semiring for soft path selection and RRWM algorithm
+- [Power Semiring](power-semiring.md): $`\eta`$-power semiring for soft path selection and RRWM algorithm
 - [Lattices](lattices.md): How semirings are used in lattice weights
 - [WFST Operations](wfst-operations.md): Rational and unary operations on WFSTs
 - [Path Extraction](../algorithms/path-extraction.md): Algorithms that use semiring operations
@@ -709,6 +719,7 @@ fn test_my_semiring() {
 Full entries — including DOIs — are in [`BIBLIOGRAPHY.md`](../BIBLIOGRAPHY.md).
 
 - [**Mohri 2002**](../BIBLIOGRAPHY.md#ref-mohri2002) — Mohri, Pereira & Riley, *Weighted Finite-State Transducers in Speech Recognition*: the semiring framework underpinning WFST weight algebra. [doi:10.1006/csla.2001.0184](https://doi.org/10.1006/csla.2001.0184)
-- [**Mohri 2009**](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, *Weighted Automata Algorithms*: semiring properties (idempotency, `` `k` ``-closedness, divisibility) and the natural order `` `a ≤ b ⟺ a ⊕ b = a` `` used by the marker traits. [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)
+- [**Mohri 2009**](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, *Weighted Automata Algorithms*: semiring properties (idempotency, $`k`$-closedness, divisibility) and the natural order $`a \le b \iff a \oplus b = a`$ used by the marker traits. [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)
 - [**Goodman 1999**](../BIBLIOGRAPHY.md#ref-goodman1999) — Goodman, *Semiring Parsing*: how the choice of semiring selects the inference question (best path, marginal, inside score, reachability). [ACL J99-4004](https://aclanthology.org/J99-4004/)
-- [**Cortes 2015**](../BIBLIOGRAPHY.md#ref-cortes2015) — Cortes, Kuznetsov, Mohri & Warmuth, *On-Line Learning Algorithms for Path Experts with Non-Additive Losses*: the expectation and `` `η` ``-power semirings (the latter detailed in [power-semiring.md](power-semiring.md)). [PMLR 40:424–447](https://proceedings.mlr.press/v40/Cortes15.html)
+- [**Cortes 2015**](../BIBLIOGRAPHY.md#ref-cortes2015) — Cortes, Kuznetsov, Mohri & Warmuth, *On-Line Learning Algorithms for Path Experts with Non-Additive Losses*: the expectation and $`\eta`$-power semirings (the latter detailed in [power-semiring.md](power-semiring.md)). [PMLR 40:424–447](https://proceedings.mlr.press/v40/Cortes15.html)
+```

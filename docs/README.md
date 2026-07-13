@@ -32,8 +32,8 @@ Read these first — they govern every doc and are the canonical references:
 
 | Document | Description |
 |----------|-------------|
-| [Style guide](STYLE.md) | Authoring rules: Unicode-math-in-backticks, define-before-use, literate pseudocode, diagram embedding, citations |
-| [Notation & glossary](NOTATION.md) | Every symbol (`⊕ ⊗ 0̄ 1̄ ∘ π η ∞ ε`) and acronym (WFST, CTC, RNN-T, PDA, …), defined once |
+| [Style guide](STYLE.md) | Authoring rules: MathJax-LaTeX math in GitHub `` $`…`$ ``/`math` delimiters, define-before-use, literate pseudocode, diagram embedding, citations |
+| [Notation & glossary](NOTATION.md) | Every symbol ($`\oplus`$, $`\otimes`$, $`\bar{0}`$, $`\bar{1}`$, $`\circ`$, $`\pi`$, $`\eta`$, $`\infty`$, $`\varepsilon`$) and acronym (WFST, CTC, RNN-T, PDA, …), defined once — with the canonical Unicode → LaTeX map |
 | [Bibliography](BIBLIOGRAPHY.md) | Citation-checked references with verified DOIs |
 | [Diagramming conventions](diagrams/README.md) | Tool-per-concept matrix, color palette, and the `make diagrams` render pipeline |
 | [Architecture](../ARCHITECTURE.md) · [Changelog](../CHANGELOG.md) · [Contributing](../CONTRIBUTING.md) | Repository-level entry points |
@@ -49,7 +49,7 @@ Core concepts and design of the framework:
 | [Overview](architecture/overview.md) | High-level architecture and component relationships |
 | [Semirings](architecture/semirings.md) | Algebraic weight structures (Tropical, Log, Probability, String, Expectation, …) |
 | [Signed Tropical Semiring](architecture/signed-tropical-semiring.md) | Extended tropical semiring with negative weights (rewards) |
-| [Power Semiring](architecture/power-semiring.md) | `η`-power semiring for soft path selection and online learning |
+| [Power Semiring](architecture/power-semiring.md) | $`\eta`$-power semiring for soft path selection and online learning |
 | [WFST Operations](architecture/wfst-operations.md) | Rational (union, concat, closure) and unary (invert, project, reverse) operations |
 | [Lattices](architecture/lattices.md) | Weighted DAGs representing correction alternatives |
 | [WFST Traits](architecture/wfst-traits.md) | Trait hierarchy for finite-state transducers |
@@ -66,7 +66,7 @@ Core WFST algorithms (presented in literate-programming pseudocode):
 | [Path Extraction](algorithms/path-extraction.md) | Viterbi, N-best, and beam search |
 | [Shortest Distance](algorithms/shortest-distance.md) | Single-source / all-pairs shortest distance with queue disciplines |
 | [Weight Pushing](algorithms/weight-pushing.md) | Weight normalization for beam-search optimization |
-| [Epsilon Removal](algorithms/epsilon-removal.md) | Remove `ε`-transitions from WFSTs |
+| [Epsilon Removal](algorithms/epsilon-removal.md) | Remove $`\varepsilon`$-transitions from WFSTs |
 | [Determinization](algorithms/determinization.md) | Non-deterministic → deterministic WFSTs |
 | [Minimization](algorithms/minimization.md) | Minimize WFST states and transitions |
 | [Synchronization](algorithms/synchronization.md) | Normalize input/output label delay |
@@ -83,10 +83,10 @@ Automata beyond the basic WFST:
 | Document | Description |
 |----------|-------------|
 | [Overview](transducers/README.md) | Comparison of the transducer families |
-| [Multitape Transducers](transducers/multitape.md) | `k`-tape WFSTs `T = (Q, Σ₁,…,Σₖ, q₀, F, E, ρ)` |
-| [Pushdown Automata](transducers/pushdown.md) | Weighted PDAs `P = (Q, Σ, Γ, q₀, Z₀, F, Δ, ρ)` |
-| [Tree Transducers](transducers/tree-transducers.md) | Weighted tree transducers `T = (Q, Σ, Δ, q₀, F, R, ρ)` |
-| [Neural Transducer (RNN-T)](transducers/neural-transducer.md) | Encoder–predictor–joiner; the `T×U` alignment lattice |
+| [Multitape Transducers](transducers/multitape.md) | $`k`$-tape WFSTs $`T = (Q, \Sigma_1, \dots, \Sigma_k, q_0, F, E, \rho)`$ |
+| [Pushdown Automata](transducers/pushdown.md) | Weighted PDAs $`P = (Q, \Sigma, \Gamma, q_0, Z_0, F, \Delta, \rho)`$ |
+| [Tree Transducers](transducers/tree-transducers.md) | Weighted tree transducers $`T = (Q, \Sigma, \Delta, q_0, F, R, \rho)`$ |
+| [Neural Transducer (RNN-T)](transducers/neural-transducer.md) | Encoder–predictor–joiner; the $`T \times U`$ alignment lattice |
 | [Subsequential Transducers](advanced/subsequential-transducers.md) | Deterministic transducers with piecewise decomposition |
 
 ### Correction & NLP
@@ -112,7 +112,7 @@ Speech recognition, deep learning, and acceleration:
 | [Differentiable Operations](advanced/differentiable.md) | Gradients through WFST operations |
 | [Top-Down Autograd](advanced/topdown-autograd.md) | k2-style efficient gradients via arc posteriors |
 | [Deep Learning Integration](advanced/deep-learning.md) | WFST layers, token graphs, lexicon marginalization |
-| [ASR Pipeline](advanced/asr-pipeline.md) | Speech-recognition cascade `H ∘ C ∘ L ∘ G` |
+| [ASR Pipeline](advanced/asr-pipeline.md) | Speech-recognition cascade $`H \circ C \circ L \circ G`$ |
 | [Beam Optimization](advanced/beam-optimization.md) | Log-semiring pushing, lookahead, token grouping |
 | [GPU Acceleration](advanced/gpu-acceleration.md) | CSR format, atomic recombination, batched streaming |
 | [SIMD](advanced/simd.md) | Vectorized weight operations (AVX-512/AVX2/SSE/NEON) |
@@ -122,7 +122,7 @@ Speech recognition, deep learning, and acceleration:
 | Document | Description |
 |----------|-------------|
 | [Acoustic Overview](acoustic/overview.md) | `AcousticModel` trait, transition matrices, score fusion |
-| [Cascade Construction](asr/cascade-construction.md) | Full ASR cascade `N = π(min(det(H ∘ C ∘ L ∘ G)))` |
+| [Cascade Construction](asr/cascade-construction.md) | Full ASR cascade $`N = \pi(\min(\det(H \circ C \circ L \circ G)))`$ |
 | [Subword Lexicon](asr/subword-lexicon.md) | BPE/subword lexicon builder for ASR |
 
 ### Training
@@ -133,15 +133,26 @@ Speech recognition, deep learning, and acceleration:
 
 ### Optimization
 
-Specialized WFST optimizations and the scientific benchmark ledger:
+Specialized WFST optimizations. *(The scientific benchmark journal and the
+phase-by-phase implementation ledger are frozen historical records — see
+[Archive](#archive) below.)*
 
 | Document | Description |
 |----------|-------------|
-| [Optimization Journal](optimization/journal.md) | Scientific benchmark ledger (hypotheses, results, post-mortems) |
-| [Implementation Ledger](optimization/implementation-ledger/index.md) | Phase-by-phase implementation record (phases 1–7) |
 | [Lookahead Tables](optimization/lookahead.md) | Pushing reachable weight to a pruning frontier |
-| [N-gram Back-off](optimization/ngram-backoff.md) | Back-off `P(w∣h) = λ·P̂(w∣h) + (1−λ)·P(w∣h′)` |
+| [N-gram Back-off](optimization/ngram-backoff.md) | Back-off $`P(w \mid h) = \lambda \cdot \hat{P}(w \mid h) + (1 - \lambda) \cdot P(w \mid h')`$ |
 | [Token Grouping](optimization/token-grouping.md) | LET-Decoder lazy-evaluation token grouping |
+
+### Archive
+
+Frozen, dated scientific records preserved in their original notation — see
+[`archive/README.md`](archive/README.md):
+
+| Document | Description |
+|----------|-------------|
+| [Optimization Journal](archive/journal.md) | Scientific benchmark ledger (hypotheses, results, post-mortems) |
+| [Implementation Ledger](archive/implementation-ledger/index.md) | Phase-by-phase implementation record (phases 1–7) |
+| [Industry-Standard & SOTA Review](archive/industry-standard-and-sota-review.md) | Point-in-time optimization / state-of-the-art review |
 
 ### Layers
 
@@ -182,16 +193,16 @@ Correction-layer implementations:
 | `levenshtein` | Integration with liblevenshtein for lexical correction |
 | `lattice` | Semiring↔lattice bridge (`lling-llang` semirings as `libdictenstein` dictionary values) |
 | `lattice-persistent` | serde-bounded dictionary values for disk-backed (`persistent-artrie`) dictionaries |
-| `pcfg` | Probabilistic context-free grammar support |
-| `error-grammar` | Predefined error grammars |
+| `pcfg` | *(reserved — no effect yet)* Probabilistic context-free grammar support |
+| `error-grammar` | *(reserved — no effect yet)* Predefined error grammars |
 | `pos-tagging` | POS-tagging correction layer |
 | `lm-rerank` | Language-model reranking layer |
 | `phonetic-rescore` | Phonetic rescoring layer (requires `levenshtein`) |
 | `code-correction` | Pattern-aware code syntax-recovery layer |
 | `latex-syntax` | LaTeX syntax-correction layer |
 | `mathml-semantic` | MathML semantic / homoglyph layer |
-| `f1r3fly` | Full F1R3FLY.io stack (PathMap, MORK, MeTTaTron, MeTTaIL) |
-| `sexpr` | S-expression path format for MORK compatibility |
+| `f1r3fly` | F1R3FLY.io integration surface: PathMap backend + MeTTaIL type layer (MORK/MeTTaTron are roadmap — see [integration/f1r3fly](integration/f1r3fly/vision.md)) |
+| `sexpr` | *(reserved — no effect yet)* S-expression path format for MORK compatibility |
 | `pathmap-backend` | PathMap-optimized lattice backend |
 | `serde` | Serialization support |
 | `bincode-ser` | Bincode serialization (implies `serde`) |

@@ -390,9 +390,9 @@ The disambiguator scores each possible meaning based on context:
 | After variable in math | `+0.4` for Prime |
 
 The score for each candidate meaning is the weighted sum
-`` `score = context_weight · context_factors + frequency_weight · frequency` ``;
+$`\text{score} = \text{context\_weight} \cdot \text{context\_factors} + \text{frequency\_weight} \cdot \text{frequency}`$;
 the highest-scoring meaning wins, and a margin below `disambiguation_threshold`
-is recorded as an `` `AmbiguousGlyph` `` issue.
+is recorded as an `AmbiguousGlyph` issue.
 
 ## Related
 

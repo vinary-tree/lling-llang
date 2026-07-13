@@ -45,7 +45,7 @@ spelling-to-sound rules consumed by the rescoring layer.
 
 | Doc | What it covers |
 |---|---|
-| [Phonetic rescoring](libgrammstein/phonetic-rescore.md) | Reranking lattice paths by how words *sound* (Zompist normalization); `PhoneticRescoreLayer`; `λ`-interpolation; ASR error recovery. |
+| [Phonetic rescoring](libgrammstein/phonetic-rescore.md) | Reranking lattice paths by how words *sound* (Zompist normalization); `PhoneticRescoreLayer`; $`\lambda`$-interpolation; ASR error recovery. |
 
 ### `f1r3fly/` — F1R3FLY.io platform (integration targets)
 

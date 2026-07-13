@@ -23,11 +23,11 @@ skinparam note {
   BorderColor #455A64
 }
 
-title <b>Correction-layer pipeline</b>\n<size:11><i>LayerPipeline.apply: each CorrectionLayer maps Lattice⟨W,B⟩ → Lattice⟨W,B⟩, composed left to right</i></size>
+title <b>Correction-layer pipeline</b>\n<size:11><i>LayerPipeline.apply: each CorrectionLayer maps Lattice<latex>\langle W,B \rangle</latex> → Lattice<latex>\langle W,B \rangle</latex>, composed left to right</i></size>
 
 |#ECEFF1|IO|
 start
-:Input lattice  Lattice⟨W, B⟩;
+:Input lattice  Lattice<latex>\langle W, B \rangle</latex>;
 note right
   A weighted DAG of token
   alternatives (the WFSA the
@@ -53,7 +53,7 @@ else ([MathML])
 endif
 
 |#ECEFF1|IO|
-:Output lattice  Lattice⟨W, B⟩\n(filtered & reweighted);
+:Output lattice  Lattice<latex>\langle W, B \rangle</latex>\n(filtered & reweighted);
 stop
 
 @enduml

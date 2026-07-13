@@ -8,20 +8,20 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); conventions in [`STYLE.md`](../
 
 | Symbol / term | Meaning |
 |---|---|
-| `` `T₁ ⊕ T₂` `` | **Union** — accepts strings of `` `T₁` `` *or* `` `T₂` ``. |
-| `` `T₁ ⊗ T₂` `` | **Concatenation** — strings of `` `T₁` `` followed by strings of `` `T₂` ``. |
-| `` `T*` ` / ` `T⁺` `` | **Kleene closure / plus** — zero-or-more / one-or-more repetitions. |
-| `` `T⁻¹` `` | **Inversion** — swap input and output labels on every arc. |
-| `` `↓T` ` / ` `T↓` `` | **Input / output projection** — keep only input / output labels (yields an acceptor). |
-| `` `T^R` `` | **Reversal** — reverse the direction of every transition. |
-| `` `ε` `` | Epsilon — a transition consuming/emitting no symbol. |
-| `` `∣T∣` `` | The size of a transducer (`` `∣Q∣ + ∣E∣` ``), used in complexity bounds. |
+| $`T_1 \oplus T_2`$ | **Union** — accepts strings of $`T_1`$ *or* $`T_2`$. |
+| $`T_1 \otimes T_2`$ | **Concatenation** — strings of $`T_1`$ followed by strings of $`T_2`$. |
+| $`T^*`$ / $`T^+`$ | **Kleene closure / plus** — zero-or-more / one-or-more repetitions. |
+| $`T^{-1}`$ | **Inversion** — swap input and output labels on every arc. |
+| $`\downarrow T`$ / $`T\downarrow`$ | **Input / output projection** — keep only input / output labels (yields an acceptor). |
+| $`T^R`$ | **Reversal** — reverse the direction of every transition. |
+| $`\varepsilon`$ | Epsilon — a transition consuming/emitting no symbol. |
+| $`\lvert T\rvert`$ | The size of a transducer ($`\lvert Q\rvert + \lvert E\rvert`$), used in complexity bounds. |
 
 ## Concepts
 
 ### Why Operations?
 
-Complex WFSTs can be built compositionally from simpler ones — union `` `T₁ ⊕ T₂` ``, concatenation `` `T₁ ⊗ T₂` ``, and closure `` `T*` `` correspond to the regular-expression operators:
+Complex WFSTs can be built compositionally from simpler ones — union $`T_1 \oplus T_2`$, concatenation $`T_1 \otimes T_2`$, and closure $`T^*`$ correspond to the regular-expression operators:
 
 ```text
 Simple FSTs → Combine with Operations → Complex FST
@@ -41,18 +41,18 @@ Operations come in two flavors:
 
 | Type | Behavior | Memory | Example |
 |------|----------|--------|---------|
-| **Lazy** | States computed on demand | `` `O(1)` `` to create | Union, Concat, Closure, Invert, Project |
-| **Constructive** | Entire result computed upfront | `` `O(∣result∣)` `` | Reverse |
+| **Lazy** | States computed on demand | $`O(1)`$ to create | Union, Concat, Closure, Invert, Project |
+| **Constructive** | Entire result computed upfront | $`O(\lvert\text{result}\rvert)`$ | Reverse |
 
 Lazy operations are preferred when you don't need the entire result (e.g., during pruned search).
 
 ## Rational Operations
 
-Rational operations form the "rational" part of rational transducers. They correspond to regular-expression operators [[Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009)]. Each of the three core constructions wires the operands together with `` `ε` ``-transitions, sketched below:
+Rational operations form the "rational" part of rational transducers. They correspond to regular-expression operators [[Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009)]. Each of the three core constructions wires the operands together with $`\varepsilon`$-transitions, sketched below:
 
 ![Rational constructions on WFSTs: three clusters. Union (T₁ ⊕ T₂) — a super-start s with ε-arcs to T₁ and T₂, whose ends have ε-arcs to a shared final f. Concatenation (T₁ ⊗ T₂) — start s into T₁, then an ε-arc labelled ε / ρ(T₁) from T₁'s end into T₂, into final f. Closure (T*) — a super-start s that is itself final (double ring), an ε-arc into T, and an ε loop-back arc from T's end to s.](../diagrams/architecture/wfst-operations.svg)
 
-*Blue circles = states; green double-rings = final states; grey dashed arcs = the `` `ε` ``-transitions each construction adds; light-grey solid arcs = the operand bodies `` `T₁` `` / `` `T₂` `` / `` `T` ``. Cluster borders are tinted blue (union), green (concat), teal (closure).*
+*Blue circles = states; green double-rings = final states; grey dashed arcs = the $`\varepsilon`$-transitions each construction adds; light-grey solid arcs = the operand bodies $`T_1`$ / $`T_2`$ / $`T`$. Cluster borders are tinted blue (union), green (concat), teal (closure).*
 
 <details><summary>Text view</summary>
 
@@ -67,9 +67,9 @@ Union  T₁ ⊕ T₂:                Concatenation  T₁ ⊗ T₂:        Closur
 
 </details>
 
-### Union: `` `T₁ ⊕ T₂` ``
+### Union: $`T_1 \oplus T_2`$
 
-**Definition**: Creates a WFST that accepts strings from either `` `T₁` `` OR `` `T₂` ``.
+**Definition**: Creates a WFST that accepts strings from either $`T_1`$ OR $`T_2`$.
 
 **Structure**:
 ```text
@@ -83,7 +83,7 @@ Union  T₁ ⊕ T₂:                Concatenation  T₁ ⊗ T₂:        Closur
         ε        ε
 ```
 
-**Complexity**: `` `O(∣T₁∣ + ∣T₂∣)` `` — computed lazily.
+**Complexity**: $`O(\lvert T_1\rvert + \lvert T_2\rvert)`$ — computed lazily.
 
 **Example**:
 ```rust
@@ -112,13 +112,13 @@ assert_eq!(u.num_states(), 5);  // 1 super-start + 2 + 2
 ```
 
 **Algebraic Properties**:
-- **Commutativity**: `` `T₁ ⊕ T₂ ≡ T₂ ⊕ T₁` ``
-- **Associativity**: `` `(T₁ ⊕ T₂) ⊕ T₃ ≡ T₁ ⊕ (T₂ ⊕ T₃)` ``
-- **Identity**: `` `T ⊕ ∅ ≡ T` `` (union with empty FST)
+- **Commutativity**: $`T_1 \oplus T_2 \equiv T_2 \oplus T_1`$
+- **Associativity**: $`(T_1 \oplus T_2) \oplus T_3 \equiv T_1 \oplus (T_2 \oplus T_3)`$
+- **Identity**: $`T \oplus \emptyset \equiv T`$ (union with empty FST)
 
-### Concatenation: `` `T₁ ⊗ T₂` ``
+### Concatenation: $`T_1 \otimes T_2`$
 
-**Definition**: Creates a WFST that accepts strings from `` `T₁` `` followed by strings from `` `T₂` ``.
+**Definition**: Creates a WFST that accepts strings from $`T_1`$ followed by strings from $`T_2`$.
 
 **Structure**:
 ```text
@@ -127,7 +127,7 @@ assert_eq!(u.num_states(), 5);  // 1 super-start + 2 + 2
          path₁                     path₂
 ```
 
-**Complexity**: `` `O(∣T₁∣ + ∣T₂∣ + ∣F₁∣∣I₂∣)` `` where `` `F₁` `` = final states of `` `T₁` ``, `` `I₂` `` = initial states of `` `T₂` ``.
+**Complexity**: $`O(\lvert T_1\rvert + \lvert T_2\rvert + \lvert F_1\rvert\lvert I_2\rvert)`$ where $`F_1`$ = final states of $`T_1`$, $`I_2`$ = initial states of $`T_2`$.
 
 **Example**:
 ```rust
@@ -141,14 +141,14 @@ let c = concat(&fst_a, &fst_b);
 ```
 
 **Algebraic Properties**:
-- **Associativity**: `` `(T₁ ⊗ T₂) ⊗ T₃ ≡ T₁ ⊗ (T₂ ⊗ T₃)` ``
-- **Not commutative**: `` `T₁ ⊗ T₂ ≠ T₂ ⊗ T₁` `` in general
-- **Identity**: `` `T ⊗ ε ≡ ε ⊗ T ≡ T` `` (where `` `ε` `` accepts only the empty string)
-- **Annihilation**: `` `T ⊗ ∅ ≡ ∅ ⊗ T ≡ ∅` ``
+- **Associativity**: $`(T_1 \otimes T_2) \otimes T_3 \equiv T_1 \otimes (T_2 \otimes T_3)`$
+- **Not commutative**: $`T_1 \otimes T_2 \ne T_2 \otimes T_1`$ in general
+- **Identity**: $`T \otimes \varepsilon \equiv \varepsilon \otimes T \equiv T`$ (where $`\varepsilon`$ accepts only the empty string)
+- **Annihilation**: $`T \otimes \emptyset \equiv \emptyset \otimes T \equiv \emptyset`$
 
-### Kleene Closure: `` `T*` ``
+### Kleene Closure: $`T^*`$
 
-**Definition**: Creates a WFST that accepts zero or more repetitions of strings from `` `T` ``.
+**Definition**: Creates a WFST that accepts zero or more repetitions of strings from $`T`$.
 
 **Structure**:
 ```text
@@ -163,7 +163,7 @@ let c = concat(&fst_a, &fst_b);
               ε (from T final states)
 ```
 
-**Complexity**: `` `O(∣T∣)` `` — computed lazily.
+**Complexity**: $`O(\lvert T\rvert)`$ — computed lazily.
 
 **Example**:
 ```rust
@@ -177,12 +177,12 @@ let k = closure(&fst_a);
 ```
 
 **Algebraic Properties**:
-- **Idempotence**: `` `(T*)* ≡ T*` ``
-- **Empty string**: `` `ε ∈ L(T*)` `` always
+- **Idempotence**: $`(T^*)^* \equiv T^*`$
+- **Empty string**: $`\varepsilon \in L(T^*)`$ always
 
-### Kleene Plus: `` `T⁺` ``
+### Kleene Plus: $`T^+`$
 
-**Definition**: One or more repetitions. Equivalent to `` `T ⊗ T*` ``.
+**Definition**: One or more repetitions. Equivalent to $`T \otimes T^*`$.
 
 **Example**:
 ```rust
@@ -194,20 +194,20 @@ let kp = closure_plus(&fst_a);
 // Start is NOT final (doesn't accept empty string)
 ```
 
-**Relation to Closure**: `` `T⁺ ≡ T ⊗ T* ≡ T* ⊗ T` ``
+**Relation to Closure**: $`T^+ \equiv T \otimes T^* \equiv T^* \otimes T`$
 
 ## Unary Operations
 
 Unary operations transform a single WFST into another.
 
-### Inversion: `` `T⁻¹` ``
+### Inversion: $`T^{-1}`$
 
 **Definition**: Swaps input and output labels on all transitions.
 
-**Before**: `` `(i:o/w)` `` arc
-**After**: `` `(o:i/w)` `` arc
+**Before**: `(i:o/w)` arc
+**After**: `(o:i/w)` arc
 
-**Complexity**: `` `O(∣T∣)` `` — computed lazily.
+**Complexity**: $`O(\lvert T\rvert)`$ — computed lazily.
 
 **Example**:
 ```rust
@@ -227,7 +227,7 @@ let inv = invert(&fst);
 ```
 
 **Algebraic Properties**:
-- **Involution**: `` `(T⁻¹)⁻¹ ≡ T` ``
+- **Involution**: $`(T^{-1})^{-1} \equiv T`$
 - **Preserves weights**: Weights unchanged
 - **Preserves structure**: Same states and connectivity
 
@@ -235,14 +235,14 @@ let inv = invert(&fst);
 - Converting input-to-output mapping to output-to-input
 - Reversing translation direction
 
-### Input Projection: `` `↓T` ``
+### Input Projection: $`\downarrow T`$
 
 **Definition**: Converts a transducer to an acceptor by keeping only input labels.
 
-**Before**: `` `(i:o/w)` `` arc
-**After**: `` `(i:i/w)` `` arc (both labels are input)
+**Before**: `(i:o/w)` arc
+**After**: `(i:i/w)` arc (both labels are input)
 
-**Complexity**: `` `O(∣T∣)` `` — computed lazily.
+**Complexity**: $`O(\lvert T\rvert)`$ — computed lazily.
 
 **Example**:
 ```rust
@@ -255,21 +255,21 @@ let pin = project_input(&fst);
 ```
 
 **Algebraic Properties**:
-- **Idempotence**: `` `↓(↓T) ≡ ↓T` ``
+- **Idempotence**: $`\downarrow(\downarrow T) \equiv \downarrow T`$
 - **Preserves weights**
 
 **Use Cases**:
 - Extracting the input language of a transducer
 - Converting transducer to acceptor for intersection
 
-### Output Projection: `` `T↓` ``
+### Output Projection: $`T\downarrow`$
 
 **Definition**: Converts a transducer to an acceptor by keeping only output labels.
 
-**Before**: `` `(i:o/w)` `` arc
-**After**: `` `(o:o/w)` `` arc (both labels are output)
+**Before**: `(i:o/w)` arc
+**After**: `(o:o/w)` arc (both labels are output)
 
-**Complexity**: `` `O(∣T∣)` `` — computed lazily.
+**Complexity**: $`O(\lvert T\rvert)`$ — computed lazily.
 
 **Example**:
 ```rust
@@ -282,23 +282,23 @@ let pout = project_output(&fst);
 ```
 
 **Algebraic Properties**:
-- **Idempotence**: `` `(T↓)↓ ≡ T↓` ``
-- **Relation to inversion**: `` `T↓ ≡ ↓(T⁻¹)` ``
+- **Idempotence**: $`(T\downarrow)\downarrow \equiv T\downarrow`$
+- **Relation to inversion**: $`T\downarrow \equiv \downarrow(T^{-1})`$
 
 **Use Cases**:
 - Extracting the output language of a transducer
 - Computing the range of a relation
 
-### Reversal: `` `T^R` ``
+### Reversal: $`T^R`$
 
 **Definition**: Reverses the direction of all transitions.
 
-**Original**: `` `p → q` ``
-**Reversed**: `` `q → p` ``
+**Original**: $`p \to q`$
+**Reversed**: $`q \to p`$
 
 **Important**: This is a **constructive** operation (not lazy) because it requires inspecting all states to build the reversed graph.
 
-**Complexity**: `` `O(∣Q∣ + ∣E∣)` ``
+**Complexity**: $`O(\lvert Q\rvert + \lvert E\rvert)`$
 
 **Structure**:
 ```text
@@ -319,7 +319,7 @@ let rev = reverse(&fst);
 ```
 
 **Algebraic Properties**:
-- **Involution**: `` `(T^R)^R ≡ T` `` (up to state renumbering)
+- **Involution**: $`(T^R)^R \equiv T`$ (up to state renumbering)
 - **Preserves weights and labels**
 - **Reverses path structure**
 
@@ -411,12 +411,12 @@ States 1..=n: Reversed states from T (offset by 1)
 
 | Operation | Creation | Per-State Access |
 |-----------|----------|------------------|
-| Union | `` `O(1)` `` | `` `O(1)` `` |
-| Concat | `` `O(1)` `` | `` `O(1)` `` |
-| Closure | `` `O(1)` `` | `` `O(1)` `` |
-| Invert | `` `O(1)` `` | `` `O(1)` `` |
-| Project | `` `O(1)` `` | `` `O(1)` `` |
-| Reverse | `` `O(∣Q∣ + ∣E∣)` `` | `` `O(1)` `` |
+| Union | $`O(1)`$ | $`O(1)`$ |
+| Concat | $`O(1)`$ | $`O(1)`$ |
+| Closure | $`O(1)`$ | $`O(1)`$ |
+| Invert | $`O(1)`$ | $`O(1)`$ |
+| Project | $`O(1)`$ | $`O(1)`$ |
+| Reverse | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(1)`$ |
 
 ## Related Topics
 
@@ -431,6 +431,6 @@ States 1..=n: Reversed states from T (offset by 1)
 
 Full entries — including DOIs — are in [`BIBLIOGRAPHY.md`](../BIBLIOGRAPHY.md).
 
-- [**Mohri 2009**](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, *Weighted Automata Algorithms*: the rational operations (union, concatenation, closure) and unary operations (inversion, projection, reversal) on weighted automata, with their `` `ε` ``-construction and complexity. [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)
+- [**Mohri 2009**](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, *Weighted Automata Algorithms*: the rational operations (union, concatenation, closure) and unary operations (inversion, projection, reversal) on weighted automata, with their $`\varepsilon`$-construction and complexity. [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)
 - [**Mohri 2002**](../BIBLIOGRAPHY.md#ref-mohri2002) — Mohri, Pereira & Riley, *Weighted Finite-State Transducers in Speech Recognition*: lazy (on-demand) evaluation of these constructions as the basis for pruned search. [doi:10.1006/csla.2001.0184](https://doi.org/10.1006/csla.2001.0184)
 - [**Allauzen 2007**](../BIBLIOGRAPHY.md#ref-allauzen2007) — Allauzen et al., *OpenFst*: the reference library whose `Union`/`Concat`/`Closure`/`Invert`/`Project`/`Reverse` operations these mirror. [doi:10.1007/978-3-540-76336-9_3](https://doi.org/10.1007/978-3-540-76336-9_3)
