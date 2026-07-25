@@ -6,7 +6,7 @@
 //! - Path extraction (Viterbi, N-best, beam search)
 //! - CFG parsing (Earley on lattices)
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use lling_llang::algorithms::{
     all_pairs_shortest_distance, connect, determinize, is_connected, is_deterministic, minimize,
     push_weights, remove_epsilon, single_source_shortest_distance, ConnectConfig,
@@ -31,6 +31,7 @@ use lling_llang::semiring::{
     TropicalWeight,
 };
 use lling_llang::wfst::{MutableWfst, StateId, VectorWfst, VectorWfstBuilder};
+use std::hint::black_box;
 
 // ============================================================================
 // Helper Functions for Building Test Data
