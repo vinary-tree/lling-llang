@@ -205,7 +205,6 @@ Correction-layer implementations:
 | `sexpr` | *(reserved — no effect yet)* S-expression path format for MORK compatibility |
 | `pathmap-backend` | PathMap-optimized lattice backend |
 | `serde` | Serialization support |
-| `bincode-ser` | Bincode serialization (implies `serde`) |
 | `test-utils` | Expose the `test_utils` module (proptest strategies, fixtures) downstream |
 
 ## Architecture overview

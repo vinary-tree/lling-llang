@@ -39,7 +39,6 @@
 //!
 //! Serialization & testing:
 //! - `serde`: Serialization support
-//! - `bincode-ser`: Bincode serialization (implies `serde`)
 //! - `test-utils`: Expose the `test_utils` module (proptest strategies, fixtures)
 //!   to downstream crates
 //!

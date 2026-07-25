@@ -360,7 +360,7 @@ features pull in integrations and extra layers:
 | `pos-tagging` / `lm-rerank`                            | POS-tagging and language-model reranking layers.           |
 | `f1r3fly`                                              | F1R3FLY.io integration surface: PathMap backend + MeTTaIL type layer (MORK/MeTTaTron are roadmap — see [`docs/integration/f1r3fly/vision.md`](docs/integration/f1r3fly/vision.md)). |
 | `pathmap-backend` / `sexpr`                            | PathMap-backed storage; S-expression path format (`sexpr` reserved — not yet wired). |
-| `serde` / `bincode-ser`                                | Serialization.                                             |
+| `serde`                                               | Serialization.                                             |
 | `test-utils`                                           | Property-test strategies & fixtures for downstream crates. |
 
 ```toml

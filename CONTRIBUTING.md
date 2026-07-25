@@ -39,7 +39,7 @@ authoritative list. The full matrix:
 | `f1r3fly` | Full F1R3FLY.io stack (PathMap; implies `levenshtein` + `sexpr`). |
 | `sexpr` | S-expression path format for MORK compatibility. |
 | `pathmap-backend` | PathMap-optimized backend (implies `levenshtein`). |
-| `serde` / `bincode-ser` | Serialization. |
+| `serde` | Serialization. |
 | `test-utils` | Expose proptest strategies & fixtures to downstream crates. |
 
 Useful invocations while developing:
