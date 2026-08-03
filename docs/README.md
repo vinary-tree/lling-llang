@@ -48,6 +48,7 @@ Core concepts and design of the framework:
 |----------|-------------|
 | [Overview](architecture/overview.md) | High-level architecture and component relationships |
 | [Semirings](architecture/semirings.md) | Algebraic weight structures (Tropical, Log, Probability, String, Expectation, …) |
+| [Arctic / max-plus](architecture/semirings.md#arcticweight) | Maximum-score paths with gains, penalties, and explicit positive-cycle behavior |
 | [Signed Tropical Semiring](architecture/signed-tropical-semiring.md) | Extended tropical semiring with negative weights (rewards) |
 | [Power Semiring](architecture/power-semiring.md) | $`\eta`$-power semiring for soft path selection and online learning |
 | [WFST Operations](architecture/wfst-operations.md) | Rational (union, concat, closure) and unary (invert, project, reverse) operations |

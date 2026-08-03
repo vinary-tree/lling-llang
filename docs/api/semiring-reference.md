@@ -101,6 +101,29 @@ assert_eq!(TropicalWeight::zero().value(), f64::INFINITY);
 assert_eq!(TropicalWeight::one().value(), 0.0);
 ```
 
+## ArcticWeight
+
+Max-plus scores for best-gain paths.
+
+**Definition**: `` $`(\mathbb{R}\cup\{-\infty\},\max,+,-\infty,0)`$ ``
+
+```rust
+use lling_llang::semiring::{ArcticWeight, Semiring};
+
+let left = ArcticWeight::new(5.0);
+let right = ArcticWeight::new(-2.0);
+assert_eq!(left.plus(&right), left);
+assert_eq!(left.times(&right), ArcticWeight::new(3.0));
+assert_eq!(ArcticWeight::zero().value(), f64::NEG_INFINITY);
+```
+
+`try_new` accepts finite values and negative infinity; it rejects NaN and
+positive infinity. `star` returns `Some(ArcticWeight::one())` for weights at
+most zero and `None` for a positive cycle. The type implements divisible,
+weakly-left-divisible, idempotent, zero-sum-free, commutative-times,
+totally-ordered, and quantizable capabilities. It intentionally omits the
+non-negative and `` $`k`$ ``-closed markers.
+
 ## LogWeight
 
 Log semiring for probability computations.

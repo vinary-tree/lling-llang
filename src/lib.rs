@@ -467,9 +467,10 @@ pub mod prelude {
         WeightedPda,
     };
     pub use crate::semiring::{
-        BoolWeight, DivisibleSemiring, ExpectationWeight, FallibleStarSemiring, GodelWeight,
-        LeftStringWeight, LogWeight, ProbabilityWeight, ProductWeight, RightStringWeight, Semiring,
-        SignedTropicalWeight, StarDivergenceError, StarSemiring, TropicalWeight,
+        ArcticWeight, BoolWeight, DivisibleSemiring, ExpectationWeight, FallibleStarSemiring,
+        GodelWeight, LeftStringWeight, LogWeight, ProbabilityWeight, ProductWeight,
+        RightStringWeight, Semiring, SignedTropicalWeight, StarDivergenceError, StarSemiring,
+        TropicalWeight,
     };
     pub use crate::subsequential::{
         DecompositionStats,

@@ -5,6 +5,7 @@
 //!
 //! | Semiring | ⊕ | ⊗ | 0̄ | 1̄ | Use Case |
 //! |----------|---|---|---|---|----------|
+//! | Arctic | max | + | -∞ | 0 | Maximum-score path |
 //! | Tropical | min | + | ∞ | 0 | Shortest path |
 //! | Log | log-add | + | ∞ | 0 | Probabilities (log space) |
 //! | Probability | + | × | 0 | 1 | Probabilities (direct) |
@@ -30,7 +31,9 @@ pub use algebraic::{
     lexicographic3, lexicographic4, quantized, ExpectationWeight, GodelWeight, Lexicographic3,
     Lexicographic4, LexicographicWeight, PowerWeight, ProductWeight,
 };
-pub use basic::{BoolWeight, CountWeight, LogWeight, ProbabilityWeight, TropicalWeight};
+pub use basic::{
+    ArcticWeight, BoolWeight, CountWeight, LogWeight, ProbabilityWeight, TropicalWeight,
+};
 pub use signed::{FallibleStarSemiring, SignedTropicalWeight, StarDivergenceError};
 pub use string_kind::{
     EditOp, EditOpCounts, EditSequence, EditWeight, EditWeightBuilder, FeatureSetWeight,

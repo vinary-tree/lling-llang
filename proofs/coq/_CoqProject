@@ -6,6 +6,7 @@
 # Foundations - Semiring algebra
 foundations/Semiring.v
 foundations/TropicalWeight.v
+foundations/ArcticWeight.v
 foundations/LogWeight.v
 foundations/Quantization.v
 foundations/Interval.v

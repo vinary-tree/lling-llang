@@ -6,7 +6,7 @@ This document tracks the current formal verification surface for lling-llang.
 
 | Category | Total | Checked | Support Lemmas | Unchecked Proof Escapes |
 |----------|-------|---------|----------------|-------------------------|
-| Semiring Foundations | 8 | 8 | 0 | 0 |
+| Semiring Foundations | 9 | 9 | 0 | 0 |
 | WFST Definitions | 4 | 4 | 0 | 0 |
 | Algorithm Models | 4 | 4 partial-correctness/spec files | 0 | 0 |
 | TLA+ Specifications | 3 specs / 9 configs + 3 expected-failure mutants | 9 finite TLC configs | 3 expected failures | 0 |
@@ -19,6 +19,7 @@ This document tracks the current formal verification surface for lling-llang.
 |------|--------|-------|
 | `Semiring.v` | Checked | Semiring laws as typeclass obligations, with derived lemmas and no unchecked escapes |
 | `TropicalWeight.v` | Checked | Constructive proofs for tropical semiring, order, idempotence, commutative multiplication, and star |
+| `ArcticWeight.v` | Checked | Exact-real max-plus semiring, preferred-score total order, idempotence, commutative multiplication, convergent-star boundary, positive-cycle rejection, and fzf transition-delta telescoping |
 | `LogWeight.v` | Checked | Exact real-valued probability-mass semiring corresponding to log-weight algebra |
 | `Quantization.v` | Checked | Exact real-valued quantization grid with explicit max-raw-index convention, dequantization range, monotonicity, epsilon-approximation, bucket-coverage half-step error, and per-bucket error lemmas |
 | `Interval.v` | Checked | Exact real-valued interval containment, width, midpoint, add/neg/subtract, and widening soundness lemmas |

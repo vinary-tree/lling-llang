@@ -258,6 +258,7 @@ Used by `sample_path` for proportional path sampling.
 | Semiring | Idempotent | K-Closed | Zero-Sum-Free | Weakly Left Divisible | Commutative $`\otimes`$ | TotallyOrdered | Nonnegative | Quantizable | Stochastic |
 |----------|------------|----------|---------------|----------------------|---------------|----------------|-------------|-------------|------------|
 | TropicalWeight | Yes | k=0 | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| ArcticWeight | Yes | No | Yes | Yes | Yes | Yes | No | Yes | No |
 | LogWeight | No | None | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 | ProbabilityWeight | No | None | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 | BoolWeight | Yes | k=0 | Yes | No | Yes | No | No | No | No |
@@ -324,6 +325,44 @@ assert_eq!(a.times(&TropicalWeight::one()), a);     // a ⊗ 0 = a
 ```
 
 **When to use**: Most common choice. Use when you want to find the minimum-cost path.
+
+### ArcticWeight
+
+The **Arctic semiring**, also called max-plus, selects the maximum score among
+alternative paths and adds scores along a path:
+
+```math
+\mathbb{A}=(\mathbb{R}\cup\{-\infty\},\ \max,\ +,\ -\infty,\ 0).
+```
+
+| Operation | Definition | Intuition |
+|---|---|---|
+| `` $`\oplus`$ `` | `` $`\max(a,b)`$ `` | pick the higher-scoring path |
+| `` $`\otimes`$ `` | `` $`a+b`$ `` | accumulate gains and penalties |
+| `` $`\bar{0}`$ `` | `` $`-\infty`$ `` | unreachable path |
+| `` $`\bar{1}`$ `` | `` $`0`$ `` | empty path score |
+
+```rust
+use lling_llang::semiring::{ArcticWeight, Semiring, StarSemiring};
+
+let reward = ArcticWeight::new(16.0);
+let penalty = ArcticWeight::new(-3.0);
+assert_eq!(reward.times(&penalty), ArcticWeight::new(13.0));
+assert_eq!(reward.plus(&ArcticWeight::new(12.0)), reward);
+assert_eq!(ArcticWeight::new(-1.0).star(), Some(ArcticWeight::one()));
+assert_eq!(ArcticWeight::new(1.0).star(), None);
+```
+
+`ArcticWeight` deliberately does not implement `NonnegativeSemiring` or
+`KClosedSemiring`: positive cycles have unbounded score, and gain-valued edges
+do not satisfy Dijkstra-style cost inflation. Its exact-real Rocq development
+proves the semiring, order, star boundary, and score-delta telescoping laws.
+Rust uses `f64`, so exact algebraic equality is guaranteed on the tested exact
+integer domain; general floating-point calculations use the trait's explicit
+approximate-equality contract.
+
+**When to use**: maximum-score paths such as fzf ranking. Do not pass it to an
+algorithm that requires non-negative costs or a uniform closure bound.
 
 ### LogWeight
 

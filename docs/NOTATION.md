@@ -26,6 +26,7 @@ symbol, copy the command from that column into a ``$`…`$`` span. (See
 | $`a^*`$ | `a^*` | star/closure | $`a^* = \bar{1} \oplus a \oplus (a \otimes a) \oplus \cdots`$, the Kleene closure of a weight (when it converges). |
 | $`\eta`$ | `\eta` | power exponent | The exponent of the $`\eta`$-power semiring $`S_\eta`$, controlling soft path selection / online-learning temperature. |
 | $`\infty`$ | `\infty` | infinity | The Tropical/Log $`\bar{0}`$ (unreachable / infinite cost). |
+| $`-\infty`$ | `-\infty` | negative infinity | The Arctic $`\bar{0}`$: an unreachable maximum-score path. |
 
 ## Automata & transducer symbols
 
