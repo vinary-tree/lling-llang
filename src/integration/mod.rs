@@ -84,7 +84,8 @@ pub mod prelude {
 
     // Re-export our bridge types
     pub use super::{
-        fuzzy_lookup, fuzzy_lookup_parallel, fuzzy_lookup_with_edits, EditCosts, EditTracker,
+        exact_dyck_correction, fuzzy_lookup, fuzzy_lookup_parallel, fuzzy_lookup_with_edits,
+        DyckCorrection, DyckCorrectionError, DyckCorrector, DyckEdit, EditCosts, EditTracker,
         EditTrackerBuilder, FuzzyConfig, FuzzyResult,
     };
 }

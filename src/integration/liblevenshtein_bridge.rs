@@ -4,10 +4,26 @@
 //! optional edit operation tracking via the Edit semiring.
 
 use liblevenshtein::prelude::{Dictionary, DictionaryNode};
+pub use liblevenshtein::transducer::language::{
+    DyckCorrection, DyckCorrectionError, DyckCorrector, DyckEdit,
+};
 use liblevenshtein::transducer::{Algorithm, Candidate, Transducer};
 use rayon::prelude::*;
 
 use crate::semiring::{EditOp, EditSequence, EditWeight, TropicalWeight};
+
+/// Correct a token sequence to the exact multi-kind Dyck language.
+///
+/// Opening kind `r` is token `r`; its matching closer is `kinds + r`.
+/// The returned witness has minimum unit-cost Levenshtein distance and can be
+/// replayed with [`DyckCorrection::replay`]. This is an unbounded-language
+/// correction API: its resource ceiling bounds computation, not nesting depth.
+pub fn exact_dyck_correction(
+    input: &[u64],
+    kinds: usize,
+) -> Result<DyckCorrection, DyckCorrectionError> {
+    DyckCorrector::new(kinds).correct(input)
+}
 
 /// Configuration for fuzzy lookup operations.
 #[derive(Debug, Clone)]
@@ -474,6 +490,8 @@ impl<T> From<&FuzzyResult<T>> for TropicalWeight {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pushdown::PdaBuilder;
+    use crate::semiring::Semiring;
     use libdictenstein::dynamic_dawg::char::DynamicDawgChar;
 
     #[test]
@@ -588,5 +606,24 @@ mod tests {
 
         assert_eq!(mapped.term, 5);
         assert_eq!(mapped.distance, 1);
+    }
+
+    #[test]
+    fn exact_dyck_bridge_repairs_to_the_multi_kind_pushdown_language() {
+        let input = [0_u64, 1, 2, 3];
+        let correction = exact_dyck_correction(&input, 2).unwrap();
+        let pda = PdaBuilder::balanced_bracket_kinds(
+            &[(0_u64, 2_u64), (1_u64, 3_u64)],
+            TropicalWeight::one(),
+        )
+        .unwrap();
+
+        assert_eq!(correction.distance, 2);
+        assert_eq!(
+            correction.replay(&input),
+            Some(correction.corrected.clone())
+        );
+        assert!(pda.accepts(correction.corrected));
+        assert!(!pda.accepts(input));
     }
 }

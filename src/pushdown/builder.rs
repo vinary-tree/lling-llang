@@ -1,5 +1,6 @@
 //! Builder for weighted pushdown automata.
 
+use std::collections::HashSet;
 use std::hash::Hash;
 
 #[cfg(test)]
@@ -54,6 +55,102 @@ impl std::fmt::Display for BuildError {
 }
 
 impl std::error::Error for BuildError {}
+
+/// Invalid delimiter alphabet for a kind-sensitive bracket PDA.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BracketAlphabetError {
+    /// At least one opening/closing pair is required.
+    Empty,
+    /// One input symbol was assigned more than one delimiter role.
+    AmbiguousSymbol,
+}
+
+impl std::fmt::Display for BracketAlphabetError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Empty => f.write_str("a bracket alphabet must contain at least one pair"),
+            Self::AmbiguousSymbol => {
+                f.write_str("every opening and closing bracket symbol must be distinct")
+            }
+        }
+    }
+}
+
+impl std::error::Error for BracketAlphabetError {}
+
+/// One opening/closing pair in a kind-sensitive bracket alphabet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BracketPair<L> {
+    /// Token that pushes this kind's stack marker.
+    pub open: L,
+    /// Token that pops this kind's stack marker.
+    pub close: L,
+}
+
+impl<L> BracketPair<L> {
+    /// Construct one bracket kind.
+    pub const fn new(open: L, close: L) -> Self {
+        Self { open, close }
+    }
+}
+
+/// Validated multi-kind delimiter alphabet.
+///
+/// Every token has exactly one role. This makes the recognized language
+/// deterministic with respect to delimiter kind and prevents a closer from
+/// silently matching the wrong opener.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DyckAlphabet<L> {
+    pairs: Vec<BracketPair<L>>,
+}
+
+impl<L: Clone + Eq + Hash> DyckAlphabet<L> {
+    /// Validate and own an iterable of bracket pairs.
+    pub fn try_new(
+        pairs: impl IntoIterator<Item = BracketPair<L>>,
+    ) -> Result<Self, BracketAlphabetError> {
+        let pairs: Vec<_> = pairs.into_iter().collect();
+        if pairs.is_empty() {
+            return Err(BracketAlphabetError::Empty);
+        }
+
+        let mut symbols = HashSet::with_capacity(pairs.len().saturating_mul(2));
+        for pair in &pairs {
+            if !symbols.insert(pair.open.clone()) || !symbols.insert(pair.close.clone()) {
+                return Err(BracketAlphabetError::AmbiguousSymbol);
+            }
+        }
+        Ok(Self { pairs })
+    }
+
+    /// Validate and clone a slice of tuple pairs.
+    pub fn try_from_pairs(pairs: &[(L, L)]) -> Result<Self, BracketAlphabetError> {
+        Self::try_new(
+            pairs
+                .iter()
+                .cloned()
+                .map(|(open, close)| BracketPair::new(open, close)),
+        )
+    }
+
+    /// Validated pairs in deterministic kind order.
+    pub fn pairs(&self) -> &[BracketPair<L>] {
+        &self.pairs
+    }
+
+    /// Number of delimiter kinds.
+    pub fn len(&self) -> usize {
+        self.pairs.len()
+    }
+
+    /// Whether the alphabet contains no kinds.
+    ///
+    /// A constructed `DyckAlphabet` is never empty; this method supports
+    /// ordinary collection-style generic code.
+    pub fn is_empty(&self) -> bool {
+        self.pairs.is_empty()
+    }
+}
 
 /// Builder for constructing weighted pushdown automata.
 #[derive(Debug, Clone)]
@@ -306,49 +403,83 @@ impl<L: Clone + Eq + Hash, W: Semiring + Clone> Default for PdaBuilder<L, W> {
 
 /// Convenience methods for building common PDA patterns.
 impl<L: Clone + Eq + Hash, W: Semiring + Clone> PdaBuilder<L, W> {
+    /// Build a kind-sensitive PDA for an arbitrary bracket alphabet.
+    ///
+    /// Each pair receives a distinct stack marker. A closing symbol can pop
+    /// only the marker for its own opening symbol, so cross-kind words such as
+    /// `(]` are rejected. All opening and closing symbols must be pairwise
+    /// distinct; an ambiguous alphabet is refused rather than interpreted as a
+    /// nondeterministic delimiter grammar.
+    pub fn balanced_bracket_kinds(
+        pairs: &[(L, L)],
+        weight_one: W,
+    ) -> Result<VectorPda<L, W>, BracketAlphabetError> {
+        let alphabet = DyckAlphabet::try_from_pairs(pairs)?;
+        Ok(Self::balanced_bracket_alphabet(&alphabet, weight_one))
+    }
+
+    /// Build a kind-sensitive PDA from an already validated alphabet.
+    pub fn balanced_bracket_alphabet(alphabet: &DyckAlphabet<L>, weight_one: W) -> VectorPda<L, W> {
+        let pairs = alphabet.pairs();
+
+        let mut builder = Self::new();
+        let balanced = builder.add_final_state(weight_one.clone());
+        let nested = builder.add_state();
+        builder.set_start(balanced);
+
+        let bottom = builder.initial_stack();
+        let markers: Vec<_> = pairs.iter().map(|_| builder.add_stack_symbol()).collect();
+
+        for (pair, marker) in pairs.iter().zip(&markers) {
+            builder.add_push_transition(
+                balanced,
+                Some(pair.open.clone()),
+                bottom,
+                vec![bottom, *marker],
+                nested,
+                weight_one.clone(),
+            );
+        }
+
+        for (pair, pushed_marker) in pairs.iter().zip(&markers) {
+            for current_marker in &markers {
+                builder.add_push_transition(
+                    nested,
+                    Some(pair.open.clone()),
+                    *current_marker,
+                    vec![*current_marker, *pushed_marker],
+                    nested,
+                    weight_one.clone(),
+                );
+            }
+        }
+
+        for (pair, marker) in pairs.iter().zip(&markers) {
+            builder.add_pop_transition(
+                nested,
+                Some(pair.close.clone()),
+                *marker,
+                nested,
+                weight_one.clone(),
+            );
+        }
+        builder.add_epsilon_transition(nested, bottom, balanced, StackAction::Noop, weight_one);
+
+        builder.build()
+    }
+
     /// Build a PDA for balanced brackets.
     ///
     /// Recognizes strings of balanced open/close pairs.
     /// Uses two states: s0 (final, balanced) and s1 (processing, unbalanced).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `open == close`; use [`balanced_bracket_kinds`](Self::balanced_bracket_kinds)
+    /// when validation errors must be handled.
     pub fn balanced_brackets(open: L, close: L, weight_one: W) -> VectorPda<L, W> {
-        let mut builder = Self::new();
-
-        // s0 is the accepting state (only reachable when brackets are balanced)
-        let s0 = builder.add_final_state(weight_one.clone());
-        // s1 is the processing state (when we have unmatched open brackets)
-        let s1 = builder.add_state();
-        builder.set_start(s0);
-
-        let z0 = builder.initial_stack();
-        let bracket = builder.add_stack_symbol();
-
-        // From s0 (balanced): on open bracket, push marker and go to s1
-        builder.add_push_transition(
-            s0,
-            Some(open.clone()),
-            z0,
-            vec![z0, bracket],
-            s1,
-            weight_one.clone(),
-        );
-
-        // From s1 (unbalanced): on open bracket, push another marker
-        builder.add_push_transition(
-            s1,
-            Some(open),
-            bracket,
-            vec![bracket, bracket],
-            s1,
-            weight_one.clone(),
-        );
-
-        // From s1: on close bracket, pop marker (stay in s1)
-        builder.add_pop_transition(s1, Some(close), bracket, s1, weight_one.clone());
-
-        // From s1: when z0 is revealed (all brackets matched), epsilon to s0
-        builder.add_epsilon_transition(s1, z0, s0, StackAction::Noop, weight_one);
-
-        builder.build()
+        Self::balanced_bracket_kinds(&[(open, close)], weight_one)
+            .expect("opening and closing bracket symbols must be distinct")
     }
 
     /// Build a PDA for { a^n b^n | n >= 1 }.
@@ -506,6 +637,7 @@ impl<L: Clone + Eq + Hash, W: Semiring + Clone> PdaBuilder<L, W> {
 mod tests {
     use super::*;
     use crate::semiring::TropicalWeight;
+    use proptest::prelude::*;
 
     #[test]
     fn test_builder_basic() {
@@ -558,6 +690,81 @@ mod tests {
         assert!(!pda.accepts("(".chars()));
         assert!(!pda.accepts(")".chars()));
         assert!(!pda.accepts("(()".chars()));
+    }
+
+    #[test]
+    fn multi_kind_brackets_preserve_pair_identity() {
+        let pda = PdaBuilder::balanced_bracket_kinds(
+            &[('(', ')'), ('[', ']'), ('{', '}')],
+            TropicalWeight::one(),
+        )
+        .unwrap();
+
+        assert!(pda.accepts("".chars()));
+        assert!(pda.accepts("([]){}".chars()));
+        assert!(pda.accepts("{[()]}".chars()));
+        assert!(!pda.accepts("(]".chars()));
+        assert!(!pda.accepts("([)]".chars()));
+        assert!(!pda.accepts("[".chars()));
+        assert!(!pda.accepts("]".chars()));
+    }
+
+    #[test]
+    fn multi_kind_brackets_reject_ambiguous_alphabets() {
+        assert!(matches!(
+            PdaBuilder::<char, TropicalWeight>::balanced_bracket_kinds(&[], TropicalWeight::one(),),
+            Err(BracketAlphabetError::Empty)
+        ));
+        assert!(matches!(
+            PdaBuilder::balanced_bracket_kinds(&[('(', ')'), ('[', ')')], TropicalWeight::one()),
+            Err(BracketAlphabetError::AmbiguousSymbol)
+        ));
+        assert!(matches!(
+            DyckAlphabet::try_from_pairs(&[('(', '(')]),
+            Err(BracketAlphabetError::AmbiguousSymbol)
+        ));
+        assert!(matches!(
+            DyckAlphabet::try_from_pairs(&[('(', ')'), ('(', ']')]),
+            Err(BracketAlphabetError::AmbiguousSymbol)
+        ));
+
+        let alphabet =
+            DyckAlphabet::try_new([BracketPair::new('(', ')'), BracketPair::new('[', ']')])
+                .unwrap();
+        assert_eq!(alphabet.len(), 2);
+        assert!(!alphabet.is_empty());
+        let pda = PdaBuilder::balanced_bracket_alphabet(&alphabet, TropicalWeight::one());
+        assert!(pda.accepts("[()]".chars()));
+        assert!(!pda.accepts("[(])".chars()));
+    }
+
+    proptest! {
+        #[test]
+        fn multi_kind_pda_matches_reference_stack(
+            kinds in 1_u8..=3,
+            raw in prop::collection::vec(0_u8..6, 0..16),
+        ) {
+            let pairs: Vec<_> = (0..kinds).map(|kind| (kind, kinds + kind)).collect();
+            let input: Vec<_> = raw
+                .into_iter()
+                .map(|token| token % (2 * kinds))
+                .collect();
+            let pda = PdaBuilder::balanced_bracket_kinds(&pairs, TropicalWeight::one()).unwrap();
+
+            let mut stack = Vec::new();
+            let mut expected = true;
+            for token in &input {
+                if *token < kinds {
+                    stack.push(*token);
+                } else if stack.pop() != Some(*token - kinds) {
+                    expected = false;
+                    break;
+                }
+            }
+            expected &= stack.is_empty();
+
+            prop_assert_eq!(pda.accepts(input), expected);
+        }
     }
 
     #[test]

@@ -68,7 +68,7 @@ mod traits;
 mod transition;
 mod vector;
 
-pub use builder::PdaBuilder;
+pub use builder::{BracketAlphabetError, BracketPair, DyckAlphabet, PdaBuilder};
 pub use decode::PdaDecoder;
 pub use stack::{StackAction, StackSymbol};
 pub use traits::{PdaAcceptMode, PdaConfiguration, WeightedPda};

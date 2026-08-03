@@ -141,7 +141,10 @@ and `abb` would try to pop from $`Z_0`$ — both rejected. This machine is drawn
 | [`WeightedPda<L, W>`](../../src/pushdown/traits.rs) | trait | Structural queries + acceptance predicates (`start`, `initial_stack`, `accept_mode`, `transitions`, `is_accepting`, `accepting_weight`). |
 | [`VectorPda<L, W>`](../../src/pushdown/vector.rs) | struct | Default implementation; also hosts the executable `accepts` / `total_weight` / `approximate_fst`. |
 | [`PdaState<L, W>`](../../src/pushdown/vector.rs) | struct | One state: `is_final`, `final_weight`, outgoing `transitions`. |
-| [`PdaBuilder<L, W>`](../../src/pushdown/builder.rs) | struct | Construction with stack-symbol allocation and `add_push/pop/replace/read` helpers; canned `balanced_brackets`, `a_n_b_n`, `palindrome_with_center`. |
+| [`PdaBuilder<L, W>`](../../src/pushdown/builder.rs) | struct | Construction with stack-symbol allocation and `add_push/pop/replace/read` helpers; canned single- and multi-kind bracket, $`a^n b^n`$, and palindrome machines. |
+| [`BracketPair<L>`](../../src/pushdown/builder.rs) | struct | One opening/closing delimiter kind. |
+| [`DyckAlphabet<L>`](../../src/pushdown/builder.rs) | struct | Owned validated delimiter alphabet; every token has exactly one role. |
+| [`BracketAlphabetError`](../../src/pushdown/builder.rs) | enum | Rejects empty alphabets and duplicate/overlapping delimiter roles. |
 | [`StackSymbol`](../../src/pushdown/stack.rs) | struct | A `u32` stack symbol; `BOTTOM` is $`Z_0`$. |
 | [`StackAction`](../../src/pushdown/stack.rs) | enum | `Pop` / `Push` / `Replace` / `Noop`, with `apply(&mut Vec<StackSymbol>)`. |
 | [`PdaTransition<L, W>`](../../src/pushdown/transition.rs) | struct | An arc `{ from, input, stack_top, stack_action, to, weight }`. |
@@ -247,6 +250,62 @@ assert!(pda.accepts("((()))".chars()));
 assert!(!pda.accepts("(".chars()));
 assert!(!pda.accepts("(()".chars()));
 ```
+
+### Exact multi-kind Dyck recognition and correction
+
+For multiple delimiter kinds, one counter is insufficient: the recognizer must
+remember the ordered stack of opener kinds so that `(` can close only with `)`
+and `[` only with `]`. `DyckAlphabet` validates that no token is reused as an
+opener or closer, and `balanced_bracket_alphabet` assigns one stack marker to
+each pair:
+
+```rust
+use lling_llang::pushdown::{BracketPair, DyckAlphabet, PdaBuilder};
+use lling_llang::semiring::{Semiring, TropicalWeight};
+
+let alphabet = DyckAlphabet::try_new([
+    BracketPair::new('(', ')'),
+    BracketPair::new('[', ']'),
+])?;
+let pda = PdaBuilder::balanced_bracket_alphabet(&alphabet, TropicalWeight::one());
+
+assert!(pda.accepts("[()]".chars()));
+assert!(!pda.accepts("(]".chars()));
+assert!(!pda.accepts("([)]".chars()));
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+The convenience `balanced_bracket_kinds(&[(open, close), ...], weight)` performs
+the same validation. `balanced_brackets` delegates to that implementation for
+one kind.
+
+With the `levenshtein` feature, `integration::exact_dyck_correction` computes an
+exact unit-Levenshtein repair over numeric tokens: opener kind $`r`$ is token
+$`r`$ and its closer is $`k+r`$. The corrector uses interval dynamic programming
+in $`O(k n^3)`$ time and $`O(n^2)`$ space and returns a replayable minimum-cost
+witness. It has no nesting-depth approximation; its work ceiling bounds resource
+use, not the recognized language.
+
+```rust
+use lling_llang::integration::exact_dyck_correction;
+use lling_llang::pushdown::PdaBuilder;
+use lling_llang::semiring::{Semiring, TropicalWeight};
+
+let input = [0_u64, 1, 2, 3]; // crossing: ([)]
+let repair = exact_dyck_correction(&input, 2)?;
+let pda = PdaBuilder::balanced_bracket_kinds(
+    &[(0_u64, 2_u64), (1_u64, 3_u64)],
+    TropicalWeight::one(),
+)?;
+assert!(!pda.accepts(input));
+assert!(pda.accepts(repair.corrected));
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+The PDA supplies the unbounded kind-sensitive language boundary; the interval
+DP supplies exact correction. A bounded-depth finite automaton remains useful
+only as a finite lower-bound accelerator and must not be presented as the
+multi-kind language itself.
 
 ### $`a^n b^n`$ from primitives
 
