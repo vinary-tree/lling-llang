@@ -16,15 +16,15 @@
 use ordered_float::OrderedFloat;
 
 use super::super::traits::{
-    CommutativeTimesSemiring, DivisibleSemiring, IdempotentSemiring, NumericalWeight,
-    QuantizableSemiring, Semiring, StarSemiring, TotallyOrderedSemiring,
-    WeaklyLeftDivisibleSemiring, ZeroSumFreeSemiring,
+    CommutativeTimesSemiring, IdempotentSemiring, NumericalWeight, QuantizableSemiring, Semiring,
+    StarSemiring, TotallyOrderedSemiring, ZeroSumFreeSemiring,
 };
 
 /// A max-plus score.
 ///
 /// Finite values are reachable scores and negative infinity is the additive
 /// identity. `NaN` and positive infinity are outside the verified carrier.
+/// Sequential overflow clamps to the corresponding largest finite value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct ArcticWeight(pub OrderedFloat<f64>);
@@ -74,6 +74,23 @@ impl ArcticWeight {
     pub fn is_neg_infinite(self) -> bool {
         self.value() == f64::NEG_INFINITY
     }
+
+    /// Add two reachable scores without leaving the checked carrier.
+    ///
+    /// IEEE-754 overflow is clamped to the largest finite value with the same
+    /// sign. The unreachable value is handled by [`Semiring::times`] before
+    /// this helper is called, so finite inputs can never produce `NaN`.
+    #[inline]
+    fn saturating_score_add(left: f64, right: f64) -> f64 {
+        let sum = left + right;
+        if sum == f64::INFINITY {
+            f64::MAX
+        } else if sum == f64::NEG_INFINITY {
+            -f64::MAX
+        } else {
+            sum
+        }
+    }
 }
 
 impl From<f64> for ArcticWeight {
@@ -118,7 +135,7 @@ impl Semiring for ArcticWeight {
         if self.is_zero() || other.is_zero() {
             Self::zero()
         } else {
-            Self::new(self.value() + other.value())
+            Self::new(Self::saturating_score_add(self.value(), other.value()))
         }
     }
 
@@ -152,16 +169,6 @@ impl Semiring for ArcticWeight {
     }
 }
 
-impl DivisibleSemiring for ArcticWeight {
-    fn divide(&self, other: &Self) -> Option<Self> {
-        if self.is_zero() || other.is_zero() {
-            None
-        } else {
-            Self::try_new(self.value() - other.value())
-        }
-    }
-}
-
 impl NumericalWeight for ArcticWeight {
     #[inline]
     fn numerical_value(&self) -> f64 {
@@ -180,12 +187,6 @@ impl IdempotentSemiring for ArcticWeight {}
 impl ZeroSumFreeSemiring for ArcticWeight {}
 impl CommutativeTimesSemiring for ArcticWeight {}
 impl TotallyOrderedSemiring for ArcticWeight {}
-
-impl WeaklyLeftDivisibleSemiring for ArcticWeight {
-    fn left_divide(&self, divisor: &Self) -> Option<Self> {
-        self.divide(divisor)
-    }
-}
 
 impl QuantizableSemiring for ArcticWeight {
     fn quantize(&self, epsilon: f64) -> i64 {
@@ -257,9 +258,8 @@ impl<'de> serde::Deserialize<'de> for ArcticWeight {
 #[cfg(test)]
 mod tests {
     use super::super::super::traits::tests::{
-        verify_commutative_times_semiring, verify_divisible_semiring, verify_idempotent_semiring,
-        verify_quantizable_semiring, verify_semiring_axioms, verify_totally_ordered_semiring,
-        verify_weakly_left_divisible_semiring, verify_zero_sum_free_semiring,
+        verify_commutative_times_semiring, verify_idempotent_semiring, verify_quantizable_semiring,
+        verify_semiring_axioms, verify_totally_ordered_semiring, verify_zero_sum_free_semiring,
     };
     use super::*;
     use proptest::prelude::*;
@@ -299,6 +299,28 @@ mod tests {
         );
     }
 
+    #[test]
+    fn multiplication_is_closed_at_both_ieee_overflow_boundaries() {
+        let maximum = ArcticWeight::new(f64::MAX);
+        let minimum = ArcticWeight::new(-f64::MAX);
+        assert_eq!(maximum.times(&maximum), maximum);
+        assert_eq!(minimum.times(&minimum), minimum);
+        assert!(ArcticWeight::is_valid_raw(maximum.times(&maximum).value()));
+        assert!(ArcticWeight::is_valid_raw(minimum.times(&minimum).value()));
+        assert_eq!(maximum.times(&ArcticWeight::zero()), ArcticWeight::zero());
+    }
+
+    #[test]
+    fn overflow_policy_is_commutative_but_not_divisible() {
+        let maximum = ArcticWeight::new(f64::MAX);
+        let half = ArcticWeight::new(f64::MAX / 2.0);
+        assert_eq!(maximum.times(&half), half.times(&maximum));
+        assert_ne!(
+            maximum.times(&maximum).value() - maximum.value(),
+            maximum.value()
+        );
+    }
+
     proptest! {
         #[test]
         fn exact_integer_domain_satisfies_bitwise_associativity(
@@ -331,14 +353,16 @@ mod tests {
         }
 
         #[test]
-        fn division_laws(
-            a in -1_000.0f64..1_000.0,
-            b in -1_000.0f64..1_000.0,
+        fn extreme_finite_multiplication_remains_in_carrier_and_commutative(
+            a in prop_oneof![Just(f64::MAX), Just(-f64::MAX), any::<f64>().prop_filter("finite", |x| x.is_finite())],
+            b in prop_oneof![Just(f64::MAX), Just(-f64::MAX), any::<f64>().prop_filter("finite", |x| x.is_finite())],
         ) {
             let a = ArcticWeight::new(a);
             let b = ArcticWeight::new(b);
-            verify_divisible_semiring(a, b, 1e-9);
-            verify_weakly_left_divisible_semiring(a, a.plus(&b), 1e-9);
+            let forward = a.times(&b);
+            let reverse = b.times(&a);
+            prop_assert!(ArcticWeight::is_valid_raw(forward.value()));
+            prop_assert_eq!(forward, reverse);
         }
     }
 }

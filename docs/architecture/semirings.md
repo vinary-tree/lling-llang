@@ -258,7 +258,7 @@ Used by `sample_path` for proportional path sampling.
 | Semiring | Idempotent | K-Closed | Zero-Sum-Free | Weakly Left Divisible | Commutative $`\otimes`$ | TotallyOrdered | Nonnegative | Quantizable | Stochastic |
 |----------|------------|----------|---------------|----------------------|---------------|----------------|-------------|-------------|------------|
 | TropicalWeight | Yes | k=0 | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| ArcticWeight | Yes | No | Yes | Yes | Yes | Yes | No | Yes | No |
+| ArcticWeight | Yes | No | Yes | No | Yes | Yes | No | Yes | No |
 | LogWeight | No | None | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 | ProbabilityWeight | No | None | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 | BoolWeight | Yes | k=0 | Yes | No | Yes | No | No | No | No |
@@ -359,7 +359,13 @@ do not satisfy Dijkstra-style cost inflation. Its exact-real Rocq development
 proves the semiring, order, star boundary, and score-delta telescoping laws.
 Rust uses `f64`, so exact algebraic equality is guaranteed on the tested exact
 integer domain; general floating-point calculations use the trait's explicit
-approximate-equality contract.
+approximate-equality contract. If sequential addition overflows IEEE-754,
+`times` clamps to `` $`\pm\texttt{f64::MAX}`$ `` instead of constructing an
+out-of-carrier infinity. The result remains total and commutative, but the lost
+overflow magnitude cannot be recovered; accordingly `ArcticWeight` does not
+claim divisible or weakly-left-divisible capability traits. The Rocq
+development separately proves the exact-real semiring and the finite IEEE
+overflow envelope, without assuming floating-point associativity.
 
 **When to use**: maximum-score paths such as fzf ranking. Do not pass it to an
 algorithm that requires non-negative costs or a uniform closure bound.

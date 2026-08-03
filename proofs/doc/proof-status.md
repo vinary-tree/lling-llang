@@ -19,7 +19,7 @@ This document tracks the current formal verification surface for lling-llang.
 |------|--------|-------|
 | `Semiring.v` | Checked | Semiring laws as typeclass obligations, with derived lemmas and no unchecked escapes |
 | `TropicalWeight.v` | Checked | Constructive proofs for tropical semiring, order, idempotence, commutative multiplication, and star |
-| `ArcticWeight.v` | Checked | Exact-real max-plus semiring, preferred-score total order, idempotence, commutative multiplication, convergent-star boundary, positive-cycle rejection, and fzf transition-delta telescoping |
+| `ArcticWeight.v` | Checked | Exact-real max-plus semiring, preferred-score total order, idempotence, commutative multiplication, convergent-star boundary, positive-cycle rejection, fzf transition-delta telescoping, and an IEEE finite-overflow clamp refinement proving closure, commutativity, identity in range, and loss of divisibility |
 | `LogWeight.v` | Checked | Exact real-valued probability-mass semiring corresponding to log-weight algebra |
 | `Quantization.v` | Checked | Exact real-valued quantization grid with explicit max-raw-index convention, dequantization range, monotonicity, epsilon-approximation, bucket-coverage half-step error, and per-bucket error lemmas |
 | `Interval.v` | Checked | Exact real-valued interval containment, width, midpoint, add/neg/subtract, and widening soundness lemmas |

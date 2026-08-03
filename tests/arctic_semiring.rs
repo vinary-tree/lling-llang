@@ -24,3 +24,12 @@ fn stable_bytes_preserve_negative_infinity_and_finite_scores() {
     );
     assert_eq!(ArcticWeight::new(42.0).to_bytes(), 42.0f64.to_le_bytes());
 }
+
+#[test]
+fn extreme_products_are_total_and_saturating() {
+    let positive = ArcticWeight::new(f64::MAX);
+    let negative = ArcticWeight::new(-f64::MAX);
+    assert_eq!(positive.times(&positive), positive);
+    assert_eq!(negative.times(&negative), negative);
+    assert_eq!(positive.times(&ArcticWeight::zero()), ArcticWeight::zero());
+}

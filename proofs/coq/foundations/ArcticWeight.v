@@ -181,6 +181,75 @@ Proof. intros [a|] [b|]; simpl; try contradiction; auto. Qed.
   sr_zero_sum_free := arctic_zero_sum_free
 }.
 
+(** ** IEEE-754 overflow envelope
+
+    The executable carrier excludes both positive infinity and finite-operation
+    negative infinity. Rust therefore clamps an overflowing finite sum to the
+    largest finite magnitude. [ieee_clamp] abstracts the exact binary64
+    rounding step while modeling that boundary decision explicitly. This is a
+    closure refinement, not a claim that floating-point addition is
+    associative. *)
+
+Definition ieee_clamp (max_finite x : R) : R :=
+  Rmax (- max_finite) (Rmin max_finite x).
+
+Definition ieee_arctic_times (max_finite x y : R) : R :=
+  ieee_clamp max_finite (x + y).
+
+Lemma ieee_clamp_bounded : forall max_finite x,
+  0 <= max_finite ->
+  - max_finite <= ieee_clamp max_finite x <= max_finite.
+Proof.
+  intros max_finite x Hmax.
+  unfold ieee_clamp.
+  split.
+  - apply Rmax_l.
+  - apply Rmax_lub.
+    + lra.
+    + apply Rmin_l.
+Qed.
+
+Theorem ieee_arctic_times_closed : forall max_finite x y,
+  0 <= max_finite ->
+  - max_finite <= ieee_arctic_times max_finite x y <= max_finite.
+Proof. intros; apply ieee_clamp_bounded; assumption. Qed.
+
+Lemma ieee_arctic_times_comm : forall max_finite x y,
+  ieee_arctic_times max_finite x y = ieee_arctic_times max_finite y x.
+Proof.
+  intros. unfold ieee_arctic_times. f_equal. lra.
+Qed.
+
+Lemma ieee_clamp_exact_in_range : forall max_finite x,
+  0 <= max_finite -> - max_finite <= x <= max_finite ->
+  ieee_clamp max_finite x = x.
+Proof.
+  intros max_finite x Hmax [Hlower Hupper].
+  unfold ieee_clamp.
+  rewrite Rmin_right by exact Hupper.
+  rewrite Rmax_right by exact Hlower.
+  reflexivity.
+Qed.
+
+Theorem ieee_arctic_times_one : forall max_finite x,
+  0 <= max_finite -> - max_finite <= x <= max_finite ->
+  ieee_arctic_times max_finite x 0 = x.
+Proof.
+  intros. unfold ieee_arctic_times. replace (x + 0) with x by lra.
+  apply ieee_clamp_exact_in_range; assumption.
+Qed.
+
+Theorem ieee_saturation_not_divisible : forall max_finite,
+  0 < max_finite ->
+  ieee_arctic_times max_finite max_finite max_finite - max_finite <> max_finite.
+Proof.
+  intros max_finite Hpositive.
+  unfold ieee_arctic_times, ieee_clamp.
+  rewrite Rmin_left by lra.
+  rewrite Rmax_right by lra.
+  lra.
+Qed.
+
 (** The Rust natural_less relation treats a numerically larger score as the
     preferred ("less") weight, hence [a <=_A b] iff max(a,b)=a. *)
 Definition arctic_le (a b : arctic) : Prop :=
