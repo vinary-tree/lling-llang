@@ -242,8 +242,8 @@ impl ApiMigrationRule {
         let old_name = old_name.into();
         let new_name = new_name.into();
         Self {
-            id: format!("rename_fn_{}_{}", &old_name, &new_name),
-            description: format!("Rename function {} to {}", &old_name, &new_name),
+            id: format!("rename_fn_{}_{}", old_name, new_name),
+            description: format!("Rename function {} to {}", old_name, new_name),
             migration_type: MigrationType::RenameFunction { old_name, new_name },
             version_range: VersionRange::new(from, to),
             cost: 0.1,
@@ -261,8 +261,8 @@ impl ApiMigrationRule {
         let old_name = old_name.into();
         let new_name = new_name.into();
         Self {
-            id: format!("rename_type_{}_{}", &old_name, &new_name),
-            description: format!("Rename type {} to {}", &old_name, &new_name),
+            id: format!("rename_type_{}_{}", old_name, new_name),
+            description: format!("Rename type {} to {}", old_name, new_name),
             migration_type: MigrationType::RenameType { old_name, new_name },
             version_range: VersionRange::new(from, to),
             cost: 0.1,
@@ -283,10 +283,10 @@ impl ApiMigrationRule {
         let new_name = new_name.into();
         let fn_part = function.as_deref().unwrap_or("*");
         Self {
-            id: format!("rename_param_{}_{}_{}", fn_part, &old_name, &new_name),
+            id: format!("rename_param_{}_{}_{}", fn_part, old_name, new_name),
             description: format!(
                 "Rename parameter {} to {} in {}",
-                &old_name, &new_name, fn_part
+                old_name, new_name, fn_part
             ),
             migration_type: MigrationType::RenameParameter {
                 function,
@@ -335,8 +335,8 @@ impl ApiMigrationRule {
     ) -> Self {
         let function = function.into();
         Self {
-            id: format!("deprecate_{}", &function),
-            description: format!("Mark {} as deprecated", &function),
+            id: format!("deprecate_{}", function),
+            description: format!("Mark {} as deprecated", function),
             migration_type: MigrationType::RemoveFunction {
                 function,
                 message: message.into(),
