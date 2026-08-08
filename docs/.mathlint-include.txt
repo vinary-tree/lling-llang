@@ -1,0 +1,23 @@
+# Living-doc allow-list for scripts/doc-mathlint.sh. Seeded 2026-08-08 (wave W0).
+#
+# Contract (same as liblevenshtein's): this is an explicit allow-list of
+# verified-passing entries — a file is added only once it passes
+# `raku scripts/doc-math-prescan.raku --lint <file>` at the commit that adds it,
+# and every listed file must stay clean thereafter. Append-only scientific
+# records (docs/archive/journal.md, docs/scientific-ledger/) keep their
+# notation and are never listed.
+#
+# The ABI/binding documents join this list as later waves add them:
+#   docs/api/c-abi-reference.md            (wave W4, deliverable D1)
+#   docs/architecture/resource-abi.md      (wave W4, deliverable D2)
+#   docs/security/abi-trust-model.md       (wave W4, deliverable D3)
+#
+# Deferred candidates (fail the scanner today; rework before listing):
+#   docs/STYLE.md     — quotes old-style delimiter forms verbatim as meta-examples
+#   docs/NOTATION.md  — same meta-example pattern
+docs/api/backend-reference.md
+docs/api/lattice-reference.md
+docs/api/layer-reference.md
+docs/api/path-reference.md
+docs/api/semiring-reference.md
+docs/api/wfst-reference.md
