@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "lling-llang",
+  "author": {
+    "name": "Dylon Edwards",
+    "email": "dylon.devo@gmail.com"
+  },
+  "organization": {
+    "github": "vinary-tree",
+    "npmScope": "vinary-tree"
+  },
+  "interop": {
+    "crate": "vinary-tree-interop",
+    "cPrefix": "vt_",
+    "cHeader": "vinary_tree_interop.h",
+    "npm": "@vinary-tree/interop",
+    "resourceLayout": ["context", "vtable"],
+    "scalarWfstInterfaceId": "vt.scalar-wfst.1",
+    "scalarWfstInterfaceVersion": 1
+  },
+  "packages": {
+    "cratesIo": "lling-llang",
+    "npm": "@vinary-tree/lling-llang"
+  },
+  "supportTiers": {
+    "tier1": ["c", "cpp", "javascript", "typescript", "clojurescript"]
+  },
+  "packageVersion": "0.2.0",
+  "abiVersion": 1,
+  "apiRevision": 1,
+  "cPrefix": "lling_",
+  "headers": {
+    "c": "include/lling_llang.h",
+    "cpp": "include/lling_llang.hpp"
+  },
+  "snapshot": {
+    "boundary": "capture-before-traversal",
+    "revision": "immutable-resource",
+    "captureComplexity": "O(1)",
+    "importCopyComplexity": "O(reachable-states-and-arcs)",
+    "compositionExpansion": "lazy-cached-product-states"
+  },
+  "marshalling": {
+    "wfstHandoff": "O(1)-retained-two-word-resource",
+    "wfstComposition": "retained-snapshots-and-lazy-product-states",
+    "wfstExpansion": "one-batched-state-and-paged-contiguous-arcs",
+    "customProviderDefault": "serialized-caller-thread",
+    "customProviderOptIn": "parallel-reentrant"
+  },
+  "enums": {
+    "status": {
+      "cType": "LlingStatus",
+      "cPrefix": "LLING_STATUS_",
+      "rustType": "LlingStatus",
+      "values": {
+        "OK": 0,
+        "INVALID_ARGUMENT": 1,
+        "NULL_POINTER": 2,
+        "PANIC": 3,
+        "INCOMPATIBLE_RESOURCE": 4,
+        "PROVIDER_ERROR": 5,
+        "LIMIT_EXCEEDED": 6,
+        "CLOSED": 7
+      }
+    }
+  },
+  "objects": {
+    "LlingWfstBuilder": {
+      "ownership": "caller-owned-until-build",
+      "methods": [
+        "new",
+        "free",
+        "reserve_states",
+        "add_state",
+        "set_start",
+        "set_final",
+        "clear_final",
+        "add_arc",
+        "build"
+      ]
+    },
+    "LlingWfst": {
+      "ownership": "caller-owned-immutable",
+      "methods": ["free", "import", "compose", "resource"]
+    },
+    "ScalarWfstResource": {
+      "interface": "vt.scalar-wfst.1",
+      "unitDomain": "UNICODE_SCALAR",
+      "producedWeightDomains": [
+        "tropical-f64",
+        "log-f64",
+        "probability-f64",
+        "arctic-f64",
+        "signed-tropical-f64",
+        "count-f64",
+        "boolean-f64"
+      ],
+      "consumedWeightDomain": "tropical-f64",
+      "methods": ["snapshot", "start", "num_states", "state_info", "state_arcs"]
+    }
+  },
+  "forbiddenFacadeSymbols": ["ldict_", "dual_"],
+  "cFunctions": [
+    {"name": "lling_abi_version", "rustModule": "ffi"},
+    {"name": "lling_api_revision", "rustModule": "ffi"},
+    {"name": "lling_last_error_message", "rustModule": "ffi"},
+    {"name": "lling_wfst_builder_new", "rustModule": "ffi"},
+    {"name": "lling_wfst_builder_free", "rustModule": "ffi"},
+    {"name": "lling_wfst_builder_reserve_states", "rustModule": "ffi"},
+    {"name": "lling_wfst_builder_add_state", "rustModule": "ffi"},
+    {"name": "lling_wfst_builder_set_start", "rustModule": "ffi"},
+    {"name": "lling_wfst_builder_set_final", "rustModule": "ffi"},
+    {"name": "lling_wfst_builder_clear_final", "rustModule": "ffi"},
+    {"name": "lling_wfst_builder_add_arc", "rustModule": "ffi"},
+    {"name": "lling_wfst_builder_build", "rustModule": "ffi"},
+    {"name": "lling_wfst_free", "rustModule": "ffi"},
+    {"name": "lling_wfst_import", "rustModule": "ffi"},
+    {"name": "lling_wfst_compose", "rustModule": "ffi"},
+    {"name": "lling_wfst_resource", "rustModule": "ffi"},
+    {"name": "lling_resource_release", "rustModule": "ffi"}
+  ],
+  "javascript": {
+    "package": "@vinary-tree/lling-llang",
+    "version": "0.2.0",
+    "dependencies": {
+      "@vinary-tree/interop": "0.1.0",
+      "@vinary-tree/vinary-tree": "0.10.0"
+    },
+    "exports": [
+      ".",
+      "./typescript",
+      "./clojurescript",
+      "./wasm",
+      "./wasi",
+      "./cljs/vinary_tree/lling_llang.cljs"
+    ],
+    "facadeExports": ["runtimeIdentity", "vectorWfst", "compose"],
+    "cljsNamespace": "vinary-tree.lling-llang",
+    "cljsExports": [
+      "vector-wfst",
+      "add-state!",
+      "set-start!",
+      "set-final!",
+      "add-arc!",
+      "build!",
+      "compose",
+      "start",
+      "state",
+      "close!"
+    ]
+  },
+  "wasm": {
+    "umbrellaPackage": "@vinary-tree/vinary-tree",
+    "projectPackage": "@vinary-tree/lling-llang",
+    "runtimeIdentityGuard": true,
+    "nodeDefault": "native-napi",
+    "alternatives": ["wasm", "wasi"]
+  }
+}
