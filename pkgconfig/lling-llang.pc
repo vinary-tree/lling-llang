@@ -1,0 +1,12 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: lling-llang
+Description: High-performance weighted finite-state transducer algebra
+Version: 0.2.0
+Requires: vinary-tree-interop >= 0.1.0
+Libs: -L${libdir} -llling_llang
+Libs.private: -ldl -lpthread -lm
+Cflags: -I${includedir}

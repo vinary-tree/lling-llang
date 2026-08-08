@@ -88,12 +88,14 @@ impl SimdCapability {
     }
 
     #[cfg(target_arch = "aarch64")]
+    /// Detect the mandatory AArch64 NEON capability.
     pub fn detect() -> Self {
         // NEON is mandatory on AArch64
         SimdCapability::Neon
     }
 
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    /// Select the portable scalar implementation on other architectures.
     pub fn detect() -> Self {
         SimdCapability::Scalar
     }

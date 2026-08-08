@@ -175,6 +175,8 @@ pub mod acoustic;
 pub mod algorithms;
 pub mod asr;
 pub mod backend;
+#[cfg(feature = "bindings-core")]
+pub mod bindings;
 pub mod cfg;
 pub mod composition;
 pub mod ctc;
@@ -205,6 +207,9 @@ pub mod training;
 pub mod transducer;
 pub mod tree_transducers;
 pub mod wfst;
+
+#[cfg(feature = "ffi")]
+pub mod ffi;
 
 /// Test utilities for property-based testing and assertions.
 ///

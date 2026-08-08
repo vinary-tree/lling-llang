@@ -25,6 +25,7 @@ pub mod logict;
 /// `TheoryAlgebra<Z3Theory>` a `BooleanAlgebra`, giving symbolic automata SMT-theory
 /// guards (bool / linear integer arithmetic / bitvectors) with a sound `Sat3` channel
 /// for solver `Unknown`.
+#[cfg(all(not(target_family = "wasm"), feature = "smt-z3"))]
 pub mod logict_smt;
 pub mod ordered_field;
 pub mod presburger;

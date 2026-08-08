@@ -7,7 +7,7 @@ edition = "2021"
 # Matches the libdictenstein / liblevenshtein path dependencies, whose --all-features
 # floor is set by sysinfo 0.39 (1.95).
 rust-version = "1.95"
-authors = ["Dylon Edwards <dylon.edwards@f1r3fly.io>"]
+authors = ["Dylon Edwards <dylon.devo@gmail.com>"]
 description = "WFST framework for text normalization and grammar correction"
 license = "Apache-2.0"
 repository = "https://github.com/vinary-tree/lling-llang"
@@ -15,6 +15,7 @@ keywords = ["wfst", "lattice", "cfg", "text-normalization", "grammar-correction"
 categories = ["text-processing", "algorithms"]
 
 [dependencies]
+vinary-tree-interop = { path = "../liblevenshtein-rust/vinary-tree-interop", version = "0.1.0", optional = true }
 # Core dependencies (optional - for liblevenshtein integration)
 liblevenshtein = { path = "../liblevenshtein-rust", version = "0.10", optional = true }
 libdictenstein = { path = "../libdictenstein", version = "0.2", optional = true }
@@ -50,9 +51,8 @@ moniker = { version = "0.5", features = ["moniker-derive"] }
 # SMT `ConstraintTheory` backend (Task #22 / ADR-018, §4-B). The Z3 *library*
 # (dynamically linked against the system libz3) is in-process — in-boundary for
 # in-process use; the cvc5/Z3 *CLI* certificate path lives in the WFST sidecar.
-# Non-optional, default-on (no feature gate); availability is probed at runtime via
-# `symbolic::logict_smt::z3_available()` so a solver-less host still links and runs.
-z3 = "0.12"
+# Default-on for Rust users, but optional so the standalone FFI/WASM binding
+# artifacts do not drag an unrelated system solver into every consumer.
 
 # Random number generation for path sampling
 # 0.9.3 is the fix floor for RUSTSEC-2026-0097 (unsound with a custom logger using
@@ -71,13 +71,45 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 # Proptest fixtures and strategies (optional; used by the test-utils feature).
 proptest = { version = "1.4", optional = true }
 
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+z3 = { version = "0.12", optional = true }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+# rand 0.9 uses getrandom 0.3. Browser WebAssembly must opt into the host
+# crypto backend; WASI selects its native random_get implementation instead.
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
 [dev-dependencies]
 proptest = "1.4"
 criterion = { version = "0.8", features = ["html_reports"] }
 
 [features]
-# Default: standalone WFST framework with no external dependencies
-default = []
+# Preserve the existing Rust surface by default. Native binding artifacts use
+# `--no-default-features --features ffi` and therefore have no Z3 link contract.
+default = ["smt-z3"]
+smt-z3 = ["dep:z3"]
+
+# Stable resource and C boundaries used by independently packaged language
+# facades. These never pull in liblevenshtein or libdictenstein.
+bindings-core = ["dep:vinary-tree-interop"]
+ffi = ["bindings-core"]
+native-bindings-full = ["ffi"]
+c-bindings = ["native-bindings-full"]
+cpp-bindings = ["native-bindings-full"]
+python-bindings = ["native-bindings-full"]
+jvm-bindings = ["native-bindings-full"]
+clojure-bindings = ["jvm-bindings"]
+javascript-bindings = ["bindings-core"]
+typescript-bindings = ["javascript-bindings"]
+clojurescript-bindings = ["javascript-bindings"]
+dotnet-bindings = ["native-bindings-full"]
+go-bindings = ["native-bindings-full"]
+swift-bindings = ["native-bindings-full"]
+ruby-bindings = ["native-bindings-full"]
+fortran-bindings = ["native-bindings-full"]
+ocaml-bindings = ["native-bindings-full"]
+haskell-bindings = ["native-bindings-full"]
+lua-bindings = ["native-bindings-full"]
 
 # === Core Optional Features ===
 # Integration with liblevenshtein for lexical correction
@@ -137,3 +169,6 @@ harness = false
 
 [package.metadata.docs.rs]
 all-features = true
+
+[lib]
+crate-type = ["rlib", "cdylib", "staticlib"]

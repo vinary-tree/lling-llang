@@ -233,7 +233,9 @@ impl<T> KVector<T> {
     fn random_vector(&self) -> usize {
         // Simple LCG for fast pseudo-random selection
         let state = self.random_state.fetch_add(1, Ordering::Relaxed);
-        let hash = state.wrapping_mul(0x5851F42D4C957F2D);
+        // Explicit truncation preserves the low-word multiplicative hash on
+        // wasm32 while retaining the full multiplier on 64-bit targets.
+        let hash = state.wrapping_mul(0x5851F42D4C957F2D_u64 as usize);
         hash % self.vectors.len()
     }
 

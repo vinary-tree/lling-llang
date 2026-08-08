@@ -250,7 +250,9 @@ impl std::error::Error for TransducerLatticeError {}
 
 #[inline]
 fn max_label_count() -> usize {
-    Label::MAX as usize + 1
+    // A 32-bit host cannot represent the mathematical 2^32 count, but every
+    // vocabulary size it can represent is still within the u32 label domain.
+    usize::try_from(u64::from(Label::MAX) + 1).unwrap_or(usize::MAX)
 }
 
 #[inline]
