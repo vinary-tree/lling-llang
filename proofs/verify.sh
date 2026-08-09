@@ -81,6 +81,23 @@ perl -0pi -e 's/IF CacheMode = "NoCache" THEN\n        \{\}/IF CacheMode = "NoCa
 run_tlc_expect_failure lazy-nocache-mutant "$negative_lazy" "$negative_cfg" \
   "Invariant MemoryBounded is violated."
 
+run_tlc abi-composition \
+  "$ROOT/proofs/tla/AbiCompositionProtocol.tla" \
+  "$ROOT/proofs/tla/MC/AbiCompositionProtocol.cfg"
+
+negative_abicomp_dir="/tmp/lling-llang-negative-abicomp-$$"
+mkdir -p "$negative_abicomp_dir"
+negative_abicomp="$negative_abicomp_dir/AbiCompositionProtocol.tla"
+negative_abicomp_cfg="$negative_abicomp_dir/AbiCompositionProtocol.cfg"
+cp "$ROOT/proofs/tla/AbiCompositionProtocol.tla" "$negative_abicomp"
+cp "$ROOT/proofs/tla/MC/AbiCompositionProtocol.cfg" "$negative_abicomp_cfg"
+# Mutant: acquire the registry write lock inside Begin, so a foreign provider
+# callback then runs while the lock is held -- the exact defect LLING-COMP-5
+# forbids (src/bindings.rs calls the providers before acquiring the lock).
+perl -0pi -e 's/\/\\ pc'"'"' = \[pc EXCEPT !\[t\] = "callProviders"\]\n  \/\\ UNCHANGED <<regWriter, cacheWriter>>/\/\\ regWriter = NONE\n  \/\\ regWriter'"'"' = t\n  \/\\ pc'"'"' = [pc EXCEPT ![t] = "callProviders"]\n  \/\\ UNCHANGED cacheWriter/' "$negative_abicomp"
+run_tlc_expect_failure abi-composition-mutant "$negative_abicomp" "$negative_abicomp_cfg" \
+  "Invariant NoCallbackUnderRegWrite is violated."
+
 run_tlc cascade "$ROOT/proofs/tla/CascadeOrder.tla" "$ROOT/proofs/tla/MC/CascadeOrder.cfg"
 run_tlc cascade-fair "$ROOT/proofs/tla/CascadeOrder.tla" "$ROOT/proofs/tla/MC/CascadeOrderFair.cfg"
 run_tlc cascade-overlap "$ROOT/proofs/tla/CascadeOrder.tla" "$ROOT/proofs/tla/MC/CascadeOrderOverlappingAlphabets.cfg"
