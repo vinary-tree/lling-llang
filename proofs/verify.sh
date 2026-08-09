@@ -63,6 +63,10 @@ capped_make() {
 capped_make -C "$ROOT/proofs/coq" proof-check
 capped_make -C "$ROOT/proofs/coq" -j1
 
+# ABI invariant registry: every hooked invariant is registered, and every row
+# points at a live spec (and test, unless formal-only).
+python3 "$ROOT/scripts/check-abi-invariants.py"
+
 run_tlc rrwm "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWM.cfg"
 run_tlc rrwm-zero "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWMZeroExperts.cfg"
 run_tlc rrwm-single "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWMSingleExpert.cfg"
