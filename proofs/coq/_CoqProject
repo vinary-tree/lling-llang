@@ -30,6 +30,9 @@ algorithms/ShortestDistance.v
 algorithms/Determinize.v
 algorithms/Minimize.v
 
+# Resource ABI: the f64 weight bridge over the seven VtWeightDomains
+abi/WeightBridge.v
+
 # ============================================================================
 # Hoisted symbolic-core proofs (Task #21 / ADR-018): the zero-admission Rocq
 # theories proving the algebra laws of the symbolic core, migrated from

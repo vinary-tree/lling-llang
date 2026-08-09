@@ -45,8 +45,23 @@ run_tlc_expect_failure() {
   cat "$output"
 }
 
-make -C "$ROOT/proofs/coq" proof-check
-make -C "$ROOT/proofs/coq" -j1
+# Run the Coq build under systemd resource caps when a user scope is actually
+# available (local dev — a heavy modular proof must not spike memory/CPU and
+# freeze the workstation), and directly otherwise (CI runners have no user
+# systemd session, so the probe fails and we fall through cleanly).
+capped_make() {
+  if command -v systemd-run >/dev/null 2>&1 \
+     && systemd-run --user --scope -q true >/dev/null 2>&1; then
+    systemd-run --user --scope -q \
+      -p MemoryMax=8G -p CPUQuota=1800% -p TasksMax=200 \
+      make "$@"
+  else
+    make "$@"
+  fi
+}
+
+capped_make -C "$ROOT/proofs/coq" proof-check
+capped_make -C "$ROOT/proofs/coq" -j1
 
 run_tlc rrwm "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWM.cfg"
 run_tlc rrwm-zero "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWMZeroExperts.cfg"
