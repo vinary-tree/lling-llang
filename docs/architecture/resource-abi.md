@@ -412,7 +412,7 @@ hot path and linear scaling of independent product-state expansions.
 - Sibling repositories connect here: libdictenstein dictionaries become
   WFSTs in duallity, which exports `vt.scalar-wfst.1` resources this layer
   captures and composes — see the
-  [integration index](../integration/README.md).
+  [family cross-links](../integration/README.md#family-resource-abi-cross-links).
 
 ## References
 

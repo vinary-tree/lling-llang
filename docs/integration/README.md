@@ -133,6 +133,53 @@ add a row to the table above so the link reads as deliberate.
 
 ---
 
+## Family resource-ABI cross-links
+
+`lling-llang` participates in the vinary-tree family's modular resource ABI:
+independently built libraries exchange retained two-word `VtResource`
+handles, and scalar WFSTs cross under the `vt.scalar-wfst.1` interface. In
+the family data flow, libdictenstein produces dictionaries, duallity adapts
+them into Levenshtein WFST resources, and **lling-llang captures and
+composes** those resources (and exports its own):
+
+```text
+libdictenstein ──▶ duallity ──▶ lling-llang ──▶ downstream consumers
+  dictionary        WFST          capture ∘ compose ∘ export
+  resources         resources     (vt.scalar-wfst.1, both directions)
+```
+
+**Unlike** the sibling-checkout links above, family-ABI links are **absolute
+GitHub URLs** — the family repositories are independent projects, and these
+references must resolve from a standalone checkout, from npm, and from
+docs mirrors alike.
+
+In this repository:
+
+| Doc | What it covers |
+|---|---|
+| [C ABI reference](../api/c-abi-reference.md) | The 17-function `lling_*` surface, statuses, ownership, complexity, weight-domain ↔ semiring table. |
+| [Resource ABI architecture](../architecture/resource-abi.md) | Providers, capture-once snapshots, the lazy composition product, the registry, the raw-u32 status wire. |
+| [ABI trust model](../security/abi-trust-model.md) | Foreign providers as untrusted input; validation duties; panic containment. |
+| [JavaScript bindings guide](../../bindings/javascript/README.md) · [C++ bindings guide](../../bindings/cpp/README.md) | The per-language facades over this ABI. |
+
+Family canon (normative, hosted with the interop crate):
+
+| Document | What it defines |
+|---|---|
+| [ABI reference](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-reference.md) | The annotated base protocol: `VtStatus`, `VtResource`, retain/release, `query_interface`, both interface vtables, the refcount and paging laws, the seven weight domains. |
+| [ABI evolution](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-evolution.md) | The four version counters, additive-vs-breaking rules, worked evolution examples, the compatibility matrix. |
+| [Security model](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/security-model.md) | The family trust zones, the panic/exception containment law, parallelism-by-claim, exhaustion vectors, non-goals. |
+
+Data-flow neighbors:
+
+| Repository | Role relative to lling-llang |
+|---|---|
+| [liblevenshtein-rust](https://github.com/vinary-tree/liblevenshtein-rust) | Hosts the `vinary-tree-interop` crate (the shared ABI types) and the family [language-bindings overview](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/docs/language-bindings.md); consumes dictionary resources on its own surface. |
+| [libdictenstein](https://github.com/vinary-tree/libdictenstein) | Produces the dictionary resources at the head of the pipeline. |
+| [duallity](https://github.com/vinary-tree/duallity) | Adapts dictionaries into Levenshtein WFST resources — the primary upstream producer of the scalar-WFST resources lling-llang composes. |
+
+---
+
 ## References
 
 Integration docs that cite published work carry their own `## References`
