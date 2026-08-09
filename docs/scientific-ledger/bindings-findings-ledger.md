@@ -30,6 +30,7 @@ commit `0fc05f0` (2026-08-08) unless noted otherwise.
 | [LLING-B9](#finding-lling-b9) | 2026-08-09 | wire vs native finality at `+∞` weight | contract-nuance | info | ledger-only (documented contract) | RECORDED |
 | [LLING-B10](#finding-lling-b10) | 2026-08-09 | `.github/workflows/ci.yml` `rust` job | ci-integrity | high | `f84f784` | FIXED |
 | [LLING-B11](#finding-lling-b11) | 2026-08-09 | `apiRevision` policy for the `−∞` status tightening | version-coherence | info | ledger-only (recorded decision) | RECORDED |
+| [LLING-B12](#finding-lling-b12) | 2026-08-09 | `scripts/run-sanitizers.sh`, `.github/workflows/ci.yml` `sanitizers` job | dynamic-analysis-coverage | medium | W8 leg (commit bearing this entry) | FIXED |
 
 ---
 
@@ -525,3 +526,111 @@ behavior does not warrant an `apiRevision` bump. Recorded decision: **no
 `apiRevision` bump for this change**; the release owner inherits this note if a
 different policy is later adopted. Releases are out of scope for this effort
 (plan decision #4), so this is a record, not an action.
+
+---
+
+## Finding LLING-B12
+
+| Field | Value |
+|---|---|
+| Finding | LLING-B12 (no dynamic-analysis leg over the scalar-WFST FFI/ABI boundary) |
+| Date | 2026-08-09 |
+| Component | `scripts/run-sanitizers.sh` (new) and the `sanitizers` job in `.github/workflows/ci.yml` (new) |
+| Class | dynamic-analysis-coverage (verification-infrastructure gap) |
+| Severity | medium — the retain-ledger, weight-domain, and paging fixes ([LLING-B2], [LLING-B5], [LLING-B6], [LLING-B7]) had only safe-Rust + correspondence-test coverage; nothing exercised the boundary at machine level for use-after-free, out-of-bounds access, leaked retained snapshots, or data races across the call gate |
+| Fix | commit bearing this ledger entry (wave W8 dynamic-analysis leg) — adds `scripts/run-sanitizers.sh` and the `sanitizers` CI job, mirroring the liblevenshtein-rust template (`scripts/run-sanitizers.sh` + the `sanitizers` job in that repo's `.github/workflows/ci.yml`) |
+| Verification | the full `--no-default-features --features "ffi test-utils"` suite runs clean under AddressSanitizer (+ LeakSanitizer) and ThreadSanitizer via nightly `-Zbuild-std` (exact commands and counts below) |
+| Status | FIXED |
+
+**Gap.** The W4-W7 fixes hardened the boundary against defects that safe Rust
+*can* express: [LLING-B2] (non-tropical weight ingestion), [LLING-B5] (a null
+out-pointer leaked the materialized handle and, for `compose`, two live
+snapshot retains), [LLING-B6] (an orphan state on the null-out builder path),
+and [LLING-B7] (paging-acceptance). Their regressions are safe-Rust assertions
+and correspondence tests — they prove the retain *ledgers* settle to zero and
+the *observable* statuses are correct, but they do not, and cannot, prove the
+absence of use-after-free, out-of-bounds access, an *actual* heap leak, or a
+data race in the unsafe code that lives at the C ABI (`src/ffi.rs` raw-pointer
+place/materialize order, `Box::into_raw`/`from_raw`, the `vt.scalar-wfst.1`
+callback gate). Those classes are invisible to safe Rust and to `catch_unwind`;
+they need a machine-level checker.
+
+**What the leg runs.** `scripts/run-sanitizers.sh` builds the crate's OWN
+boundary suites with a nightly toolchain under `-Zbuild-std` (rebuilding `std`
+and every dependency — including the sibling `vinary-tree-interop` crate at the
+ABI boundary — with the sanitizer runtime), then runs them, first under
+AddressSanitizer + LeakSanitizer, then under ThreadSanitizer:
+
+- `ASAN_OPTIONS="detect_leaks=1:detect_stack_use_after_return=1"`;
+- `RUSTFLAGS="-Zsanitizer=<address|thread> -C target-feature=+aes,+sse2"` — the
+  `+aes,+sse2` baseline is re-applied because an env `RUSTFLAGS` fully replaces
+  the `.cargo/config.toml` `rustflags`, so without it the sanitizer build would
+  silently drop the codegen baseline the rest of CI compiles against;
+- `--target x86_64-unknown-linux-gnu` so host build scripts and proc-macros
+  (`moniker-derive`) are NOT instrumented — only the target test binary is;
+- `--no-default-features --features "ffi test-utils"`, mirroring the repo's FFI
+  CI invocation exactly (the FFI suites are gated `#![cfg(feature = "ffi")]`,
+  the two proptest suites additionally on `test-utils`); `--no-default-features`
+  drops the default `smt-z3` feature so the out-of-boundary system libz3 link is
+  not dragged into the sanitizer build.
+
+The boundary suites exercised are the project's own (in-repo providers under
+`tests/support/`; no dependent crate is pulled in): `ffi_out_pointer_safety`,
+`ffi_builder_matrix`, `ffi_incompatible_resources`, `ffi_lazy_expansion_metrics`,
+`ffi_lazy_composition_correspondence`, `ffi_roundtrip_proptest`, and
+`ffi_concurrent_composition_stress`.
+
+**Why these sanitizers.** AddressSanitizer catches use-after-free and
+out-of-bounds access in the raw-pointer ABI code; LeakSanitizer is the
+machine-level backstop for [LLING-B5]/[LLING-B6] — it fails the process at exit
+if the null-out or import/compose paths leak heap or a retained provider
+snapshot, independently of what the retain-ledger assertions claim.
+ThreadSanitizer targets `ffi_concurrent_composition_stress`, which drives
+concurrent composition and shared-snapshot walks through the call gate via
+`std::thread::scope`; it detects data races that a passing functional assertion
+would not surface.
+
+**Verification (local, 2026-08-09).** Nightly `rustc 1.99.0-nightly`
+(`87e5904f5`, 2026-07-20) with the `rust-src` component, target
+`x86_64-unknown-linux-gnu`.
+
+1. Scoped smoke over the leak/orphan suite (validates the toolchain end to end
+   and the retain discipline directly):
+
+   ```
+   SANITIZER_ONLY=address scripts/run-sanitizers.sh --test ffi_out_pointer_safety
+   ```
+
+   Result: `3 passed; 0 failed`, no `LeakSanitizer: detected memory leaks` and
+   no `ERROR: AddressSanitizer` (exit 0). LSan runs at process exit, so exit-0
+   with no report is zero leaks — the [LLING-B5]/[LLING-B6] fixes hold at
+   machine level.
+
+2. Full leg, exactly as CI runs it:
+
+   ```
+   scripts/run-sanitizers.sh          # asan+lsan then tsan, whole suite
+   ```
+
+   Both passes ran the entire `ffi test-utils` test tree (20 test binaries plus
+   doctests) with **0 failed** on every result line and **no** AddressSanitizer,
+   LeakSanitizer, or ThreadSanitizer diagnostic anywhere in the 5763-line log;
+   the script exited 0 with `sanitizers: all requested runs completed cleanly`.
+   The seven FFI/ABI boundary suites, clean under BOTH sanitizers:
+   `ffi_builder_matrix` (16), `ffi_concurrent_composition_stress` (2 — the TSan
+   target, no data race), `ffi_incompatible_resources` (12),
+   `ffi_lazy_composition_correspondence` (4), `ffi_lazy_expansion_metrics` (4),
+   `ffi_out_pointer_safety` (3), `ffi_roundtrip_proptest` (4); alongside the
+   library unit suite (2405) and doctests (46 run, 49 ignored).
+
+No defect surfaced: the boundary is clean under dynamic analysis. Had a real
+leak, UB, or race been present, the corresponding sanitizer would have failed
+the process; none did.
+
+**CI.** The `sanitizers` job (`.github/workflows/ci.yml`) runs on
+`ubuntu-24.04`, installs the nightly toolchain with `rust-src`, clones the dev
+sibling crates (`llattice`, `libdictenstein`, `liblevenshtein-rust`) next to the
+workspace exactly like the `ffi` job so Cargo can resolve the path-dependency
+graph, and executes `bash scripts/run-sanitizers.sh`. It is a permanent
+regression fence: any future boundary change that introduces a UAF, OOB, leaked
+retain, or race at the call gate fails this job.

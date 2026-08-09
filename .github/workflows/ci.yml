@@ -102,6 +102,46 @@ jobs:
         run: cargo test --no-default-features --features "ffi test-utils"
 
   # ---------------------------------------------------------------------
+  # Dynamic-analysis gate (wave W8): the ffi + test-utils integration
+  # suites run under AddressSanitizer (+ LeakSanitizer) and ThreadSanitizer
+  # via nightly `-Zbuild-std`, which rebuilds std -- and every dependency,
+  # including the sibling vinary-tree-interop crate at the ABI boundary --
+  # with the sanitizer runtime. This catches, at machine level, the classes
+  # of defect safe Rust and catch_unwind cannot: use-after-free, OOB,
+  # leaked retained provider snapshots (LeakSanitizer is the backstop for
+  # the LLING-B5/B6 retain-ledger fixes), and data races across the
+  # composition call gate (ffi_concurrent_composition_stress).
+  #
+  # Only vinary-tree-interop is COMPILED under these features, but Cargo
+  # must still read every path dependency's manifest to resolve the graph,
+  # so the in-development sibling crates are cloned next to the workspace
+  # exactly like the ffi job (release workflows pin exact tags instead).
+  # ---------------------------------------------------------------------
+  sanitizers:
+    name: Sanitizers (ASan/TSan)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout dev sibling crates
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent="$(dirname "$GITHUB_WORKSPACE")"
+          for repo in llattice libdictenstein liblevenshtein-rust; do
+            git clone --depth 1 --branch master \
+              "https://github.com/vinary-tree/$repo.git" "$parent/$repo"
+          done
+
+      - name: Install nightly toolchain with rust-src
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
+      - name: AddressSanitizer (+ LeakSanitizer) then ThreadSanitizer over the FFI/ABI suite
+        run: bash scripts/run-sanitizers.sh
+
+  # ---------------------------------------------------------------------
   # Supply-chain gate: published advisories, licence compatibility, banned
   # crates, and permitted sources. Configured in deny.toml.
   #
