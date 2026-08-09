@@ -84,6 +84,19 @@ fabricate a DOI**.
   & Ginsburg, B. (2021). *NeMo Inverse Text Normalization: From Development to
   Production.* [arXiv:2104.05055](https://arxiv.org/abs/2104.05055)
 
+## Resource ABI & systems
+
+References backing the C ABI ([`api/c-abi-reference.md`](api/c-abi-reference.md))
+and the scalar-WFST resource-layer documentation.
+
+- <a id="ref-collins1960"></a>**[Collins 1960]** Collins, G. E. (1960).
+  *A Method for Overlapping and Erasure of Lists.* Communications of the ACM
+  3(12):655–657.
+  [doi:10.1145/367487.367501](https://doi.org/10.1145/367487.367501)
+  — the original reference-counting scheme; the retain/release discipline of
+  `VtResource` handles. *(DOI verified 2026-08-09: resolves via doi.org to the
+  ACM Digital Library; Crossref metadata matches.)*
+
 ---
 
 ## Additional references cited by individual modules
