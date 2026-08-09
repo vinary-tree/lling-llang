@@ -7,15 +7,13 @@
 # records (docs/archive/journal.md, docs/scientific-ledger/) keep their
 # notation and are never listed.
 #
-# The remaining ABI/binding document joins this list as wave W4 adds it:
-#   docs/security/abi-trust-model.md       (wave W4, deliverable D3)
-#
 # Deferred candidates (fail the scanner today; rework before listing):
 #   docs/STYLE.md     — quotes old-style delimiter forms verbatim as meta-examples
 #   docs/NOTATION.md  — same meta-example pattern
 docs/api/backend-reference.md
 docs/api/c-abi-reference.md
 docs/architecture/resource-abi.md
+docs/security/abi-trust-model.md
 docs/api/lattice-reference.md
 docs/api/layer-reference.md
 docs/api/path-reference.md
