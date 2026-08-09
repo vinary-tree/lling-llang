@@ -36,6 +36,8 @@ abi/WeightBridge.v
 abi/StatusMapping.v
 # Resource ABI: the lazy-composition product-state interner
 abi/ProductRegistry.v
+# Resource ABI: epsilon-free weighted WFST composition semantics
+abi/CompositionSemantics.v
 
 # ============================================================================
 # Hoisted symbolic-core proofs (Task #21 / ADR-018): the zero-admission Rocq
