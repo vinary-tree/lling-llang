@@ -32,6 +32,8 @@ algorithms/Minimize.v
 
 # Resource ABI: the f64 weight bridge over the seven VtWeightDomains
 abi/WeightBridge.v
+# Resource ABI: the LlingStatus / VtStatus classification contract
+abi/StatusMapping.v
 
 # ============================================================================
 # Hoisted symbolic-core proofs (Task #21 / ADR-018): the zero-admission Rocq

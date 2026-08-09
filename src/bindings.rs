@@ -313,18 +313,27 @@ impl CapturedWfst {
                     || arc.has_output > 1
                     || arc.reserved != [0; 6]
                     || !TropicalWeight::is_valid_raw(arc.weight)
-                    || (arc.has_input == 1
-                        && u32::try_from(arc.input_label)
-                            .ok()
-                            .and_then(char::from_u32)
-                            .is_none())
+                {
+                    return Err(BindingError::InvalidProviderOutput("invalid arc fields"));
+                }
+                // A label outside the Unicode scalar range is a representation
+                // limit of THIS char-based specialization (a u64-label binding
+                // could hold it), not provider misbehavior -- classified as
+                // RepresentationLimit -> LimitExceeded, uniformly with the import
+                // path and the documented status contract (LLING-STAT-3, proof
+                // proofs/coq/abi/StatusMapping.v; ledger LLING-B8).
+                if (arc.has_input == 1
+                    && u32::try_from(arc.input_label)
+                        .ok()
+                        .and_then(char::from_u32)
+                        .is_none())
                     || (arc.has_output == 1
                         && u32::try_from(arc.output_label)
                             .ok()
                             .and_then(char::from_u32)
                             .is_none())
                 {
-                    return Err(BindingError::InvalidProviderOutput("invalid arc fields"));
+                    return Err(BindingError::RepresentationLimit);
                 }
                 arcs.push(*arc);
             }
@@ -796,6 +805,20 @@ unsafe extern "C" fn wfst_state_info(
     wfst_state_info_status(context, state, out_valid, out_is_final, out_final_weight).to_raw()
 }
 
+/// Map a binding error raised during lazy expansion to the `VtStatus` a
+/// re-exported (composed) resource reports to its downstream consumer. A
+/// representation limit -- e.g. a non-scalar label that this char-based
+/// specialization cannot hold -- surfaces as `LimitExceeded`, uniformly with
+/// `lling_wfst_import` and the documented status contract (LLING-STAT-3, proof
+/// `proofs/coq/abi/StatusMapping.v`; ledger LLING-B8). Every other expansion
+/// error stays a generic provider error.
+fn expansion_error_status(error: &BindingError) -> VtStatus {
+    match error {
+        BindingError::RepresentationLimit => VtStatus::LimitExceeded,
+        _ => VtStatus::ProviderError,
+    }
+}
+
 unsafe fn wfst_state_info_status(
     context: *mut c_void,
     state: u64,
@@ -817,7 +840,7 @@ unsafe fn wfst_state_info_status(
             out_final_weight.write(data.final_weight);
             VtStatus::Ok
         }
-        Err(_) => VtStatus::ProviderError,
+        Err(error) => expansion_error_status(&error),
     }
 }
 
@@ -860,7 +883,7 @@ unsafe fn wfst_state_arcs_status(
     }
     let data = match (&*context.cast::<ResourceContext>()).state(state) {
         Ok(data) => data,
-        Err(_) => return VtStatus::ProviderError,
+        Err(error) => return expansion_error_status(&error),
     };
     if !data.valid {
         return VtStatus::InvalidArgument;

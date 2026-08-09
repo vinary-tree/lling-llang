@@ -330,10 +330,12 @@ fn label_beyond_char_max_pins_exact_statuses() {
             "representation",
         );
 
-        // The composition layer VALIDATES-and-forwards raw labels instead of
-        // decoding them, so the same payload surfaces as invalid provider
-        // output (ProviderError) when the product state expands. Pinned
-        // asymmetry — a candidate for the family-wide F3 harmonization.
+        // The composition layer expands lazily and re-exports through the
+        // vtable; a non-scalar label is a representation limit of this char
+        // specialization, so it now surfaces as LimitExceeded here too --
+        // uniformly with the import path and the documented status contract
+        // (LLING-STAT-3 / ledger LLING-B8; harmonized from the earlier
+        // ProviderError coarsening).
         let poisoned = TestWfst::tropical(states, 0);
         let clean = clean_provider();
         let mut composed: *mut LlingWfst = ptr::null_mut();
@@ -361,8 +363,8 @@ fn label_beyond_char_max_pins_exact_statuses() {
                     &mut written,
                     &mut total,
                 ),
-                VtStatus::ProviderError.to_raw(),
-                "label {bad_label:#x} must fail composition expansion"
+                VtStatus::LimitExceeded.to_raw(),
+                "label {bad_label:#x} must surface as LimitExceeded on composition expansion"
             );
         }
         lling_resource_release(resource);
