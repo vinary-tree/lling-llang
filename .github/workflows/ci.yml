@@ -38,6 +38,55 @@ jobs:
         run: cargo test --all-features
 
   # ---------------------------------------------------------------------
+  # Scalar-WFST resource ABI gate: the ffi + test-utils integration suites
+  # (builder validation matrix, provider rejection matrix, laziness
+  # metrics, round trip + arc paging law, lazy-composition correspondence,
+  # concurrent composition stress) plus the binding-surface drift gate.
+  #
+  # Only vinary-tree-interop is COMPILED under these features, but Cargo
+  # must still read every path dependency's manifest to resolve the graph,
+  # so the in-development sibling crates are cloned next to the workspace
+  # exactly like the local checkout layout (release workflows pin exact
+  # tags instead — see release-bindings.yml).
+  # ---------------------------------------------------------------------
+  ffi:
+    name: FFI and bindings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout dev sibling crates
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent="$(dirname "$GITHUB_WORKSPACE")"
+          for repo in llattice libdictenstein liblevenshtein-rust; do
+            git clone --depth 1 --branch master \
+              "https://github.com/vinary-tree/$repo.git" "$parent/$repo"
+          done
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry and build outputs
+        uses: Swatinem/rust-cache@v2
+
+      - name: Binding-surface drift gate
+        run: python3 scripts/check-bindings.py
+
+      # Use --no-deps for the same reason as the main Rust job: warnings in
+      # sibling path dependencies must not gate this crate's CI.
+      - name: Clippy (ffi + test-utils, all test targets)
+        run: >-
+          cargo clippy --no-default-features --features "ffi test-utils"
+          --tests --no-deps -- -D warnings
+
+      - name: Test (ffi + test-utils)
+        run: cargo test --no-default-features --features "ffi test-utils"
+
+  # ---------------------------------------------------------------------
   # Supply-chain gate: published advisories, licence compatibility, banned
   # crates, and permitted sources. Configured in deny.toml.
   #

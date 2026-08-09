@@ -23,6 +23,9 @@ jobs:
           git clone --depth 1 --branch v0.10.0 https://github.com/vinary-tree/liblevenshtein-rust.git "$parent/liblevenshtein-rust"
       - uses: dtolnay/rust-toolchain@1.95
       - run: cargo test --no-default-features --features ffi
+      # The full ABI contract battery also needs the test-utils strategies
+      # (round trip + lazy-composition correspondence proptests).
+      - run: cargo test --no-default-features --features "ffi test-utils"
       - run: cargo clippy --no-default-features --features ffi --lib -- -D warnings
       - run: npm test --prefix bindings/javascript
 
