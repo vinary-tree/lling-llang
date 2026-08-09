@@ -835,7 +835,7 @@ use lling_llang::wfst::{VectorWfst, Wfst};
 use std::collections::{BTreeMap, VecDeque};
 
 /// One fully paged state observed through a `vt.scalar-wfst.1` interface.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct WalkedState {
     /// Whether the state accepts.
     pub is_final: bool,
