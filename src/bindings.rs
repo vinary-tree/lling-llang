@@ -267,7 +267,10 @@ impl CapturedWfst {
             &mut is_final,
             &mut final_weight,
         ))?;
-        if valid > 1 || is_final > 1 || final_weight.is_nan() {
+        // TropicalWeight admits finite costs or +inf (the zero) only: -inf and
+        // NaN are invalid and would poison composition with +inf + -inf = NaN
+        // (finding LLING-B2/F1). The composition/import paths are tropical-only.
+        if valid > 1 || is_final > 1 || !TropicalWeight::is_valid_raw(final_weight) {
             return Err(BindingError::InvalidProviderOutput(
                 "invalid state_info fields",
             ));
@@ -309,7 +312,7 @@ impl CapturedWfst {
                 if arc.has_input > 1
                     || arc.has_output > 1
                     || arc.reserved != [0; 6]
-                    || arc.weight.is_nan()
+                    || !TropicalWeight::is_valid_raw(arc.weight)
                     || (arc.has_input == 1
                         && u32::try_from(arc.input_label)
                             .ok()
@@ -1026,10 +1029,7 @@ pub fn import_tropical_wfst(
                 &mut is_final,
                 &mut final_weight,
             ))?;
-            if valid != 1
-                || is_final > 1
-                || !final_weight.is_finite() && !final_weight.is_infinite()
-            {
+            if valid != 1 || is_final > 1 || !TropicalWeight::is_valid_raw(final_weight) {
                 return Err(BindingError::InvalidProviderOutput(
                     "invalid state_info fields",
                 ));
@@ -1065,7 +1065,7 @@ pub fn import_tropical_wfst(
                     if arc.has_input > 1
                         || arc.has_output > 1
                         || arc.reserved != [0; 6]
-                        || arc.weight.is_nan()
+                        || !TropicalWeight::is_valid_raw(arc.weight)
                     {
                         return Err(BindingError::InvalidProviderOutput("invalid arc fields"));
                     }
@@ -1266,5 +1266,89 @@ mod tests {
         );
         assert_eq!(left_expansions.load(Ordering::Relaxed), 1);
         assert_eq!(right_expansions.load(Ordering::Relaxed), 1);
+    }
+
+    /// A provider that reports a -inf tropical arc weight: valid f64, not NaN,
+    /// but NOT a valid TropicalWeight (only finite or +inf). Before the F1 fix
+    /// this slipped the is_nan-only check and either produced +inf + -inf = NaN
+    /// in composition or panicked in TropicalWeight::new. It must now be
+    /// rejected as invalid provider output at ingestion.
+    struct NegInfArcProvider;
+
+    impl ScalarWfstProvider for NegInfArcProvider {
+        fn start(&self) -> Result<u64, VtStatus> {
+            Ok(0)
+        }
+
+        fn num_states(&self) -> Result<Option<usize>, VtStatus> {
+            Ok(Some(2))
+        }
+
+        fn state(&self, state: u64) -> Result<ScalarWfstState, VtStatus> {
+            Ok(match state {
+                0 => ScalarWfstState {
+                    valid: true,
+                    is_final: false,
+                    final_weight: f64::INFINITY,
+                    arcs: vec![VtWfstArc {
+                        input_label: u64::from(u32::from('a')),
+                        output_label: u64::from(u32::from('x')),
+                        target_state: 1,
+                        weight: f64::NEG_INFINITY,
+                        has_input: 1,
+                        has_output: 1,
+                        reserved: [0; 6],
+                    }],
+                },
+                _ => ScalarWfstState {
+                    valid: true,
+                    is_final: true,
+                    final_weight: 0.0,
+                    arcs: vec![],
+                },
+            })
+        }
+    }
+
+    /// LLING-B2/F1 regression: a -inf tropical weight is rejected as invalid
+    /// provider output on import (no panic, no NaN), and on the composition
+    /// expansion path (surfaced as a provider error during traversal).
+    #[test]
+    fn negative_infinity_tropical_weight_is_rejected_not_poisoned() {
+        // Import path: reject cleanly rather than panic in TropicalWeight::new.
+        let poison = OwnedWfstResource::from_provider(Arc::new(NegInfArcProvider));
+        let imported = import_tropical_wfst(poison.as_raw());
+        assert!(
+            matches!(imported, Err(BindingError::InvalidProviderOutput(_))),
+            "import must reject a -inf arc weight, got {imported:?}"
+        );
+
+        // Composition expansion path: the -inf surfaces as a provider error
+        // when the composed state is expanded, never as a NaN arc weight.
+        let clean = left();
+        let clean_resource = OwnedWfstResource::from_wfst(clean);
+        let poison2 = OwnedWfstResource::from_provider(Arc::new(NegInfArcProvider));
+        let composed =
+            OwnedWfstResource::compose(poison2.as_raw(), clean_resource.as_raw()).unwrap();
+        let table = unsafe { discover_wfst(composed.as_raw()).unwrap().as_ref().unwrap() };
+        let mut arc = VtWfstArc::default();
+        let mut written = 0;
+        let mut total = 0;
+        let status = unsafe {
+            table.state_arcs.unwrap()(
+                composed.as_raw().context,
+                0,
+                0,
+                &mut arc,
+                1,
+                &mut written,
+                &mut total,
+            )
+        };
+        assert_ne!(
+            status,
+            VtStatus::Ok.to_raw(),
+            "expanding a -inf-weighted product state must fail, not yield a NaN arc"
+        );
     }
 }
