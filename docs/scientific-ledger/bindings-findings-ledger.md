@@ -20,7 +20,7 @@ commit `0fc05f0` (2026-08-08) unless noted otherwise.
 | Finding | Date | Component | Class | Severity | Fix | Status |
 |---|---|---|---|---|---|---|
 | [LLING-B1](#finding-lling-b1) | 2026-08-08 | `.github/workflows/release-bindings.yml` | release-integrity | high | commit `988ea09` | FIXED |
-| [LLING-B2](#finding-lling-b2) | 2026-08-08 | `src/bindings.rs`, `src/ffi.rs` (ABI weight ingestion) | abi-input-validation | high | scheduled wave W4 [LLING-BRIDGE-4] | OPEN |
+| [LLING-B2](#finding-lling-b2) | 2026-08-08 | `src/bindings.rs`, `src/ffi.rs` (ABI weight ingestion) | abi-input-validation | high | `9d86eaf` (tropical sites); builder+trait sites + Rocq proof W4 | FIXED (tropical paths) |
 | [LLING-B3](#finding-lling-b3) | 2026-08-08 | release tagging vs. family version pins | version-coherence | medium | ledger-only (releases out of scope) | RECORDED |
 
 ---
@@ -91,7 +91,7 @@ permanent regression fence.
 | Severity | high — semiring-domain contract violation ($`\mathrm{NaN}`$ egress) plus a panic path reachable from foreign input |
 | Fix | scheduled wave W4 under invariant [LLING-BRIDGE-4]; formal home `proofs/coq/abi/WeightBridge.v` (obligation #16) |
 | Verification | planned: adversarial correspondence tests (`tests/abi_weight_bridge_correspondence.rs`) + Rocq `repr_ok` theorems; code sites verified by inspection 2026-08-08 at `0fc05f0` (exact lines below) |
-| Status | OPEN |
+| Status | FIXED (tropical ingestion paths); builder-surface + provider-trait sites and the Rocq proof land W4 |
 
 **Evidence.** The verified tropical domain is
 $`\mathbb{R} \cup \{+\infty\}`$: `TropicalWeight::is_valid_raw`
@@ -154,7 +154,19 @@ the builder surface (caller error, not foreign data, but the same wrong
 status). Site 11 is the trusted in-process trait channel; it should be
 harmonized under the same predicate when W4 lands.
 
-**Fix (scheduled, not in this wave).** Per-domain `repr_ok` rejection at every
+**Fix (tropical paths landed — commit `9d86eaf`).** The composition
+(`expand_state`) and import (`import_tropical_wfst`) paths are tropical-only
+(`discover_wfst` rejects other domains), so all four weight-ingestion sites on
+those paths (sites 1-2, 5, 7) now check `TropicalWeight::is_valid_raw`
+(finite $`\lor`$ $`+\infty`$) instead of `is_nan` — a $`-\infty`$ weight is
+rejected as `InvalidProviderOutput` before it can enter a capture, so sites
+3-4 (the raw-`f64` composition additions) are safe by construction and can no
+longer manufacture $`\mathrm{NaN}`$. Regression:
+`negative_infinity_tropical_weight_is_rejected_not_poisoned` drives a
+$`-\infty`$-arc provider through both import (rejected, no panic) and
+composition (surfaced as a provider error during expansion, never a NaN arc).
+
+**Remaining (wave W4).** Per-domain `repr_ok` rejection at EVERY
 ingestion point, closed under invariant [LLING-BRIDGE-4]: for the tropical
 specialization the predicate already exists as
 `TropicalWeight::is_valid_raw` (finite $`\lor`$ $`+\infty`$). Sites 1-2, 5, 7
