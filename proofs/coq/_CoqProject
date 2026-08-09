@@ -34,6 +34,8 @@ algorithms/Minimize.v
 abi/WeightBridge.v
 # Resource ABI: the LlingStatus / VtStatus classification contract
 abi/StatusMapping.v
+# Resource ABI: the lazy-composition product-state interner
+abi/ProductRegistry.v
 
 # ============================================================================
 # Hoisted symbolic-core proofs (Task #21 / ADR-018): the zero-admission Rocq
