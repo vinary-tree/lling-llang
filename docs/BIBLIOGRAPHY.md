@@ -18,6 +18,7 @@ fabricate a DOI**.
   *Weighted Finite-State Transducers in Speech Recognition.* Computer Speech &
   Language 16(1):69–88.
   [doi:10.1006/csla.2001.0184](https://doi.org/10.1006/csla.2001.0184)
+  *(DOI re-verified 2026-08-09: HTTP 200 via doi.org; Crossref metadata matches.)*
 - <a id="ref-mohri1997"></a>**[Mohri 1997]** Mohri, M. (1997).
   *Finite-State Transducers in Language and Speech Processing.* Computational
   Linguistics 23(2):269–311.
@@ -26,6 +27,7 @@ fabricate a DOI**.
   *Weighted Automata Algorithms.* In *Handbook of Weighted Automata*, pp. 213–254.
   Springer.
   [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)
+  *(DOI re-verified 2026-08-09: HTTP 200 via doi.org; Crossref metadata matches.)*
 - <a id="ref-earley1970"></a>**[Earley 1970]** Earley, J. (1970).
   *An Efficient Context-Free Parsing Algorithm.* Communications of the ACM
   13(2):94–102.
@@ -121,7 +123,9 @@ These support specific module docs; each is verified before inclusion.
   Schalkwyk, J., Skut, W., & Mohri, M. (2007). *OpenFst: A General and Efficient
   Weighted Finite-State Transducer Library.* CIAA 2007, LNCS 4783:11–23.
   [doi:10.1007/978-3-540-76336-9_3](https://doi.org/10.1007/978-3-540-76336-9_3)
-  — cited by composition / determinization docs.
+  — cited by composition / determinization docs and the resource-ABI docs.
+  *(DOI re-verified 2026-08-09: HTTP 200 via doi.org; Crossref metadata matches
+  the CIAA 2007 chapter.)*
 - <a id="ref-lv2021"></a>**[Lv 2021]** Lv, H., Povey, D., Yarmohammadi, M., Li, K.,
   Wang, Y., Xie, L., & Khudanpur, S. (2021). *LET-Decoder: A WFST-Based
   Lazy-Evaluation Token-Group Decoder with Exact Lattice Generation.* IEEE Signal

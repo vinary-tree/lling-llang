@@ -46,6 +46,23 @@ symbol, copy the command from that column into a ``$`…`$`` span. (See
 | $`\lvert\cdot\rvert`$ | `\lvert\cdot\rvert` | cardinality | $`\lvert Q\rvert`$, $`\lvert E\rvert`$, $`\lvert V\rvert`$ — sizes used in complexity bounds. |
 | $`\lambda`$ | `\lambda` | interpolation weight | The back-off mixing coefficient in $`P(w \mid h) = \lambda \cdot \hat{P}(w \mid h) + (1 - \lambda) \cdot P(w \mid h')`$. |
 
+## ABI & binding symbols
+
+Symbols introduced by the resource-ABI documentation
+([api/c-abi-reference.md](api/c-abi-reference.md),
+[architecture/resource-abi.md](architecture/resource-abi.md),
+[security/abi-trust-model.md](security/abi-trust-model.md)).
+
+| Symbol | LaTeX | Name | Meaning |
+|---|---|---|---|
+| $`\Phi`$ | `\Phi` | filter-state set | The epsilon-filter states of a lazy composition: $`\Phi = \{\varnothing, \epsilon_1, \epsilon_2\}`$ (sequencing filter). |
+| $`\varnothing`$ | `\varnothing` | no-epsilon filter state | The neutral filter state (also the empty set in set-theoretic contexts). |
+| $`\epsilon_1, \epsilon_2`$ | `\epsilon_1`, `\epsilon_2` | epsilon filter states | "Left/right component is mid-$`\varepsilon`$" — the filter states that block duplicate $`\varepsilon`$-interleavings. |
+| $`Q_\circ`$ | `Q_\circ` | product state set | The discovered composition states $`Q_\circ \subseteq Q_1 \times Q_2 \times \Phi`$. |
+| $`(q_1, q_2, \phi)`$ | `(q_1, q_2, \phi)` | product state | One lazy-composition state: component states plus filter state. |
+| $`\mathbb{R}_{\ge 0}`$, $`\mathbb{N}`$ | `\mathbb{R}_{\ge 0}`, `\mathbb{N}` | carriers | Non-negative reals (probability semiring) and naturals (counting semiring) in the weight-domain table. |
+| $`d_i`$ | `d_i` | out-degree | Outgoing-arc count of a component state; product-state expansion costs $`O(d_1 + d_2 + d_1 d_2)`$. |
+
 ## Set & logic symbols
 
 | Symbol | LaTeX | Meaning |
@@ -86,6 +103,9 @@ symbol, copy the command from that column into a ``$`…`$`` span. (See
 | **MMI** | Maximum Mutual Information | [training/weak-supervision.md](training/weak-supervision.md) |
 | **ID** | Instantaneous Description (a PDA configuration $`(q, w, \gamma)`$) | [transducers/pushdown.md](transducers/pushdown.md) |
 | **ASR** | Automatic Speech Recognition | [asr/cascade-construction.md](asr/cascade-construction.md) |
+| **ABI** | Application Binary Interface (the stable compiled calling contract) | [api/c-abi-reference.md](api/c-abi-reference.md) |
+| **RAII** | Resource Acquisition Is Initialization (C++ scope-bound ownership) | [api/c-abi-reference.md](api/c-abi-reference.md) |
+| **WFST resource** | A WFST exported as a retained two-word `VtResource` with the `vt.scalar-wfst.1` interface | [architecture/resource-abi.md](architecture/resource-abi.md) |
 | **H, C, L, G** | ASR cascade stages: **H**MM · **C**ontext-dependency · **L**exicon · **G**rammar/LM | [asr/cascade-construction.md](asr/cascade-construction.md) |
 
 ## The ASR cascade in one line
