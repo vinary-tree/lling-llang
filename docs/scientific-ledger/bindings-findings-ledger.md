@@ -26,7 +26,7 @@ commit `0fc05f0` (2026-08-08) unless noted otherwise.
 | [LLING-B5](#finding-lling-b5) | 2026-08-09 | `src/ffi.rs` `lling_wfst_import` / `lling_wfst_compose` | resource-leak | high | `b1acb7e` | FIXED |
 | [LLING-B6](#finding-lling-b6) | 2026-08-09 | `src/ffi.rs` `lling_wfst_builder_add_state` | state-mutation-on-failure | low | `b1acb7e` | FIXED |
 | [LLING-B7](#finding-lling-b7) | 2026-08-09 | `src/bindings.rs` `import_tropical_wfst` paging | abi-paging (F3 lling side) | medium | `b1acb7e` | FIXED |
-| [LLING-B8](#finding-lling-b8) | 2026-08-09 | label `> char::MAX` status (import vs expansion) | status-mapping-consistency | low | to be arbitrated by `StatusMapping.v` (#20) | UNDER REVIEW |
+| [LLING-B8](#finding-lling-b8) | 2026-08-09 | label `> char::MAX` status (import vs expansion) | status-mapping-consistency | low | `1886a06` (arbitrated by `StatusMapping.v`, #20) | FIXED |
 | [LLING-B9](#finding-lling-b9) | 2026-08-09 | wire vs native finality at `+∞` weight | contract-nuance | info | ledger-only (documented contract) | RECORDED |
 | [LLING-B10](#finding-lling-b10) | 2026-08-09 | `.github/workflows/ci.yml` `rust` job | ci-integrity | high | `f84f784` | FIXED |
 | [LLING-B11](#finding-lling-b11) | 2026-08-09 | `apiRevision` policy for the `−∞` status tightening | version-coherence | info | ledger-only (recorded decision) | RECORDED |
@@ -416,6 +416,27 @@ same wave) is not deferring the *work* — it is choosing the correct arbiter.
 
 **Verification.** The current asymmetry is exactly pinned so the resolution is
 a visible, reviewed change rather than a silent drift.
+
+**Resolution (2026-08-09, commit `1886a06`, status FIXED).** The arbiter
+`proofs/coq/abi/StatusMapping.v` (obligation #20) certifies the canonical
+contract: a label outside the Unicode scalar range is a *representation limit*
+of this char-based specialization — a u64-label binding could hold it — so it is
+`RepresentationLimit`, which maps to "limit exceeded" on BOTH ABI surfaces
+(`map_error RepresentationLimit = LlingStatus::LimitExceeded` and
+`expansion_error_status RepresentationLimit = VtStatus::LimitExceeded`), and is
+proved distinct from a provider fault on both (theorems
+`representation_limit_consistent_across_surfaces` and
+`representation_limit_distinct_from_provider_fault`, LLING-STAT-3). This matches
+the documented intent of `BindingError::RepresentationLimit` and
+`LlingStatus::LimitExceeded` (both name "label") and the pre-existing import
+behavior. Two code sites were harmonized to the model: `expand_state` now
+classifies a non-scalar label as `RepresentationLimit`, split out from the
+genuine invalid-arc-field checks (`has_input > 1`, bad weight) which stay
+`InvalidProviderOutput`; and the new `expansion_error_status` mapper forwards
+`RepresentationLimit` to `VtStatus::LimitExceeded` on re-export instead of the
+former `Err(_) => ProviderError` coarsening. The pin
+`label_beyond_char_max_pins_exact_statuses` now asserts `LimitExceeded` on both
+the import and composition surfaces.
 
 ---
 
