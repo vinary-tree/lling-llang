@@ -1055,7 +1055,16 @@ pub fn import_tropical_wfst(
                     &mut written,
                     &mut total,
                 ))?;
-                if written > page.len() || offset > total || (written == 0 && offset < total) {
+                // F3 harmonization: the same acceptance predicate `expand_state`
+                // runs (the ConsumerAcceptance `accepts_dec` law). The
+                // `offset + written > total` conjunct rejects an overshooting
+                // final page immediately, rather than one iteration late after
+                // buffering a page of extra arcs.
+                if written > page.len()
+                    || offset > total
+                    || offset.saturating_add(written) > total
+                    || (written == 0 && offset < total)
+                {
                     return Err(BindingError::InvalidProviderOutput(
                         "invalid arc page counts",
                     ));

@@ -167,8 +167,15 @@ pub extern "C" fn lling_wfst_builder_add_state(
     out_state: *mut u32,
 ) -> LlingStatus {
     boundary(|| {
-        let state = graph(builder)?.add_state();
-        *required_mut(out_state, "out_state")? = state;
+        // Validate the out-pointer BEFORE mutating the graph: adding the state
+        // first meant a null `out_state` left an orphan state in the builder
+        // while still returning NullPointer. Pointer validation must never
+        // mutate caller state (mirrors the build/out_wfst discipline). Builder
+        // validity is still checked first, preserving the builder -> out
+        // precedence.
+        let graph = graph(builder)?;
+        let output = required_mut(out_state, "out_state")?;
+        *output = graph.add_state();
         Ok(())
     })
 }
@@ -331,8 +338,14 @@ pub extern "C" fn lling_wfst_import(
     out_wfst: *mut *mut LlingWfst,
 ) -> LlingStatus {
     boundary(|| {
+        // Validate the out-pointer BEFORE materializing the import: assignment
+        // evaluates its right operand first, so a null `out_wfst` would leak the
+        // fully-built LlingWfst and its captured resource retain. Pointer
+        // validation must never leak caller-visible resources (mirrors the
+        // build/out_wfst discipline).
+        let output = required_mut(out_wfst, "out_wfst")?;
         let graph = crate::bindings::import_tropical_wfst(resource).map_err(map_error)?;
-        *required_mut(out_wfst, "out_wfst")? = Box::into_raw(Box::new(LlingWfst {
+        *output = Box::into_raw(Box::new(LlingWfst {
             resource: OwnedWfstResource::from_wfst(graph),
         }));
         Ok(())
@@ -347,8 +360,13 @@ pub extern "C" fn lling_wfst_compose(
     out_wfst: *mut *mut LlingWfst,
 ) -> LlingStatus {
     boundary(|| {
+        // Validate the out-pointer BEFORE composing: assignment evaluates its
+        // right operand first, so a null `out_wfst` would leak the composition
+        // handle together with both captured snapshot retains it holds. Checking
+        // the pointer first also avoids the two retains entirely on that path.
+        let output = required_mut(out_wfst, "out_wfst")?;
         let resource = OwnedWfstResource::compose(first, second).map_err(map_error)?;
-        *required_mut(out_wfst, "out_wfst")? = Box::into_raw(Box::new(LlingWfst { resource }));
+        *output = Box::into_raw(Box::new(LlingWfst { resource }));
         Ok(())
     })
 }
