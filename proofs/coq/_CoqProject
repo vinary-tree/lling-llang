@@ -10,6 +10,8 @@ foundations/ArcticWeight.v
 foundations/LogWeight.v
 foundations/CountWeight.v
 foundations/ProbabilityWeight.v
+foundations/BooleanWeight.v
+foundations/SignedTropicalWeight.v
 foundations/Quantization.v
 foundations/Interval.v
 foundations/Roundoff.v
