@@ -1,0 +1,86 @@
+@startuml wfst-import-compose-sequence
+' End-to-end lling_wfst_compose flow: interface discovery, the capture-once
+' snapshot per input, and the first lazy product expansion. Mirrors
+' src/bindings.rs (CapturedWfst::capture, CompositionResource::state).
+' Palette: docs/diagrams/README.md — lling #FCF3CF, foreign providers #FFCDD2
+' (trust boundary), VtResource handle #DCEDC8, leased page memory #FFECB3.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment left
+skinparam sequence {
+  ArrowColor #607D8B
+  LifeLineBorderColor #9A7D0A
+  GroupBorderColor #455A64
+  GroupBackgroundColor #ECEFF1
+}
+skinparam note {
+  BackgroundColor #ECEFF1
+  BorderColor #455A64
+}
+
+title <b>lling_wfst_compose — capture once, expand lazily</b>\n<size:11><i>construction touches no component state; every foreign reply is validated before use</i></size>
+
+participant "Caller (C)" as C #ECEFF1
+participant "lling ABI\nsrc/ffi.rs" as F #FCF3CF
+participant "CompositionResource\nsrc/bindings.rs" as CR #FCF3CF
+participant "CapturedWfst (left)" as CL #FCF3CF
+box "foreign providers — untrusted input" #FFCDD2
+  participant "provider A\n(first VtResource)" as PA #FFCDD2
+  participant "provider B\n(second VtResource)" as PB #FFCDD2
+end box
+
+== Construction: lling_wfst_compose(first, second, &out) ==
+
+C -> F : lling_wfst_compose(first, second, &out)
+activate F
+note right of F : catch_unwind boundary —\na Rust panic becomes\nLLING_STATUS_PANIC, never\nunwinds into the caller
+F -> CR : OwnedWfstResource::compose(first, second)
+activate CR
+CR -> CL : CapturedWfst::capture(first)
+activate CL
+CL -> PA : query_interface("vt.scalar-wfst.1", 1)
+PA --> CL : raw u32 status + vtable*
+note right of CL : decode raw u32 via VtStatus::from_raw\n(out-of-range = provider error, never UB);\nvalidate struct_size, abi_version, required\nops, UnicodeScalar labels, TropicalF64 weights
+CL -> PA : snapshot(context)  <i>(gated unless PARALLEL_REENTRANT)</i>
+PA --> CL : retained immutable snapshot  <b>(exactly once per input)</b>
+CL -> PA : query_interface(snapshot) ; start(snapshot)
+PA --> CL : start state <latex>q_0^{(1)}</latex>
+CL --> CR : captured left (snapshot + gate + empty state cache)
+deactivate CL
+CR -> PB : same discovery + snapshot + start for the second input
+PB --> CR : captured right, start <latex>q_0^{(2)}</latex>
+CR -> CR : registry := { <latex>(q_0^{(1)}, q_0^{(2)}, \varnothing) \mapsto 0</latex> } ; cache := {}
+CR --> F : composed resource (no component state expanded)
+deactivate CR
+F --> C : LLING_STATUS_OK + LlingWfst*
+deactivate F
+
+== First traversal: state_arcs(composed, state 0) through the exported vtable ==
+
+C -> CR : state_arcs(context, 0, start=0, page, capacity, &written, &total)
+activate CR
+CR -> CR : cache miss ; registry.get(0) = <latex>(q_0^{(1)}, q_0^{(2)}, \varnothing)</latex>
+CR -> CL : state(<latex>q_0^{(1)}</latex>)
+activate CL
+CL -> PA : state_info(<latex>q_0^{(1)}</latex>)
+PA --> CL : valid, is_final, final_weight
+CL -> PA : state_arcs paging loop (VT_RECOMMENDED_ARC_BATCH = 256)
+PA --> CL : pages until written sums to total
+note right of CL #FFECB3 : arc pages land in caller-owned\nleased buffers; every arc is validated:\nflags ≤ 1, reserved = 0, Unicode-scalar\nlabels, TropicalWeight::is_valid_raw\n(finite or +inf — rejects NaN and −inf, F1)
+CL --> CR : Arc<StateData> (cached for reuse)
+deactivate CL
+CR -> PB : state(<latex>q_0^{(2)}</latex>) — same expansion, right side
+PB --> CR : Arc<StateData>
+CR -> CR : epsilon-filter moves ; register successor product states ;\narc weight <latex>w_1 \otimes w_2 = w_1 + w_2</latex> ; cache product state
+CR --> C : one contiguous product-arc page + total
+deactivate CR
+
+note over CR : no resource-wide gate: concurrent callers\nexpand distinct product states in parallel;\nonly non-reentrant providers are serialized,\neach behind its own per-input gate
+
+legend right
+  |<#FCF3CF> lling-llang (consumer + product engine) |
+  |<#FFCDD2> foreign provider (validated, untrusted) |
+  |<#FFECB3> leased page memory (caller-owned) |
+  |<#ECEFF1> caller / neutral |
+endlegend
+@enduml

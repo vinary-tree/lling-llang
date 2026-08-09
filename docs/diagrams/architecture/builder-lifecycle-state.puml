@@ -1,0 +1,61 @@
+@startuml builder-lifecycle-state
+' LlingWfstBuilder lifecycle: the exact state machine implemented by
+' src/ffi.rs. Open is the only mutable state; build() is the one consuming
+' transition; a failed build (no start state) restores Open. Palette:
+' docs/diagrams/README.md — lling #FCF3CF, error paths #B71C1C.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment left
+skinparam state {
+  BackgroundColor #FCF3CF
+  BorderColor #9A7D0A
+  FontColor #102027
+  ArrowColor #607D8B
+}
+skinparam note {
+  BackgroundColor #ECEFF1
+  BorderColor #455A64
+}
+
+title <b>LlingWfstBuilder lifecycle</b>\n<size:11><i>every transition is one lling_wfst_builder_* call; non-OK statuses leave the state unchanged unless shown</i></size>
+
+state "Open\n(graph: Some)" as Open #FCF3CF
+state "Consumed\n(graph: None)" as Consumed #FFECB3
+state "Built handle\nLlingWfst (immutable)" as Handle #DCEDC8
+
+[*] --> Open : lling_wfst_builder_new(&b) → OK
+
+Open --> Open : reserve_states(n) → OK
+Open --> Open : add_state(&s) → OK\nset_start(s) → OK | INVALID_ARGUMENT
+Open --> Open : set_final(s, w) / clear_final(s)\n→ OK | INVALID_ARGUMENT
+Open --> Open : add_arc(...) → OK | INVALID_ARGUMENT\n(NaN weight, non-scalar label,\npresence flag > 1, absent endpoint)
+Open --> Open : <color:#B71C1C>build(&w) with no start state\n→ INVALID_ARGUMENT (graph restored)</color>
+Open --> Consumed : build(&w) → OK\n(<latex>O(1)</latex> freeze into LlingWfst)
+Consumed --> Handle : out_wfst receives the handle
+Consumed --> Consumed : any builder call\n→ <color:#B71C1C>CLOSED</color>
+Open --> [*] : lling_wfst_builder_free
+Consumed --> [*] : lling_wfst_builder_free
+Handle --> [*] : lling_wfst_free\n(after releasing exported resources)
+
+note right of Open
+  Builder calls are **not** thread-safe:
+  one builder belongs to one thread.
+  All argument validation happens here —
+  the built handle can never contain a
+  NaN / −∞ weight or an invalid label.
+end note
+
+note bottom of Consumed
+  <color:#B71C1C>Caution:</color> build(&w) with a **null** out
+  pointer still consumes the builder and
+  returns NULL_POINTER — the frozen handle
+  is then unrecoverable. Always pass a
+  valid out pointer.
+end note
+
+legend right
+  |<#FCF3CF> mutable builder state (lling) |
+  |<#FFECB3> consumed builder (terminal) |
+  |<#DCEDC8> immutable handle / VtResource side |
+endlegend
+@enduml

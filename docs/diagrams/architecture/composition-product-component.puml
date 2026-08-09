@@ -1,0 +1,85 @@
+@startuml composition-product-component
+' Internal structure of a composed scalar-WFST resource: two captured inputs,
+' the product registry, the product-state cache, and the epsilon filter —
+' with the deliberate absence of a resource-wide gate. Mirrors
+' CompositionResource in src/bindings.rs. Palette: docs/diagrams/README.md —
+' lling #FCF3CF, VtResource #DCEDC8, trust boundary #FFCDD2, leases #FFECB3.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment left
+skinparam component {
+  BackgroundColor #FCF3CF
+  BorderColor #9A7D0A
+  FontColor #102027
+  ArrowColor #607D8B
+}
+skinparam database {
+  BackgroundColor #ECEFF1
+  BorderColor #455A64
+}
+skinparam note {
+  BackgroundColor #ECEFF1
+  BorderColor #455A64
+}
+skinparam frame {
+  BorderColor #B71C1C
+  FontColor #B71C1C
+}
+skinparam rectangle {
+  BorderColor #9A7D0A
+}
+
+title <b>CompositionResource — lazy product over two captured inputs</b>\n<size:11><i>product states <latex>(q_1, q_2, \phi) \in Q_1 \times Q_2 \times \Phi</latex> are discovered, numbered, and cached on demand</i></size>
+
+rectangle "exported vt.scalar-wfst.1 resource\nflags: PARALLEL_REENTRANT | IMMUTABLE | LAZY" as EXPORT #DCEDC8 {
+
+  component "CompositionResource" as COMP #FCF3CF {
+    component "ProductRegistry\n<latex>\mathrm{ids}: (q_1, q_2, \phi) \to n</latex>\n<latex>\mathrm{states}: n \to (q_1, q_2, \phi)</latex>\n(RwLock, dense u64 ids)" as REG #FCF3CF
+    component "product-state cache\nHashMap<u64, Arc<StateData>>\n(RwLock, first writer wins)" as CACHE #FCF3CF
+    component "EpsilonFilter (sequencing)\n<latex>\Phi = \{\varnothing, \epsilon_1, \epsilon_2\}</latex>\nblocks duplicate <latex>\varepsilon</latex>-paths" as FILT #FCF3CF
+  }
+
+  component "CapturedWfst (left)\nsnapshot + start + per-input gate\n+ component-state cache" as LEFT #FCF3CF
+  component "CapturedWfst (right)\nsnapshot + start + per-input gate\n+ component-state cache" as RIGHT #FCF3CF
+}
+
+frame "trust boundary — foreign code" as TB {
+  component "provider A snapshot\n(retained VtResource)" as PA #FFCDD2
+  component "provider B snapshot\n(retained VtResource)" as PB #FFCDD2
+}
+
+database "leased arc pages\n(256-arc batches)" as PAGES #FFECB3
+
+COMP --> LEFT : state(<latex>q_1</latex>)
+COMP --> RIGHT : state(<latex>q_2</latex>)
+COMP --> REG : get(id) / register(successors)
+COMP --> CACHE : read-through, write-once
+COMP --> FILT : allowed_moves(<latex>\phi</latex>)
+LEFT --> PA : state_info / state_arcs\n(validated, gated iff non-reentrant)
+RIGHT --> PB : state_info / state_arcs\n(validated, gated iff non-reentrant)
+PA ..> PAGES : writes ≤ capacity arcs
+PB ..> PAGES : writes ≤ capacity arcs
+
+note bottom of COMP
+  **Deliberately no resource-wide gate.** Expansion of distinct
+  product states is independent: concurrent readers hit the two
+  RwLock caches, and each non-reentrant provider serializes only
+  its own callbacks. A single global mutex would forfeit the
+  PARALLEL_REENTRANT claim the exported vtable makes.
+end note
+
+note right of FILT
+  Match moves compose arcs with equal
+  inner labels; weights combine as
+  <latex>w_1 \otimes w_2 = w_1 + w_2</latex> (tropical).
+  Finality: <latex>\rho(q_1,q_2,\phi) = \rho_1(q_1) + \rho_2(q_2)</latex>
+  when both components are final.
+end note
+
+legend right
+  |<#FCF3CF> lling-llang product engine |
+  |<#DCEDC8> retained VtResource handles |
+  |<#FFCDD2> foreign snapshots (trust boundary) |
+  |<#FFECB3> leased page memory |
+endlegend
+@enduml

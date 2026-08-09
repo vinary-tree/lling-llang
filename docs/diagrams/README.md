@@ -59,6 +59,20 @@ Fills are Material-100/200; borders Material-700/800.
 | Verification — Coq/Rocq · TLA⁺ | `#FFCDD2` | `#B71C1C` |
 | Neutral / IO / container | `#ECEFF1` | `#455A64` |
 
+**Family repository palette** (used in every cross-repository / ABI diagram;
+shared with the sibling repos' legends so a component's home repo is readable
+at a glance):
+
+| Repository / concept | Fill | Border |
+|---|---|---|
+| liblevenshtein-rust | `#FADBD8` | `#943126` |
+| libdictenstein | `#D5F5E3` | `#1E8449` |
+| duallity | `#D6EAF8` | `#1F618D` |
+| lling-llang | `#FCF3CF` | `#9A7D0A` |
+| VtResource retained handle | `#DCEDC8` | `#33691E` |
+| Foreign-provider trust boundary | `#FFCDD2` | `#B71C1C` |
+| Leased page memory (caller-owned batches) | `#FFECB3` | `#FF6F00` |
+
 **Automata-element accents** (used in every state graph):
 
 | Element | Color / style |
@@ -90,7 +104,7 @@ TikZ sources `\definecolor{found}{HTML}{BBDEFB}` … one per palette row.
 ## 3. Directory & naming
 
 Sources and their SVGs are co-located under `docs/diagrams/<section>/`, mirroring
-the `docs/` tree (`architecture/ algorithms/ asr/ advanced/ acoustic/ layers/
+the `docs/` tree (`api/ architecture/ algorithms/ asr/ advanced/ acoustic/ layers/
 integration/ training/ programming/ transducers/ correction/`). The five
 README-global diagrams stay at the top level. Name files
 `<concept-kebab>.<ext>` + sibling `<concept-kebab>.svg`. The `.gitignore`
@@ -144,4 +158,8 @@ diagrams are added.)
 | `architecture/semiring-hasse.svg` | TikZ | `architecture/semirings.md` |
 | `architecture/wfst-traits.svg` | PlantUML | `architecture/wfst-traits.md` |
 | `architecture/lattice-worked.svg` | Graphviz | `architecture/overview.md`, `architecture/lattices.md` |
+| `api/c-abi-surface.svg` | PlantUML | `api/c-abi-reference.md` |
+| `architecture/builder-lifecycle-state.svg` | PlantUML | `api/c-abi-reference.md` |
+| `architecture/wfst-import-compose-sequence.svg` | PlantUML | `architecture/resource-abi.md`, `security/abi-trust-model.md` |
+| `architecture/composition-product-component.svg` | PlantUML | `architecture/resource-abi.md` |
 | `algorithms/*` · `asr/*` · `advanced/*` · `transducers/*` · `correction/*` | Graphviz / PlantUML / D2 / TikZ | the corresponding topic docs |

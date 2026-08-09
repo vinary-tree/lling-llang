@@ -1,0 +1,101 @@
+@startuml c-abi-surface
+' The complete lling-llang C ABI surface: all 17 exported lling_* functions,
+' grouped by role, with the two opaque handle types and the family two-word
+' VtResource they exchange. Palette: docs/diagrams/README.md family extension —
+' lling #FCF3CF, VtResource handle #DCEDC8, foreign trust boundary #FFCDD2.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment left
+skinparam class {
+  BackgroundColor #FCF3CF
+  BorderColor #9A7D0A
+  FontColor #102027
+  ArrowColor #607D8B
+}
+skinparam package {
+  BackgroundColor #FFFFFF
+  BorderColor #9A7D0A
+  FontColor #102027
+}
+skinparam note {
+  BackgroundColor #ECEFF1
+  BorderColor #455A64
+}
+hide empty members
+hide circle
+
+title <b>lling-llang C ABI surface — 17 exported functions</b>\n<size:11><i>ABI v1, API revision 1 · every fallible call returns LlingStatus and latches a thread-local message</i></size>
+
+package "Versioning (2)" {
+  class "lling_abi_version() : uint32_t\nlling_api_revision() : uint32_t" as VERS #FCF3CF
+}
+
+package "Diagnostics (1)" {
+  class "lling_last_error_message() : const char*" as ERR #FCF3CF
+}
+
+package "Builder lifecycle (9)" {
+  class "LlingWfstBuilder" as BUILDER #FCF3CF {
+    caller-owned, mutable, single-threaded
+    --
+    +lling_wfst_builder_new(out_builder)
+    +lling_wfst_builder_free(builder)
+    +lling_wfst_builder_reserve_states(builder, additional)
+    +lling_wfst_builder_add_state(builder, out_state)
+    +lling_wfst_builder_set_start(builder, state)
+    +lling_wfst_builder_set_final(builder, state, weight)
+    +lling_wfst_builder_clear_final(builder, state)
+    +lling_wfst_builder_add_arc(builder, from, in, has_in, out, has_out, to, weight)
+    +lling_wfst_builder_build(builder, out_wfst)
+  }
+}
+
+package "Immutable handle (4)" {
+  class "LlingWfst" as WFST #FCF3CF {
+    caller-owned, immutable, thread-safe
+    --
+    +lling_wfst_free(wfst)
+    +lling_wfst_import(resource, out_wfst)
+    +lling_wfst_compose(first, second, out_wfst)
+    +lling_wfst_resource(wfst, out_resource)
+  }
+}
+
+package "Family resource (1)" {
+  class "VtResource\n{context, vtable}" as RES #DCEDC8 {
+    two-word retained handle
+    interface: vt.scalar-wfst.1
+    --
+    +lling_resource_release(resource)
+  }
+}
+
+class "LlingStatus : uint32_t" as STATUS #ECEFF1 {
+  OK = 0
+  INVALID_ARGUMENT = 1
+  NULL_POINTER = 2
+  PANIC = 3
+  INCOMPATIBLE_RESOURCE = 4
+  PROVIDER_ERROR = 5
+  LIMIT_EXCEEDED = 6
+  CLOSED = 7
+}
+
+class "foreign scalar-WFST resource\n(libdictenstein · duallity · any provider)" as FOREIGN #FFCDD2
+
+BUILDER --> WFST : lling_wfst_builder_build\n<latex>O(1)</latex> freeze, builder consumed
+WFST --> RES : lling_wfst_resource\n+1 owned retain, <latex>O(1)</latex>
+FOREIGN --> WFST : lling_wfst_import\n<latex>O(|Q| + |E|)</latex> copy of the snapshot
+FOREIGN --> WFST : lling_wfst_compose\ncapture-once, lazy product
+RES ..> FOREIGN : same two-word ABI\n(any compatible producer)
+BUILDER ..> STATUS : returns
+WFST ..> STATUS : returns
+ERR ..> STATUS : explains last non-OK status\n(thread-local)
+
+legend right
+  |<#FCF3CF> lling-llang-owned surface |
+  |<#DCEDC8> VtResource retained handle |
+  |<#FFCDD2> foreign provider (trust boundary) |
+  |<#ECEFF1> status / diagnostics |
+endlegend
+@enduml
