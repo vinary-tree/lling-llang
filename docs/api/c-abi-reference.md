@@ -131,7 +131,7 @@ same eight values on both sides, pinned by `bindings/api.json` and enforced by
 | Value | Name | Meaning |
 |---|---|---|
 | 0 | `LLING_STATUS_OK` | Operation completed successfully. |
-| 1 | `LLING_STATUS_INVALID_ARGUMENT` | An argument value was rejected (absent state, NaN weight, malformed label, missing start state). |
+| 1 | `LLING_STATUS_INVALID_ARGUMENT` | An argument value was rejected (absent state, non-tropical weight — NaN or $`-\infty`$, malformed label, missing start state). |
 | 2 | `LLING_STATUS_NULL_POINTER` | A required pointer (or resource word) was null. |
 | 3 | `LLING_STATUS_PANIC` | A Rust panic was caught at the boundary; it never unwinds into C. |
 | 4 | `LLING_STATUS_INCOMPATIBLE_RESOURCE` | The resource does not expose a compatible `vt.scalar-wfst.1` interface (wrong ABI version, missing ops, wrong label or weight domain). |
@@ -198,9 +198,9 @@ LLING_API LlingStatus lling_wfst_builder_new(LlingWfstBuilder** out_builder);
 | Thread safety | Callable from any thread; the resulting builder is single-threaded. |
 | Complexity | $`O(1)`$ |
 
-> **Caution.** If `out_builder` is null the call returns `NULL_POINTER`, but
-> the builder constructed for hand-off is unrecoverable (the failure path
-> cannot return it). Always pass a valid out pointer.
+> **Check order.** The out-pointer is validated *before* the builder is
+> constructed: a null `out_builder` returns `NULL_POINTER` and allocates
+> nothing.
 
 ### `lling_wfst_builder_free`
 
@@ -281,21 +281,19 @@ LLING_API LlingStatus lling_wfst_builder_set_final(
 |---|---|
 | Semantics | Marks `state` final with tropical final weight $`\rho(q) = \texttt{weight}`$. |
 | Preconditions | `builder` non-null, not consumed; `state` exists; `weight` in the tropical carrier $`\mathbb{R} \cup \{+\infty\}`$. |
-| Returns | `OK` · `INVALID_ARGUMENT` (NaN weight; state absent) · `NULL_POINTER` · `CLOSED` · `PANIC` |
+| Returns | `OK` · `INVALID_ARGUMENT` (non-tropical weight — NaN or $`-\infty`$; state absent) · `NULL_POINTER` · `CLOSED` · `PANIC` |
 | Ownership | No transfer. |
 | Thread safety | Builder-confined. |
 | Complexity | $`O(1)`$ |
 
-> **Check order and the weight domain.** NaN is rejected *before* the builder
-> pointer is examined, so `set_final(NULL, s, NAN)` reports
-> `INVALID_ARGUMENT`, not `NULL_POINTER`. `+INFINITY` is accepted (it is the
-> tropical $`\bar{0}`$ — a final weight of "unreachable"). `-INFINITY` is
-> outside the verified tropical carrier; today it trips the weight
-> constructor's guard and surfaces as `PANIC` (caught, no unwinding) and may
-> leave the state flagged final with its previous weight — pass only finite
-> values or `+INFINITY`. The planned tightening to a uniform
-> `INVALID_ARGUMENT` rejection at the builder sites is tracked as part of
-> finding LLING-B2 in the
+> **Check order and the weight domain.** The weight is validated with
+> `TropicalWeight::is_valid_raw` *before* the builder pointer is examined,
+> so `set_final(NULL, s, NAN)` reports `INVALID_ARGUMENT`, not
+> `NULL_POINTER`. `+INFINITY` is accepted (it is the tropical $`\bar{0}`$ —
+> a final weight of "unreachable"); NaN **and** `-INFINITY` are rejected
+> uniformly. This is the builder-surface twin of finding LLING-B2/F1
+> (before the fix, a `-INFINITY` slipped the NaN-only check and surfaced as
+> a caught `PANIC`) — see the
 > [bindings findings ledger](../scientific-ledger/bindings-findings-ledger.md).
 
 ### `lling_wfst_builder_clear_final`
@@ -327,16 +325,16 @@ LLING_API LlingStatus lling_wfst_builder_add_arc(
 | Aspect | Contract |
 |---|---|
 | Semantics | Appends the arc $`\mathit{from} \xrightarrow{\;i:o/w\;} \mathit{to}`$. A presence flag of 0 makes that side $`\varepsilon`$ (the label value is then ignored); a flag of 1 requires the label to be a Unicode scalar value (any code point except surrogates, i.e. at most `0x10FFFF`). Parallel and duplicate arcs are allowed. |
-| Preconditions | `builder` non-null, not consumed; `from` and `to` exist; each presence flag is 0 or 1; present labels are Unicode scalars; `weight` NaN-free tropical. |
-| Returns | `OK` · `INVALID_ARGUMENT` (NaN weight; presence flag $`> 1`$; non-scalar label; absent endpoint) · `NULL_POINTER` · `CLOSED` · `PANIC` |
+| Preconditions | `builder` non-null, not consumed; `from` and `to` exist; each presence flag is 0 or 1; present labels are Unicode scalars; `weight` in the tropical carrier. |
+| Returns | `OK` · `INVALID_ARGUMENT` (non-tropical weight — NaN or $`-\infty`$; presence flag $`> 1`$; non-scalar label; absent endpoint) · `NULL_POINTER` · `CLOSED` · `PANIC` |
 | Ownership | No transfer. |
 | Thread safety | Builder-confined. |
 | Complexity | $`O(1)`$ amortized. |
 
 > **Check order.** Validation runs weight → labels → builder → endpoints, so
-> argument errors report `INVALID_ARGUMENT` even when `builder` is null. As
-> with `set_final`, a `-INFINITY` weight currently surfaces as `PANIC` (the
-> arc is not added; the builder is otherwise unchanged) — see LLING-B2.
+> argument errors report `INVALID_ARGUMENT` even when `builder` is null. The
+> weight check is the same uniform `TropicalWeight::is_valid_raw` rejection
+> as `set_final` (the LLING-B2/F1 builder-surface twin).
 
 ### `lling_wfst_builder_build`
 
@@ -354,10 +352,12 @@ LLING_API LlingStatus lling_wfst_builder_build(
 | Thread safety | Builder-confined; the produced handle is safe to share across threads. |
 | Complexity | $`O(1)`$ — the graph is moved, not copied. |
 
-> **Caution.** The missing-start failure is fully recoverable: set a start
-> state and call `build` again. But if `out_wfst` is null, the builder **has
-> already been consumed** when `NULL_POINTER` is returned and the frozen
-> handle is unrecoverable. Always pass a valid out pointer.
+> **Check order.** Failure never destroys caller state: the precedence is
+> builder-null (`NULL_POINTER`) → out-null (`NULL_POINTER`, builder
+> untouched) → consumed (`CLOSED`) → missing start (`INVALID_ARGUMENT`,
+> graph restored). Both pointer failures and the missing-start failure
+> leave the builder exactly as it was — set a start state and call `build`
+> again.
 
 ## Immutable handles and resources — five functions
 
@@ -401,6 +401,10 @@ Every weight crossing this boundary is validated with
 `TropicalWeight::is_valid_raw` — finite or $`+\infty`$; NaN **and**
 $`-\infty`$ are rejected as provider misbehavior (the LLING-B2/F1 hardening).
 
+> **Caution.** `out_wfst` is validated *after* the copy: passing null
+> returns `NULL_POINTER`, but the fully materialized private graph is then
+> unrecoverable (leaked). Always pass a valid out pointer.
+
 ### `lling_wfst_compose`
 
 ```c
@@ -421,6 +425,11 @@ Provider failures and invalid weights (NaN, $`-\infty`$) discovered **during**
 lazy expansion surface as `VT_STATUS_PROVIDER_ERROR` on the exported vtable
 calls — not as an `LlingStatus`, because traversal happens through the family
 interface. See [Resource ABI architecture](../architecture/resource-abi.md).
+
+> **Caution.** `out_wfst` is validated *after* capture: passing null returns
+> `NULL_POINTER`, but the constructed composition — holding one snapshot
+> retain per input — is then unrecoverable (those snapshot retains leak with
+> it). Always pass a valid out pointer.
 
 ### `lling_wfst_resource`
 

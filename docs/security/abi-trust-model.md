@@ -119,14 +119,20 @@ LLING-B2, family pre-registered finding F1):
   `negative_infinity_tropical_weight_is_rejected_not_poisoned` pins both
   the import path (clean rejection, no panic) and the composition path
   (expansion fails with a status, never yields a NaN arc).
+- **The builder-surface twin (also closed).** The C builder entry points
+  (`lling_wfst_builder_set_final`, `lling_wfst_builder_add_arc`)
+  originally carried the same NaN-only check, so a `-INFINITY` literal
+  panicked inside the checked weight constructor and surfaced as a caught
+  `PANIC`. They now apply the identical `is_valid_raw` predicate and
+  answer `INVALID_ARGUMENT` uniformly (commit `83f9595`, pinned by the
+  builder validation matrix in `tests/ffi_builder_matrix.rs`).
 - **The lesson, generalized.** *Representation validity is per-domain, not
   merely "not NaN".* Each of the seven family weight domains has its own
   carrier predicate (see the
   [weight-domain table](../api/c-abi-reference.md#weight-domains--semirings));
   a consumer must enforce the predicate of the domain it consumes at every
-  ingestion site. The remaining tightening — the *builder* entry points
-  still accept a `-INFINITY` literal and surface it as a caught `PANIC`
-  rather than `INVALID_ARGUMENT` — is tracked under the same finding in the
+  ingestion site, and every construction surface must enforce the predicate
+  of the domain it builds. The finding's full record is in the
   [bindings findings ledger](../scientific-ledger/bindings-findings-ledger.md).
 
 ## Panic containment
@@ -139,11 +145,10 @@ direction** — is implemented here exactly as the
   (`src/ffi.rs`): `catch_unwind(AssertUnwindSafe(..))` converts any Rust
   panic into `LLING_STATUS_PANIC` plus a thread-local diagnostic. A panic
   therefore never unwinds into C. `AssertUnwindSafe` is sound here because
-  no lling-owned invariant outlives a caught panic unrepaired: builder and
-  handle state either completed a step or is still valid (the documented
-  half-update on the `-INFINITY` builder path leaves a *valid* builder —
-  wrong only by policy, which is exactly what the LLING-B2 tightening
-  closes).
+  no lling-owned invariant outlives a caught panic unrepaired: every
+  argument-domain rejection happens *before* mutation (weights and labels
+  are validated up front), so builder and handle state is always either
+  untouched or a completed step.
 - **Exported vtable callbacks** (`retain`, `release`, `query_interface`,
   and the five WFST operations in `src/bindings.rs`) are written to be
   panic-free by construction: null checks first, total status decoding,

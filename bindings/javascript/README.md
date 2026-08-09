@@ -141,7 +141,7 @@ JavaScript has a single error channel: **failed operations throw.**
 |---|---|---|
 | facade guard | `TypeError("resource does not implement vt.scalar-wfst.1")` | `compose` received a non-WFST resource (e.g. a dictionary) |
 | facade guard | `TypeError("resource belongs to a different Vinary Tree runtime")` | mixing native / `wasm` / `wasi` instances, or another copy of the runtime |
-| runtime | `Error` carrying the native diagnostic | every non-OK native status: invalid argument (absent state, NaN weight, malformed label, missing start), builder already consumed, incompatible resource, provider failure during lazy expansion, representation limits, contained panics |
+| runtime | `Error` carrying the native diagnostic | every non-OK native status: invalid argument (absent state, non-tropical weight such as `NaN` or `-Infinity`, malformed label, missing start), builder already consumed, incompatible resource, provider failure during lazy expansion, representation limits, contained panics |
 
 The native diagnostics are the same messages C callers read from
 `lling_last_error_message()`; the full status taxonomy is the

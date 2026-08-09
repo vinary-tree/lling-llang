@@ -134,7 +134,7 @@ diagnostic and whose `status()` is the exact `LlingStatus`:
 
 | `status()` | Typical trigger |
 |---|---|
-| `LLING_STATUS_INVALID_ARGUMENT` | absent state, NaN weight, malformed label, `build()` without a start state |
+| `LLING_STATUS_INVALID_ARGUMENT` | absent state, non-tropical weight (NaN, `-INFINITY`), malformed label, `build()` without a start state |
 | `LLING_STATUS_NULL_POINTER` | null handle or null resource words reaching the C layer |
 | `LLING_STATUS_PANIC` | a contained Rust panic (never unwinds into C++) |
 | `LLING_STATUS_INCOMPATIBLE_RESOURCE` | `import`/`compose` on a resource without Unicode/tropical `vt.scalar-wfst.1` |
