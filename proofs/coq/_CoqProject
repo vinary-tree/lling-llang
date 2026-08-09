@@ -38,6 +38,8 @@ abi/StatusMapping.v
 abi/ProductRegistry.v
 # Resource ABI: epsilon-free weighted WFST composition semantics
 abi/CompositionSemantics.v
+# Resource ABI: the sequencing epsilon-filter soundness
+abi/EpsilonFilterSoundness.v
 
 # ============================================================================
 # Hoisted symbolic-core proofs (Task #21 / ADR-018): the zero-admission Rocq
