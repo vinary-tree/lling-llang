@@ -197,8 +197,12 @@ pub extern "C" fn lling_wfst_builder_set_final(
     weight: f64,
 ) -> LlingStatus {
     boundary(|| {
-        if weight.is_nan() {
-            set_error("weight must not be NaN");
+        // Builder-surface twin of finding LLING-B2/F1: the tropical domain is
+        // finite-or-+inf only, so -inf must be rejected exactly like NaN
+        // (previously it slipped the is_nan check and panicked inside
+        // TropicalWeight::new, surfacing as LLING_STATUS_PANIC).
+        if !TropicalWeight::is_valid_raw(weight) {
+            set_error("weight must be a finite or +infinity tropical value");
             return Err(LlingStatus::InvalidArgument);
         }
         let graph = graph(builder)?;
@@ -260,8 +264,9 @@ pub extern "C" fn lling_wfst_builder_add_arc(
     weight: f64,
 ) -> LlingStatus {
     boundary(|| {
-        if weight.is_nan() {
-            set_error("weight must not be NaN");
+        // Builder-surface twin of finding LLING-B2/F1 (see set_final above).
+        if !TropicalWeight::is_valid_raw(weight) {
+            set_error("weight must be a finite or +infinity tropical value");
             return Err(LlingStatus::InvalidArgument);
         }
         let input = decode_label(input_label, has_input, "input label")?;
@@ -284,6 +289,11 @@ pub extern "C" fn lling_wfst_builder_build(
 ) -> LlingStatus {
     boundary(|| {
         let builder = required_mut(builder, "builder")?;
+        // Validate the out-pointer BEFORE taking the graph: taking first meant
+        // a NullPointer failure silently consumed the builder (the graph was
+        // dropped and every later call answered Closed). Pointer validation
+        // must never destroy caller state.
+        let output = required_mut(out_wfst, "out_wfst")?;
         let graph = builder.graph.take().ok_or_else(|| {
             set_error("builder has already been consumed");
             LlingStatus::Closed
@@ -293,7 +303,7 @@ pub extern "C" fn lling_wfst_builder_build(
             set_error("WFST has no start state");
             return Err(LlingStatus::InvalidArgument);
         }
-        *required_mut(out_wfst, "out_wfst")? = Box::into_raw(Box::new(LlingWfst {
+        *output = Box::into_raw(Box::new(LlingWfst {
             resource: OwnedWfstResource::from_wfst(graph),
         }));
         Ok(())
