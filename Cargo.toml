@@ -167,6 +167,11 @@ test-utils = ["dep:proptest"]
 name = "core_benchmarks"
 harness = false
 
+[[bench]]
+name = "ffi_compose_benchmarks"
+harness = false
+required-features = ["ffi"]
+
 [package.metadata.docs.rs]
 all-features = true
 
