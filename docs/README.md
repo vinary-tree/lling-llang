@@ -55,6 +55,7 @@ Core concepts and design of the framework:
 | [Lattices](architecture/lattices.md) | Weighted DAGs representing correction alternatives |
 | [WFST Traits](architecture/wfst-traits.md) | Trait hierarchy for finite-state transducers |
 | [Backends](architecture/backends.md) | Storage abstraction and implementations |
+| [Resource ABI](architecture/resource-abi.md) | The scalar-WFST binding layer: providers, capture-once snapshots, the lazy composition product, the registry, and the raw-u32 status wire |
 | [Layers](architecture/layers.md) | Correction-layer pipeline architecture |
 | [Lattice Bridge](architecture/lattice-bridge.md) | Semiring↔lattice bridge: semirings as `libdictenstein` dictionary values |
 
