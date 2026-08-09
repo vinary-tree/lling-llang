@@ -73,7 +73,15 @@ impl fmt::Display for BindingError {
 
 impl std::error::Error for BindingError {}
 
-fn check_status(status: VtStatus) -> Result<(), BindingError> {
+fn check_status(raw: u32) -> Result<(), BindingError> {
+    // The wire carries a raw u32 (interop status rule): decode before any
+    // enum-typed use; an out-of-range discriminant is provider misbehavior,
+    // never undefined behavior (family hardening LLEV-B6).
+    let Some(status) = VtStatus::from_raw(raw) else {
+        return Err(BindingError::InvalidProviderOutput(
+            "provider returned an out-of-range status code",
+        ));
+    };
     if status.is_ok() {
         Ok(())
     } else {
@@ -663,6 +671,15 @@ unsafe extern "C" fn query_interface(
     interface_id: *const VtInterfaceId,
     minimum_version: u32,
     out_vtable: *mut *const c_void,
+) -> u32 {
+    query_interface_status(context, interface_id, minimum_version, out_vtable).to_raw()
+}
+
+unsafe fn query_interface_status(
+    context: *mut c_void,
+    interface_id: *const VtInterfaceId,
+    minimum_version: u32,
+    out_vtable: *mut *const c_void,
 ) -> VtStatus {
     if context.is_null() || interface_id.is_null() || out_vtable.is_null() {
         return VtStatus::NullPointer;
@@ -677,10 +694,11 @@ unsafe extern "C" fn query_interface(
     VtStatus::Ok
 }
 
-unsafe extern "C" fn wfst_snapshot(
-    context: *mut c_void,
-    out_snapshot: *mut VtResource,
-) -> VtStatus {
+unsafe extern "C" fn wfst_snapshot(context: *mut c_void, out_snapshot: *mut VtResource) -> u32 {
+    wfst_snapshot_status(context, out_snapshot).to_raw()
+}
+
+unsafe fn wfst_snapshot_status(context: *mut c_void, out_snapshot: *mut VtResource) -> VtStatus {
     if context.is_null() || out_snapshot.is_null() {
         return VtStatus::NullPointer;
     }
@@ -692,7 +710,11 @@ unsafe extern "C" fn wfst_snapshot(
     VtStatus::Ok
 }
 
-unsafe extern "C" fn wfst_start(context: *mut c_void, out_state: *mut u64) -> VtStatus {
+unsafe extern "C" fn wfst_start(context: *mut c_void, out_state: *mut u64) -> u32 {
+    wfst_start_status(context, out_state).to_raw()
+}
+
+unsafe fn wfst_start_status(context: *mut c_void, out_state: *mut u64) -> VtStatus {
     if context.is_null() || out_state.is_null() {
         return VtStatus::NullPointer;
     }
@@ -718,6 +740,14 @@ unsafe extern "C" fn wfst_start(context: *mut c_void, out_state: *mut u64) -> Vt
 }
 
 unsafe extern "C" fn wfst_num_states(
+    context: *mut c_void,
+    out_count: *mut usize,
+    out_known: *mut u8,
+) -> u32 {
+    wfst_num_states_status(context, out_count, out_known).to_raw()
+}
+
+unsafe fn wfst_num_states_status(
     context: *mut c_void,
     out_count: *mut usize,
     out_known: *mut u8,
@@ -759,6 +789,16 @@ unsafe extern "C" fn wfst_state_info(
     out_valid: *mut u8,
     out_is_final: *mut u8,
     out_final_weight: *mut f64,
+) -> u32 {
+    wfst_state_info_status(context, state, out_valid, out_is_final, out_final_weight).to_raw()
+}
+
+unsafe fn wfst_state_info_status(
+    context: *mut c_void,
+    state: u64,
+    out_valid: *mut u8,
+    out_is_final: *mut u8,
+    out_final_weight: *mut f64,
 ) -> VtStatus {
     if context.is_null()
         || out_valid.is_null()
@@ -779,6 +819,27 @@ unsafe extern "C" fn wfst_state_info(
 }
 
 unsafe extern "C" fn wfst_state_arcs(
+    context: *mut c_void,
+    state: u64,
+    start: usize,
+    out_arcs: *mut VtWfstArc,
+    capacity: usize,
+    out_written: *mut usize,
+    out_total: *mut usize,
+) -> u32 {
+    wfst_state_arcs_status(
+        context,
+        state,
+        start,
+        out_arcs,
+        capacity,
+        out_written,
+        out_total,
+    )
+    .to_raw()
+}
+
+unsafe fn wfst_state_arcs_status(
     context: *mut c_void,
     state: u64,
     start: usize,
@@ -895,7 +956,7 @@ unsafe fn discover_wfst(resource: VtResource) -> Result<*const VtWfstVTable, Bin
         VT_WFST_INTERFACE_VERSION,
         &mut interface,
     );
-    if result == VtStatus::Unsupported {
+    if VtStatus::from_raw(result) == Some(VtStatus::Unsupported) {
         return Err(BindingError::MissingWfstInterface);
     }
     check_status(result)?;
@@ -1107,7 +1168,7 @@ mod tests {
                     &mut total,
                 )
             },
-            VtStatus::Ok
+            VtStatus::Ok.to_raw()
         );
         assert_eq!((written, total), (1, 1));
         assert_eq!(char::from_u32(arcs[0].output_label as u32), Some('z'));
@@ -1197,7 +1258,7 @@ mod tests {
                     &mut total,
                 )
             },
-            VtStatus::Ok
+            VtStatus::Ok.to_raw()
         );
         assert_eq!(
             (written, total, arc.output_label),

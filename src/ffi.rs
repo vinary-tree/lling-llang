@@ -432,7 +432,7 @@ mod tests {
                     VT_WFST_INTERFACE_VERSION,
                     &mut interface
                 ),
-                vinary_tree_interop::VtStatus::Ok
+                vinary_tree_interop::VtStatus::Ok.to_raw()
             );
             let table = &*interface.cast::<VtWfstVTable>();
             let mut arc = VtWfstArc::default();
@@ -448,7 +448,7 @@ mod tests {
                     &mut written,
                     &mut total
                 ),
-                vinary_tree_interop::VtStatus::Ok
+                vinary_tree_interop::VtStatus::Ok.to_raw()
             );
             assert_eq!((written, total, arc.output_label), (1, 1, 'b' as u64));
         }
