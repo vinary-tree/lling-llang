@@ -190,3 +190,34 @@ their own runtime instance — handles must not be passed between instances
   equality, export-map integrity, facade export parity across
   `d.ts`/`mjs`/`cjs`/`cljs`, and the presence of both runtime-identity and
   interface guards in every facade.
+
+## Executable conformance evidence
+
+[`test/facades.test.mjs`](test/facades.test.mjs) exercises the public native,
+TypeScript, ClojureScript, WebAssembly, and WASI entry points against one
+instrumented runtime contract. Run the same package command used in CI:
+
+```sh
+npm test --prefix bindings/javascript
+```
+
+The test is facade-level: it verifies export parity, runtime identity
+rejection, interface guards, lazy composition, state expansion, and
+deterministic close behavior without importing repository-private modules.
+
+## Security and provider trust
+
+Treat resource-like JavaScript objects as untrusted. The facade verifies the
+singleton runtime identity and `vt.scalar-wfst.1` interface before delegating;
+the native layer then validates provider output, scalar labels, weights, state
+IDs, page bounds, and statuses. Never bypass these guards by reaching into a
+handle's private fields or moving handles across workers/runtime instances.
+See the [ABI trust model](../../docs/security/abi-trust-model.md).
+
+## Maintainer workflow
+
+1. Update [`bindings/api.json`](../api.json), `package.json`, declarations, and every entry point together.
+2. Keep JavaScript, TypeScript, and ClojureScript exports semantically identical.
+3. Add positive, negative, teardown, and cross-runtime tests to `facades.test.mjs`.
+4. Run `python3 scripts/check-bindings.py`, `python3 scripts/check-binding-docs.py`, and the npm suite.
+5. Verify native, WebAssembly, and WASI packaging without weakening the identity guard.

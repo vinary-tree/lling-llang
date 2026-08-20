@@ -189,3 +189,34 @@ implicitly `noexcept`.
 - The header pair (`lling_llang.h`, `lling_llang.hpp`) is drift-gated
   against `src/ffi.rs` and `bindings/api.json` by
   `python3 scripts/check-bindings.py`.
+
+## Executable conformance evidence
+
+[`tests/package_smoke.cpp`](tests/package_smoke.cpp) is built as a consumer of
+the staged package, not against repository-private headers. It exercises the
+move-only builder/WFST/resource lifecycle and is run by the native-package
+release gate:
+
+```sh
+cmake -S bindings/cpp/tests/package -B target/lling-cpp-package
+cmake --build target/lling-cpp-package
+ctest --test-dir target/lling-cpp-package --output-on-failure
+```
+
+## Security and provider trust
+
+RAII prevents local leaks but does not make an arbitrary `VtResource`
+trustworthy. Import and composition validate the base vtable, interface ID and
+version, unit/weight domains, state IDs, labels, weights, page totals, and
+provider statuses before publishing native state. Never construct `resource`
+from manually copied raw words unless the corresponding retain has succeeded.
+The complete boundary analysis is the
+[ABI trust model](../../docs/security/abi-trust-model.md).
+
+## Maintainer workflow
+
+1. Update [`bindings/api.json`](../api.json) and the C ABI reference first.
+2. Preserve move-only ownership and total status-to-exception mapping.
+3. Extend the package smoke test, including failure and teardown paths.
+4. Run both binding gates and test the staged shared and static packages.
+5. Update this guide whenever loading, ownership, concurrency, or compatibility changes.

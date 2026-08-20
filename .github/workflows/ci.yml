@@ -91,6 +91,21 @@ jobs:
       - name: Binding-surface drift gate
         run: python3 scripts/check-bindings.py
 
+      - name: Binding-documentation gate
+        run: python3 scripts/check-binding-docs.py
+
+      - name: C guide example
+        shell: bash
+        run: |
+          cargo build --no-default-features --features ffi
+          cc -std=c17 -Wall -Wextra -Werror \
+            -Iinclude -I../liblevenshtein-rust/vinary-tree-interop/include \
+            bindings/c/examples/compose_demo.c \
+            -Ltarget/debug -llling_llang \
+            -Wl,-rpath,"$PWD/target/debug" \
+            -o target/lling-c-compose
+          target/lling-c-compose
+
       # Use --no-deps for the same reason as the main Rust job: warnings in
       # sibling path dependencies must not gate this crate's CI.
       - name: Clippy (ffi + test-utils, all test targets)
