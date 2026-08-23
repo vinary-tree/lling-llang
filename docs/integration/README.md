@@ -166,9 +166,9 @@ Family canon (normative, hosted with the interop crate):
 
 | Document | What it defines |
 |---|---|
-| [ABI reference](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-reference.md) | The annotated base protocol: `VtStatus`, `VtResource`, retain/release, `query_interface`, both interface vtables, the refcount and paging laws, the seven weight domains. |
-| [ABI evolution](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-evolution.md) | The four version counters, additive-vs-breaking rules, worked evolution examples, the compatibility matrix. |
-| [Security model](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/security-model.md) | The family trust zones, the panic/exception containment law, parallelism-by-claim, exhaustion vectors, non-goals. |
+| [ABI reference](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md) | The annotated base protocol: `VtStatus`, `VtResource`, retain/release, `query_interface`, both interface vtables, the refcount and paging laws, the seven weight domains. |
+| [ABI evolution](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-evolution.md) | The four version counters, additive-vs-breaking rules, worked evolution examples, the compatibility matrix. |
+| [Security model](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/security-model.md) | The family trust zones, the panic/exception containment law, parallelism-by-claim, exhaustion vectors, non-goals. |
 
 Data-flow neighbors:
 

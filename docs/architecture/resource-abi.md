@@ -13,7 +13,7 @@ concurrency design (no resource-wide gate).
 The C-callable surface over this layer is documented in the
 [C ABI reference](../api/c-abi-reference.md); the family-neutral base
 protocol is normative in the
-[interop ABI reference](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-reference.md);
+[interop ABI reference](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md);
 the adversarial analysis lives in the
 [ABI trust model](../security/abi-trust-model.md).
 

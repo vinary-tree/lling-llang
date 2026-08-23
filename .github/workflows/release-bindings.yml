@@ -19,8 +19,9 @@ jobs:
         run: |
           parent=$(dirname "$GITHUB_WORKSPACE")
           git clone --depth 1 --branch v0.1.0 https://github.com/vinary-tree/llattice.git "$parent/llattice"
-          git clone --depth 1 --branch v0.2.1 https://github.com/vinary-tree/libdictenstein.git "$parent/libdictenstein"
-          git clone --depth 1 --branch v0.10.0 https://github.com/vinary-tree/liblevenshtein-rust.git "$parent/liblevenshtein-rust"
+          git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/libdictenstein.git "$parent/libdictenstein"
+          git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/liblevenshtein-rust.git "$parent/liblevenshtein-rust"
+          git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
       - uses: dtolnay/rust-toolchain@1.95
       - run: cargo test --no-default-features --features ffi
       # The full ABI contract battery also needs the test-utils strategies
@@ -51,7 +52,8 @@ jobs:
         shell: bash
         run: |
           parent=$(dirname "$GITHUB_WORKSPACE")
-          git clone --depth 1 --branch v0.10.0 https://github.com/vinary-tree/liblevenshtein-rust.git "$parent/liblevenshtein-rust"
+          git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/liblevenshtein-rust.git "$parent/liblevenshtein-rust"
+          git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
       - uses: dtolnay/rust-toolchain@1.95
       - run: cargo build --release --no-default-features --features ffi
       - run: scripts/stage-native-package.sh "${{ matrix.target }}" target/release dist
@@ -61,8 +63,10 @@ jobs:
         run: |
           version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)
           prefix="$PWD/dist/lling-llang-${version}-${{ matrix.target }}"
+          ../vinary-tree-interop/scripts/stage-native-package.sh dist/interop
+          interop_prefix="$PWD/dist/interop/vinary-tree-interop-4.0.0-rc.1"
           cmake -S bindings/cpp/tests/package -B target/cmake-shared \
-            -DCMAKE_PREFIX_PATH="$prefix"
+            -DCMAKE_PREFIX_PATH="$interop_prefix;$prefix"
           cmake --build target/cmake-shared --config Release
           case "$RUNNER_OS" in
             Linux) LD_LIBRARY_PATH="$prefix/lib" target/cmake-shared/lling_llang_package_smoke ;;
@@ -70,7 +74,7 @@ jobs:
             Windows) PATH="$prefix/bin:$PATH" target/cmake-shared/Release/lling_llang_package_smoke.exe ;;
           esac
           cmake -S bindings/cpp/tests/package -B target/cmake-static \
-            -DCMAKE_PREFIX_PATH="$prefix" -DLLING_LLANG_LINKAGE=STATIC
+            -DCMAKE_PREFIX_PATH="$interop_prefix;$prefix" -DLLING_LLANG_LINKAGE=STATIC
           cmake --build target/cmake-static --config Release
           if [[ "$RUNNER_OS" == Windows ]]; then
             target/cmake-static/Release/lling_llang_package_smoke.exe
@@ -118,7 +122,7 @@ jobs:
           package-manager-cache: false
       - uses: actions/download-artifact@v7
         with: { name: npm-package, path: dist }
-      - run: npm publish --access public --provenance dist/*.tgz
+      - run: npm publish --access public --provenance --tag next dist/*.tgz
 
   crates-io:
     needs: contract
@@ -133,8 +137,9 @@ jobs:
         run: |
           parent=$(dirname "$GITHUB_WORKSPACE")
           git clone --depth 1 --branch v0.1.0 https://github.com/vinary-tree/llattice.git "$parent/llattice"
-          git clone --depth 1 --branch v0.2.1 https://github.com/vinary-tree/libdictenstein.git "$parent/libdictenstein"
-          git clone --depth 1 --branch v0.10.0 https://github.com/vinary-tree/liblevenshtein-rust.git "$parent/liblevenshtein-rust"
+          git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/libdictenstein.git "$parent/libdictenstein"
+          git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/liblevenshtein-rust.git "$parent/liblevenshtein-rust"
+          git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
       - uses: dtolnay/rust-toolchain@1.95
       - run: sudo apt-get update && sudo apt-get install -y libz3-dev clang
       - run: cargo publish

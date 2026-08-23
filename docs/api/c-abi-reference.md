@@ -16,9 +16,9 @@ implemented by `src/ffi.rs` over the resource layer documented in
 family-neutral base contract (two-word resources, retain/release,
 `query_interface`, the scalar-WFST vtable, and the paging law) is normative in
 the family canon:
-[ABI reference](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-reference.md) ·
-[ABI evolution](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-evolution.md) ·
-[Security model](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/security-model.md).
+[ABI reference](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md) ·
+[ABI evolution](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-evolution.md) ·
+[Security model](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/security-model.md).
 
 ---
 
@@ -86,7 +86,7 @@ LLING_API uint32_t lling_api_revision(void);
 ```
 
 Two counters, two different promises, following the family's
-[four-counter evolution model](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-evolution.md):
+[four-counter evolution model](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-evolution.md):
 
 - **`lling_abi_version()`** — the breaking counter. A binary whose ABI version
   differs from the `LLING_ABI_VERSION` you compiled against is incompatible;
@@ -459,7 +459,7 @@ LLING_API void lling_resource_release(VtResource resource);
 | Semantics | Releases one owned retain of **any** family resource — whether produced by lling-llang or by a sibling library — by invoking the resource's own `release` through its vtable. A resource with a null word (or a null `release` slot) is ignored. |
 | Preconditions | The value must represent one owned retain not yet released. |
 | Returns | *(void — infallible)* |
-| Ownership | Consumes one retain. Releasing more times than retained is undefined behavior (a refcount underflow in the provider), per the family [refcount laws](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-reference.md#53-the-refcount-laws). |
+| Ownership | Consumes one retain. Releasing more times than retained is undefined behavior (a refcount underflow in the provider), per the family [refcount laws](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md#53-the-refcount-laws). |
 | Thread safety | Any thread. |
 | Complexity | $`O(1)`$ (atomic decrement; the last release tears down the resource). |
 
@@ -473,7 +473,7 @@ lling-llang can **produce** resources in all seven domains (via the Rust
 and `lling_wfst_compose` — accept **`TROPICAL_F64` only** and answer
 `INCOMPATIBLE_RESOURCE` for the other six. The definitions below match the
 normative family table in the
-[interop ABI reference](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-reference.md#71-vtweightdomain--seven-semirings-in-one-double)
+[interop ABI reference](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md#71-vtweightdomain--seven-semirings-in-one-double)
 and lling-llang's own semiring documentation.
 
 | Value | Domain | Carrier $`K`$ | $`\oplus`$ | $`\otimes`$ | $`\bar{0}`$ | $`\bar{1}`$ | Valid raw `f64` |
@@ -499,7 +499,7 @@ $`+\infty`$ final weight in composition and yield NaN downstream; this was
 the confirmed finding LLING-B2/F1, fixed at every ingestion site and
 regression-pinned. The exact-laws caveat for `f64` (rounding breaks
 associativity where arithmetic occurs) is stated bindingly in the
-[family canon](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-reference.md#71-vtweightdomain--seven-semirings-in-one-double).
+[family canon](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md#71-vtweightdomain--seven-semirings-in-one-double).
 
 ## Complete example
 
@@ -507,7 +507,7 @@ The program below exercises the whole surface: the version handshake, the
 builder lifecycle, lazy composition, resource export, interface discovery,
 the paged arc walk, import, error handling, and order-independent teardown.
 It compiles clean under
-`cc -std=c17 -Wall -Wextra -Werror -fsyntax-only -I include -I ../liblevenshtein-rust/vinary-tree-interop/include`
+`cc -std=c17 -Wall -Wextra -Werror -fsyntax-only -I include -I ../vinary-tree-interop/include`
 from the repository root (sibling-checkout layout; with installed packages use
 `pkg-config --cflags lling-llang` instead).
 
@@ -517,7 +517,7 @@ from the repository root (sibling-checkout layout; with installed packages use
  *
  * Validate without linking:
  *   cc -std=c17 -Wall -Wextra -Werror -fsyntax-only \
- *      -I include -I ../liblevenshtein-rust/vinary-tree-interop/include \
+ *      -I include -I ../vinary-tree-interop/include \
  *      compose_demo.c
  * Link a real binary with: -llling_llang
  */
@@ -676,9 +676,9 @@ the weights combine as $`w_1 \otimes w_2 = 0.5 + 0.25`$.
 - [Composition](../algorithms/composition.md) — the native lazy-composition
   algorithms these resources mirror.
 - Family canon:
-  [ABI reference](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-reference.md) ·
-  [ABI evolution](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-evolution.md) ·
-  [Security model](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/security-model.md).
+  [ABI reference](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md) ·
+  [ABI evolution](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-evolution.md) ·
+  [Security model](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/security-model.md).
 
 ## References
 

@@ -6,7 +6,7 @@ scalar-WFST providers (`lling_wfst_import`, `lling_wfst_compose`) and it
 *produces* resources for foreign consumers (`lling_wfst_resource`). Each
 role has its own boundary discipline. This document is the lling-llang
 instantiation of the family-wide trust model, which is normative here:
-[family security model](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/security-model.md)
+[family security model](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/security-model.md)
 (assets, trust zones, the containment law, the parallelism-by-claim
 analysis, exhaustion vectors, and stated non-goals).
 
@@ -139,7 +139,7 @@ LLING-B2, family pre-registered finding F1):
 
 The family law — **no unwinding crosses `extern "C"`, in either
 direction** — is implemented here exactly as the
-[canon records](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/security-model.md#3-the-panic-and-exception-containment-law):
+[canon records](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/security-model.md#3-the-panic-and-exception-containment-law):
 
 - **Every `lling_*` entry point** runs its body inside `boundary()`
   (`src/ffi.rs`): `catch_unwind(AssertUnwindSafe(..))` converts any Rust
@@ -195,7 +195,7 @@ Inherited from the family model and restated so nobody relies on more:
 
 ## References
 
-- [Family security model](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/security-model.md)
+- [Family security model](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/security-model.md)
   — the normative trust zones, containment law, claim analysis, exhaustion
   vectors, and non-goals this document instantiates.
 - [Bindings findings ledger](../scientific-ledger/bindings-findings-ledger.md)

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "component": "lling-llang",
+  "canonical": "4.0.0-rc.1",
+  "registries": {
+    "cargo": "4.0.0-rc.1",
+    "cmake": "4.0.0-rc.1",
+    "npm": "4.0.0-rc.1",
+    "pkgConfig": "4.0.0-rc.1"
+  },
+  "dependencies": {
+    "libdictenstein": "4.0.0-rc.1",
+    "llattice": "0.1.0",
+    "liblevenshtein": "4.0.0-rc.1",
+    "vinary-tree-interop": "4.0.0-rc.1",
+    "@vinary-tree/interop": "4.0.0-rc.1",
+    "@vinary-tree/vinary-tree": "4.0.0-rc.1"
+  },
+  "publication": { "distTag": "next" }
+}

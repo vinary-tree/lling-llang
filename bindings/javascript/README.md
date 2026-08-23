@@ -31,8 +31,8 @@ Requirements and pins (enforced by `scripts/check-bindings.py`):
 |---|---|
 | Node.js | `>= 22.14` |
 | `@vinary-tree/interop` | exact `0.1.0` (guards + shared types) |
-| `@vinary-tree/vinary-tree` | exact `0.10.0` (the umbrella runtime that hosts the native code) |
-| Package version | `0.2.0` — always equal to the Rust crate version |
+| `@vinary-tree/vinary-tree` | exact `4.0.0-rc.1` (the umbrella runtime that hosts the native code) |
+| Package version | `4.0.0-rc.1` — always equal to the Rust crate version |
 
 Pick your entry point per environment:
 
@@ -182,7 +182,7 @@ their own runtime instance — handles must not be passed between instances
 
 ## Version compatibility
 
-- Package `0.2.0` = crate `0.2.0`; native ABI v1, API revision 1 — the same
+- Package `4.0.0-rc.1` = crate `4.0.0-rc.1`; native ABI v1, API revision 1 — the same
   contract the [C ABI reference](https://github.com/vinary-tree/lling-llang/blob/master/docs/api/c-abi-reference.md)
   documents (the API revision only grows within an ABI version).
 - `@vinary-tree/*` dependencies are exact pins; the drift gate

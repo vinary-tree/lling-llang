@@ -49,7 +49,7 @@ c++ -std=c++20 $(pkg-config --cflags lling-llang) demo.cpp \
 ```sh
 cargo build --release --features ffi     # produces cdylib + staticlib
 c++ -std=c++20 -I include \
-    -I ../liblevenshtein-rust/vinary-tree-interop/include \
+    -I ../vinary-tree-interop/include \
     demo.cpp -L target/release -llling_llang
 ```
 

@@ -1,8 +1,11 @@
 {
   "name": "@vinary-tree/lling-llang",
-  "version": "0.2.0",
+  "version": "4.0.0-rc.1",
   "description": "Modular JavaScript, TypeScript, and ClojureScript bindings for lling-llang",
-  "author": { "name": "Dylon Edwards", "email": "dylon.devo@gmail.com" },
+  "author": {
+    "name": "Dylon Edwards",
+    "email": "dylon.devo@gmail.com"
+  },
   "type": "module",
   "sideEffects": false,
   "license": "Apache-2.0",
@@ -11,22 +14,59 @@
     "url": "git+https://github.com/vinary-tree/lling-llang.git",
     "directory": "bindings/javascript"
   },
-  "engines": { "node": ">=22.14" },
+  "engines": {
+    "node": ">=22.14"
+  },
   "dependencies": {
-    "@vinary-tree/interop": "0.1.0",
-    "@vinary-tree/vinary-tree": "0.10.0"
+    "@vinary-tree/interop": "4.0.0-rc.1",
+    "@vinary-tree/vinary-tree": "4.0.0-rc.1"
   },
   "types": "./index.d.ts",
   "exports": {
-    ".": { "types": "./index.d.ts", "import": "./facades/native.mjs", "require": "./facades/native.cjs" },
-    "./typescript": { "types": "./index.d.ts", "import": "./facades/typescript.mjs", "require": "./facades/typescript.cjs" },
-    "./clojurescript": { "types": "./index.d.ts", "import": "./facades/clojurescript.mjs", "require": "./facades/clojurescript.cjs" },
-    "./wasm": { "types": "./index.d.ts", "import": "./facades/wasm.mjs" },
-    "./wasi": { "types": "./index.d.ts", "import": "./facades/wasi.mjs" },
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./facades/native.mjs",
+      "require": "./facades/native.cjs"
+    },
+    "./typescript": {
+      "types": "./index.d.ts",
+      "import": "./facades/typescript.mjs",
+      "require": "./facades/typescript.cjs"
+    },
+    "./clojurescript": {
+      "types": "./index.d.ts",
+      "import": "./facades/clojurescript.mjs",
+      "require": "./facades/clojurescript.cjs"
+    },
+    "./wasm": {
+      "types": "./index.d.ts",
+      "import": "./facades/wasm.mjs"
+    },
+    "./wasi": {
+      "types": "./index.d.ts",
+      "import": "./facades/wasi.mjs"
+    },
     "./cljs/vinary_tree/lling_llang.cljs": "./cljs/vinary_tree/lling_llang.cljs"
   },
-  "cljs": { "namespaces": { "vinary-tree.lling-llang": "./cljs/vinary_tree/lling_llang.cljs" } },
-  "files": ["index.d.ts", "facades/", "cljs/", "deps.cljs", "README.md"],
-  "publishConfig": { "access": "public", "provenance": true },
-  "scripts": { "test": "node --test test/facades.test.mjs", "prepack": "npm test" }
+  "cljs": {
+    "namespaces": {
+      "vinary-tree.lling-llang": "./cljs/vinary_tree/lling_llang.cljs"
+    }
+  },
+  "files": [
+    "index.d.ts",
+    "facades/",
+    "cljs/",
+    "deps.cljs",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "tag": "next"
+  },
+  "scripts": {
+    "test": "node --test test/facades.test.mjs",
+    "prepack": "npm test"
+  }
 }

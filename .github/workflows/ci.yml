@@ -99,7 +99,7 @@ jobs:
         run: |
           cargo build --no-default-features --features ffi
           cc -std=c17 -Wall -Wextra -Werror \
-            -Iinclude -I../liblevenshtein-rust/vinary-tree-interop/include \
+            -Iinclude -I../vinary-tree-interop/include \
             bindings/c/examples/compose_demo.c \
             -Ltarget/debug -llling_llang \
             -Wl,-rpath,"$PWD/target/debug" \
