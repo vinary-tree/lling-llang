@@ -80,11 +80,8 @@ fn bench_compose_construction(criterion: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(len), &len, |b, _| {
             b.iter(|| {
                 let mut composed = ptr::null_mut();
-                let status = lling_wfst_compose(
-                    black_box(left_res),
-                    black_box(right_res),
-                    &mut composed,
-                );
+                let status =
+                    lling_wfst_compose(black_box(left_res), black_box(right_res), &mut composed);
                 assert_eq!(status, LlingStatus::Ok);
                 unsafe { lling_wfst_free(composed) };
             });
