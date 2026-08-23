@@ -183,6 +183,12 @@ Correction-layer implementations:
 |----------|-------------|
 | [ABI Trust Model](security/abi-trust-model.md) | Foreign scalar-WFST providers as untrusted input: validation duties, the F1 case study, panic containment, threading trust, residual assumptions |
 
+### Release engineering
+
+| Document | Description |
+|----------|-------------|
+| [Release operations](releasing.md) | Immutable release-branch tagging, exact dependency graph, validate-only evidence, single-registry dispatch, npm promotion, and failure recovery |
+
 ### API reference
 
 | Document | Description |
