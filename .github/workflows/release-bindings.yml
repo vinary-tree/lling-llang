@@ -88,8 +88,13 @@ jobs:
           parent=$(dirname "$GITHUB_WORKSPACE")
           (cd "$parent/vinary-tree-interop" && scripts/stage-native-package.sh "$GITHUB_WORKSPACE/dist/interop")
           interop_prefix="$GITHUB_WORKSPACE/dist/interop/vinary-tree-interop-4.0.0-rc.1"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            cmake_prefix="$(cygpath -m "$interop_prefix");$(cygpath -m "$prefix")"
+          else
+            cmake_prefix="$interop_prefix;$prefix"
+          fi
           cmake -S bindings/cpp/tests/package -B target/cmake-shared \
-            -DCMAKE_PREFIX_PATH="$interop_prefix;$prefix"
+            -DCMAKE_PREFIX_PATH="$cmake_prefix"
           cmake --build target/cmake-shared --config Release
           case "$RUNNER_OS" in
             Linux) LD_LIBRARY_PATH="$prefix/lib" target/cmake-shared/lling_llang_package_smoke ;;
@@ -97,7 +102,7 @@ jobs:
             Windows) PATH="$prefix/bin:$PATH" target/cmake-shared/Release/lling_llang_package_smoke.exe ;;
           esac
           cmake -S bindings/cpp/tests/package -B target/cmake-static \
-            -DCMAKE_PREFIX_PATH="$interop_prefix;$prefix" -DLLING_LLANG_LINKAGE=STATIC
+            -DCMAKE_PREFIX_PATH="$cmake_prefix" -DLLING_LLANG_LINKAGE=STATIC
           cmake --build target/cmake-static --config Release
           if [[ "$RUNNER_OS" == Windows ]]; then
             target/cmake-static/Release/lling_llang_package_smoke.exe
