@@ -68,10 +68,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with: { persist-credentials: false }
-      - name: Checkout exact ABI dependency
+      - name: Checkout exact release dependencies
         shell: bash
         run: |
           parent=$(dirname "$GITHUB_WORKSPACE")
+          git clone --depth 1 --branch v0.1.0 https://github.com/vinary-tree/llattice.git "$parent/llattice"
+          git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/libdictenstein.git "$parent/libdictenstein"
           git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/liblevenshtein-rust.git "$parent/liblevenshtein-rust"
           git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
       - uses: dtolnay/rust-toolchain@1.95
@@ -83,8 +85,9 @@ jobs:
         run: |
           version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)
           prefix="$PWD/dist/lling-llang-${version}-${{ matrix.target }}"
-          ../vinary-tree-interop/scripts/stage-native-package.sh dist/interop
-          interop_prefix="$PWD/dist/interop/vinary-tree-interop-4.0.0-rc.1"
+          parent=$(dirname "$GITHUB_WORKSPACE")
+          (cd "$parent/vinary-tree-interop" && scripts/stage-native-package.sh "$GITHUB_WORKSPACE/dist/interop")
+          interop_prefix="$GITHUB_WORKSPACE/dist/interop/vinary-tree-interop-4.0.0-rc.1"
           cmake -S bindings/cpp/tests/package -B target/cmake-shared \
             -DCMAKE_PREFIX_PATH="$interop_prefix;$prefix"
           cmake --build target/cmake-shared --config Release
