@@ -11,6 +11,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = ROOT / "release/version.json"
+GENERATED_TREE_PARTS = frozenset(
+    {".git", ".venv", "_build", "build", "dist", "node_modules", "target", "venv"}
+)
 
 
 def replace(path: str, pattern: str, replacement: str, expected: int = 1) -> None:
@@ -19,6 +22,27 @@ def replace(path: str, pattern: str, replacement: str, expected: int = 1) -> Non
     if count != expected:
         raise ValueError(f"{path}: expected {expected} matches for {pattern!r}, found {count}")
     target.write_text(updated, encoding="utf-8")
+
+
+def rewrite_candidate_tokens(patterns: tuple[str, ...], canonical: str) -> None:
+    base, candidate = canonical.split("-rc.", 1)
+    escaped = re.escape(base)
+    replacements = (
+        (rf"{escaped}\.rc\.\d+", f"{base}.rc.{candidate}"),
+        (rf"{escaped}~rc\d+", f"{base}~rc{candidate}"),
+        (rf"{escaped}rc\d+-\d+", f"{base}rc{candidate}-1"),
+        (rf"{escaped}rc\d+", f"{base}rc{candidate}"),
+        (rf"{escaped}-rc\.\d+", canonical),
+    )
+    for pattern in patterns:
+        for target in ROOT.glob(pattern):
+            relative = target.relative_to(ROOT)
+            if not target.is_file() or GENERATED_TREE_PARTS.intersection(relative.parts):
+                continue
+            source = target.read_text(encoding="utf-8")
+            for version_pattern, replacement in replacements:
+                source = re.sub(version_pattern, replacement, source)
+            target.write_text(source, encoding="utf-8")
 
 
 def update_json(path: str, mutate) -> None:
@@ -90,6 +114,10 @@ def write_versions(model: dict[str, object]) -> None:
     replace(f"cmake/{cmake_name}ConfigVersion.cmake", r'^set\(PACKAGE_VERSION "[^"]+"\)$', f'set(PACKAGE_VERSION "{canonical}")')
     replace(f"pkgconfig/{component}.pc", r'^Version: \S+$', f'Version: {canonical}')
     replace(f"pkgconfig/{component}.pc", r'^Requires: vinary-tree-interop (?:>=|=) \S+$', f'Requires: vinary-tree-interop = {deps["vinary-tree-interop"]}')
+    rewrite_candidate_tokens(
+        (".github/workflows/*.yml", "README.md", "bindings/**/*.md", "docs/**/*.md"),
+        canonical,
+    )
 
 
 def validate(model: dict[str, object]) -> list[str]:

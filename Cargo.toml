@@ -1,6 +1,6 @@
 [package]
 name = "lling-llang"
-version = "4.0.0-rc.1"
+version = "4.0.0-rc.2"
 edition = "2021"
 # `div_ceil` (integer) is used across gpu/load_balance, llm token-masking, and the
 # quantized semiring; it stabilized in Rust 1.73, so 1.73 is the true MSRV.
@@ -15,10 +15,10 @@ keywords = ["wfst", "lattice", "cfg", "text-normalization", "grammar-correction"
 categories = ["text-processing", "algorithms"]
 
 [dependencies]
-vinary-tree-interop = { path = "../vinary-tree-interop", version = "=4.0.0-rc.1", optional = true }
+vinary-tree-interop = { path = "../vinary-tree-interop", version = "=4.0.0-rc.2", optional = true }
 # Core dependencies (optional - for liblevenshtein integration)
-liblevenshtein = { path = "../liblevenshtein-rust", version = "=4.0.0-rc.1", optional = true }
-libdictenstein = { path = "../libdictenstein", version = "=4.0.0-rc.1", optional = true }
+liblevenshtein = { path = "../liblevenshtein-rust", version = "=4.0.0-rc.2", optional = true }
+libdictenstein = { path = "../libdictenstein", version = "=4.0.0-rc.2", optional = true }
 # Shared lattice trait (join/meet) leaf crate — for the semiring↔lattice bridge
 llattice = { path = "../llattice", version = "=0.1.0", optional = true }
 

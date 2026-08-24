@@ -102,7 +102,7 @@
       }
     }
   },
-  "packageVersion": "4.0.0-rc.1",
+  "packageVersion": "4.0.0-rc.2",
   "abiVersion": 1,
   "apiRevision": 1,
   "cPrefix": "lling_",
@@ -263,10 +263,10 @@
   ],
   "javascript": {
     "package": "@vinary-tree/lling-llang",
-    "version": "4.0.0-rc.1",
+    "version": "4.0.0-rc.2",
     "dependencies": {
-      "@vinary-tree/interop": "4.0.0-rc.1",
-      "@vinary-tree/vinary-tree": "4.0.0-rc.1"
+      "@vinary-tree/interop": "4.0.0-rc.2",
+      "@vinary-tree/vinary-tree": "4.0.0-rc.2"
     },
     "exports": [
       ".",
@@ -306,12 +306,12 @@
     ]
   },
   "release": {
-    "canonical": "4.0.0-rc.1",
+    "canonical": "4.0.0-rc.2",
     "registries": {
-      "cargo": "4.0.0-rc.1",
-      "cmake": "4.0.0-rc.1",
-      "npm": "4.0.0-rc.1",
-      "pkgConfig": "4.0.0-rc.1"
+      "cargo": "4.0.0-rc.2",
+      "cmake": "4.0.0-rc.2",
+      "npm": "4.0.0-rc.2",
+      "pkgConfig": "4.0.0-rc.2"
     },
     "distTag": "next"
   }

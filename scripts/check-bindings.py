@@ -57,6 +57,12 @@ JS_ROOT = ROOT / "bindings" / "javascript"
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "release-bindings.yml"
 
 SKIP_DIR_PARTS = {".git", "build", "node_modules", "obj", "target"}
+SEMVER_IDENTIFIER = r"(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
+EXACT_SEMVER = re.compile(
+    rf"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
+    rf"(?:-{SEMVER_IDENTIFIER}(?:\.{SEMVER_IDENTIFIER})*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?\Z"
+)
 
 
 class MissingFile(Exception):
@@ -367,9 +373,7 @@ def main() -> int:
                 f"api.json={modeled_dependencies}"
             )
         for dependency, version in dependencies.items():
-            if dependency.startswith("@vinary-tree/") and not re.fullmatch(
-                r"\d+\.\d+\.\d+", version
-            ):
+            if dependency.startswith("@vinary-tree/") and not EXACT_SEMVER.fullmatch(version):
                 failures.append(
                     f"@vinary-tree dependency {dependency} must be an exact pin, found {version!r}"
                 )

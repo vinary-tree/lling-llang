@@ -29,9 +29,9 @@ jobs:
         run: |
           parent=$(dirname "$GITHUB_WORKSPACE")
           git clone --depth 1 --branch v0.1.0 https://github.com/vinary-tree/llattice.git "$parent/llattice"
-          git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/libdictenstein.git "$parent/libdictenstein"
-          git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/liblevenshtein-rust.git "$parent/liblevenshtein-rust"
-          git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
+          git clone --depth 1 --branch v4.0.0-rc.2 https://github.com/vinary-tree/libdictenstein.git "$parent/libdictenstein"
+          git clone --depth 1 --branch v4.0.0-rc.2 https://github.com/vinary-tree/liblevenshtein-rust.git "$parent/liblevenshtein-rust"
+          git clone --depth 1 --branch v4.0.0-rc.2 https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
       - uses: dtolnay/rust-toolchain@1.95
         with: { components: clippy }
       - name: Verify immutable tag matches the package version
@@ -73,9 +73,9 @@ jobs:
         run: |
           parent=$(dirname "$GITHUB_WORKSPACE")
           git clone --depth 1 --branch v0.1.0 https://github.com/vinary-tree/llattice.git "$parent/llattice"
-          git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/libdictenstein.git "$parent/libdictenstein"
-          git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/liblevenshtein-rust.git "$parent/liblevenshtein-rust"
-          git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
+          git clone --depth 1 --branch v4.0.0-rc.2 https://github.com/vinary-tree/libdictenstein.git "$parent/libdictenstein"
+          git clone --depth 1 --branch v4.0.0-rc.2 https://github.com/vinary-tree/liblevenshtein-rust.git "$parent/liblevenshtein-rust"
+          git clone --depth 1 --branch v4.0.0-rc.2 https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
       - uses: dtolnay/rust-toolchain@1.95
       - run: cargo build --release --no-default-features --features ffi
       - run: scripts/stage-native-package.sh "${{ matrix.target }}" target/release dist
@@ -87,7 +87,7 @@ jobs:
           prefix="$PWD/dist/lling-llang-${version}-${{ matrix.target }}"
           parent=$(dirname "$GITHUB_WORKSPACE")
           (cd "$parent/vinary-tree-interop" && scripts/stage-native-package.sh "$GITHUB_WORKSPACE/dist/interop")
-          interop_prefix="$GITHUB_WORKSPACE/dist/interop/vinary-tree-interop-4.0.0-rc.1"
+          interop_prefix="$GITHUB_WORKSPACE/dist/interop/vinary-tree-interop-4.0.0-rc.2"
           if [[ "$RUNNER_OS" == Windows ]]; then
             cmake_prefix="$(cygpath -m "$interop_prefix");$(cygpath -m "$prefix")"
           else
@@ -169,9 +169,9 @@ jobs:
         run: |
           parent=$(dirname "$GITHUB_WORKSPACE")
           git clone --depth 1 --branch v0.1.0 https://github.com/vinary-tree/llattice.git "$parent/llattice"
-          git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/libdictenstein.git "$parent/libdictenstein"
-          git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/liblevenshtein-rust.git "$parent/liblevenshtein-rust"
-          git clone --depth 1 --branch v4.0.0-rc.1 https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
+          git clone --depth 1 --branch v4.0.0-rc.2 https://github.com/vinary-tree/libdictenstein.git "$parent/libdictenstein"
+          git clone --depth 1 --branch v4.0.0-rc.2 https://github.com/vinary-tree/liblevenshtein-rust.git "$parent/liblevenshtein-rust"
+          git clone --depth 1 --branch v4.0.0-rc.2 https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
       - uses: dtolnay/rust-toolchain@1.95
       - run: sudo apt-get update && sudo apt-get install -y libz3-dev clang
       - run: cargo publish --locked
