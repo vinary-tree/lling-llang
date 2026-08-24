@@ -154,7 +154,7 @@ jobs:
           package-manager-cache: false
       - uses: actions/download-artifact@v7
         with: { name: npm-package, path: dist }
-      - run: npm publish --access public --provenance --tag next dist/*.tgz
+      - run: npm publish --access public --provenance --tag next ./dist/*.tgz
 
   crates-io:
     needs: contract
