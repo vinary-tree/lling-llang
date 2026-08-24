@@ -597,7 +597,6 @@ dependencies = [
  "parking_lot",
  "pathmap",
  "rustc-hash 2.1.3",
- "rustix",
  "serde",
  "smallvec",
  "sysinfo",
