@@ -7,7 +7,7 @@ const packageJson = JSON.parse(await readFile(new URL("package.json", root)));
 
 test("all lling-llang facades select the shared umbrella runtime", () => {
   assert.equal(packageJson.name, "@vinary-tree/lling-llang");
-  assert.equal(packageJson.dependencies["@vinary-tree/vinary-tree"], "4.0.0-rc.2");
+  assert.equal(packageJson.dependencies["@vinary-tree/vinary-tree"], "4.0.0-rc.3");
   for (const entry of [".", "./typescript", "./clojurescript", "./wasm", "./wasi"]) {
     assert.ok(packageJson.exports[entry]);
   }
@@ -18,8 +18,8 @@ test("all lling-llang facades select the shared umbrella runtime", () => {
 // package gets exactly the umbrella runtime and interop the facade was cut for.
 test("C1 — the facade pins a coherent version and dependency set", () => {
   assert.match(packageJson.version, /^\d+\.\d+\.\d+-rc\.\d+$/);
-  assert.equal(packageJson.dependencies["@vinary-tree/interop"], "4.0.0-rc.2");
-  assert.equal(packageJson.dependencies["@vinary-tree/vinary-tree"], "4.0.0-rc.2");
+  assert.equal(packageJson.dependencies["@vinary-tree/interop"], "4.0.0-rc.3");
+  assert.equal(packageJson.dependencies["@vinary-tree/vinary-tree"], "4.0.0-rc.3");
 });
 
 // Every path referenced by the exports map must resolve to a real file — no

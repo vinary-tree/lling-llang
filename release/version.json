@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
   "component": "lling-llang",
-  "canonical": "4.0.0-rc.2",
+  "canonical": "4.0.0-rc.3",
   "registries": {
-    "cargo": "4.0.0-rc.2",
-    "cmake": "4.0.0-rc.2",
-    "npm": "4.0.0-rc.2",
-    "pkgConfig": "4.0.0-rc.2"
+    "cargo": "4.0.0-rc.3",
+    "cmake": "4.0.0-rc.3",
+    "npm": "4.0.0-rc.3",
+    "pkgConfig": "4.0.0-rc.3"
   },
   "dependencies": {
-    "libdictenstein": "4.0.0-rc.2",
+    "libdictenstein": "4.0.0-rc.3",
     "llattice": "0.1.0",
-    "liblevenshtein": "4.0.0-rc.2",
-    "vinary-tree-interop": "4.0.0-rc.2",
-    "@vinary-tree/interop": "4.0.0-rc.2",
-    "@vinary-tree/vinary-tree": "4.0.0-rc.2"
+    "liblevenshtein": "4.0.0-rc.3",
+    "vinary-tree-interop": "4.0.0-rc.3",
+    "@vinary-tree/interop": "4.0.0-rc.3",
+    "@vinary-tree/vinary-tree": "4.0.0-rc.3"
   },
   "publication": { "distTag": "next" }
 }
