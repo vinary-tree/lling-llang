@@ -37,21 +37,24 @@ if(NOT TARGET lling-llang::static)
   if(WIN32)
     set_target_properties(lling-llang::static PROPERTIES
       IMPORTED_LOCATION "${_LLING_LLANG_PREFIX}/lib/lling_llang.lib"
-      INTERFACE_LINK_LIBRARIES "bcrypt;userenv;ws2_32;ntdll;synchronization;advapi32;Threads::Threads"
     )
+    set_property(TARGET lling-llang::static APPEND PROPERTY
+      INTERFACE_LINK_LIBRARIES "bcrypt;userenv;ws2_32;ntdll;synchronization;advapi32;Threads::Threads")
   elseif(APPLE)
     find_library(_LLING_LLANG_ICONV_LIBRARY NAMES iconv REQUIRED)
     find_library(_LLING_LLANG_COREFOUNDATION_FRAMEWORK NAMES CoreFoundation REQUIRED)
     find_library(_LLING_LLANG_SECURITY_FRAMEWORK NAMES Security REQUIRED)
     set_target_properties(lling-llang::static PROPERTIES
       IMPORTED_LOCATION "${_LLING_LLANG_PREFIX}/lib/liblling_llang.a"
-      INTERFACE_LINK_LIBRARIES "${CMAKE_DL_LIBS};Threads::Threads;m;${_LLING_LLANG_ICONV_LIBRARY};${_LLING_LLANG_COREFOUNDATION_FRAMEWORK};${_LLING_LLANG_SECURITY_FRAMEWORK}"
     )
+    set_property(TARGET lling-llang::static APPEND PROPERTY
+      INTERFACE_LINK_LIBRARIES "${CMAKE_DL_LIBS};Threads::Threads;m;${_LLING_LLANG_ICONV_LIBRARY};${_LLING_LLANG_COREFOUNDATION_FRAMEWORK};${_LLING_LLANG_SECURITY_FRAMEWORK}")
   else()
     set_target_properties(lling-llang::static PROPERTIES
       IMPORTED_LOCATION "${_LLING_LLANG_PREFIX}/lib/liblling_llang.a"
-      INTERFACE_LINK_LIBRARIES "${CMAKE_DL_LIBS};Threads::Threads;m"
     )
+    set_property(TARGET lling-llang::static APPEND PROPERTY
+      INTERFACE_LINK_LIBRARIES "${CMAKE_DL_LIBS};Threads::Threads;m")
   endif()
 endif()
 

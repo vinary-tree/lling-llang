@@ -24,17 +24,22 @@ This facade adds zero overhead beyond a status check per call.
 ### CMake package (recommended)
 
 Staged release packages (and `scripts/stage-native-package.sh` builds) ship
-the library, both headers, the bundled `vinary_tree_interop.h`, and CMake
-config files:
+the library, both lling-llang headers, and CMake config files. The stable family
+ABI header is supplied by the separately versioned `vinary-tree-interop`
+package, which lets every installed consumer share exactly one ABI definition:
 
 ```cmake
-find_package(lling-llang 0.2 CONFIG REQUIRED)
+find_package(lling-llang 4.0 CONFIG REQUIRED)
 target_link_libraries(your_target PRIVATE lling-llang::lling-llang)
 target_compile_features(your_target PRIVATE cxx_std_20)
 ```
 
-Point `CMAKE_PREFIX_PATH` at the package root if it is not installed
-system-wide. This is precisely what the CI package smoke test does
+The config performs `find_dependency(vinary-tree-interop 4.0 CONFIG)`.
+Point `CMAKE_PREFIX_PATH` at both package roots when they are not installed
+system-wide. The imported target propagates the interop include directory for
+shared and static linkage; select the latter by setting
+`LLING_LLANG_LINKAGE=STATIC` before `find_package`. This is precisely what
+the CI installed-package smoke test verifies
 ([`tests/package/CMakeLists.txt`](tests/package/CMakeLists.txt)).
 
 ### pkg-config
@@ -173,7 +178,7 @@ implicitly `noexcept`.
 | Symptom | Cause / fix |
 |---|---|
 | `find_package(lling-llang ...)` fails | Add the staged/installed package root to `CMAKE_PREFIX_PATH` (the smoke test uses the `dist/lling-llang-<version>-<target>` prefix). |
-| `vinary_tree_interop.h: No such file or directory` | Add the interop include directory (`-I .../vinary-tree-interop/include`) or define `VT_INTEROP_HEADER` to its location. Packaged installs bundle it. |
+| `vinary_tree_interop.h: No such file or directory` | With CMake, install `vinary-tree-interop` and place its prefix on `CMAKE_PREFIX_PATH`; the imported target propagates its include directory. For a manual compiler invocation, add `-I .../vinary-tree-interop/include` or define `VT_INTEROP_HEADER` to its location. |
 | Undefined references to `lling_*` | Link `-llling_llang` (note the double `l`: lib + lling); with CMake, link the `lling-llang::lling-llang` target. |
 | Shared library not found at run time | Set an rpath to the package's `lib/` directory or use the static library from the staged package. |
 | `error: builder has already been consumed` | The builder was used after `build()`; construct a new one. |
