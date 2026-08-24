@@ -30,7 +30,7 @@ Requirements and pins (enforced by `scripts/check-bindings.py`):
 | Constraint | Value |
 |---|---|
 | Node.js | `>= 22.14` |
-| `@vinary-tree/interop` | exact `0.1.0` (guards + shared types) |
+| `@vinary-tree/interop` | exact `4.0.0-rc.1` (guards + shared types) |
 | `@vinary-tree/vinary-tree` | exact `4.0.0-rc.1` (the umbrella runtime that hosts the native code) |
 | Package version | `4.0.0-rc.1` — always equal to the Rust crate version |
 

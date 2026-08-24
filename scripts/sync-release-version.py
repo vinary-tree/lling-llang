@@ -71,6 +71,11 @@ def write_versions(model: dict[str, object]) -> None:
         value.setdefault("publishConfig", {})["tag"] = model["publication"]["distTag"]
     update_json("bindings/javascript/package.json", npm)
     replace(
+        "bindings/javascript/README.md",
+        r'(\| `@vinary-tree/interop` \| exact `)[^`]+(` \(guards \+ shared types\) \|)',
+        rf'\g<1>{deps["@vinary-tree/interop"]}\2',
+    )
+    replace(
         "bindings/javascript/deps.cljs",
         r'"@vinary-tree/lling-llang" "[^"]+"',
         f'"@vinary-tree/lling-llang" "{canonical}"',
@@ -91,6 +96,8 @@ def validate(model: dict[str, object]) -> list[str]:
     failures: list[str] = []
     canonical = str(model["canonical"])
     component = str(model["component"])
+    deps = model["dependencies"]
+    assert isinstance(deps, dict)
     expected_registries = {"cargo": canonical, "cmake": canonical, "npm": canonical, "pkgConfig": canonical}
     if model.get("registries") != expected_registries:
         failures.append("registry spellings do not equal the canonical component version")
@@ -104,6 +111,10 @@ def validate(model: dict[str, object]) -> list[str]:
     package = json.loads((ROOT / "bindings/javascript/package.json").read_text(encoding="utf-8"))
     if package.get("version") != canonical or package.get("publishConfig", {}).get("tag") != "next":
         failures.append("npm package release identity is stale")
+    readme = (ROOT / "bindings/javascript/README.md").read_text(encoding="utf-8")
+    readme_interop = re.search(r'\| `@vinary-tree/interop` \| exact `([^`]+)`', readme)
+    if not readme_interop or readme_interop.group(1) != deps["@vinary-tree/interop"]:
+        failures.append("JavaScript README interop pin is stale")
     cmake_name = "lling-llang" if component == "lling-llang" else component
     for name, path, pattern in (
         ("CMake", f"cmake/{cmake_name}ConfigVersion.cmake", r'PACKAGE_VERSION "([^"]+)"'),
