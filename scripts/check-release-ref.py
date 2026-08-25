@@ -31,6 +31,13 @@ def validate(ref: str, ref_name: str, registry: str, version: str) -> None:
 
 
 def self_test(version: str) -> None:
+    workflow = (ROOT / ".github/workflows/release-bindings.yml").read_text(
+        encoding="utf-8"
+    )
+    if "environment: github-release" not in workflow:
+        raise AssertionError(
+            "GitHub prerelease publication lacks a protected environment"
+        )
     canonical = f"v{version}"
     for registry in REGISTRIES:
         validate(f"refs/tags/{canonical}", canonical, registry, version)
