@@ -29,17 +29,29 @@ Manual dispatches must target the immutable tag. `validate-only` creates no
 registry mutation; `npm` and `crates-io` each enable only their namesake
 protected job.
 
+The canonical RC.4 source predates crates.io Trusted Publishing and therefore
+cannot consume the package-level GitHub OIDC trust. Append-only corrective
+source `v4.0.0-rc.4-release.1` changes only release authority, authentication,
+and this runbook: it accepts positive numbered corrective tags, grants
+`id-token: write` only to the crates.io job, obtains a short-lived token with
+`rust-lang/crates-io-auth-action@v1`, and revokes that token after the job.
+The package remains `4.0.0-rc.4`; the canonical tag is not moved.
+
 ```bash
 gh workflow run release-bindings.yml \
   --repo vinary-tree/lling-llang \
-  --ref v4.0.0-rc.4 \
+  --ref v4.0.0-rc.4-release.1 \
   -f registry=validate-only
 
 gh workflow run release-bindings.yml \
   --repo vinary-tree/lling-llang \
-  --ref v4.0.0-rc.4 \
+  --ref v4.0.0-rc.4-release.1 \
   -f registry=npm
 ```
+
+Use the same corrective ref with `registry=crates-io`. A corrective ref may
+publish only while the exact coordinate remains absent; a public RC.4 artifact
+must never be rebuilt or overwritten.
 
 Publish crates.io only after its exact Rust dependencies resolve publicly.
 Publish npm only after `@vinary-tree/interop` and the shared

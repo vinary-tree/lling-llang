@@ -16,6 +16,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: lling-llang-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   contract:
     runs-on: ubuntu-24.04
@@ -33,14 +37,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.95
         with: { components: clippy }
       - name: Verify immutable tag matches the package version
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" != refs/tags/* ]]; then
-            echo "::error::Manual releases must be dispatched against an immutable tag." >&2
-            exit 1
-          fi
-          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)
-          test "$GITHUB_REF_NAME" = "v$version"
+        run: >-
+          python3 scripts/check-release-ref.py
+          --ref "$GITHUB_REF"
+          --ref-name "$GITHUB_REF_NAME"
+          --registry "${{ inputs.registry }}"
+      - run: python3 scripts/check-release-ref.py --self-test
       - run: cargo test --no-default-features --features ffi
       # The full ABI contract battery also needs the test-utils strategies
       # (round trip + lazy-composition correspondence proptests).
@@ -159,6 +161,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && github.ref_type == 'tag' && inputs.registry == 'crates-io'
     runs-on: ubuntu-24.04
     environment: crates-io
+    permissions: { contents: read, id-token: write }
     steps:
       - uses: actions/checkout@v6
         with: { persist-credentials: false }
@@ -172,8 +175,11 @@ jobs:
           git clone --depth 1 --branch v4.0.0-rc.4 https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
       - uses: dtolnay/rust-toolchain@1.95
       - run: sudo apt-get update && sudo apt-get install -y libz3-dev clang
+      - name: Authenticate with crates.io
+        id: crates-io-auth
+        uses: rust-lang/crates-io-auth-action@v1
       - run: cargo publish --locked
-        env: { CARGO_REGISTRY_TOKEN: "${{ secrets.CARGO_REGISTRY_TOKEN }}" }
+        env: { CARGO_REGISTRY_TOKEN: "${{ steps.crates-io-auth.outputs.token }}" }
 
   github-release:
     needs: [native, npm-package]
