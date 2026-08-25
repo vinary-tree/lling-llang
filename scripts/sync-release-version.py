@@ -75,6 +75,17 @@ def write_versions(model: dict[str, object]) -> None:
         "Cargo.toml", r'^vinary-tree-interop = \{[^\n]+\}$',
         f'vinary-tree-interop = {{ path = "../vinary-tree-interop", version = "={deps["vinary-tree-interop"]}", optional = true }}',
     )
+    for package, version in {
+        "lling-llang": canonical,
+        "liblevenshtein": deps["liblevenshtein"],
+        "libdictenstein": deps["libdictenstein"],
+        "vinary-tree-interop": deps["vinary-tree-interop"],
+    }.items():
+        replace(
+            "Cargo.lock",
+            rf'(\[\[package\]\]\nname = "{re.escape(package)}"\nversion = ")[^"]+',
+            rf'\g<1>{version}',
+        )
 
     def api(value: dict) -> None:
         value["packageVersion"] = canonical
@@ -133,6 +144,19 @@ def validate(model: dict[str, object]) -> list[str]:
     package_match = re.search(r'^version = "([^"]+)"$', cargo, re.MULTILINE)
     if not package_match or package_match.group(1) != canonical:
         failures.append("Cargo package version is stale")
+    cargo_lock = (ROOT / "Cargo.lock").read_text(encoding="utf-8")
+    for package, version in {
+        "lling-llang": canonical,
+        "liblevenshtein": deps["liblevenshtein"],
+        "libdictenstein": deps["libdictenstein"],
+        "vinary-tree-interop": deps["vinary-tree-interop"],
+    }.items():
+        match = re.search(
+            rf'\[\[package\]\]\nname = "{re.escape(package)}"\nversion = "([^"]+)"',
+            cargo_lock,
+        )
+        if not match or match.group(1) != version:
+            failures.append(f"Cargo lock {package} version is stale")
     api = json.loads((ROOT / "bindings/api.json").read_text(encoding="utf-8"))
     if api.get("packageVersion") != canonical or api.get("javascript", {}).get("version") != canonical:
         failures.append("binding model version is stale")

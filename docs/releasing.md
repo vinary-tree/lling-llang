@@ -2,15 +2,19 @@
 
 This guide defines the release operation for the `lling-llang` crate, native
 SDK, and `@vinary-tree/lling-llang` JavaScript facade. The current candidate
-is `4.0.0-rc.3`.
+is `4.0.0-rc.4`.
 
 ## Immutable source graph
 
-Create `v4.0.0-rc.3` from the reviewed `release/4.0.0-rc.3` branch commit,
+Create `v4.0.0-rc.4` from the reviewed `release/4.0.0-rc.4` branch commit,
 not from the concurrently changing primary worktree. `release/version.json`,
 `Cargo.toml`, native metadata, and the npm manifest must agree. Validation
-checks out `llattice@v0.1.0` and exact `v4.0.0-rc.3` tags for interop,
+checks out `llattice@v0.1.0` and exact `v4.0.0-rc.4` tags for interop,
 libdictenstein, and liblevenshtein.
+
+The repository synchronizer owns every family entry in `Cargo.lock`. A
+read-only invocation rejects stale entries, and all validation/package builds
+use `--locked` without changing the reviewed lockfile.
 
 The tag creates an immutable source boundary but triggers no workflow. A
 manual `validate-only` dispatch tests the FFI and property contracts, runs
@@ -28,18 +32,18 @@ protected job.
 ```bash
 gh workflow run release-bindings.yml \
   --repo vinary-tree/lling-llang \
-  --ref v4.0.0-rc.3 \
+  --ref v4.0.0-rc.4 \
   -f registry=validate-only
 
 gh workflow run release-bindings.yml \
   --repo vinary-tree/lling-llang \
-  --ref v4.0.0-rc.3 \
+  --ref v4.0.0-rc.4 \
   -f registry=npm
 ```
 
 Publish crates.io only after its exact Rust dependencies resolve publicly.
 Publish npm only after `@vinary-tree/interop` and the shared
-`@vinary-tree/vinary-tree` runtime resolve at `4.0.0-rc.3`. The npm job uses
+`@vinary-tree/vinary-tree` runtime resolve at `4.0.0-rc.4`. The npm job uses
 trusted publishing, provenance, the `next` dist-tag, and the protected `npm`
 environment.
 

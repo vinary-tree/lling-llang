@@ -1,2 +1,2 @@
 {:foreign-libs []
- :npm-deps {"@vinary-tree/lling-llang" "4.0.0-rc.3"}}
+ :npm-deps {"@vinary-tree/lling-llang" "4.0.0-rc.4"}}
