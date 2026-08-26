@@ -1,0 +1,20 @@
+name: Checkout development sibling crates
+description: Clone every path dependency beside the lling-llang checkout.
+
+runs:
+  using: composite
+  steps:
+    - name: Clone development siblings
+      shell: bash
+      run: |
+        set -euo pipefail
+        parent="$(dirname "$GITHUB_WORKSPACE")"
+        for repo in vinary-tree-interop llattice libdictenstein liblevenshtein-rust; do
+          destination="$parent/$repo"
+          if [[ -e "$destination" ]]; then
+            echo "Refusing to replace existing sibling checkout: $destination" >&2
+            exit 1
+          fi
+          git clone --depth 1 --branch master \
+            "https://github.com/vinary-tree/$repo.git" "$destination"
+        done

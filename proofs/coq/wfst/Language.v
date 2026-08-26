@@ -267,7 +267,7 @@ Section Language.
         (rewrite <- app_assoc; reflexivity).
       rewrite nth_error_app_singleton_length.
       rewrite Nat.eqb_refl.
-      rewrite length_app. simpl. f_equal. lia.
+      rewrite List.length_app. simpl. f_equal. lia.
     - unfold append_consumed_label, consume_label.
       reflexivity.
   Qed.

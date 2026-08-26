@@ -15,20 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # --all-features enables the optional interop/liblevenshtein/libdictenstein/
-      # llattice path dependencies, which Cargo resolves from sibling directories
-      # of this checkout. Clone them next to the workspace exactly like the local
-      # layout, or every --all-features step below fails to resolve the graph on a
-      # clean runner. (Release workflows pin exact tags instead.)
-      - name: Checkout dev sibling crates
-        shell: bash
-        run: |
-          set -euo pipefail
-          parent="$(dirname "$GITHUB_WORKSPACE")"
-          for repo in llattice libdictenstein liblevenshtein-rust; do
-            git clone --depth 1 --branch master \
-              "https://github.com/vinary-tree/$repo.git" "$parent/$repo"
-          done
+      # --all-features resolves the four independently owned path dependencies
+      # beside this checkout. Release workflows pin immutable tags instead.
+      - uses: ./.github/actions/checkout-dev-siblings
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -70,15 +59,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Checkout dev sibling crates
-        shell: bash
-        run: |
-          set -euo pipefail
-          parent="$(dirname "$GITHUB_WORKSPACE")"
-          for repo in llattice libdictenstein liblevenshtein-rust; do
-            git clone --depth 1 --branch master \
-              "https://github.com/vinary-tree/$repo.git" "$parent/$repo"
-          done
+      - uses: ./.github/actions/checkout-dev-siblings
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -138,15 +119,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Checkout dev sibling crates
-        shell: bash
-        run: |
-          set -euo pipefail
-          parent="$(dirname "$GITHUB_WORKSPACE")"
-          for repo in llattice libdictenstein liblevenshtein-rust; do
-            git clone --depth 1 --branch master \
-              "https://github.com/vinary-tree/$repo.git" "$parent/$repo"
-          done
+      - uses: ./.github/actions/checkout-dev-siblings
 
       - name: Install nightly toolchain with rust-src
         uses: dtolnay/rust-toolchain@nightly
@@ -170,9 +143,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check advisories bans sources licenses
+      - uses: ./.github/actions/checkout-dev-siblings
+      # A Docker action can only mount this repository and therefore cannot
+      # resolve the sibling path dependencies. Install the same cargo-deny
+      # executable directly into the complete runner filesystem instead.
+      - uses: taiki-e/install-action@cargo-deny
+      - run: cargo deny check advisories bans sources licenses
 
   proofs:
     name: Rocq and TLA+
