@@ -1,6 +1,6 @@
 {
   "name": "@vinary-tree/lling-llang",
-  "version": "4.0.0-rc.4",
+  "version": "4.0.0-rc.5",
   "description": "Modular JavaScript, TypeScript, and ClojureScript bindings for lling-llang",
   "author": {
     "name": "Dylon Edwards",
@@ -18,8 +18,8 @@
     "node": ">=22.14"
   },
   "dependencies": {
-    "@vinary-tree/interop": "4.0.0-rc.4",
-    "@vinary-tree/vinary-tree": "4.0.0-rc.4"
+    "@vinary-tree/vinary-tree-interop": "4.0.0-rc.5",
+    "@vinary-tree/javascript-runtime": "4.0.0-rc.5"
   },
   "types": "./index.d.ts",
   "exports": {

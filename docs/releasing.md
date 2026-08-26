@@ -2,14 +2,14 @@
 
 This guide defines the release operation for the `lling-llang` crate, native
 SDK, and `@vinary-tree/lling-llang` JavaScript facade. The current candidate
-is `4.0.0-rc.4`.
+is `4.0.0-rc.5`.
 
 ## Immutable source graph
 
-Create `v4.0.0-rc.4` from the reviewed `release/4.0.0-rc.4` branch commit,
+Create `v4.0.0-rc.5` from the reviewed `release/4.0.0-rc.5` branch commit,
 not from the concurrently changing primary worktree. `release/version.json`,
 `Cargo.toml`, native metadata, and the npm manifest must agree. Validation
-checks out `llattice@v0.1.0` and exact `v4.0.0-rc.4` tags for interop,
+checks out `llattice@v0.1.0` and exact `v4.0.0-rc.5` tags for interop,
 libdictenstein, and liblevenshtein.
 
 The repository synchronizer owns every family entry in `Cargo.lock`. A
@@ -33,33 +33,32 @@ The checksummed GitHub prerelease is also a repository mutation. Its
 `github-release` environment requires an operator review and a `v*` tag policy;
 it stores no secret and gates only the job-scoped `GITHUB_TOKEN`.
 
-The canonical RC.4 source predates crates.io Trusted Publishing and therefore
-cannot consume the package-level GitHub OIDC trust. Append-only corrective
-source `v4.0.0-rc.4-release.1` changes only release authority, authentication,
-and this runbook: it accepts positive numbered corrective tags, grants
+The RC.5 train starts from the canonical source tag recorded as
+`publication.sourceTag` in `release/version.json`. The workflow grants
 `id-token: write` only to the crates.io job, obtains a short-lived token with
-`rust-lang/crates-io-auth-action@v1`, and revokes that token after the job.
-The package remains `4.0.0-rc.4`; the canonical tag is not moved.
+`rust-lang/crates-io-auth-action@v1`, and revokes that token after the job. If
+a workflow-only correction is required before a coordinate is published, use
+the next positive `v4.0.0-rc.5-release.N` tag; never move an existing tag.
 
 ```bash
 gh workflow run release-bindings.yml \
   --repo vinary-tree/lling-llang \
-  --ref v4.0.0-rc.4-release.1 \
+  --ref v4.0.0-rc.5 \
   -f registry=validate-only
 
 gh workflow run release-bindings.yml \
   --repo vinary-tree/lling-llang \
-  --ref v4.0.0-rc.4-release.1 \
+  --ref v4.0.0-rc.5 \
   -f registry=npm
 ```
 
-Use the same corrective ref with `registry=crates-io`. A corrective ref may
-publish only while the exact coordinate remains absent; a public RC.4 artifact
+Use the same reviewed source ref with `registry=crates-io`. A corrective ref may
+publish only while the exact coordinate remains absent; a public RC.5 artifact
 must never be rebuilt or overwritten.
 
 Publish crates.io only after its exact Rust dependencies resolve publicly.
-Publish npm only after `@vinary-tree/interop` and the shared
-`@vinary-tree/vinary-tree` runtime resolve at `4.0.0-rc.4`. The npm job uses
+Publish npm only after `@vinary-tree/vinary-tree-interop` and the shared
+`@vinary-tree/javascript-runtime` resolve at `4.0.0-rc.5`. The npm job uses
 trusted publishing, provenance, the `next` dist-tag, and the protected `npm`
 environment.
 

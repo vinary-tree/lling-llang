@@ -416,9 +416,9 @@ def main() -> int:
             failures.append("index.d.ts lacks a default export")
 
         runtime_imports = {
-            "facades/native.mjs": '"@vinary-tree/vinary-tree"',
-            "facades/wasm.mjs": '"@vinary-tree/vinary-tree/wasm"',
-            "facades/wasi.mjs": '"@vinary-tree/vinary-tree/wasi"',
+            "facades/native.mjs": '"@vinary-tree/javascript-runtime"',
+            "facades/wasm.mjs": '"@vinary-tree/javascript-runtime/wasm"',
+            "facades/wasi.mjs": '"@vinary-tree/javascript-runtime/wasi"',
         }
         for relative, runtime_import in runtime_imports.items():
             source = read(JS_ROOT / relative)
@@ -435,7 +435,7 @@ def main() -> int:
                 failures.append(f"{relative} lacks a default export")
             if runtime_import not in source:
                 failures.append(
-                    f"{relative} must import the umbrella runtime {runtime_import}"
+                    f"{relative} must import the shared runtime {runtime_import}"
                 )
             for guard in ("assertSameRuntime", "assertWfstResource"):
                 if guard not in source:

@@ -5,8 +5,8 @@ includedir=${prefix}/include
 
 Name: lling-llang
 Description: High-performance weighted finite-state transducer algebra
-Version: 4.0.0-rc.4
-Requires: vinary-tree-interop = 4.0.0-rc.4
+Version: 4.0.0-rc.5
+Requires: vinary-tree-interop = 4.0.0-rc.5
 Libs: -L${libdir} -llling_llang
 Libs.private: -ldl -lpthread -lm
 Cflags: -I${includedir}

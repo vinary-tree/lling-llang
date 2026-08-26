@@ -13,7 +13,7 @@
     "crate": "vinary-tree-interop",
     "cPrefix": "vt_",
     "cHeader": "vinary_tree_interop.h",
-    "npm": "@vinary-tree/interop",
+    "npm": "@vinary-tree/vinary-tree-interop",
     "resourceLayout": [
       "context",
       "vtable"
@@ -102,7 +102,7 @@
       }
     }
   },
-  "packageVersion": "4.0.0-rc.4",
+  "packageVersion": "4.0.0-rc.5",
   "abiVersion": 1,
   "apiRevision": 1,
   "cPrefix": "lling_",
@@ -263,10 +263,10 @@
   ],
   "javascript": {
     "package": "@vinary-tree/lling-llang",
-    "version": "4.0.0-rc.4",
+    "version": "4.0.0-rc.5",
     "dependencies": {
-      "@vinary-tree/interop": "4.0.0-rc.4",
-      "@vinary-tree/vinary-tree": "4.0.0-rc.4"
+      "@vinary-tree/vinary-tree-interop": "4.0.0-rc.5",
+      "@vinary-tree/javascript-runtime": "4.0.0-rc.5"
     },
     "exports": [
       ".",
@@ -296,7 +296,7 @@
     ]
   },
   "wasm": {
-    "umbrellaPackage": "@vinary-tree/vinary-tree",
+    "runtimePackage": "@vinary-tree/javascript-runtime",
     "projectPackage": "@vinary-tree/lling-llang",
     "runtimeIdentityGuard": true,
     "nodeDefault": "native-napi",
@@ -306,13 +306,14 @@
     ]
   },
   "release": {
-    "canonical": "4.0.0-rc.4",
+    "canonical": "4.0.0-rc.5",
     "registries": {
-      "cargo": "4.0.0-rc.4",
-      "cmake": "4.0.0-rc.4",
-      "npm": "4.0.0-rc.4",
-      "pkgConfig": "4.0.0-rc.4"
+      "cargo": "4.0.0-rc.5",
+      "cmake": "4.0.0-rc.5",
+      "npm": "4.0.0-rc.5",
+      "pkgConfig": "4.0.0-rc.5"
     },
-    "distTag": "next"
+    "distTag": "next",
+    "sourceTag": "v4.0.0-rc.5"
   }
 }

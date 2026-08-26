@@ -1,6 +1,6 @@
 "use strict";
-const { llingLlang } = require("@vinary-tree/vinary-tree");
-const { assertSameRuntime, assertWfstResource } = require("@vinary-tree/interop");
+const { llingLlang } = require("@vinary-tree/javascript-runtime");
+const { assertSameRuntime, assertWfstResource } = require("@vinary-tree/vinary-tree-interop");
 const runtimeIdentity = llingLlang.runtimeIdentity;
 const vectorWfst = llingLlang.vectorWfst.bind(llingLlang);
 function compose(first, second) {
