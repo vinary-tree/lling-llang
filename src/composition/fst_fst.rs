@@ -372,9 +372,10 @@ where
 
         let (can_eps1, can_eps2, can_match) = self.filter.allowed_moves(filter);
 
-        let epsilon_capacity = usize::from(can_eps1)
-            * trans1.iter().filter(|t1| t1.output.is_none()).count()
-            + usize::from(can_eps2) * trans2.iter().filter(|t2| t2.input.is_none()).count();
+        let left_epsilon_count = trans1.iter().filter(|t1| t1.output.is_none()).count();
+        let right_epsilon_count = trans2.iter().filter(|t2| t2.input.is_none()).count();
+        let epsilon_capacity = usize::from(can_eps1) * left_epsilon_count
+            + usize::from(can_eps2) * right_epsilon_count;
         let mut transitions = SmallVec::with_capacity(epsilon_capacity);
 
         // Case 1: FST1 epsilon output (advance FST1 only)
@@ -407,7 +408,24 @@ where
             }
         }
 
-        // Case 3: Matching labels (advance both)
+        // Case 3: Matched intermediate epsilons (advance both). Treating these
+        // as one canonical move is what permits double-sided epsilon paths
+        // without enumerating both left-first and right-first interleavings.
+        if can_match {
+            for t1 in trans1.iter().filter(|t1| t1.output.is_none()) {
+                for t2 in trans2.iter().filter(|t2| t2.input.is_none()) {
+                    let new_filter = self.filter.next_state(filter, true, true);
+                    transitions.push(ComposedTransition {
+                        input: t1.input.clone(),
+                        output: t2.output.clone(),
+                        target: ProductStateId::new(t1.to, t2.to, new_filter),
+                        weight: t1.weight.times(&t2.weight),
+                    });
+                }
+            }
+        }
+
+        // Case 4: Matching non-epsilon labels (advance both)
         if can_match {
             let trans2_by_input = Self::input_transition_index(trans2);
             for t1 in trans1 {
@@ -726,6 +744,54 @@ mod tests {
         let paths: Vec<_> = composed.accepting_paths().collect();
 
         assert_eq!(paths.len(), 0);
+    }
+
+    #[test]
+    fn test_compose_matches_double_sided_epsilons_as_one_canonical_move() {
+        let left: VectorWfst<char, TropicalWeight> = VectorWfstBuilder::new()
+            .add_states(2)
+            .start(0)
+            .final_state(1, TropicalWeight::one())
+            .arc(0, Some('a'), None, 1, TropicalWeight::new(2.0))
+            .build();
+        let right: VectorWfst<char, TropicalWeight> = VectorWfstBuilder::new()
+            .add_states(2)
+            .start(0)
+            .final_state(1, TropicalWeight::one())
+            .arc(0, None, Some('b'), 1, TropicalWeight::new(3.0))
+            .build();
+
+        let mut composed = compose(left, right);
+        let paths = composed.accepting_paths().collect::<Vec<_>>();
+
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0].inputs, vec!['a']);
+        assert_eq!(paths[0].outputs, vec!['b']);
+        assert_eq!(paths[0].weight, TropicalWeight::new(5.0));
+    }
+
+    #[test]
+    fn test_compose_preserves_the_empty_tape_identity_path() {
+        let left: VectorWfst<char, TropicalWeight> = VectorWfstBuilder::new()
+            .add_states(2)
+            .start(0)
+            .final_state(1, TropicalWeight::one())
+            .arc(0, None, None, 1, TropicalWeight::new(2.0))
+            .build();
+        let right: VectorWfst<char, TropicalWeight> = VectorWfstBuilder::new()
+            .add_states(2)
+            .start(0)
+            .final_state(1, TropicalWeight::one())
+            .arc(0, None, None, 1, TropicalWeight::new(3.0))
+            .build();
+
+        let mut composed = compose(left, right);
+        let paths = composed.accepting_paths().collect::<Vec<_>>();
+
+        assert_eq!(paths.len(), 1);
+        assert!(paths[0].inputs.is_empty());
+        assert!(paths[0].outputs.is_empty());
+        assert_eq!(paths[0].weight, TropicalWeight::new(5.0));
     }
 
     #[test]

@@ -2,7 +2,8 @@
 // ε-filter. Top row = the two operand transducers (T₁ over a:x, T₂ over x:p);
 // bottom = the lazily-built product whose states are triples (s₁, s₂, φ) where
 // φ ∈ {None, Eps1, Eps2} is the ε-filter state (Mohri 2009). Green = the realised
-// composed path a:p; grey-dashed = ε moves that the filter sequences.
+// composed path a:p; grey-dashed = ε moves that the filter sequences,
+// including the canonical paired ε:ε move.
 //
 // SHARED DOT PREAMBLE (copy into every Graphviz automaton; palette = docs/diagrams/README.md):
 //   bg #FFFFFF · node fill #BBDEFB / border #1565C0 · text #102027 · edge #607D8B
@@ -61,8 +62,9 @@ digraph composition_product {
     f2 [label="Eps2"];
     fN -> f1 [label="x:ε  (advance T₁)", color="#9E9E9E", style=dashed];
     fN -> f2 [label="ε:x  (advance T₂)", color="#9E9E9E", style=dashed];
-    f1 -> fN [label="x:x  (match)", color="#9E9E9E", style=dashed];
-    f2 -> fN [label="x:x  (match)", color="#9E9E9E", style=dashed];
+    fN -> fN [label="x:x or ε:ε  (paired)", color="#9E9E9E", style=dashed];
+    f1 -> fN [label="x:x or ε:ε", color="#9E9E9E", style=dashed];
+    f2 -> fN [label="x:x or ε:ε", color="#9E9E9E", style=dashed];
     f1 -> f1 [label="x:ε", color="#9E9E9E", style=dashed];
     f2 -> f2 [label="ε:x", color="#9E9E9E", style=dashed];
   }

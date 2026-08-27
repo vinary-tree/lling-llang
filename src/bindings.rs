@@ -457,6 +457,27 @@ impl CompositionResource {
         }
 
         if can_match {
+            for left_arc in left.arcs.iter().filter(|arc| arc.has_output == 0) {
+                for right_arc in right.arcs.iter().filter(|arc| arc.has_input == 0) {
+                    let target_state = registry.register(AbiProductState {
+                        left: left_arc.target_state,
+                        right: right_arc.target_state,
+                        filter: self.filter.next_state(product.filter, true, true),
+                    })?;
+                    arcs.push(VtWfstArc {
+                        input_label: left_arc.input_label,
+                        output_label: right_arc.output_label,
+                        target_state,
+                        weight: left_arc.weight + right_arc.weight,
+                        has_input: left_arc.has_input,
+                        has_output: right_arc.has_output,
+                        reserved: [0; 6],
+                    });
+                }
+            }
+        }
+
+        if can_match {
             for left_arc in left.arcs.iter().filter(|arc| arc.has_output == 1) {
                 for right_arc in right
                     .arcs

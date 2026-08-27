@@ -195,7 +195,7 @@ Uncontrolled advancement leads to duplicate or missed paths.
 
 ### Epsilon Filter
 
-The epsilon filter (based on [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009)) ensures correct path enumeration. It is the grey-dashed inset of the [composition product diagram](#what-is-composition): the filter state $`\varphi \in \{\mathrm{None}, \mathrm{Eps1}, \mathrm{Eps2}\}`$ records whether an $`\varepsilon`$ run is in progress on $`T_1`$ or $`T_2`$, admitting each interleaving exactly once.
+The epsilon filter (based on [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009)) ensures correct path enumeration. It is the grey-dashed inset of the [composition product diagram](#what-is-composition): the filter state $`\varphi \in \{\mathrm{None}, \mathrm{Eps1}, \mathrm{Eps2}\}`$ records whether an $`\varepsilon`$ run is in progress on $`T_1`$ or $`T_2`$, admitting each interleaving exactly once. When both operands expose a compatible intermediate epsilon, composition advances both arcs in one *paired-epsilon move*. That move represents the valid double-sided path without duplicating left-first and right-first schedules.
 
 ```rust
 pub enum FilterState {
@@ -215,13 +215,15 @@ pub enum EpsilonFilterType {
 
 **Sequencing filter** (default):
 
-| State | FST1 $`\varepsilon`$ output | FST2 $`\varepsilon`$ input | Match |
-|-------|---------------|--------------|-------|
-| None  | ✓ → Eps1 | ✓ → Eps2 | ✓ → None |
-| Eps1  | ✓ → Eps1 | ✗ | ✓ → None |
-| Eps2  | ✗ | ✓ → Eps2 | ✓ → None |
+| State | FST1 $`\varepsilon`$ output | FST2 $`\varepsilon`$ input | Paired $`\varepsilon:\varepsilon`$ | Non-epsilon match |
+|-------|---------------|--------------|-------------------------------|-------------------|
+| None  | ✓ → Eps1 | ✓ → Eps2 | ✓ → None | ✓ → None |
+| Eps1  | ✓ → Eps1 | ✗ | ✓ → None | ✓ → None |
+| Eps2  | ✗ | ✓ → Eps2 | ✓ → None | ✓ → None |
 
-The sequencing filter prevents interleaved epsilon sequences, ensuring each epsilon path is enumerated exactly once.
+The sequencing filter prevents duplicate interleavings, while the paired move
+ensures it does not drop a path whose only remaining intermediate labels are
+epsilon on both operands.
 
 ### Using Custom Filters
 
@@ -430,12 +432,14 @@ prefixes reaching $`s_1`$ in $`\mathrm{FST}_1`$ and $`s_2`$ in $`\mathrm{FST}_2`
         emit arc  a:ε / w₁  →  (t₁, s₂, Eps1)        // advance FST₁ only
     if FST₂ arc s₂ --ε:b/w₂--> t₂  and φ admits Eps2:
         emit arc  ε:b / w₂  →  (s₁, t₂, Eps2)        // advance FST₂ only
+    if both arcs above exist and φ admits matching:
+        emit arc  a:b / (w₁ ⊗ w₂) → (t₁, t₂, None)  // advance both once
 ```
 
 ```text
 ⟨ expand a product state (s₁, s₂, φ) ⟩ ≡
     for every label-matched arc pair:   ⟨ matched move (label x shared) ⟩
-    for every ε on either side:         ⟨ epsilon move (filter-gated) ⟩
+    for every ε on either or both sides: ⟨ epsilon move (filter-gated) ⟩
 ```
 
 ```text
@@ -443,9 +447,10 @@ prefixes reaching $`s_1`$ in $`\mathrm{FST}_1`$ and $`s_2`$ in $`\mathrm{FST}_2`
     s₁ ∈ F₁  and  s₂ ∈ F₂   with   ρ'(s₁,s₂) = ρ₁(s₁) ⊗ ρ₂(s₂)
 ```
 
-The sequencing filter (the inset in the [product diagram](#what-is-composition)) is what
-makes `⟨ epsilon move (filter-gated) ⟩` enumerate each $`\varepsilon`$-interleaving exactly
-once, so no path is duplicated or dropped.
+The sequencing filter (the inset in the [product diagram](#what-is-composition))
+and its paired-epsilon move make
+`⟨ epsilon move (filter-gated) ⟩` enumerate each extensional
+$`\varepsilon`$-interleaving exactly once, so no path is duplicated or dropped.
 
 ### Algorithm: CFG $`\times`$ Lattice
 
