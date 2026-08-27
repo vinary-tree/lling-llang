@@ -22,10 +22,11 @@ cleanup() {
 trap cleanup EXIT
 
 tlc_cmd() {
-  if command -v tlc >/dev/null 2>&1; then
+  if [[ -n "${TLA2TOOLS_JAR:-}" ]]; then
+    java -Djava.io.tmpdir="$java_scratch" -jar "$TLA2TOOLS_JAR" \
+      -noGenerateSpecTE "$@"
+  elif command -v tlc >/dev/null 2>&1; then
     TLA_JAVA_OPTS="${TLA_JAVA_OPTS:-} -Djava.io.tmpdir=$java_scratch" tlc "$@"
-  elif [[ -n "${TLA2TOOLS_JAR:-}" ]]; then
-    java -Djava.io.tmpdir="$java_scratch" -jar "$TLA2TOOLS_JAR" "$@"
   else
     echo "ERROR: TLC not found. Install tlc or set TLA2TOOLS_JAR=/path/to/tla2tools.jar." >&2
     return 127

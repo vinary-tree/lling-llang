@@ -13,7 +13,7 @@ jobs:
     name: Rust
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # --all-features resolves the four independently owned path dependencies
       # beside this checkout. Release workflows pin immutable tags instead.
@@ -57,7 +57,7 @@ jobs:
     name: FFI and bindings
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: ./.github/actions/checkout-dev-siblings
 
@@ -117,7 +117,7 @@ jobs:
     name: Sanitizers (ASan/TSan)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: ./.github/actions/checkout-dev-siblings
 
@@ -142,7 +142,7 @@ jobs:
     name: Supply chain (cargo-deny)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/checkout-dev-siblings
       # A Docker action can only mount this repository and therefore cannot
       # resolve the sibling path dependencies. Install the same cargo-deny
@@ -155,11 +155,25 @@ jobs:
     runs-on: ubuntu-latest
     # Match llattice's canonical proof environment. The digest prevents a
     # moved container tag from changing proof semantics underneath a commit.
-    container: rocq/rocq-prover:9.1.1@sha256:b85a80a11bb65c7c843f91c7cbcce282f22ee397c9ca42f123d568ab6cef68b0
+    container:
+      image: rocq/rocq-prover:9.1.1@sha256:b85a80a11bb65c7c843f91c7cbcce282f22ee397c9ca42f123d568ab6cef68b0
+      # GitHub mounts its runner-command files with the host runner's
+      # ownership. The image's unprivileged default UID cannot append to those
+      # files, so use the container root only in this isolated, read-only proof
+      # job. The job receives no release environment or registry credentials.
+      options: --user 0
     steps:
       - uses: actions/checkout@v6
       - name: Verify Rocq proofs
-        run: bash proofs/verify.sh --rocq-only
+        env:
+          # GitHub replaces the image entrypoint (`opam exec --`) when it
+          # starts a job container. Restore the image's pinned opam switch
+          # explicitly while running as the mount-compatible job user above.
+          OPAMROOT: /home/rocq/.opam
+          OPAMROOTISOK: "true"
+        run: |
+          opam exec -- rocq --version | grep -F "version 9.1.1"
+          opam exec -- bash proofs/verify.sh --rocq-only
 
   tla-models:
     name: TLA+ finite models
@@ -174,7 +188,7 @@ jobs:
           curl -fsSL \
             -o "$RUNNER_TEMP/tla2tools.jar" \
             https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
-          echo "81755d4c181ce1ea3e234c5a4537594c3112d67114508b77feed017d4b2a71aa  $RUNNER_TEMP/tla2tools.jar" \
+          echo "eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a  $RUNNER_TEMP/tla2tools.jar" \
             | sha256sum --check --strict
           echo "TLA2TOOLS_JAR=$RUNNER_TEMP/tla2tools.jar" >> "$GITHUB_ENV"
       - name: Verify invariant registry and finite models

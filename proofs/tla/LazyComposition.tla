@@ -35,6 +35,12 @@ vars == <<cache, worklist, currentState, accessOrder, processed>>
 \* A product state is a tuple (state1, state2, filter)
 ProductState == (1..MaxStates1) \X (1..MaxStates2) \X {"None", "Eps1", "Eps2"}
 
+\* A shape-compatible sentinel outside ProductState. Keeping the idle value a
+\* product-shaped tuple avoids cross-domain equality between strings and
+\* product-state tuples under TLC's strict equality checking.
+NoCurrentState == <<0, 0, "None">>
+CurrentStateDomain == ProductState \cup {NoCurrentState}
+
 \* Filter states for epsilon handling
 FilterState == {"None", "Eps1", "Eps2"}
 
@@ -50,7 +56,7 @@ SeqToSet(seq) == { seq[i] : i \in 1..Len(seq) }
 TypeOK ==
     /\ cache \subseteq ProductState
     /\ worklist \subseteq ProductState
-    /\ (currentState = "None" \/ currentState \in ProductState)
+    /\ currentState \in CurrentStateDomain
     /\ accessOrder \in Seq(ProductState)
     /\ processed \subseteq ProductState
     /\ CacheMode \in CacheModes
@@ -66,7 +72,7 @@ TypeOK ==
 Init ==
     /\ cache = {}
     /\ worklist = {<<1, 1, "None">>}  \* Start at (start1, start2, None)
-    /\ currentState = "None"
+    /\ currentState = NoCurrentState
     /\ accessOrder = <<>>
     /\ processed = {}
 

@@ -345,9 +345,7 @@ impl TopologicalQueue {
 
     /// Clear all states from the queue.
     pub fn clear(&mut self) {
-        for e in &mut self.enqueued {
-            *e = false;
-        }
+        self.enqueued.fill(false);
         self.current_pos = 0;
         self.count = 0;
     }
