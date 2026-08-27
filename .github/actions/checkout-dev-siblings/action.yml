@@ -1,20 +1,48 @@
 name: Checkout development sibling crates
 description: Clone every path dependency beside the lling-llang checkout.
 
+inputs:
+  ref:
+    description: >
+      Baseline development ref. A release/* pull-request head selects the same
+      coordinated branch for every non-llattice sibling.
+    required: false
+    default: master
+  llattice-ref:
+    description: Immutable llattice release ref.
+    required: false
+    default: v0.1.0
+
 runs:
   using: composite
   steps:
     - name: Clone development siblings
       shell: bash
+      env:
+        BASELINE_REF: ${{ inputs.ref }}
+        LLATTICE_REF: ${{ inputs.llattice-ref }}
       run: |
         set -euo pipefail
         parent="$(dirname "$GITHUB_WORKSPACE")"
+        event_ref="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"
+        if [[ "$event_ref" == release/* ]]; then
+          development_ref="$event_ref"
+        else
+          development_ref="$BASELINE_REF"
+        fi
+        git check-ref-format --branch "$development_ref" >/dev/null
         for repo in vinary-tree-interop llattice libdictenstein liblevenshtein-rust; do
           destination="$parent/$repo"
           if [[ -e "$destination" ]]; then
             echo "Refusing to replace existing sibling checkout: $destination" >&2
             exit 1
           fi
-          git clone --depth 1 --branch master \
+          if [[ "$repo" == llattice ]]; then
+            selected_ref="$LLATTICE_REF"
+          else
+            selected_ref="$development_ref"
+          fi
+          git check-ref-format --branch "$selected_ref" >/dev/null
+          git clone --depth 1 --branch "$selected_ref" \
             "https://github.com/vinary-tree/$repo.git" "$destination"
         done

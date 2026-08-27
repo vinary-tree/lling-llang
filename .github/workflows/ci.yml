@@ -150,20 +150,32 @@ jobs:
       - uses: taiki-e/install-action@cargo-deny
       - run: cargo deny check advisories bans sources licenses
 
-  proofs:
-    name: Rocq and TLA+
+  rocq-proofs:
+    name: Rocq proofs
+    runs-on: ubuntu-latest
+    # Match llattice's canonical proof environment. The digest prevents a
+    # moved container tag from changing proof semantics underneath a commit.
+    container: rocq/rocq-prover:9.1.1@sha256:b85a80a11bb65c7c843f91c7cbcce282f22ee397c9ca42f123d568ab6cef68b0
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify Rocq proofs
+        run: bash proofs/verify.sh --rocq-only
+
+  tla-models:
+    name: TLA+ finite models
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install proof tools
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with: { distribution: temurin, java-version: "21" }
+      - name: Install the checksum-pinned TLA+ tools
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y coq default-jre-headless curl
           curl -fsSL \
             -o "$RUNNER_TEMP/tla2tools.jar" \
-            https://downloads.sourceforge.net/project/tlaplus.mirror/v1.7.4/tla2tools.jar
+            https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+          echo "81755d4c181ce1ea3e234c5a4537594c3112d67114508b77feed017d4b2a71aa  $RUNNER_TEMP/tla2tools.jar" \
+            | sha256sum --check --strict
           echo "TLA2TOOLS_JAR=$RUNNER_TEMP/tla2tools.jar" >> "$GITHUB_ENV"
-
-      - name: Verify proofs and finite models
-        run: make verify-proofs
+      - name: Verify invariant registry and finite models
+        run: bash proofs/verify.sh --tla-only
