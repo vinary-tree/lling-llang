@@ -35,7 +35,7 @@
     Registry: proofs/doc/abi-invariants.tsv, LLING-COMP-1 (epsilon filter).
 *)
 
-Require Import Coq.Bool.Bool.
+From Stdlib Require Import Bool.Bool.
 
 (** The three filter states (src/composition/filter.rs::FilterState). *)
 Inductive filter_state : Type := FNone | FEps1 | FEps2.

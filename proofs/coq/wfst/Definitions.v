@@ -11,8 +11,8 @@
     [src/wfst/] module.
 *)
 
-Require Import Coq.Lists.List.
-Require Import Coq.Arith.Arith.
+From Stdlib Require Import Lists.List.
+From Stdlib Require Import Arith.Arith.
 Require Import LlingLlang.foundations.Semiring.
 
 Import ListNotations.
@@ -29,7 +29,7 @@ Definition Label := nat.
 
     Rust uses [u32::MAX] as the sentinel.  We keep [StateId] as [nat] in
     Rocq so list indexing remains simple, but use the same numeric sentinel. *)
-Definition NO_STATE : StateId := 4294967295.
+Definition NO_STATE : StateId := Nat.pred (Nat.pow 2 32).
 
 (** Epsilon label (no symbol) *)
 Definition EPSILON : option Label := None.

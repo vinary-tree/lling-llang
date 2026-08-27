@@ -5,10 +5,10 @@
     matrix multiplication sums over the finite index set [0, dim).
 *)
 
-Require Import Coq.Arith.Arith.
-Require Import Coq.Classes.Morphisms.
-Require Import Coq.Classes.RelationClasses.
-Require Import Coq.micromega.Lia.
+From Stdlib Require Import Arith.Arith.
+From Stdlib Require Import Classes.Morphisms.
+From Stdlib Require Import Classes.RelationClasses.
+From Stdlib Require Import micromega.Lia.
 Require Import LlingLlang.foundations.Semiring.
 
 (** A matrix is represented extensionally.  Operations that need a finite

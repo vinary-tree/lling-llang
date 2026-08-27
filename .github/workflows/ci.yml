@@ -157,20 +157,19 @@ jobs:
     # moved container tag from changing proof semantics underneath a commit.
     container:
       image: rocq/rocq-prover:9.1.1@sha256:b85a80a11bb65c7c843f91c7cbcce282f22ee397c9ca42f123d568ab6cef68b0
-      # GitHub mounts its runner-command files with the host runner's
-      # ownership. The image's unprivileged default UID cannot append to those
-      # files, so use the container root only in this isolated, read-only proof
-      # job. The job receives no release environment or registry credentials.
-      options: --user 0
+      # GitHub owns the workspace and runner-command mounts as UID 1001. Keep
+      # that UID while using the Rocq image's group 1000, whose opam tree is
+      # deliberately group-accessible. This satisfies both mount and toolchain
+      # permissions without granting the proof process root privileges.
+      options: --user 1001:1000
     steps:
       - uses: actions/checkout@v6
       - name: Verify Rocq proofs
         env:
           # GitHub replaces the image entrypoint (`opam exec --`) when it
           # starts a job container. Restore the image's pinned opam switch
-          # explicitly while running as the mount-compatible job user above.
+          # explicitly while running as the mount-compatible user above.
           OPAMROOT: /home/rocq/.opam
-          OPAMROOTISOK: "true"
         run: |
           opam exec -- rocq --version | grep -F "version 9.1.1"
           opam exec -- bash proofs/verify.sh --rocq-only

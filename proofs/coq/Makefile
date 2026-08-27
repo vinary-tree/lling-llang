@@ -16,7 +16,7 @@ all: $(COQMAKEFILE)
 	$(COQMAKE)
 
 $(COQMAKEFILE): _CoqProject
-	coq_makefile -f _CoqProject -o $@
+	rocq makefile -f _CoqProject -o $@
 
 clean:
 	if [ -f $(COQMAKEFILE) ]; then $(COQMAKE) clean; fi

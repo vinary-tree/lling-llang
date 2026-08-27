@@ -31,8 +31,8 @@
     Registry: proofs/doc/abi-invariants.tsv, LLING-COMP-1.
 *)
 
-Require Import Coq.Lists.List.
-Require Import Coq.Arith.Arith.
+From Stdlib Require Import Lists.List.
+From Stdlib Require Import Arith.Arith.
 Import ListNotations.
 
 Section EpsilonFreeComposition.

@@ -6,10 +6,10 @@
     roundoff envelope; this file never assumes IEEE-754 associativity.
 *)
 
-Require Import Coq.Reals.Reals.
-Require Import Coq.micromega.Lra.
-Require Import Coq.Classes.Morphisms.
-Require Import Coq.Classes.RelationClasses.
+From Stdlib Require Import Reals.Reals.
+From Stdlib Require Import micromega.Lra.
+From Stdlib Require Import Classes.Morphisms.
+From Stdlib Require Import Classes.RelationClasses.
 Require Import LlingLlang.foundations.Semiring.
 
 Open Scope R_scope.

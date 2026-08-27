@@ -45,13 +45,9 @@ abi/EpsilonFilterSoundness.v
 # Hoisted symbolic-core proofs (Task #21 / ADR-018): the zero-admission Rocq
 # theories proving the algebra laws of the symbolic core, migrated from
 # mettail-rust/formal/rocq with the code they verify (lling-llang::symbolic).
-# Each keeps its own logical root (self-contained; no cross-theory deps except
-# within symbolic_algebra).
+# They share the project-wide LlingLlang logical root above, preventing
+# overlapping physical-directory mappings while preserving module isolation.
 # ============================================================================
--Q logict LogicTProofs
--Q presburger PresburgerProofs
--Q sft Sft
--Q symbolic_algebra SymbolicAlgebra
 
 logict/LogicTFairness.v
 presburger/PresburgerBooleanAlgebra.v

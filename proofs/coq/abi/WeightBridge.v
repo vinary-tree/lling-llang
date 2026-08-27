@@ -39,8 +39,8 @@
     Registry: proofs/doc/abi-invariants.tsv, LLING-BRIDGE-1..4.
 *)
 
-Require Import Coq.Reals.Reals.
-Require Import Coq.micromega.Lra.
+From Stdlib Require Import Reals.Reals.
+From Stdlib Require Import micromega.Lra.
 
 Open Scope R_scope.
 

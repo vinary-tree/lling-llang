@@ -6,9 +6,9 @@
     Viterbi implementation that is not present in this proof tree.
 *)
 
-Require Import Coq.Lists.List.
-Require Import Coq.Arith.Arith.
-Require Import Coq.Classes.Morphisms.
+From Stdlib Require Import Lists.List.
+From Stdlib Require Import Arith.Arith.
+From Stdlib Require Import Classes.Morphisms.
 Require Import LlingLlang.foundations.Semiring.
 Require Import LlingLlang.foundations.TropicalWeight.
 Require Import LlingLlang.wfst.Definitions.

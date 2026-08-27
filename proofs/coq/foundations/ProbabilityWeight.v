@@ -18,11 +18,11 @@
     Registry: proofs/doc/abi-invariants.tsv, LLING-SEMI-1.
 *)
 
-Require Import Coq.Reals.Reals.
-Require Import Coq.micromega.Lra.
-Require Import Coq.Classes.RelationClasses.
-Require Import Coq.Classes.Morphisms.
-Require Import Coq.setoid_ring.Ring.
+From Stdlib Require Import Reals.Reals.
+From Stdlib Require Import micromega.Lra.
+From Stdlib Require Import Classes.RelationClasses.
+From Stdlib Require Import Classes.Morphisms.
+From Stdlib Require Import setoid_ring.Ring.
 Require Import LlingLlang.foundations.Semiring.
 
 Open Scope R_scope.

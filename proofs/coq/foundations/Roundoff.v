@@ -6,8 +6,8 @@
     contract composes with interval enclosures.
 *)
 
-Require Import Coq.micromega.Lra.
-Require Import Coq.Reals.Reals.
+From Stdlib Require Import micromega.Lra.
+From Stdlib Require Import Reals.Reals.
 Require Import LlingLlang.foundations.Interval.
 
 Open Scope R_scope.
