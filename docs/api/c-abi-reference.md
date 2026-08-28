@@ -16,9 +16,9 @@ implemented by `src/ffi.rs` over the resource layer documented in
 family-neutral base contract (two-word resources, retain/release,
 `query_interface`, the scalar-WFST vtable, and the paging law) is normative in
 the family canon:
-[ABI reference](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-reference.md) ·
-[ABI evolution](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-evolution.md) ·
-[Security model](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/security-model.md).
+[ABI reference](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md) ·
+[ABI evolution](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-evolution.md) ·
+[Security model](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/security-model.md).
 
 ---
 
@@ -54,6 +54,7 @@ diagnostics.*
 
 <details><summary>Text view</summary>
 
+<!-- vdl-disable-next-line ASCII001 -->
 ```text
 Versioning (2)     lling_abi_version, lling_api_revision
 Diagnostics (1)    lling_last_error_message
@@ -86,7 +87,7 @@ LLING_API uint32_t lling_api_revision(void);
 ```
 
 Two counters, two different promises, following the family's
-[four-counter evolution model](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-evolution.md):
+[four-counter evolution model](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-evolution.md):
 
 - **`lling_abi_version()`** — the breaking counter. A binary whose ABI version
   differs from the `LLING_ABI_VERSION` you compiled against is incompatible;
@@ -170,6 +171,7 @@ immutable handle; red annotations = failure statuses.*
 
 <details><summary>Text view</summary>
 
+<!-- vdl-disable-next-line ASCII001 -->
 ```text
         builder_new                     build (has start)   out_wfst
   [*] ──────────────▶ Open ──────────────────────────────▶ Consumed ──▶ LlingWfst
@@ -249,10 +251,9 @@ LLING_API LlingStatus lling_wfst_builder_add_state(
 | Thread safety | Builder-confined. |
 | Complexity | $`O(1)`$ amortized. |
 
-> **Check order.** The builder is validated before `out_state`; when
-> `out_state` is null the state has already been added by the time
-> `NULL_POINTER` is returned. The builder remains usable — the orphan state is
-> simply unreferenced until you target it.
+> **Check order.** `out_state` is validated before the builder is mutated. A
+> null output pointer returns `NULL_POINTER` without adding a state. The builder
+> remains unchanged and usable.
 
 ### `lling_wfst_builder_set_start`
 
@@ -324,7 +325,7 @@ LLING_API LlingStatus lling_wfst_builder_add_arc(
 
 | Aspect | Contract |
 |---|---|
-| Semantics | Appends the arc $`\mathit{from} \xrightarrow{\;i:o/w\;} \mathit{to}`$. A presence flag of 0 makes that side $`\varepsilon`$ (the label value is then ignored); a flag of 1 requires the label to be a Unicode scalar value (any code point except surrogates, i.e. at most `0x10FFFF`). Parallel and duplicate arcs are allowed. |
+| Semantics | Appends the arc $`(\mathit{from}, i, o, w, \mathit{to})`$. A presence flag of 0 makes that side $`\varepsilon`$ (the label value is then ignored); a flag of 1 requires the label to be a Unicode scalar value (any code point except surrogates, i.e. at most `0x10FFFF`). Parallel and duplicate arcs are allowed. |
 | Preconditions | `builder` non-null, not consumed; `from` and `to` exist; each presence flag is 0 or 1; present labels are Unicode scalars; `weight` in the tropical carrier. |
 | Returns | `OK` · `INVALID_ARGUMENT` (non-tropical weight — NaN or $`-\infty`$; presence flag $`> 1`$; non-scalar label; absent endpoint) · `NULL_POINTER` · `CLOSED` · `PANIC` |
 | Ownership | No transfer. |
@@ -441,7 +442,7 @@ LLING_API LlingStatus lling_wfst_resource(
 
 | Aspect | Contract |
 |---|---|
-| Semantics | Exports the handle's graph as a family `VtResource` implementing `vt.scalar-wfst.1` (flags `PARALLEL_REENTRANT | IMMUTABLE | LAZY`). Each call mints an **independent owned retain**; export as many as you need. |
+| Semantics | Exports the handle's graph as a family `VtResource` implementing `vt.scalar-wfst.1` with the `PARALLEL_REENTRANT`, `IMMUTABLE`, and `LAZY` flags. Each call mints an **independent owned retain**; export as many as you need. |
 | Preconditions | `wfst` non-null and live; `out_resource` non-null. |
 | Returns | `OK` · `NULL_POINTER` · `PANIC` |
 | Ownership | On `OK` the caller owns one retain in `*out_resource`; balance it with exactly one `lling_resource_release` (or hand it to a consumer that releases it). The retain keeps the graph alive independently of the handle. |
@@ -459,7 +460,7 @@ LLING_API void lling_resource_release(VtResource resource);
 | Semantics | Releases one owned retain of **any** family resource — whether produced by lling-llang or by a sibling library — by invoking the resource's own `release` through its vtable. A resource with a null word (or a null `release` slot) is ignored. |
 | Preconditions | The value must represent one owned retain not yet released. |
 | Returns | *(void — infallible)* |
-| Ownership | Consumes one retain. Releasing more times than retained is undefined behavior (a refcount underflow in the provider), per the family [refcount laws](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-reference.md#53-the-refcount-laws). |
+| Ownership | Consumes one retain. Releasing more times than retained is undefined behavior (a refcount underflow in the provider), per the family [refcount laws](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md). |
 | Thread safety | Any thread. |
 | Complexity | $`O(1)`$ (atomic decrement; the last release tears down the resource). |
 
@@ -473,7 +474,7 @@ lling-llang can **produce** resources in all seven domains (via the Rust
 and `lling_wfst_compose` — accept **`TROPICAL_F64` only** and answer
 `INCOMPATIBLE_RESOURCE` for the other six. The definitions below match the
 normative family table in the
-[interop ABI reference](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-reference.md#71-vtweightdomain--seven-semirings-in-one-double)
+[interop ABI reference](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md)
 and lling-llang's own semiring documentation.
 
 | Value | Domain | Carrier $`K`$ | $`\oplus`$ | $`\otimes`$ | $`\bar{0}`$ | $`\bar{1}`$ | Valid raw `f64` |
@@ -499,7 +500,7 @@ $`+\infty`$ final weight in composition and yield NaN downstream; this was
 the confirmed finding LLING-B2/F1, fixed at every ingestion site and
 regression-pinned. The exact-laws caveat for `f64` (rounding breaks
 associativity where arithmetic occurs) is stated bindingly in the
-[family canon](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-reference.md#71-vtweightdomain--seven-semirings-in-one-double).
+[family canon](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md).
 
 ## Complete example
 
@@ -664,7 +665,7 @@ int main(void) {
 ```
 
 The expected product of `a:x/0.5` and `x:z/0.25` is the single arc
-$`0 \xrightarrow{\;a:z/0.75\;} 1`$ — the match move composes the labels and
+from state $`0`$ to state $`1`$ with labels `a:z` and weight $`0.75`$ — the match move composes the labels and
 the weights combine as $`w_1 \otimes w_2 = 0.5 + 0.25`$.
 
 ## See also
@@ -676,18 +677,18 @@ the weights combine as $`w_1 \otimes w_2 = 0.5 + 0.25`$.
 - [Composition](../algorithms/composition.md) — the native lazy-composition
   algorithms these resources mirror.
 - Family canon:
-  [ABI reference](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-reference.md) ·
-  [ABI evolution](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-evolution.md) ·
-  [Security model](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/security-model.md).
+  [ABI reference](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md) ·
+  [ABI evolution](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-evolution.md) ·
+  [Security model](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/security-model.md).
 
 ## References
 
-- [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — WFSTs in speech
+- [Mohri 2002](../BIBLIOGRAPHY.md) — WFSTs in speech
   recognition; the semiring-generic transducer model this ABI transports.
-- [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — weighted-automata
+- [Mohri 2009](../BIBLIOGRAPHY.md) — weighted-automata
   algorithms, including the $`\varepsilon`$-filter composition the lazy
   product implements.
-- [Allauzen 2007](../BIBLIOGRAPHY.md#ref-allauzen2007) — OpenFst's design;
+- [Allauzen 2007](../BIBLIOGRAPHY.md) — OpenFst's design;
   the arc/state iteration model the paged `state_arcs` mirrors.
-- [Collins 1960](../BIBLIOGRAPHY.md#ref-collins1960) — reference counting;
+- [Collins 1960](../BIBLIOGRAPHY.md) — reference counting;
   the retain/release discipline `VtResource` handles obey.

@@ -4,7 +4,8 @@ This directory contains formal proofs and specifications for the lling-llang WFS
 
 ## Structure
 
-```
+<!-- vdl-disable-next-line ASCII001 -->
+```text
 proofs/
 ├── README.md           # This file
 ├── coq/                # Rocq/Coq proofs
@@ -29,41 +30,41 @@ proofs/
 │       ├── ShortestDistance.v  # Initialization and relaxation lemmas
 │       ├── Determinize.v       # Weighted-subset and normalization lemmas
 │       └── Minimize.v          # Equivalence and partition lemmas
+│   ├── optimizer/      # Categorical optimizer contracts
+│   │   ├── TapeSignatures.v    # Typed input/output composition
+│   │   ├── RewriteSemantics.v  # Exactness, precision, completeness
+│   │   └── PlanDag.v           # Ranked DAG and ordered provenance
+│   └── abi/
+│       └── OwnershipLifecycle.v # Retain/release and opaque ABI v1
 ├── tla/                # TLA+ specifications
 │   ├── RRWM.tla            # RRWM bounded accounting invariants
 │   ├── LazyComposition.tla # Lazy composition memory bounds
 │   ├── CascadeOrder.tla    # ASR cascade ordering invariants
+│   ├── OptimizerLifecycle.tla # Concurrent plan lifecycle
+│   ├── LazyWfstLifecycle.tla  # Cache policy transitions
+│   ├── AbiOwnershipLifecycle.tla # Opaque-handle ownership
 │   └── MC/                 # TLC model checking configurations
+├── smt/                # Z3 dual consistency/countermodel queries
+├── kani/               # Bit-precise bounded ABI ownership model
 └── doc/                # Documentation
     ├── proof-status.md     # Current verification status
     └── failed-strategies.md # Documentation of failed approaches
 ```
 
-## Building Coq Proofs
+## Running the formal gate
 
-The proofs use Coq 8.18 or later. To build:
-
-```bash
-# With resource limiting (recommended for memory-intensive proofs)
-systemd-run --user --scope -p MemoryMax=126G -p CPUQuota=1800% \
-  -p IOWeight=30 -p TasksMax=200 make -C proofs/coq -j1
-
-# Without resource limiting
-make -C proofs/coq
-```
-
-## Running TLA+ Model Checking
-
-TLA+ specifications use TLC for model checking:
+The proofs use Rocq 9.1 or later. Run every theorem, model, negative control,
+SMT query, and bounded ABI harness through the self-scoping gate:
 
 ```bash
-# Run all Rocq and TLA+ proof/model checks from the repository root
 make verify-proofs
-
-# Or run one TLC model directly
-tlc -metadir /tmp/lling-llang-tlc-rrwm \
-  -config proofs/tla/MC/RRWM.cfg proofs/tla/RRWM.tla
 ```
+
+Local execution requires user systemd. The gate enforces a 4 GiB RSS ceiling,
+disables swap, uses one Rocq job and one TLC worker, and imposes a 120-second
+timeout per TLC model. Kani runs in its own 2 GiB/no-swap scope with one job.
+Tool temporary files, model metadata, and evidence logs stay under ignored
+`target/formal-verification/` on persistent repository storage.
 
 ## Verification Goals
 
@@ -104,6 +105,16 @@ tlc -metadir /tmp/lling-llang-tlc-rrwm \
 - [x] RRWM bounded accounting invariants over finite TLC configs, plus an accounting mutant expected-failure check
 - [x] Lazy composition cache/worklist/LRU-order invariants over finite TLC configs, plus a no-cache mutant expected-failure check
 - [x] ASR cascade ordering invariants over finite TLC configs, including overlapping alphabets and an order mutant expected-failure check
+
+### Phase 5: Optimizer and ABI Contracts
+
+- [x] Separate input/output tape compatibility and typed morphism category laws
+- [x] Exact rewrite witnesses with independent precision and completeness axes
+- [x] Rank-certified finite plan DAG and ordered provenance commit
+- [x] Optimizer cancellation, budget, failure, completion, and publication lifecycle
+- [x] LazyWfst cache-policy transitions for CacheAll, LRU, zero-LRU, and NoCache
+- [x] Retain/clone/transfer/release ownership and opaque ABI v1 observation
+- [x] Z3 dual consistency/countermodel transcript and Kani/CBMC bounded ABI harnesses
 
 ## Verification Boundary
 

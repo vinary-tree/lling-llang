@@ -9,7 +9,10 @@ This document tracks the current formal verification surface for lling-llang.
 | Semiring Foundations | 9 | 9 | 0 | 0 |
 | WFST Definitions | 4 | 4 | 0 | 0 |
 | Algorithm Models | 4 | 4 partial-correctness/spec files | 0 | 0 |
-| TLA+ Specifications | 3 specs / 9 configs + 3 expected-failure mutants | 9 finite TLC configs | 3 expected failures | 0 |
+| Optimizer and ABI Rocq Contracts | 4 | 4 | 0 | 0 |
+| TLA+ Specifications | 7 specs / 13 configs + 7 expected-failure mutants | 13 finite TLC configs | 7 expected failures | 0 |
+| SMT Dual Checks | 1 transcript / 6 queries | 6 expected results | 1 constructive counterexample | 0 |
+| Kani ABI Models | 3 harnesses | 3 | 0 | 0 |
 
 ## Detailed Status
 
@@ -58,14 +61,31 @@ the finite real grid modeled in `Quantization.v`.
 | `RRWM.tla` | Finite TLC model | `TypeOK`, `RegretWithinAccountingHorizon`, `WeightsPositive`, `LossesBounded`, `TotalLossBounded`, `WeightsExact`, `RoundAccounting` | Bounded integer accounting model with nondeterministic expert choice; includes zero/single/multiple expert configs and an expected-failure stale-weight mutant; not the asymptotic regret theorem |
 | `LazyComposition.tla` | Finite TLC model | `MemoryBounded`, `CacheValid`, `WorklistValid`, `NoDuplicateProcessing`, `ProcessedValid`, `NoCacheEmpty`, `AccessOrderValid`, `CacheCoveredByAccessOrder` | Synthetic bounded multi-label/epsilon composition model with `CacheAll`, LRU eviction, and `NoCache` configs plus an expected-failure no-cache mutant |
 | `CascadeOrder.tla` | Finite TLC model | `AlphabetsCompatible`, `OrderingConstraints`, `NoRepetition`, `ValidCascade`, `PrefixValid` | Nondeterministic explicit-order component append model starting at AM; includes ordinary, fair, overlapping-alphabet configs and an expected-failure order mutant |
+| `AbiCompositionProtocol.tla` | Finite TLC model | `NoCallbackUnderRegWrite`, `RegisterMutualExclusion`, `CacheMutualExclusion`, `NeverBothLocks` | Three-thread provider-callback and registry/cache lock protocol plus callback-under-lock mutant |
+| `OptimizerLifecycle.tla` | Finite TLC model | ranked DAG, dependency readiness, no claim promotion, canonical provenance, terminal non-publication, witnessed/confirmed publication | 607 distinct states, depth 14, plus out-of-order provenance mutant |
+| `LazyWfstLifecycle.tla` | Finite TLC model | no-cache/zero-LRU emptiness, positive LRU bound, exact finite LRU order, transient uniqueness | 80 distinct states, depth 7, plus policy-change mutant |
+| `AbiOwnershipLifecycle.tla` | Finite TLC model | retain/owner equality, moved/released non-ownership, stable ABI v1 identity and observations | 912 distinct states, depth 13, plus non-decrementing release mutant |
+
+### Phase 5: Optimizer and ABI Contracts
+
+| Artifact | Status | Notes |
+|---|---|---|
+| `TapeSignatures.v` | Checked | Separate tape domains, typed identity/associativity, constructive erased-output counterexample |
+| `RewriteSemantics.v` | Checked | Exact rewrite equivalence/witnesses, independent precision/completeness axes, no self-promotion |
+| `PlanDag.v` | Checked | Strict-rank path theorem, acyclicity, stack-safe scheduling precondition, ordered commit |
+| `OwnershipLifecycle.v` | Checked | Partial release, retain/clone/drop/transfer laws, opaque ABI v1 observation |
+| `vco-e4-contracts.smt2` | Checked | Required result sequence `unsat`, `unsat`, `sat`, `unsat`, `unsat`, `unsat` |
+| `abi_ownership_model.rs` | Checked | Kani 0.67.0 / CBMC 6.8.0: 3 of 3 bounded harnesses successful |
 
 ## Last Updated
 
-2026-05-26
+2026-08-27
 
 ## Notes
 
 - Rocq files are required to build without unchecked proof escapes.
 - TLA+ specs include TLC config files under `proofs/tla/MC`.
 - Algorithm files contain checked specification predicates and partial-correctness theorems over the current finite, stable-closed, matrix-backed epsilon-closure, or product-matrix WFST language surface.
-- `make verify-proofs` runs the Rocq checks, all TLC configs, and expected-failure TLC mutants with metadata under `/tmp`.
+- `make verify-proofs` runs Rocq, every TLC config and expected-failure mutant,
+  the Z3 dual transcript, and Kani/CBMC under mandatory local systemd resource
+  caps. Persistent evidence lives under ignored `target/formal-verification/`.

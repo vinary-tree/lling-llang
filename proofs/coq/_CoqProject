@@ -40,6 +40,13 @@ abi/ProductRegistry.v
 abi/CompositionSemantics.v
 # Resource ABI: the sequencing epsilon-filter soundness
 abi/EpsilonFilterSoundness.v
+abi/OwnershipLifecycle.v
+
+# Categorical optimizer contracts
+optimizer/TapeSignatures.v
+optimizer/RewriteSemantics.v
+optimizer/PlanDag.v
+optimizer/Assumptions.v
 
 # ============================================================================
 # Hoisted symbolic-core proofs (Task #21 / ADR-018): the zero-admission Rocq

@@ -143,8 +143,12 @@ phase-by-phase implementation ledger are frozen historical records — see
 | Document | Description |
 |----------|-------------|
 | [Lookahead Tables](optimization/lookahead.md) | Pushing reachable weight to a pruning frontier |
+<!-- vdl-disable-next-line MATH010 -->
 | [N-gram Back-off](optimization/ngram-backoff.md) | Back-off $`P(w \mid h) = \lambda \cdot \hat{P}(w \mid h) + (1 - \lambda) \cdot P(w \mid h')`$ |
 | [Token Grouping](optimization/token-grouping.md) | LET-Decoder lazy-evaluation token grouping |
+| [Categorical Optimizer Contract](optimization/categorical-optimizer-contract.md) | Typed morphisms, exact rewrite witnesses, fibers, local monoids, ownership boundaries, and performance consequences |
+| [Plan, Concurrency, and Provenance](optimization/plan-and-provenance.md) | Rank-certified DAG syntax, stack-safe wavefront execution, budgets, cancellation, ordered commit, and publication |
+| [Formal Verification](optimization/formal-verification.md) | Rocq, TLA+/TLC, Z3, and Kani evidence with finite bounds, negative controls, and reproduction |
 
 ### Archive
 
@@ -182,6 +186,7 @@ Correction-layer implementations:
 | Document | Description |
 |----------|-------------|
 | [ABI Trust Model](security/abi-trust-model.md) | Foreign scalar-WFST providers as untrusted input: validation duties, the F1 case study, panic containment, threading trust, residual assumptions |
+| [Optimizer and ABI Contracts](security/optimizer-abi-contracts.md) | Threat model for tape compatibility, exactness claims, plan cycles, deterministic commit, budgets, cancellation, retains, and opaque ABI v1 layout |
 
 ### API reference
 
@@ -223,6 +228,7 @@ Correction-layer implementations:
 
 <details><summary>Text view</summary>
 
+<!-- vdl-disable-next-line ASCII001 -->
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                        Correction Layer Stack                           │
