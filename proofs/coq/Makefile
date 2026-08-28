@@ -18,16 +18,16 @@ $(COQMAKEFILE): _CoqProject
 clean:
 	if [ -f $(COQMAKEFILE) ]; then $(COQMAKE) clean; fi
 	rm -f $(COQMAKEFILE) $(COQMAKEFILE).conf
-	rm -f *.glob *.vo *.vok *.vos *.aux
-	rm -f foundations/*.glob foundations/*.vo foundations/*.vok foundations/*.vos foundations/*.aux
-	rm -f wfst/*.glob wfst/*.vo wfst/*.vok wfst/*.vos wfst/*.aux
-	rm -f algorithms/*.glob algorithms/*.vo algorithms/*.vok algorithms/*.vos algorithms/*.aux
-	rm -f abi/*.glob abi/*.vo abi/*.vok abi/*.vos abi/*.aux
-	rm -f optimizer/*.glob optimizer/*.vo optimizer/*.vok optimizer/*.vos optimizer/*.aux
-	rm -f logict/*.glob logict/*.vo logict/*.vok logict/*.vos logict/*.aux
-	rm -f presburger/*.glob presburger/*.vo presburger/*.vok presburger/*.vos presburger/*.aux
-	rm -f sft/*.glob sft/*.vo sft/*.vok sft/*.vos sft/*.aux
-	rm -f symbolic_algebra/*.glob symbolic_algebra/*.vo symbolic_algebra/*.vok symbolic_algebra/*.vos symbolic_algebra/*.aux
+	rm -f *.glob *.vo *.vok *.vos *.aux .*.aux .lia.cache .nia.cache .nra.cache
+	rm -f foundations/*.glob foundations/*.vo foundations/*.vok foundations/*.vos foundations/*.aux foundations/.*.aux
+	rm -f wfst/*.glob wfst/*.vo wfst/*.vok wfst/*.vos wfst/*.aux wfst/.*.aux
+	rm -f algorithms/*.glob algorithms/*.vo algorithms/*.vok algorithms/*.vos algorithms/*.aux algorithms/.*.aux
+	rm -f abi/*.glob abi/*.vo abi/*.vok abi/*.vos abi/*.aux abi/.*.aux
+	rm -f optimizer/*.glob optimizer/*.vo optimizer/*.vok optimizer/*.vos optimizer/*.aux optimizer/.*.aux
+	rm -f logict/*.glob logict/*.vo logict/*.vok logict/*.vos logict/*.aux logict/.*.aux
+	rm -f presburger/*.glob presburger/*.vo presburger/*.vok presburger/*.vos presburger/*.aux presburger/.*.aux
+	rm -f sft/*.glob sft/*.vo sft/*.vok sft/*.vos sft/*.aux sft/.*.aux
+	rm -f symbolic_algebra/*.glob symbolic_algebra/*.vo symbolic_algebra/*.vok symbolic_algebra/*.vos symbolic_algebra/*.aux symbolic_algebra/.*.aux
 
 force:
 	touch _CoqProject
