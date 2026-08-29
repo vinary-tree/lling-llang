@@ -46,6 +46,8 @@ abi/OwnershipLifecycle.v
 optimizer/TapeSignatures.v
 optimizer/RewriteSemantics.v
 optimizer/PlanDag.v
+domain_integration/FuzzyReference.v
+domain_integration/TypedHclg.v
 optimizer/Assumptions.v
 
 # ============================================================================

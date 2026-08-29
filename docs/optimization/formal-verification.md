@@ -59,6 +59,8 @@ assumption closure of representative theorems.
 | `optimizer/TapeSignatures.v` | Separate tape endpoints; signature identity and associativity; typed morphism associativity; constructive counterexample to input-only compatibility |
 | `optimizer/RewriteSemantics.v` | Reflexive, symmetric, transitive exact rewrite; composable proof witnesses; precision and completeness no-promotion; exact publication implies denotational preservation |
 | `optimizer/PlanDag.v` | Dependency paths strictly increase rank; valid plans are acyclic; no self edge; successful commit advances exactly once; out-of-order commit is rejected; existing provenance is a prefix after commit |
+| `domain_integration/FuzzyReference.v` | Exact indexed reference membership; same-index transport; independent confirmer soundness/completeness; complete accepted/reference equivalence; explicit exact/approximate/incomplete outcomes; stale-snapshot, changed-configuration, candidate-self-confirmation, and incomplete-feed countermodels |
+| `domain_integration/TypedHclg.v` | Semiring-equivalent weighted relations; typed composition and identity; denotational category laws; explicit weight-domain homomorphism obligations; left/right H/C/L/G parenthesization equivalence |
 | `abi/OwnershipLifecycle.v` | Initial retain count; release at zero rejected; retain then release neutral; transfer count preservation; opaque ABI v1 observational equivalence |
 
 ## Finite TLA+/TLC exploration
@@ -71,6 +73,7 @@ graph.
 | Model | Generated | Distinct | Depth | Principal invariants |
 |---|---:|---:|---:|---|
 | `OptimizerLifecycle.tla` | 831 | 607 | 14 | ranked DAG, dependency readiness, no precision/completeness promotion, canonical provenance prefix, terminal non-publication, exact confirmation |
+| `FuzzyReferenceLifecycle.tla` | 325 | 175 | 9 | immutable query-start snapshot, exact checked/reference intersection under arbitrary confirmation order, complete/incomplete coverage, no outcome promotion, exact/reference equality |
 | `LazyWfstLifecycle.tla` | 449 | 80 | 7 | no persistent entries for no-cache/zero-LRU, positive LRU capacity, exact finite LRU order, unique transient entry |
 | `AbiOwnershipLifecycle.tla` | 3,757 | 912 | 13 | retain count equals owned clients, moved/released clients do not own, ABI version and identity stable, private relayout unobservable |
 
@@ -93,6 +96,7 @@ gate.
 | RRWM uses stale expert losses | `WeightsExact` violation |
 | Cascade omits ordering constraint | `OrderingConstraints` violation |
 | Optimizer commits an arbitrary finished node | `ProvenanceIsCanonicalPrefix` violation |
+| Fuzzy confirmer accepts a non-reference candidate | `AcceptedExactlyCheckedReference` violation |
 | LazyWfst policy change retains cache in no-cache mode | `NoCacheHasNoPersistentEntries` violation |
 | ABI release fails to decrement retain count | `RetainsEqualOwners` violation |
 
@@ -115,6 +119,25 @@ input domains can coexist with an incompatible left output and right input.
 The unsatisfiable queries cover precision promotion, completeness promotion,
 release at zero under a positive-retain precondition, out-of-order successful
 commit, and publication after cancellation.
+
+`vco-e6-domain-contracts.smt2` adds seven independent fuzzy/H/C/L/G queries:
+
+```text
+unsat
+unsat
+sat
+unsat
+unsat
+sat
+unsat
+```
+
+The satisfiable cases are required countermodels: candidate membership can
+coexist with non-membership in the exact reference, and equal numeric label
+encodings can coexist with distinct tape-domain tags. The unsatisfiable cases
+block stale-snapshot publication, incomplete publication, certificate/reference
+disagreement, a missing H/C/L/G middle-tape equality, and non-associative
+reweighting under the assumed semiring law.
 
 ## Kani bounded ABI refinement
 
@@ -158,6 +181,13 @@ LazyWfst, and ABI types to these models. The present proofs do not claim:
 - asymptotic bounds for domain work inside a plan node;
 - that every indexed candidate feed is a fibration; or
 - that approximate and exact denotations are interchangeable.
+
+The E6 domain-integration registry adds 57 obligations in
+`proofs/doc/domain-integration-invariants.tsv`. Every Rocq theorem/lemma, every
+configured TLC invariant, and every named E6 SMT check maps to a unique planned
+Rust property or compile-fail test. The registry checker requires the state
+`required-red-before-production`; production adapter work cannot start until
+those tests exist and a genuine red baseline has been recorded.
 
 ## Reproduction
 

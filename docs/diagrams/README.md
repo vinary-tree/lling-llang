@@ -168,4 +168,6 @@ diagrams are added.)
 | `optimization/categorical-optimizer-contract.svg` | PlantUML | `optimization/categorical-optimizer-contract.md` |
 | `optimization/optimizer-lifecycle-state.svg` | PlantUML | `optimization/plan-and-provenance.md` |
 | `optimization/formal-evidence-stack.svg` | PlantUML | `optimization/formal-verification.md` |
+| `optimization/fuzzy-reference-contract.svg` | PlantUML | `optimization/domain-integration-contract.md` |
+| `optimization/hclg-typed-composition.svg` | PlantUML | `optimization/domain-integration-contract.md` |
 | `algorithms/*` · `asr/*` · `advanced/*` · `transducers/*` · `correction/*` | Graphviz / PlantUML / D2 / TikZ | the corresponding topic docs |

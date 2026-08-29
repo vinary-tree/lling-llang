@@ -103,6 +103,8 @@ make -C "$ROOT/proofs/coq" -j1 2>&1 | tee "$LOG_DIR/coq-build.log"
 # formal-only, a live regression test.
 python3 "$ROOT/scripts/check-abi-invariants.py" \
   2>&1 | tee "$LOG_DIR/abi-invariant-registry.log"
+python3 "$ROOT/scripts/check-domain-integration-invariants.py" \
+  2>&1 | tee "$LOG_DIR/domain-integration-invariant-registry.log"
 
 run_tlc rrwm "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWM.cfg"
 run_tlc rrwm-zero "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWMZeroExperts.cfg"
@@ -123,6 +125,9 @@ run_tlc cascade-overlap "$ROOT/proofs/tla/CascadeOrder.tla" "$ROOT/proofs/tla/MC
 run_tlc optimizer-lifecycle \
   "$ROOT/proofs/tla/OptimizerLifecycle.tla" \
   "$ROOT/proofs/tla/MC/OptimizerLifecycle.cfg"
+run_tlc fuzzy-reference-lifecycle \
+  "$ROOT/proofs/tla/FuzzyReferenceLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/FuzzyReferenceLifecycle.cfg"
 run_tlc lazy-wfst-lifecycle \
   "$ROOT/proofs/tla/LazyWfstLifecycle.tla" \
   "$ROOT/proofs/tla/MC/LazyWfstLifecycle.cfg"
@@ -137,6 +142,7 @@ mkdir -p \
   "$MUTANT_DIR/rrwm" \
   "$MUTANT_DIR/cascade" \
   "$MUTANT_DIR/optimizer" \
+  "$MUTANT_DIR/domain-integration" \
   "$MUTANT_DIR/lazy-wfst" \
   "$MUTANT_DIR/abi-ownership"
 
@@ -189,6 +195,17 @@ run_tlc_expect_failure optimizer-provenance-mutant \
   "$MUTANT_DIR/optimizer/OptimizerLifecycle.cfg" \
   "Invariant ProvenanceIsCanonicalPrefix is violated."
 
+cp "$ROOT/proofs/tla/FuzzyReferenceLifecycle.tla" \
+  "$MUTANT_DIR/domain-integration/FuzzyReferenceLifecycle.tla"
+cp "$ROOT/proofs/tla/MC/FuzzyReferenceLifecycle.cfg" \
+  "$MUTANT_DIR/domain-integration/FuzzyReferenceLifecycle.cfg"
+perl -0pi -e 's/ELSE accepted\n/ELSE accepted \\cup {term}\n/' \
+  "$MUTANT_DIR/domain-integration/FuzzyReferenceLifecycle.tla"
+run_tlc_expect_failure fuzzy-reference-confirmation-mutant \
+  "$MUTANT_DIR/domain-integration/FuzzyReferenceLifecycle.tla" \
+  "$MUTANT_DIR/domain-integration/FuzzyReferenceLifecycle.cfg" \
+  "Invariant AcceptedExactlyCheckedReference is violated."
+
 cp "$ROOT/proofs/tla/LazyWfstLifecycle.tla" \
   "$MUTANT_DIR/lazy-wfst/LazyWfstLifecycle.tla"
 cp "$ROOT/proofs/tla/MC/LazyWfstLifecycle.cfg" \
@@ -216,6 +233,12 @@ z3 "$ROOT/proofs/smt/vco-e4-contracts.smt2" \
 diff -u \
   "$ROOT/proofs/smt/vco-e4-contracts.expected" \
   "$LOG_DIR/z3-vco-e4-contracts.log"
+
+z3 "$ROOT/proofs/smt/vco-e6-domain-contracts.smt2" \
+  2>&1 | tee "$LOG_DIR/z3-vco-e6-domain-contracts.log"
+diff -u \
+  "$ROOT/proofs/smt/vco-e6-domain-contracts.expected" \
+  "$LOG_DIR/z3-vco-e6-domain-contracts.log"
 
 "$ROOT/proofs/verify-abi-bounded.sh"
 

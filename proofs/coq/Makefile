@@ -24,6 +24,7 @@ clean:
 	rm -f algorithms/*.glob algorithms/*.vo algorithms/*.vok algorithms/*.vos algorithms/*.aux algorithms/.*.aux
 	rm -f abi/*.glob abi/*.vo abi/*.vok abi/*.vos abi/*.aux abi/.*.aux
 	rm -f optimizer/*.glob optimizer/*.vo optimizer/*.vok optimizer/*.vos optimizer/*.aux optimizer/.*.aux
+	rm -f domain_integration/*.glob domain_integration/*.vo domain_integration/*.vok domain_integration/*.vos domain_integration/*.aux domain_integration/.*.aux
 	rm -f logict/*.glob logict/*.vo logict/*.vok logict/*.vos logict/*.aux logict/.*.aux
 	rm -f presburger/*.glob presburger/*.vo presburger/*.vok presburger/*.vos presburger/*.aux presburger/.*.aux
 	rm -f sft/*.glob sft/*.vo sft/*.vok sft/*.vos sft/*.aux sft/.*.aux

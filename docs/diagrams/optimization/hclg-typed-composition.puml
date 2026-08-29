@@ -1,0 +1,50 @@
+@startuml hclg-typed-composition
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam componentStyle rectangle
+skinparam ArrowColor #607D8B
+skinparam ArrowThickness 1.3
+
+title <b>Typed H/C/L/G composition</b>\n<size:11><i>middle tapes match statically; one semiring supplies path weights</i></size>
+
+rectangle "HMM-state sequence" as Hmm #FFE0B2
+component "H\nHMM topology" as H #FFE0B2
+rectangle "context-dependent\nphone sequence" as Cd #B2DFDB
+component "C\ncontext dependency" as C #B2DFDB
+rectangle "phone sequence" as Phone #BBDEFB
+component "L\nlexicon" as L #D5F5E3
+rectangle "word sequence" as WordA #FCF3CF
+component "G\ngrammar / LM" as G #FCF3CF
+rectangle "weighted word sequence" as WordB #C8E6C9
+
+Hmm --> H
+H --> Cd : exact output tape
+Cd --> C : exact input tape
+C --> Phone : exact output tape
+Phone --> L : exact input tape
+L --> WordA : exact output tape
+WordA --> G : exact input tape
+G --> WordB
+
+cloud "one semiring\n<latex>(W,\oplus,\otimes,\bar 0,\bar 1)</latex>" as Semiring #E1BEE7
+Semiring ..> H : weights
+Semiring ..> C : weights
+Semiring ..> L : weights
+Semiring ..> G : weights
+
+note bottom #FFCDD2
+  <latex>(((H\circ C)\circ L)\circ G) \simeq H\circ(C\circ(L\circ G))</latex>\n
+  only at denotation level and only under the semiring laws.
+end note
+
+legend right
+  |<#FFE0B2> acoustic / HMM domain |
+  |<#B2DFDB> context-dependent domain |
+  |<#BBDEFB> phone domain |
+  |<#D5F5E3> lexicon boundary |
+  |<#FCF3CF> word / language-model domain |
+  |<#E1BEE7> weight algebra |
+  |<#FFCDD2> proved reassociation law |
+endlegend
+@enduml
