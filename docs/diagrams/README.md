@@ -173,4 +173,6 @@ diagrams are added.)
 | `optimization/libcpg-integration-boundaries.svg` | PlantUML | `optimization/libcpg-assurance-contract.md` |
 | `optimization/libcpg-evidence-lifecycle.svg` | PlantUML | `security/libcpg-evidence-trust-model.md` |
 | `optimization/libcpg-refinement-gate.svg` | PlantUML | `optimization/libcpg-assurance-contract.md`, `integration/external/libcpg.md` |
+| `optimization/provider-boundary-architecture.svg` | PlantUML | `optimization/provider-boundary-contract.md` |
+| `optimization/provider-result-lifecycle.svg` | PlantUML | `optimization/provider-boundary-contract.md` |
 | `algorithms/*` · `asr/*` · `advanced/*` · `transducers/*` · `correction/*` | Graphviz / PlantUML / D2 / TikZ | the corresponding topic docs |

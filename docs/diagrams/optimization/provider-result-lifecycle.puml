@@ -1,0 +1,57 @@
+@startuml provider-result-lifecycle
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #37474F
+skinparam ArrowThickness 1.5
+skinparam state {
+  BackgroundColor #E3F2FD
+  BorderColor #1565C0
+  FontColor #102027
+}
+
+title <b>Provider result and assurance lifecycle</b>\n<size:11><i>classification is preserved; exactness requires independent authority</i></size>
+
+[*] --> Registered
+Registered --> Captured : capture immutable binding\nborrow opaque handle
+Captured --> Returned : provider returns\nExact | Approximate | Incomplete
+Returned --> Adapted : map payload only\npreserve status and limitations
+Adapted --> Guaranteed : bind guarantee to exact identity
+
+state Guaranteed {
+  state "fresh?" as Fresh #FFF9C4
+  state "trusted?" as Trusted #FFE0B2
+  state "independent control domain?" as Independent #F8BBD0
+  Fresh --> Trusted
+  Trusted --> Independent
+}
+
+Guaranteed --> PublishedExact : exact + fresh + trusted + independent
+Guaranteed --> PublishedApproximate : approximate + limitations
+Guaranteed --> PublishedIncomplete : incomplete + reason/checkpoint
+Guaranteed --> Rejected : stale | untrusted | dependent | invalid
+
+PublishedExact --> Released : cache exact; release borrow
+PublishedApproximate --> Released : cache approximate; release borrow
+PublishedIncomplete --> Released : never cache; release borrow
+Rejected --> Released : never cache; release borrow
+Released --> [*]
+
+state PublishedExact #C8E6C9
+state PublishedApproximate #FFF59D
+state PublishedIncomplete #FFCCBC
+state Rejected #EF9A9A
+state Released #D1C4E9
+
+note right of Adapted
+  Forbidden mutations:
+  Incomplete -> Exact
+  Approximate -> Exact
+  drop limitations
+end note
+
+note right of PublishedExact
+  Actor-name inequality is insufficient.
+  Policy-level control domains must differ.
+end note
+@enduml

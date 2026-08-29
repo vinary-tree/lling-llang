@@ -9,9 +9,9 @@ This document tracks the current formal verification surface for lling-llang.
 | Semiring Foundations | 9 | 9 | 0 | 0 |
 | WFST Definitions | 4 | 4 | 0 | 0 |
 | Algorithm Models | 4 | 4 partial-correctness/spec files | 0 | 0 |
-| Campaign Rocq Contracts | 9 | 9 | 0 | 0 |
-| TLA+ Specifications | 9 specs / 15 configs + 9 expected-failure mutants | 15 finite TLC configs | 9 expected failures | 0 |
-| SMT Dual Checks | 3 transcripts / 26 queries | 26 expected results | 4 satisfiable witnesses/countermodels | 0 |
+| Campaign Rocq Contracts | 12 | 12 | 0 | 0 |
+| TLA+ Specifications | 10 specs / 16 configs + 12 expected-failure mutants | 16 finite TLC configs | 12 expected failures | 0 |
+| SMT Dual Checks | 4 transcripts / 41 queries | 41 expected results | 6 satisfiable witnesses/countermodels | 0 |
 | Kani ABI Models | 3 harnesses | 3 | 0 | 0 |
 
 ## Detailed Status
@@ -67,6 +67,7 @@ the finite real grid modeled in `Quantization.v`.
 | `LibcpgEvidenceLifecycle.tla` | Finite TLC model | immutable five-coordinate index, digest/trust/independence binding, stale/self/dependent rejection, no outcome promotion | 2,721 distinct states, depth 10, plus dependent-evidence mutant with distinct actor names |
 | `LazyWfstLifecycle.tla` | Finite TLC model | no-cache/zero-LRU emptiness, positive LRU bound, exact finite LRU order, transient uniqueness | 80 distinct states, depth 7, plus policy-change mutant |
 | `AbiOwnershipLifecycle.tla` | Finite TLC model | retain/owner equality, moved/released non-ownership, stable ABI v1 identity and observations | 912 distinct states, depth 13, plus non-decrementing release mutant |
+| `ProviderBoundaryLifecycle.tla` | Finite TLC model | immutable capture, status/limitation preservation, exact-evidence freshness, control-domain independence, cache isolation, balanced native ownership | 1,409 distinct states, depth 11, plus status-promotion, limitation-loss, and dependent-guarantee mutants |
 
 ### Phase 5: Optimizer and ABI Contracts
 
@@ -79,7 +80,7 @@ the finite real grid modeled in `Quantization.v`.
 | `vco-e4-contracts.smt2` | Checked | Required result sequence `unsat`, `unsat`, `sat`, `unsat`, `unsat`, `unsat` |
 | `abi_ownership_model.rs` | Checked | Kani 0.67.0 / CBMC 6.8.0: 3 of 3 bounded harnesses successful |
 
-### Phase 6: Domain and libcpg Integration Contracts
+### Phase 6: Domain, libcpg, and Provider Boundary Contracts
 
 | Artifact | Status | Notes |
 |---|---|---|
@@ -92,7 +93,12 @@ the finite real grid modeled in `Quantization.v`.
 | `vco-e7-libcpg-assurance.smt2` | Checked | Twelve forbidden claims are unsatisfiable; the all-premises exact witness is satisfiable |
 | `domain-integration-invariants.tsv` | Checked | 57 E6 formal-to-property obligations |
 | `libcpg-assurance-invariants.tsv` | Checked | 122 exhaustive E7 declaration/check-to-property obligations, all required red before production |
-| Rocq assumption audit | Checked | Every selected E4/E6/E7 theorem is closed under the global context; no global axioms are reported |
+| `ProviderResult.v` | Checked | Three completion classes, functorial payload mapping, non-promoting associative status composition, limitation accumulation, cache eligibility, finite control |
+| `CanonicalArtifact.v` | Checked | Permutation/duplicate-invariant finite manifests, digest/size tamper rejection, complete provider identity, six-coordinate evidence freshness |
+| `ProviderBoundary.v` | Checked | Control-domain independence, stale/dependent/self rejection, one-way public dependency, private-access rejection, stable native ownership |
+| `vco-e9-provider-boundary.smt2` | Checked | Thirteen forbidden claims are unsatisfiable; exact and approximate valid witnesses are satisfiable |
+| `provider-boundary-invariants.tsv` | Checked | 132 exhaustive E9 declaration/check-to-property obligations, all required red before production |
+| Rocq assumption audit | Checked | Every selected E4/E6/E7/E9 theorem is closed under the global context; no global axioms are reported |
 
 ## Last Updated
 
@@ -107,6 +113,6 @@ the finite real grid modeled in `Quantization.v`.
 - TLA+ specs include TLC config files under `proofs/tla/MC`.
 - Algorithm files contain checked specification predicates and partial-correctness theorems over the current finite, stable-closed, matrix-backed epsilon-closure, or product-matrix WFST language surface.
 - `make verify-proofs` runs Rocq, every TLC config and expected-failure mutant,
-  all three Z3 transcripts, and Kani/CBMC under mandatory local systemd
+  all four Z3 transcripts, and Kani/CBMC under mandatory local systemd
   resource caps. Java runs headlessly. Persistent evidence lives under ignored
   `target/formal-verification/`.

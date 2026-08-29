@@ -39,7 +39,10 @@ proofs/
 │   │   ├── TypedHclg.v         # Typed H/C/L/G composition
 │   │   ├── DataflowMigration.v # llattice v2 adapter and convergence laws
 │   │   ├── GraphQuotient.v     # SCC quotient, renaming, and work bounds
-│   │   └── EvidenceAssurance.v # Fresh, bound, independent exact evidence
+│   │   ├── EvidenceAssurance.v # Fresh, bound, independent exact evidence
+│   │   ├── ProviderResult.v    # Non-promoting provider-result algebra
+│   │   ├── CanonicalArtifact.v # Canonical manifests and evidence identity
+│   │   └── ProviderBoundary.v  # Independence, dependency, and ownership laws
 │   └── abi/
 │       └── OwnershipLifecycle.v # Retain/release and opaque ABI v1
 ├── tla/                # TLA+ specifications
@@ -50,11 +53,13 @@ proofs/
 │   ├── LazyWfstLifecycle.tla  # Cache policy transitions
 │   ├── AbiOwnershipLifecycle.tla # Opaque-handle ownership
 │   ├── LibcpgEvidenceLifecycle.tla # Candidate/guarantee publication
+│   ├── ProviderBoundaryLifecycle.tla # Generic result/evidence/handle lifecycle
 │   └── MC/                 # TLC model checking configurations
 ├── smt/                # Z3 dual consistency/countermodel queries
 ├── kani/               # Bit-precise bounded ABI ownership model
 └── doc/                # Documentation
     ├── libcpg-assurance-invariants.tsv # 122 E7 formal/property mappings
+    ├── provider-boundary-invariants.tsv # 132 E9 formal/property mappings
     ├── proof-status.md     # Current verification status
     └── failed-strategies.md # Documentation of failed approaches
 ```
@@ -191,6 +196,10 @@ Tool temporary files, model metadata, and evidence logs stay under ignored
 - The E7 formal baseline proves contracts, not the concrete libcpg/libvgraph/
   llattice v2 adapter refinement. The 122 registered Rust properties must
   record a genuine red baseline before production migration and pass afterward.
+- The E9 formal baseline is provider-neutral. It does not place lling-llang
+  inside libcpg or create a reverse dependency. Its 132 properties must record
+  a genuine red baseline before provider-adapter production work and pass
+  afterward.
 
 ## Floating-Point Strategy
 

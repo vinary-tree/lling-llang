@@ -107,6 +107,8 @@ python3 "$ROOT/scripts/check-domain-integration-invariants.py" \
   2>&1 | tee "$LOG_DIR/domain-integration-invariant-registry.log"
 python3 "$ROOT/scripts/check-libcpg-assurance-invariants.py" \
   2>&1 | tee "$LOG_DIR/libcpg-assurance-invariant-registry.log"
+python3 "$ROOT/scripts/check-provider-boundary-invariants.py" \
+  2>&1 | tee "$LOG_DIR/provider-boundary-invariant-registry.log"
 
 run_tlc rrwm "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWM.cfg"
 run_tlc rrwm-zero "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWMZeroExperts.cfg"
@@ -133,6 +135,9 @@ run_tlc fuzzy-reference-lifecycle \
 run_tlc libcpg-evidence-lifecycle \
   "$ROOT/proofs/tla/LibcpgEvidenceLifecycle.tla" \
   "$ROOT/proofs/tla/MC/LibcpgEvidenceLifecycle.cfg"
+run_tlc provider-boundary-lifecycle \
+  "$ROOT/proofs/tla/ProviderBoundaryLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/ProviderBoundaryLifecycle.cfg"
 run_tlc lazy-wfst-lifecycle \
   "$ROOT/proofs/tla/LazyWfstLifecycle.tla" \
   "$ROOT/proofs/tla/MC/LazyWfstLifecycle.cfg"
@@ -149,6 +154,9 @@ mkdir -p \
   "$MUTANT_DIR/optimizer" \
   "$MUTANT_DIR/domain-integration" \
   "$MUTANT_DIR/libcpg-evidence" \
+  "$MUTANT_DIR/provider-status" \
+  "$MUTANT_DIR/provider-limitations" \
+  "$MUTANT_DIR/provider-independence" \
   "$MUTANT_DIR/lazy-wfst" \
   "$MUTANT_DIR/abi-ownership"
 
@@ -223,6 +231,39 @@ run_tlc_expect_failure libcpg-dependent-evidence-mutant \
   "$MUTANT_DIR/libcpg-evidence/LibcpgEvidenceLifecycle.cfg" \
   "Invariant DependentGuaranteeBlocksExact is violated."
 
+cp "$ROOT/proofs/tla/ProviderBoundaryLifecycle.tla" \
+  "$MUTANT_DIR/provider-status/ProviderBoundaryLifecycle.tla"
+cp "$ROOT/proofs/tla/MC/ProviderBoundaryLifecycle.cfg" \
+  "$MUTANT_DIR/provider-status/ProviderBoundaryLifecycle.cfg"
+perl -0pi -e "s/adaptedStatus' = originalStatus/adaptedStatus' = IF originalStatus = \"Incomplete\" THEN \"CompleteExact\" ELSE originalStatus/" \
+  "$MUTANT_DIR/provider-status/ProviderBoundaryLifecycle.tla"
+run_tlc_expect_failure provider-status-promotion-mutant \
+  "$MUTANT_DIR/provider-status/ProviderBoundaryLifecycle.tla" \
+  "$MUTANT_DIR/provider-status/ProviderBoundaryLifecycle.cfg" \
+  "Invariant AdaptationPreservesStatus is violated."
+
+cp "$ROOT/proofs/tla/ProviderBoundaryLifecycle.tla" \
+  "$MUTANT_DIR/provider-limitations/ProviderBoundaryLifecycle.tla"
+cp "$ROOT/proofs/tla/MC/ProviderBoundaryLifecycle.cfg" \
+  "$MUTANT_DIR/provider-limitations/ProviderBoundaryLifecycle.cfg"
+perl -0pi -e "s/adaptedLimitations' = originalLimitations/adaptedLimitations' = \"None\"/" \
+  "$MUTANT_DIR/provider-limitations/ProviderBoundaryLifecycle.tla"
+run_tlc_expect_failure provider-limitation-loss-mutant \
+  "$MUTANT_DIR/provider-limitations/ProviderBoundaryLifecycle.tla" \
+  "$MUTANT_DIR/provider-limitations/ProviderBoundaryLifecycle.cfg" \
+  "Invariant AdaptationPreservesLimitations is violated."
+
+cp "$ROOT/proofs/tla/ProviderBoundaryLifecycle.tla" \
+  "$MUTANT_DIR/provider-independence/ProviderBoundaryLifecycle.tla"
+cp "$ROOT/proofs/tla/MC/ProviderBoundaryLifecycle.cfg" \
+  "$MUTANT_DIR/provider-independence/ProviderBoundaryLifecycle.cfg"
+perl -0pi -e 's|  /\\ guaranteeDomain # ProducerDomain|  /\\ guaranteeActor # ProducerActor|' \
+  "$MUTANT_DIR/provider-independence/ProviderBoundaryLifecycle.tla"
+run_tlc_expect_failure provider-dependent-guarantee-mutant \
+  "$MUTANT_DIR/provider-independence/ProviderBoundaryLifecycle.tla" \
+  "$MUTANT_DIR/provider-independence/ProviderBoundaryLifecycle.cfg" \
+  "Invariant DependentGuaranteeBlocksExact is violated."
+
 cp "$ROOT/proofs/tla/LazyWfstLifecycle.tla" \
   "$MUTANT_DIR/lazy-wfst/LazyWfstLifecycle.tla"
 cp "$ROOT/proofs/tla/MC/LazyWfstLifecycle.cfg" \
@@ -262,6 +303,12 @@ z3 "$ROOT/proofs/smt/vco-e7-libcpg-assurance.smt2" \
 diff -u \
   "$ROOT/proofs/smt/vco-e7-libcpg-assurance.expected" \
   "$LOG_DIR/z3-vco-e7-libcpg-assurance.log"
+
+z3 "$ROOT/proofs/smt/vco-e9-provider-boundary.smt2" \
+  2>&1 | tee "$LOG_DIR/z3-vco-e9-provider-boundary.log"
+diff -u \
+  "$ROOT/proofs/smt/vco-e9-provider-boundary.expected" \
+  "$LOG_DIR/z3-vco-e9-provider-boundary.log"
 
 "$ROOT/proofs/verify-abi-bounded.sh"
 

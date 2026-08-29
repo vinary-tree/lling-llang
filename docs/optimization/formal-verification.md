@@ -64,6 +64,9 @@ assumption closure of representative theorems.
 | `domain_integration/DataflowMigration.v` | Join-derived partial order and least-upper-bound laws; exact `join_assign` value/change flag; IFDS order reversal; explicit default-bottom bridge; permutation/duplicate invariance; stable-output uniqueness; resource-cap monotonicity; finite heap-worklist control |
 | `domain_integration/GraphQuotient.v` | Total, nonempty, disjoint SCC fibers; exact quotient/original-edge witnesses; no self edges; acyclic condensation; vertex/component renaming equivariance; strict linear validated-CSR import charge; finite adapter control |
 | `domain_integration/EvidenceAssurance.v` | Five-coordinate evidence identity; exact accepted/reference equality; field-by-field stale rejection; digest/trust/independence binding; self-confirmation rejection; no precision/completeness promotion; finite validation control |
+| `domain_integration/ProviderResult.v` | Exact/approximate/incomplete sum type; functorial payload mapping that preserves status, limitations, checkpoint, validity, and cache eligibility; conservative associative composition; finite control |
+| `domain_integration/CanonicalArtifact.v` | Permutation/duplicate-invariant finite manifests; digest/size tamper rejection; complete provider-descriptor identity; six-coordinate evidence-binding equivalence and staleness |
+| `domain_integration/ProviderBoundary.v` | Control-domain independence; exact-publication rejection for approximate, incomplete, stale, untrusted, dependent, and self-confirmed reports; one-way public dependency; native ownership |
 | `abi/OwnershipLifecycle.v` | Initial retain count; release at zero rejected; retain then release neutral; transfer count preservation; opaque ABI v1 observational equivalence |
 
 ## Finite TLA+/TLC exploration
@@ -80,6 +83,7 @@ graph.
 | `LibcpgEvidenceLifecycle.tla` | 7,570 | 2,721 | 10 | immutable evidence capture; exact publication requires five-coordinate freshness, digest binding, trust, independence, and distinct producer/verifier; stale, dependent, self, approximate, and incomplete rejection |
 | `LazyWfstLifecycle.tla` | 449 | 80 | 7 | no persistent entries for no-cache/zero-LRU, positive LRU capacity, exact finite LRU order, unique transient entry |
 | `AbiOwnershipLifecycle.tla` | 3,757 | 912 | 13 | retain count equals owned clients, moved/released clients do not own, ABI version and identity stable, private relayout unobservable |
+| `ProviderBoundaryLifecycle.tla` | 65,858 | 1,409 | 11 | immutable capture; status/limitation preservation; fresh trusted independent exact evidence; complete-only caches; balanced native ownership |
 
 The LazyWfst model deliberately represents LRU order as a finite sequence. An
 earlier timestamp encoding introduced irrelevant unbounded clock symmetry and
@@ -104,6 +108,9 @@ gate.
 | libcpg exact publication omits the independence predicate while actor names remain distinct | `DependentGuaranteeBlocksExact` violation |
 | LazyWfst policy change retains cache in no-cache mode | `NoCacheHasNoPersistentEntries` violation |
 | ABI release fails to decrement retain count | `RetainsEqualOwners` violation |
+| Provider adapter promotes incomplete to exact | `AdaptationPreservesStatus` violation |
+| Provider adapter discards approximation limitations | `AdaptationPreservesLimitations` violation |
+| Exact publication substitutes actor inequality for control-domain independence | `DependentGuaranteeBlocksExact` violation |
 
 ## Z3 dual transcript
 
@@ -170,6 +177,33 @@ flags, canonical merging, quotient self/exactness, linear CSR work, all stale
 coordinates, digest/trust binding, dependence, self-confirmation, and
 precision/completeness promotion.
 
+`vco-e9-provider-boundary.smt2` adds fifteen provider-neutral queries:
+
+```text
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+sat
+sat
+```
+
+The unsatisfiable queries cover incomplete and approximate promotion,
+incomplete caching, limitation loss, exact composition, canonical manifest
+stability, stale identity, dependent guarantees, misleading actor-name
+inequality, reverse/private dependencies, release underflow, and owner
+mutation. The satisfiable queries prove that valid exact and approximate
+results remain publishable, preventing a vacuous always-reject contract.
+
 ## Kani bounded ABI refinement
 
 `proofs/kani/abi_ownership_model.rs` contains three harnesses:
@@ -225,9 +259,17 @@ The E7 libcpg-assurance registry adds 122 obligations in
 every named Rocq definition, record, inductive type, theorem, and lemma in the
 three E7 files, every configured libcpg TLC invariant, and every named E7 SMT
 query. Each maps to one unique required-red Rust property. Production libcpg,
-llattice v2, libvgraph, lling-llang integration, and assurance-adapter work
-remains blocked until those tests exist and the intended red evidence is
-recorded.
+llattice v2, libvgraph, optional libcpg adapters that consume lling-llang's
+public API, and assurance-adapter work remains blocked until those tests exist
+and the intended red evidence is recorded. lling-llang remains independent and
+does not depend on libcpg.
+
+The E9 provider-boundary registry adds 132 obligations in
+`proofs/doc/provider-boundary-invariants.tsv`. Its checker is exhaustive over
+the three provider-neutral Rocq modules, the provider lifecycle configuration,
+and the E9 Z3 transcript. These obligations govern generic Vinary foundation
+adapters; they do not assign either lling-llang or libcpg ownership of the
+other.
 
 ## Reproduction
 
