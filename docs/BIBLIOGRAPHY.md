@@ -30,6 +30,29 @@ fabricate a DOI**.
   [https://doi.org/10.48550/arXiv.2607.01504](https://doi.org/10.48550/arXiv.2607.01504)
   *(DataCite DOI and venue metadata re-verified 2026-08-27.)*
 
+## Program analysis and graph algorithms
+
+- <a id="ref-kildall1973"></a>**[Kildall 1973]** Kildall, G. A. (1973).
+  *A Unified Approach to Global Program Optimization.* POPL '73:194–206.
+  [https://doi.org/10.1145/512927.512945](https://doi.org/10.1145/512927.512945)
+  *(DOI and ACM metadata re-verified 2026-08-29.)*
+- <a id="ref-cousot1977"></a>**[Cousot & Cousot 1977]** Cousot, P., &
+  Cousot, R. (1977). *Abstract Interpretation: A Unified Lattice Model for
+  Static Analysis of Programs by Construction or Approximation of Fixpoints.*
+  POPL '77:238–252.
+  [https://doi.org/10.1145/512950.512973](https://doi.org/10.1145/512950.512973)
+  *(DOI and ACM metadata re-verified 2026-08-29.)*
+- <a id="ref-tarjan1972"></a>**[Tarjan 1972]** Tarjan, R. E. (1972).
+  *Depth-First Search and Linear Graph Algorithms.* SIAM Journal on Computing
+  1(2):146–160.
+  [https://doi.org/10.1137/0201010](https://doi.org/10.1137/0201010)
+  *(DOI and SIAM metadata re-verified 2026-08-29.)*
+- <a id="ref-reps1995"></a>**[Reps, Horwitz & Sagiv 1995]** Reps, T. W.,
+  Horwitz, S., & Sagiv, S. (1995). *Precise Interprocedural Dataflow Analysis
+  via Graph Reachability.* POPL '95:49–61.
+  [https://doi.org/10.1145/199448.199462](https://doi.org/10.1145/199448.199462)
+  *(DOI and ACM metadata re-verified 2026-08-29.)*
+
 ## Weighted automata & parsing foundations
 
 - <a id="ref-mohri2002"></a>**[Mohri 2002]** Mohri, M., Pereira, F., & Riley, M. (2002).

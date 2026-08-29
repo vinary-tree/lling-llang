@@ -30,7 +30,9 @@ TEMP_ROOT="$REPO_ROOT/target/docs-diagrams/tmp"
 mkdir -p "$TEMP_ROOT"
 export TMPDIR="$TEMP_ROOT"
 if [[ "${JAVA_TOOL_OPTIONS:-}" != *"-Djava.io.tmpdir="* ]]; then
-  export JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$TEMP_ROOT ${JAVA_TOOL_OPTIONS:-}"
+  export JAVA_TOOL_OPTIONS="-Djava.awt.headless=true -Djava.io.tmpdir=$TEMP_ROOT ${JAVA_TOOL_OPTIONS:-}"
+elif [[ "${JAVA_TOOL_OPTIONS:-}" != *"-Djava.awt.headless=true"* ]]; then
+  export JAVA_TOOL_OPTIONS="-Djava.awt.headless=true ${JAVA_TOOL_OPTIONS:-}"
 fi
 
 if [[ "${LLING_LLANG_DIAGRAMS_SCOPED:-0}" != "1" ]]; then
@@ -40,7 +42,7 @@ if [[ "${LLING_LLANG_DIAGRAMS_SCOPED:-0}" != "1" ]]; then
       -p MemoryMax=4G -p MemorySwapMax=0 -p CPUQuota=300% -p TasksMax=64 \
       --setenv=LLING_LLANG_DIAGRAMS_SCOPED=1 \
       --setenv=TMPDIR="$TEMP_ROOT" \
-      --setenv=JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$TEMP_ROOT" \
+      --setenv=JAVA_TOOL_OPTIONS="-Djava.awt.headless=true -Djava.io.tmpdir=$TEMP_ROOT" \
       bash "$0" "$@"
   fi
 

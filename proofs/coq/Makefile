@@ -37,9 +37,4 @@ force:
 # Check for Admitted proofs (CI integration)
 proof-check:
 	@echo "Checking for unchecked proof escapes..."
-	@if rg -n "^[[:space:]]*(Admitted|Abort)\.|^[[:space:]]*(Axiom|Conjecture|Parameter)[[:space:]]|\\badmit\.|True[[:space:]]*\\(\\*|True\." foundations wfst algorithms abi optimizer logict presburger sft symbolic_algebra; then \
-		echo "ERROR: Found unchecked or vacuous proof escapes."; \
-		exit 1; \
-	else \
-		echo "No unchecked proof escapes found."; \
-	fi
+	@python3 ../../scripts/check-rocq-proof-escapes.py

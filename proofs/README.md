@@ -34,6 +34,12 @@ proofs/
 │   │   ├── TapeSignatures.v    # Typed input/output composition
 │   │   ├── RewriteSemantics.v  # Exactness, precision, completeness
 │   │   └── PlanDag.v           # Ranked DAG and ordered provenance
+│   ├── domain_integration/
+│   │   ├── FuzzyReference.v    # Indexed fuzzy-reference denotation
+│   │   ├── TypedHclg.v         # Typed H/C/L/G composition
+│   │   ├── DataflowMigration.v # llattice v2 adapter and convergence laws
+│   │   ├── GraphQuotient.v     # SCC quotient, renaming, and work bounds
+│   │   └── EvidenceAssurance.v # Fresh, bound, independent exact evidence
 │   └── abi/
 │       └── OwnershipLifecycle.v # Retain/release and opaque ABI v1
 ├── tla/                # TLA+ specifications
@@ -43,10 +49,12 @@ proofs/
 │   ├── OptimizerLifecycle.tla # Concurrent plan lifecycle
 │   ├── LazyWfstLifecycle.tla  # Cache policy transitions
 │   ├── AbiOwnershipLifecycle.tla # Opaque-handle ownership
+│   ├── LibcpgEvidenceLifecycle.tla # Candidate/guarantee publication
 │   └── MC/                 # TLC model checking configurations
 ├── smt/                # Z3 dual consistency/countermodel queries
 ├── kani/               # Bit-precise bounded ABI ownership model
 └── doc/                # Documentation
+    ├── libcpg-assurance-invariants.tsv # 122 E7 formal/property mappings
     ├── proof-status.md     # Current verification status
     └── failed-strategies.md # Documentation of failed approaches
 ```
@@ -116,6 +124,18 @@ Tool temporary files, model metadata, and evidence logs stay under ignored
 - [x] Retain/clone/transfer/release ownership and opaque ABI v1 observation
 - [x] Z3 dual consistency/countermodel transcript and Kani/CBMC bounded ABI harnesses
 
+### Phase 6: Domain and libcpg Integration Contracts
+
+- [x] Indexed fuzzy-reference and typed H/C/L/G denotations
+- [x] llattice v2 join/order/subsumption migration and explicit bottom bridge
+- [x] deterministic fixed-point completion and resource-cap monotonicity
+- [x] exact SCC quotient fibers, condensation acyclicity, and renaming equivariance
+- [x] strict linear CSR import charge and finite heap-owned control
+- [x] five-coordinate evidence freshness, digest binding, trust, and independence
+- [x] positive libcpg evidence lifecycle plus required dependent-evidence mutant
+- [x] 13-query E7 Z3 transcript with a nonvacuous valid witness
+- [x] exhaustive 122-obligation required-red Rust property registry
+
 ## Verification Boundary
 
 - Rocq WFST language proofs include exact finite path enumerations plus
@@ -168,6 +188,9 @@ Tool temporary files, model metadata, and evidence logs stay under ignored
 - TLA+ files are finite model checks. They are useful for catching state-machine
   mistakes; asymptotic mathematical claims must be stated and checked as
   separate theorems.
+- The E7 formal baseline proves contracts, not the concrete libcpg/libvgraph/
+  llattice v2 adapter refinement. The 122 registered Rust properties must
+  record a genuine red baseline before production migration and pass afterward.
 
 ## Floating-Point Strategy
 

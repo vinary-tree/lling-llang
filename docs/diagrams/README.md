@@ -170,4 +170,7 @@ diagrams are added.)
 | `optimization/formal-evidence-stack.svg` | PlantUML | `optimization/formal-verification.md` |
 | `optimization/fuzzy-reference-contract.svg` | PlantUML | `optimization/domain-integration-contract.md` |
 | `optimization/hclg-typed-composition.svg` | PlantUML | `optimization/domain-integration-contract.md` |
+| `optimization/libcpg-integration-boundaries.svg` | PlantUML | `optimization/libcpg-assurance-contract.md` |
+| `optimization/libcpg-evidence-lifecycle.svg` | PlantUML | `security/libcpg-evidence-trust-model.md` |
+| `optimization/libcpg-refinement-gate.svg` | PlantUML | `optimization/libcpg-assurance-contract.md`, `integration/external/libcpg.md` |
 | `algorithms/*` · `asr/*` · `advanced/*` · `transducers/*` · `correction/*` | Graphviz / PlantUML / D2 / TikZ | the corresponding topic docs |

@@ -48,6 +48,9 @@ optimizer/RewriteSemantics.v
 optimizer/PlanDag.v
 domain_integration/FuzzyReference.v
 domain_integration/TypedHclg.v
+domain_integration/DataflowMigration.v
+domain_integration/GraphQuotient.v
+domain_integration/EvidenceAssurance.v
 optimizer/Assumptions.v
 
 # ============================================================================

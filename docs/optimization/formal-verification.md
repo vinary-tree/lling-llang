@@ -61,6 +61,9 @@ assumption closure of representative theorems.
 | `optimizer/PlanDag.v` | Dependency paths strictly increase rank; valid plans are acyclic; no self edge; successful commit advances exactly once; out-of-order commit is rejected; existing provenance is a prefix after commit |
 | `domain_integration/FuzzyReference.v` | Exact indexed reference membership; same-index transport; independent confirmer soundness/completeness; complete accepted/reference equivalence; explicit exact/approximate/incomplete outcomes; stale-snapshot, changed-configuration, candidate-self-confirmation, and incomplete-feed countermodels |
 | `domain_integration/TypedHclg.v` | Semiring-equivalent weighted relations; typed composition and identity; denotational category laws; explicit weight-domain homomorphism obligations; left/right H/C/L/G parenthesization equivalence |
+| `domain_integration/DataflowMigration.v` | Join-derived partial order and least-upper-bound laws; exact `join_assign` value/change flag; IFDS order reversal; explicit default-bottom bridge; permutation/duplicate invariance; stable-output uniqueness; resource-cap monotonicity; finite heap-worklist control |
+| `domain_integration/GraphQuotient.v` | Total, nonempty, disjoint SCC fibers; exact quotient/original-edge witnesses; no self edges; acyclic condensation; vertex/component renaming equivariance; strict linear validated-CSR import charge; finite adapter control |
+| `domain_integration/EvidenceAssurance.v` | Five-coordinate evidence identity; exact accepted/reference equality; field-by-field stale rejection; digest/trust/independence binding; self-confirmation rejection; no precision/completeness promotion; finite validation control |
 | `abi/OwnershipLifecycle.v` | Initial retain count; release at zero rejected; retain then release neutral; transfer count preservation; opaque ABI v1 observational equivalence |
 
 ## Finite TLA+/TLC exploration
@@ -74,6 +77,7 @@ graph.
 |---|---:|---:|---:|---|
 | `OptimizerLifecycle.tla` | 831 | 607 | 14 | ranked DAG, dependency readiness, no precision/completeness promotion, canonical provenance prefix, terminal non-publication, exact confirmation |
 | `FuzzyReferenceLifecycle.tla` | 325 | 175 | 9 | immutable query-start snapshot, exact checked/reference intersection under arbitrary confirmation order, complete/incomplete coverage, no outcome promotion, exact/reference equality |
+| `LibcpgEvidenceLifecycle.tla` | 7,570 | 2,721 | 10 | immutable evidence capture; exact publication requires five-coordinate freshness, digest binding, trust, independence, and distinct producer/verifier; stale, dependent, self, approximate, and incomplete rejection |
 | `LazyWfstLifecycle.tla` | 449 | 80 | 7 | no persistent entries for no-cache/zero-LRU, positive LRU capacity, exact finite LRU order, unique transient entry |
 | `AbiOwnershipLifecycle.tla` | 3,757 | 912 | 13 | retain count equals owned clients, moved/released clients do not own, ABI version and identity stable, private relayout unobservable |
 
@@ -97,6 +101,7 @@ gate.
 | Cascade omits ordering constraint | `OrderingConstraints` violation |
 | Optimizer commits an arbitrary finished node | `ProvenanceIsCanonicalPrefix` violation |
 | Fuzzy confirmer accepts a non-reference candidate | `AcceptedExactlyCheckedReference` violation |
+| libcpg exact publication omits the independence predicate while actor names remain distinct | `DependentGuaranteeBlocksExact` violation |
 | LazyWfst policy change retains cache in no-cache mode | `NoCacheHasNoPersistentEntries` violation |
 | ABI release fails to decrement retain count | `RetainsEqualOwners` violation |
 
@@ -139,6 +144,32 @@ block stale-snapshot publication, incomplete publication, certificate/reference
 disagreement, a missing H/C/L/G middle-tape equality, and non-associative
 reweighting under the assumed semiring law.
 
+`vco-e7-libcpg-assurance.smt2` adds thirteen dataflow, graph, and evidence
+queries:
+
+```text
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+sat
+```
+
+The final satisfiable query is a required nonvacuity witness: exact publication
+is possible when every premise is present. The twelve unsatisfiable queries
+cover join least-upper-bound behavior, IFDS order direction, exact mutation
+flags, canonical merging, quotient self/exactness, linear CSR work, all stale
+coordinates, digest/trust binding, dependence, self-confirmation, and
+precision/completeness promotion.
+
 ## Kani bounded ABI refinement
 
 `proofs/kani/abi_ownership_model.rs` contains three harnesses:
@@ -165,10 +196,10 @@ The outer proof script self-enters a user systemd scope with:
 - a 120-second timeout per TLC model.
 
 Kani self-enters a nested 2 GiB/no-swap scope with one job and a 120-second
-wall-clock timeout. Java receives a 3 GiB heap ceiling. All logs, model metadata,
-mutants, Kani targets, and tool temporary files live below the repository's
-ignored `target/formal-verification/`; no material artifact uses a memory-backed
-temporary directory.
+wall-clock timeout. Java receives a 3 GiB heap ceiling and an explicit headless
+mode. All logs, model metadata, mutants, Kani targets, and tool temporary files
+live below the repository's ignored `target/formal-verification/`; no material
+artifact uses a memory-backed temporary directory.
 
 ## Verification boundary
 
@@ -188,6 +219,15 @@ configured TLC invariant, and every named E6 SMT check maps to a unique planned
 Rust property or compile-fail test. The registry checker requires the state
 `required-red-before-production`; production adapter work cannot start until
 those tests exist and a genuine red baseline has been recorded.
+
+The E7 libcpg-assurance registry adds 122 obligations in
+`proofs/doc/libcpg-assurance-invariants.tsv`. Its checker is exhaustive over
+every named Rocq definition, record, inductive type, theorem, and lemma in the
+three E7 files, every configured libcpg TLC invariant, and every named E7 SMT
+query. Each maps to one unique required-red Rust property. Production libcpg,
+llattice v2, libvgraph, lling-llang integration, and assurance-adapter work
+remains blocked until those tests exist and the intended red evidence is
+recorded.
 
 ## Reproduction
 

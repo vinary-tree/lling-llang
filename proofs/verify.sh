@@ -22,7 +22,7 @@ if [[ "${LLING_LLANG_FORMAL_SCOPED:-0}" != "1" ]]; then
       --setenv=LLING_LLANG_FORMAL_SCOPED=1 \
       --setenv=TMPDIR="$TMP_DIR" \
       --setenv=CARGO_BUILD_JOBS=1 \
-      --setenv=JAVA_TOOL_OPTIONS="-Xmx3g -XX:+UseParallelGC -Djava.io.tmpdir=$TMP_DIR" \
+      --setenv=JAVA_TOOL_OPTIONS="-Djava.awt.headless=true -Xmx3g -XX:+UseParallelGC -Djava.io.tmpdir=$TMP_DIR" \
       bash "$0" "$@"
   fi
 
@@ -34,7 +34,7 @@ fi
 
 export TMPDIR="$TMP_DIR"
 export CARGO_BUILD_JOBS=1
-export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:--Xmx3g -XX:+UseParallelGC -Djava.io.tmpdir=$TMP_DIR}"
+export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:--Djava.awt.headless=true -Xmx3g -XX:+UseParallelGC -Djava.io.tmpdir=$TMP_DIR}"
 
 if command -v tlc >/dev/null 2>&1; then
   TLC_COMMAND=(tlc)
@@ -105,6 +105,8 @@ python3 "$ROOT/scripts/check-abi-invariants.py" \
   2>&1 | tee "$LOG_DIR/abi-invariant-registry.log"
 python3 "$ROOT/scripts/check-domain-integration-invariants.py" \
   2>&1 | tee "$LOG_DIR/domain-integration-invariant-registry.log"
+python3 "$ROOT/scripts/check-libcpg-assurance-invariants.py" \
+  2>&1 | tee "$LOG_DIR/libcpg-assurance-invariant-registry.log"
 
 run_tlc rrwm "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWM.cfg"
 run_tlc rrwm-zero "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWMZeroExperts.cfg"
@@ -128,6 +130,9 @@ run_tlc optimizer-lifecycle \
 run_tlc fuzzy-reference-lifecycle \
   "$ROOT/proofs/tla/FuzzyReferenceLifecycle.tla" \
   "$ROOT/proofs/tla/MC/FuzzyReferenceLifecycle.cfg"
+run_tlc libcpg-evidence-lifecycle \
+  "$ROOT/proofs/tla/LibcpgEvidenceLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/LibcpgEvidenceLifecycle.cfg"
 run_tlc lazy-wfst-lifecycle \
   "$ROOT/proofs/tla/LazyWfstLifecycle.tla" \
   "$ROOT/proofs/tla/MC/LazyWfstLifecycle.cfg"
@@ -143,6 +148,7 @@ mkdir -p \
   "$MUTANT_DIR/cascade" \
   "$MUTANT_DIR/optimizer" \
   "$MUTANT_DIR/domain-integration" \
+  "$MUTANT_DIR/libcpg-evidence" \
   "$MUTANT_DIR/lazy-wfst" \
   "$MUTANT_DIR/abi-ownership"
 
@@ -206,6 +212,17 @@ run_tlc_expect_failure fuzzy-reference-confirmation-mutant \
   "$MUTANT_DIR/domain-integration/FuzzyReferenceLifecycle.cfg" \
   "Invariant AcceptedExactlyCheckedReference is violated."
 
+cp "$ROOT/proofs/tla/LibcpgEvidenceLifecycle.tla" \
+  "$MUTANT_DIR/libcpg-evidence/LibcpgEvidenceLifecycle.tla"
+cp "$ROOT/proofs/tla/MC/LibcpgEvidenceLifecycle.cfg" \
+  "$MUTANT_DIR/libcpg-evidence/LibcpgEvidenceLifecycle.cfg"
+perl -0pi -e 's/  \/\\ guaranteeIndependence = "Independent"/  \/\\ guaranteeVerifier # Producer/' \
+  "$MUTANT_DIR/libcpg-evidence/LibcpgEvidenceLifecycle.tla"
+run_tlc_expect_failure libcpg-dependent-evidence-mutant \
+  "$MUTANT_DIR/libcpg-evidence/LibcpgEvidenceLifecycle.tla" \
+  "$MUTANT_DIR/libcpg-evidence/LibcpgEvidenceLifecycle.cfg" \
+  "Invariant DependentGuaranteeBlocksExact is violated."
+
 cp "$ROOT/proofs/tla/LazyWfstLifecycle.tla" \
   "$MUTANT_DIR/lazy-wfst/LazyWfstLifecycle.tla"
 cp "$ROOT/proofs/tla/MC/LazyWfstLifecycle.cfg" \
@@ -239,6 +256,12 @@ z3 "$ROOT/proofs/smt/vco-e6-domain-contracts.smt2" \
 diff -u \
   "$ROOT/proofs/smt/vco-e6-domain-contracts.expected" \
   "$LOG_DIR/z3-vco-e6-domain-contracts.log"
+
+z3 "$ROOT/proofs/smt/vco-e7-libcpg-assurance.smt2" \
+  2>&1 | tee "$LOG_DIR/z3-vco-e7-libcpg-assurance.log"
+diff -u \
+  "$ROOT/proofs/smt/vco-e7-libcpg-assurance.expected" \
+  "$LOG_DIR/z3-vco-e7-libcpg-assurance.log"
 
 "$ROOT/proofs/verify-abi-bounded.sh"
 
