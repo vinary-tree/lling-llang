@@ -23,6 +23,7 @@ wfst/Definitions.v
 wfst/Paths.v
 wfst/MatrixSemantics.v
 wfst/Language.v
+wfst/LazyExpansion.v
 
 # Algorithm correctness proofs
 algorithms/Viterbi.v

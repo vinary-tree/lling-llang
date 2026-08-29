@@ -160,6 +160,8 @@ diagrams are added.)
 | `architecture/semiring-traits.svg` | PlantUML | `architecture/semirings.md`, `architecture/wfst-traits.md` |
 | `architecture/semiring-hasse.svg` | TikZ | `architecture/semirings.md` |
 | `architecture/wfst-traits.svg` | PlantUML | `architecture/wfst-traits.md` |
+| `architecture/lazy-wfst-lifecycle-state.svg` | PlantUML | `architecture/lazy-wfst-lifecycle.md` |
+| `architecture/lazy-wfst-expansion-sequence.svg` | PlantUML | `architecture/lazy-wfst-lifecycle.md` |
 | `architecture/lattice-worked.svg` | Graphviz | `architecture/overview.md`, `architecture/lattices.md` |
 | `api/c-abi-surface.svg` | PlantUML | `api/c-abi-reference.md` |
 | `architecture/builder-lifecycle-state.svg` | PlantUML | `api/c-abi-reference.md` |

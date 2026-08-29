@@ -1,0 +1,55 @@
+@startuml lazy-wfst-expansion-sequence
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam ArrowColor #455A64
+skinparam ArrowThickness 1.2
+skinparam sequence {
+  ParticipantBorderColor #37474F
+  LifeLineBorderColor #78909C
+  LifeLineBackgroundColor #FAFAFA
+  GroupBorderColor #607D8B
+  GroupBackgroundColor #F5F5F5
+}
+
+title <b>Lazy expansion freshness and publication sequence</b>
+
+actor Caller #BBDEFB
+participant "LazyWfstWrapper" as Wrapper #FFF59D
+participant "CancellationToken" as Token #FFCDD2
+participant "StateSource" as Source #E1BEE7
+database "Lifecycle / cache" as Store #C8E6C9
+
+Caller -> Wrapper : expand_with(state, token)
+activate Wrapper
+Wrapper -> Source : snapshot()
+Source --> Wrapper : captured snapshot
+Wrapper -> Store : read exact status
+
+alt cancellation already won and begin is otherwise authorized
+  Wrapper -> Token : reason()
+  Token --> Wrapper : Some(reason)
+  Wrapper -> Store : publish Cancelled\nwithout incrementing attempts
+  Wrapper --> Caller : Err(Cancelled)
+else begin authorized
+  Wrapper -> Store : publish Expanding(attempt)
+  Wrapper -> Source : compute_state(request)
+  activate Source
+  Source -> Token : poll reason at bounded intervals
+  Token --> Source : None or Some(reason)
+  Source --> Wrapper : Expanded / Failed / Cancelled
+  deactivate Source
+  Wrapper -> Source : snapshot()
+  Source --> Wrapper : observed snapshot
+  alt observed snapshot differs
+    Wrapper -> Store : invalidate every entry\nand rebind snapshot
+    Wrapper --> Caller : Err(StaleSnapshot)
+  else snapshot is fresh and token is clear
+    Wrapper -> Store : publish exact ownerless result
+    Wrapper --> Caller : Ok(exact status)
+  else cancellation won after source call
+    Wrapper -> Store : publish Cancelled
+    Wrapper --> Caller : Err(Cancelled)
+  end
+end
+deactivate Wrapper
+@enduml

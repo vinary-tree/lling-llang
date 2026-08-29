@@ -54,6 +54,7 @@ Core concepts and design of the framework:
 | [WFST Operations](architecture/wfst-operations.md) | Rational (union, concat, closure) and unary (invert, project, reverse) operations |
 | [Lattices](architecture/lattices.md) | Weighted DAGs representing correction alternatives |
 | [WFST Traits](architecture/wfst-traits.md) | Trait hierarchy for finite-state transducers |
+| [Lazy WFST Lifecycle](architecture/lazy-wfst-lifecycle.md) | Exact unexpanded/expanding/completed/failure/cancellation semantics, snapshots, retry, concurrency, and stack-safe execution |
 | [Backends](architecture/backends.md) | Storage abstraction and implementations |
 | [Resource ABI](architecture/resource-abi.md) | The scalar-WFST binding layer: providers, capture-once snapshots, the lazy composition product, the registry, and the raw-u32 status wire |
 | [Foreign-language bindings](bindings/README.md) | C, C++, JavaScript, TypeScript, and ClojureScript package guides, executable evidence, ownership laws, and documentation governance |

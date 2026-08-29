@@ -584,20 +584,21 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "libdictenstein"
-version = "0.2.1"
+version = "4.0.0-rc.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96f84a40b2f5f51f54ad1e67eca41a287bb12313775d37ccb61e56287bb968ed"
 dependencies = [
  "arc-swap",
  "bincode-next",
  "crossbeam-channel",
  "dashmap",
- "llattice",
+ "llattice 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log",
  "lru",
  "memmap2",
  "parking_lot",
  "pathmap",
  "rustc-hash 2.1.3",
- "rustix",
  "serde",
  "smallvec",
  "sysinfo",
@@ -607,8 +608,11 @@ dependencies = [
 
 [[package]]
 name = "liblevenshtein"
-version = "0.10.0"
+version = "4.0.0-rc.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "812ea203676a76e2d902c6bfbab48d99cbdb6a8c347205cbdb9f533186c9e29e"
 dependencies = [
+ "ahash",
  "arc-swap",
  "bincode-next",
  "libdictenstein",
@@ -652,6 +656,12 @@ name = "llattice"
 version = "0.1.0"
 
 [[package]]
+name = "llattice"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11b2da71811803fafc6a1f2aff2fb8d8f25be26ee38678a89cf4008e7374f567"
+
+[[package]]
 name = "lling-llang"
 version = "0.2.0"
 dependencies = [
@@ -663,7 +673,7 @@ dependencies = [
  "indexmap",
  "libdictenstein",
  "liblevenshtein",
- "llattice",
+ "llattice 0.1.0",
  "moniker",
  "num-bigint",
  "num-rational",
@@ -1490,7 +1500,9 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vinary-tree-interop"
-version = "0.1.0"
+version = "4.0.0-rc.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4eb2a8c3ce464ce30d2e209645a1f5c368d9b50117ae01b2411e9c2149fd8f7"
 
 [[package]]
 name = "virtue-next"
@@ -1787,3 +1799,7 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[patch.unused]]
+name = "creusot-std"
+version = "0.12.0-dev"

@@ -60,6 +60,7 @@ assumption closure of representative theorems.
 | `optimizer/RewriteSemantics.v` | Reflexive, symmetric, transitive exact rewrite; composable proof witnesses; precision and completeness no-promotion; exact publication implies denotational preservation |
 | `optimizer/PlanDag.v` | Dependency paths strictly increase rank; valid plans are acyclic; no self edge; successful commit advances exactly once; out-of-order commit is rejected; existing provenance is a prefix after commit |
 | `abi/OwnershipLifecycle.v` | Initial retain count; release at zero rejected; retain then release neutral; transfer count preservation; opaque ABI v1 observational equivalence |
+| `wfst/LazyExpansion.v` | Six explicit expansion phases; exact observation and cacheability; normal/retry authorization; unique ownership; snapshot freshness; failure/cancellation reset; stale-completion rejection; finite iterative control |
 
 ## Finite TLA+/TLC exploration
 
@@ -72,12 +73,16 @@ graph.
 |---|---:|---:|---:|---|
 | `OptimizerLifecycle.tla` | 831 | 607 | 14 | ranked DAG, dependency readiness, no precision/completeness promotion, canonical provenance prefix, terminal non-publication, exact confirmation |
 | `LazyWfstLifecycle.tla` | 449 | 80 | 7 | no persistent entries for no-cache/zero-LRU, positive LRU capacity, exact finite LRU order, unique transient entry |
+| `LazyExpansionLifecycle.tla` | 65,777 | 6,728 | 14 | unique expansion owner, captured/current snapshot agreement, exact empty/nonempty observation, retry only after retryable failure, cancellation ownership, bounded attempt count |
 | `AbiOwnershipLifecycle.tla` | 3,757 | 912 | 13 | retain count equals owned clients, moved/released clients do not own, ABI version and identity stable, private relayout unobservable |
 
-The LazyWfst model deliberately represents LRU order as a finite sequence. An
-earlier timestamp encoding introduced irrelevant unbounded clock symmetry and
-was rejected after diagnostic exploration. The checked model preserves the
-observable eviction order while keeping the state space finite.
+The two lazy models address different contracts. `LazyWfstLifecycle.tla`
+models cache-policy storage and deliberately represents LRU order as a finite
+sequence. An earlier timestamp encoding introduced irrelevant unbounded clock
+symmetry and was rejected after diagnostic exploration. The checked model
+preserves observable eviction order while keeping the state space finite.
+`LazyExpansionLifecycle.tla` models semantic expansion, including the
+difference between no transition record and an exact zero-length record.
 
 ## Negative controls
 
@@ -94,6 +99,10 @@ gate.
 | Cascade omits ordering constraint | `OrderingConstraints` violation |
 | Optimizer commits an arbitrary finished node | `ProvenanceIsCanonicalPrefix` violation |
 | LazyWfst policy change retains cache in no-cache mode | `NoCacheHasNoPersistentEntries` violation |
+| Unexpanded state is reported as exact empty | `UnexpandedNeverAppearsEmpty` violation |
+| A second worker claims an expanding state | `AtMostOneExpansionOwner` violation |
+| Explicit retry starts after a nonretryable failure | `NonRetryableFailureIsTerminal` violation |
+| An observation is published under a stale snapshot | `ObservableStateUsesCurrentSnapshot` violation |
 | ABI release fails to decrement retain count | `RetainsEqualOwners` violation |
 
 ## Z3 dual transcript
@@ -115,6 +124,14 @@ input domains can coexist with an incompatible left output and right input.
 The unsatisfiable queries cover precision promotion, completeness promotion,
 release at zero under a positive-retain precondition, out-of-order successful
 commit, and publication after cancellation.
+
+`vco-e4-lazy-expansion.smt2` adds fourteen named lifecycle-boundary queries.
+Its exact transcript contains twelve `unsat` results and two constructive `sat`
+witnesses. The unsatisfiable cases exclude false empty observation, duplicate
+ownership, ordinary retry, nonretryable retry, begin after cancellation, stale
+completion, stale observation, wrong-owner completion, and overlapping empty
+and nonempty classification. The satisfiable witnesses demonstrate explicit
+reset and valid explicit retry.
 
 ## Kani bounded ABI refinement
 
@@ -149,9 +166,13 @@ temporary directory.
 
 ## Verification boundary
 
-This milestone proves the contract before optimizer API implementation. Later
-Rust code must add refinement evidence connecting concrete plan, scheduler,
-LazyWfst, and ABI types to these models. The present proofs do not claim:
+The lazy-expansion Rust implementation now refines its lifecycle model through
+89 bidirectionally mapped properties: 57 Rocq declarations, 18 TLC invariants,
+and 14 SMT queries. Separate unit evidence covers panic rollback, concurrent
+cancellation, independent-wrapper parallelism, saturating counters, and O(1)
+intrusive LRU behavior. Later optimizer-plan and ABI work must still add
+refinement evidence connecting their concrete scheduler and wire types to the
+remaining models. The present proofs do not claim:
 
 - memory safety for arbitrary foreign pointers that violate C preconditions;
 - liveness under an unfair executor or a provider that never returns;

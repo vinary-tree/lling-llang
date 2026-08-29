@@ -72,14 +72,14 @@ use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
-use super::lazy::{LazyState, LazyWfstWrapper, StateSource};
+use super::lazy::{
+    ExpansionFailure, ExpansionRequest, LazyWfstWrapper, StateExpansion, StateSource,
+};
 use super::traits::Wfst;
 use super::transition::WeightedTransition;
 use super::types::{StateId, NO_STATE};
 use crate::semiring::Semiring;
 
-#[cfg(test)]
-use super::traits::LazyWfst;
 #[cfg(test)]
 use super::vector::{VectorWfst, VectorWfstBuilder};
 
@@ -377,14 +377,19 @@ where
     L: Clone + Eq + Hash + Send + Sync,
     T: Wfst<L, W>,
 {
-    fn compute_state(&self, state: StateId) -> LazyState<L, W> {
+    fn compute_state(&self, request: ExpansionRequest<'_>) -> StateExpansion<L, W> {
+        let state = request.state();
+        let cancellation = request.cancellation();
+        if let Some(reason) = cancellation.reason() {
+            return StateExpansion::cancelled(reason);
+        }
         let sync_state = match self.get_sync_state(state) {
             Some(s) => s,
-            None => return LazyState::non_final(SmallVec::new()),
+            None => return StateExpansion::failed(ExpansionFailure::invalid_state(state)),
         };
 
         if !sync_state.draining && !self.fst.is_valid_state(sync_state.original) {
-            return LazyState::non_final(SmallVec::new());
+            return StateExpansion::failed(ExpansionFailure::invalid_state(state));
         }
 
         let mut transitions: SmallVec<[WeightedTransition<L, W>; 4]> = if sync_state.draining {
@@ -400,7 +405,7 @@ where
             // Draining state: emit one symbol from residual delay
             if sync_state.delay.is_empty() {
                 // Fully drained - this is a final state
-                return LazyState::final_state(W::one(), SmallVec::new());
+                return StateExpansion::final_state(W::one(), SmallVec::new());
             }
 
             // Create transition to drain one symbol
@@ -409,7 +414,9 @@ where
             let next_delay = sync_state.delay.cdr();
 
             let Some(next_id) = self.get_or_create_state(SyncState::draining(next_delay)) else {
-                return LazyState::non_final(transitions);
+                return StateExpansion::failed(ExpansionFailure::resource_exhausted(
+                    "synchronization state identifier space exhausted",
+                ));
             };
             transitions.push(WeightedTransition::new(
                 state,
@@ -418,7 +425,7 @@ where
                 next_id,
                 W::one(),
             ));
-            LazyState::non_final(transitions)
+            StateExpansion::non_final(transitions)
         } else {
             // Normal state: process transitions from original transducer
             let original = sync_state.original;
@@ -428,11 +435,14 @@ where
                 let final_weight = self.fst.final_weight(original);
                 // Process outgoing transitions
                 for trans in self.fst.transitions(original) {
+                    if let Some(reason) = cancellation.reason() {
+                        return StateExpansion::cancelled(reason);
+                    }
                     if let Some(next_trans) = self.compute_transition(state, &sync_state, trans) {
                         transitions.push(next_trans);
                     }
                 }
-                return LazyState::final_state(final_weight, transitions);
+                return StateExpansion::final_state(final_weight, transitions);
             }
 
             // Check if original is final with non-empty delay (need to drain)
@@ -456,12 +466,15 @@ where
 
             // Process outgoing transitions
             for trans in self.fst.transitions(original) {
+                if let Some(reason) = cancellation.reason() {
+                    return StateExpansion::cancelled(reason);
+                }
                 if let Some(next_trans) = self.compute_transition(state, &sync_state, trans) {
                     transitions.push(next_trans);
                 }
             }
 
-            LazyState::non_final(transitions)
+            StateExpansion::non_final(transitions)
         }
     }
 
@@ -1401,7 +1414,7 @@ mod tests {
         assert_eq!(transitions[0].output, Some('a'));
 
         let target = transitions[0].to;
-        synced.expand(target);
+        synced.expand(target).unwrap();
         assert!(synced.is_final(target));
     }
 
@@ -1422,8 +1435,8 @@ mod tests {
         assert_eq!(transitions.len(), 2);
         assert_ne!(transitions[0].to, transitions[1].to);
 
-        synced.expand(transitions[0].to);
-        synced.expand(transitions[1].to);
+        synced.expand(transitions[0].to).unwrap();
+        synced.expand(transitions[1].to).unwrap();
         assert!(synced.is_final(transitions[0].to));
         assert!(synced.is_final(transitions[1].to));
     }
@@ -1452,8 +1465,8 @@ mod tests {
 
         assert!(source.get_sync_state(0).is_some());
 
-        let computed = source.compute_state(0);
-        assert_eq!(computed.transitions().unwrap_or(&[]).len(), 1);
+        let mut lazy = LazyWfstWrapper::new(source);
+        assert_eq!(lazy.transitions_lazy(0).len(), 1);
     }
 
     #[test]

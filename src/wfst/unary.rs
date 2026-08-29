@@ -37,15 +37,15 @@
 
 use smallvec::SmallVec;
 
-use super::lazy::{LazyState, LazyWfstWrapper, StateSource};
+use super::lazy::{
+    ExpansionFailure, ExpansionRequest, LazyWfstWrapper, StateExpansion, StateSource,
+};
 use super::traits::{MutableWfst, Wfst};
 use super::transition::WeightedTransition;
 use super::types::{StateId, NO_STATE};
 use super::vector::VectorWfst;
 use crate::semiring::Semiring;
 
-#[cfg(test)]
-use super::traits::LazyWfst;
 #[cfg(test)]
 use super::vector::VectorWfstBuilder;
 
@@ -90,7 +90,11 @@ where
     L: Clone + Send + Sync,
     T: Wfst<L, W>,
 {
-    fn compute_state(&self, state: StateId) -> LazyState<L, W> {
+    fn compute_state(&self, request: ExpansionRequest<'_>) -> StateExpansion<L, W> {
+        let state = request.state();
+        if !self.fst.is_valid_state(state) {
+            return StateExpansion::failed(ExpansionFailure::invalid_state(state));
+        }
         let is_final = self.fst.is_final(state);
         let final_weight = self.fst.final_weight(state);
 
@@ -109,9 +113,9 @@ where
             .collect();
 
         if is_final {
-            LazyState::final_state(final_weight, transitions)
+            StateExpansion::final_state(final_weight, transitions)
         } else {
-            LazyState::non_final(transitions)
+            StateExpansion::non_final(transitions)
         }
     }
 
@@ -189,7 +193,11 @@ where
     L: Clone + Send + Sync,
     T: Wfst<L, W>,
 {
-    fn compute_state(&self, state: StateId) -> LazyState<L, W> {
+    fn compute_state(&self, request: ExpansionRequest<'_>) -> StateExpansion<L, W> {
+        let state = request.state();
+        if !self.fst.is_valid_state(state) {
+            return StateExpansion::failed(ExpansionFailure::invalid_state(state));
+        }
         let is_final = self.fst.is_final(state);
         let final_weight = self.fst.final_weight(state);
 
@@ -221,9 +229,9 @@ where
             .collect();
 
         if is_final {
-            LazyState::final_state(final_weight, transitions)
+            StateExpansion::final_state(final_weight, transitions)
         } else {
-            LazyState::non_final(transitions)
+            StateExpansion::non_final(transitions)
         }
     }
 
@@ -403,6 +411,7 @@ where
 mod tests {
     use super::*;
     use crate::semiring::TropicalWeight;
+    use crate::wfst::{ExpansionError, ExpansionFailureKind};
 
     fn make_transducer() -> VectorWfst<char, TropicalWeight> {
         // a:x -> b:y
@@ -439,8 +448,21 @@ mod tests {
         assert_eq!(inv.num_states(), fst.num_states());
 
         // Same final state
-        inv.expand(2);
+        inv.expand(2).unwrap();
         assert!(inv.is_final(2));
+    }
+
+    #[test]
+    fn test_invert_rejects_invalid_state_without_false_empty_result() {
+        let fst = make_transducer();
+        let mut inv = invert(&fst);
+
+        let error = inv.expand(fst.num_states() as StateId).unwrap_err();
+        assert!(matches!(
+            error,
+            ExpansionError::Failure(failure)
+                if failure.kind() == ExpansionFailureKind::InvalidState
+        ));
     }
 
     #[test]
@@ -451,7 +473,7 @@ mod tests {
         // Expand inv1 first so inv2 can read from it
         // (lazy chaining requires inner FST to be expanded)
         for state in 0..fst.num_states() as StateId {
-            inv1.expand(state);
+            inv1.expand(state).unwrap();
         }
 
         let mut inv2 = invert(&inv1);
@@ -495,8 +517,21 @@ mod tests {
         assert_eq!(pin.start(), fst.start());
 
         // Same final state
-        pin.expand(2);
+        pin.expand(2).unwrap();
         assert!(pin.is_final(2));
+    }
+
+    #[test]
+    fn test_project_rejects_invalid_state_without_false_empty_result() {
+        let fst = make_transducer();
+        let mut projected = project_input(&fst);
+
+        let error = projected.expand(fst.num_states() as StateId).unwrap_err();
+        assert!(matches!(
+            error,
+            ExpansionError::Failure(failure)
+                if failure.kind() == ExpansionFailureKind::InvalidState
+        ));
     }
 
     #[test]
@@ -701,7 +736,7 @@ mod tests {
 
         // Expand inv1 first
         for s in 0..fst.num_states() as StateId {
-            inv1.expand(s);
+            inv1.expand(s).unwrap();
         }
         let mut inv2 = invert(&inv1);
 
@@ -732,7 +767,7 @@ mod tests {
 
         // Expand p1
         for s in 0..fst.num_states() as StateId {
-            p1.expand(s);
+            p1.expand(s).unwrap();
         }
         let mut p2 = project_input(&p1);
 
@@ -757,7 +792,7 @@ mod tests {
 
         // Expand p1
         for s in 0..fst.num_states() as StateId {
-            p1.expand(s);
+            p1.expand(s).unwrap();
         }
         let mut p2 = project_output(&p1);
 
@@ -814,14 +849,14 @@ mod tests {
         // ↓(T⁻¹): invert then project input
         let mut inv = invert(&fst);
         for s in 0..fst.num_states() as StateId {
-            inv.expand(s);
+            inv.expand(s).unwrap();
         }
         let mut pinv = project_input(&inv);
 
         // (T↓)⁻¹: project output then invert
         let mut pout = project_output(&fst);
         for s in 0..fst.num_states() as StateId {
-            pout.expand(s);
+            pout.expand(s).unwrap();
         }
         let mut invp = invert(&pout);
 
@@ -853,7 +888,7 @@ mod tests {
         let t1 = inv.transitions_lazy(1);
         assert_eq!(t1[0].weight, TropicalWeight::new(2.0));
 
-        inv.expand(2);
+        inv.expand(2).unwrap();
         assert_eq!(inv.final_weight(2), TropicalWeight::one());
     }
 
@@ -920,7 +955,7 @@ mod tests {
                 let mut inv1 = invert(&fst);
                 // Expand first inversion
                 for s in 0..fst.num_states() as StateId {
-                    inv1.expand(s);
+                    inv1.expand(s).unwrap();
                 }
                 let mut inv2 = invert(&inv1);
 
@@ -966,7 +1001,7 @@ mod tests {
 
                 let mut p1 = project_input(&fst);
                 for s in 0..fst.num_states() as StateId {
-                    p1.expand(s);
+                    p1.expand(s).unwrap();
                 }
                 let mut p2 = project_input(&p1);
 
@@ -992,7 +1027,7 @@ mod tests {
 
                 let mut p1 = project_output(&fst);
                 for s in 0..fst.num_states() as StateId {
-                    p1.expand(s);
+                    p1.expand(s).unwrap();
                 }
                 let mut p2 = project_output(&p1);
 

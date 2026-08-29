@@ -22,7 +22,7 @@ if [[ "${LLING_LLANG_FORMAL_SCOPED:-0}" != "1" ]]; then
       --setenv=LLING_LLANG_FORMAL_SCOPED=1 \
       --setenv=TMPDIR="$TMP_DIR" \
       --setenv=CARGO_BUILD_JOBS=1 \
-      --setenv=JAVA_TOOL_OPTIONS="-Xmx3g -XX:+UseParallelGC -Djava.io.tmpdir=$TMP_DIR" \
+      --setenv=JAVA_TOOL_OPTIONS="-Djava.awt.headless=true -Xmx3g -XX:+UseParallelGC -Djava.io.tmpdir=$TMP_DIR" \
       bash "$0" "$@"
   fi
 
@@ -34,7 +34,7 @@ fi
 
 export TMPDIR="$TMP_DIR"
 export CARGO_BUILD_JOBS=1
-export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:--Xmx3g -XX:+UseParallelGC -Djava.io.tmpdir=$TMP_DIR}"
+export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:--Djava.awt.headless=true -Xmx3g -XX:+UseParallelGC -Djava.io.tmpdir=$TMP_DIR}"
 
 if command -v tlc >/dev/null 2>&1; then
   TLC_COMMAND=(tlc)
@@ -103,6 +103,8 @@ make -C "$ROOT/proofs/coq" -j1 2>&1 | tee "$LOG_DIR/coq-build.log"
 # formal-only, a live regression test.
 python3 "$ROOT/scripts/check-abi-invariants.py" \
   2>&1 | tee "$LOG_DIR/abi-invariant-registry.log"
+python3 "$ROOT/scripts/check-lazy-expansion-invariants.py" \
+  2>&1 | tee "$LOG_DIR/lazy-expansion-invariant-registry.log"
 
 run_tlc rrwm "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWM.cfg"
 run_tlc rrwm-zero "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWMZeroExperts.cfg"
@@ -126,6 +128,9 @@ run_tlc optimizer-lifecycle \
 run_tlc lazy-wfst-lifecycle \
   "$ROOT/proofs/tla/LazyWfstLifecycle.tla" \
   "$ROOT/proofs/tla/MC/LazyWfstLifecycle.cfg"
+run_tlc lazy-expansion-lifecycle \
+  "$ROOT/proofs/tla/LazyExpansionLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/LazyExpansionLifecycle.cfg"
 run_tlc abi-ownership-lifecycle \
   "$ROOT/proofs/tla/AbiOwnershipLifecycle.tla" \
   "$ROOT/proofs/tla/MC/AbiOwnershipLifecycle.cfg"
@@ -138,6 +143,10 @@ mkdir -p \
   "$MUTANT_DIR/cascade" \
   "$MUTANT_DIR/optimizer" \
   "$MUTANT_DIR/lazy-wfst" \
+  "$MUTANT_DIR/lazy-expansion-observation" \
+  "$MUTANT_DIR/lazy-expansion-owner" \
+  "$MUTANT_DIR/lazy-expansion-retry" \
+  "$MUTANT_DIR/lazy-expansion-snapshot" \
   "$MUTANT_DIR/abi-ownership"
 
 cp "$ROOT/proofs/tla/LazyComposition.tla" "$MUTANT_DIR/lazy/LazyComposition.tla"
@@ -200,6 +209,54 @@ run_tlc_expect_failure lazy-wfst-policy-mutant \
   "$MUTANT_DIR/lazy-wfst/LazyWfstLifecycle.cfg" \
   "Invariant NoCacheHasNoPersistentEntries is violated."
 
+cp "$ROOT/proofs/tla/LazyExpansionLifecycle.tla" \
+  "$MUTANT_DIR/lazy-expansion-observation/LazyExpansionLifecycle.tla"
+cp "$ROOT/proofs/tla/MC/LazyExpansionLifecycle.cfg" \
+  "$MUTANT_DIR/lazy-expansion-observation/LazyExpansionLifecycle.cfg"
+perl -0pi -e 's/\[\] OTHER -> NONE/[] OTHER -> "Empty"/' \
+  "$MUTANT_DIR/lazy-expansion-observation/LazyExpansionLifecycle.tla"
+run_tlc_expect_failure lazy-expansion-observation-mutant \
+  "$MUTANT_DIR/lazy-expansion-observation/LazyExpansionLifecycle.tla" \
+  "$MUTANT_DIR/lazy-expansion-observation/LazyExpansionLifecycle.cfg" \
+  "Invariant UnexpandedNeverAppearsEmpty is violated."
+
+cp "$ROOT/proofs/tla/LazyExpansionLifecycle.tla" \
+  "$MUTANT_DIR/lazy-expansion-owner/LazyExpansionLifecycle.tla"
+cp "$ROOT/proofs/tla/MC/LazyExpansionLifecycle.cfg" \
+  "$MUTANT_DIR/lazy-expansion-owner/LazyExpansionLifecycle.cfg"
+perl -0pi -e 's|(BeginNormal\(state, worker\) ==\n  /\\ state \\in States\n  /\\ worker \\in Workers\n  )/\\ phase\[state\] = "Unexpanded"|$1/\\ phase[state] \\in {"Unexpanded", "Expanding"}|' \
+  "$MUTANT_DIR/lazy-expansion-owner/LazyExpansionLifecycle.tla"
+perl -0pi -e 's/  \/\\ owners\[state\] = \{\}\n//' \
+  "$MUTANT_DIR/lazy-expansion-owner/LazyExpansionLifecycle.tla"
+run_tlc_expect_failure lazy-expansion-owner-mutant \
+  "$MUTANT_DIR/lazy-expansion-owner/LazyExpansionLifecycle.tla" \
+  "$MUTANT_DIR/lazy-expansion-owner/LazyExpansionLifecycle.cfg" \
+  "Invariant AtMostOneExpansionOwner is violated."
+
+cp "$ROOT/proofs/tla/LazyExpansionLifecycle.tla" \
+  "$MUTANT_DIR/lazy-expansion-retry/LazyExpansionLifecycle.tla"
+cp "$ROOT/proofs/tla/MC/LazyExpansionLifecycle.cfg" \
+  "$MUTANT_DIR/lazy-expansion-retry/LazyExpansionLifecycle.cfg"
+perl -0pi -e 's|(BeginRetry\(state, worker\) ==\n  /\\ state \\in States\n  /\\ worker \\in Workers\n  /\\ phase\[state\] = "Failed"\n)  /\\ retryable\[state\]\n|$1|' \
+  "$MUTANT_DIR/lazy-expansion-retry/LazyExpansionLifecycle.tla"
+run_tlc_expect_failure lazy-expansion-retry-mutant \
+  "$MUTANT_DIR/lazy-expansion-retry/LazyExpansionLifecycle.tla" \
+  "$MUTANT_DIR/lazy-expansion-retry/LazyExpansionLifecycle.cfg" \
+  "Invariant NonRetryableFailureIsTerminal is violated."
+
+cp "$ROOT/proofs/tla/LazyExpansionLifecycle.tla" \
+  "$MUTANT_DIR/lazy-expansion-snapshot/LazyExpansionLifecycle.tla"
+cp "$ROOT/proofs/tla/MC/LazyExpansionLifecycle.cfg" \
+  "$MUTANT_DIR/lazy-expansion-snapshot/LazyExpansionLifecycle.cfg"
+perl -0pi -e 's|  /\\ entrySnapshot\x27 = SnapshotEntries\(nextSnapshot\)|  /\\ entrySnapshot\x27 = entrySnapshot|' \
+  "$MUTANT_DIR/lazy-expansion-snapshot/LazyExpansionLifecycle.tla"
+perl -0pi -e 's|  /\\ observation\x27 = ResetObservations|  /\\ observation\x27 = observation|' \
+  "$MUTANT_DIR/lazy-expansion-snapshot/LazyExpansionLifecycle.tla"
+run_tlc_expect_failure lazy-expansion-snapshot-mutant \
+  "$MUTANT_DIR/lazy-expansion-snapshot/LazyExpansionLifecycle.tla" \
+  "$MUTANT_DIR/lazy-expansion-snapshot/LazyExpansionLifecycle.cfg" \
+  "Invariant ObservableStateUsesCurrentSnapshot is violated."
+
 cp "$ROOT/proofs/tla/AbiOwnershipLifecycle.tla" \
   "$MUTANT_DIR/abi-ownership/AbiOwnershipLifecycle.tla"
 cp "$ROOT/proofs/tla/MC/AbiOwnershipLifecycle.cfg" \
@@ -216,6 +273,12 @@ z3 "$ROOT/proofs/smt/vco-e4-contracts.smt2" \
 diff -u \
   "$ROOT/proofs/smt/vco-e4-contracts.expected" \
   "$LOG_DIR/z3-vco-e4-contracts.log"
+
+z3 "$ROOT/proofs/smt/vco-e4-lazy-expansion.smt2" \
+  2>&1 | tee "$LOG_DIR/z3-vco-e4-lazy-expansion.log"
+diff -u \
+  "$ROOT/proofs/smt/vco-e4-lazy-expansion.expected" \
+  "$LOG_DIR/z3-vco-e4-lazy-expansion.log"
 
 "$ROOT/proofs/verify-abi-bounded.sh"
 
