@@ -1,0 +1,62 @@
+@startuml dictionary-surface-architecture
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam componentStyle rectangle
+skinparam ArrowColor #455A64
+skinparam ArrowThickness 1.4
+left to right direction
+
+title <b>Split dictionary, lattice, and fuzzy pipeline</b>\n<size:11><i>lawful leaf dependencies; deterministic facade publication</i></size>
+
+package "domain leaves" #E3F2FD {
+  component "libdictenstein\nimmutable snapshot\ndense traversal IDs" as Dict #BBDEFB
+  component "llattice v2\njoin / meet laws\njoin_assign hot path" as Lattice #C8E6C9
+  component "lling-llang\ncategorical plans\nweighted execution" as Core #FFF59D
+}
+
+component "liblevenshtein\niterative candidates\nindependent distance" as Lev #FFCCBC
+
+package "standalone adapters" #F3E5F5 {
+  component "libdictenstein-llattice\nexplicit lawful merge strategies" as DictLat #E1BEE7
+  component "vinary-dictionary-pipeline\nidentity + confirmation\ncompletion evidence" as Pipeline #CE93D8
+}
+
+component "duallity\ncompatibility facade\nexact delegation" as Duallity #B2DFDB
+database "published observation\nexact / approximate / incomplete" as Output #DCEDC8
+
+Dict --> Lev : captured traversal
+Dict --> DictLat : value strategy API
+Lattice --> DictLat : lawful algebra
+Dict --> Pipeline : snapshot + entries
+Lev --> Pipeline : candidates + confirmer
+Lattice --> Pipeline : monotone aggregation
+Core --> Pipeline : typed plan boundary
+DictLat --> Duallity : re-export
+Pipeline --> Duallity : native observation
+Duallity --> Output : unchanged result
+
+note bottom of Pipeline #FFF9C4
+  One base identity contains:
+  snapshot, query, normalization,
+  edit profile, and bound.
+  Caps, cancellation, and failure
+  remain incomplete.
+end note
+
+note bottom of Lattice #FFCDD2
+  Semiring multiplication is not
+  inferred as lattice meet.
+end note
+
+legend right
+  |<#BBDEFB> dictionary ownership |
+  |<#C8E6C9> algebra ownership |
+  |<#FFF59D> independent pipeline core |
+  |<#FFCCBC> edit-distance engine |
+  |<#E1BEE7> lattice adapter |
+  |<#CE93D8> dictionary pipeline adapter |
+  |<#B2DFDB> compatibility facade |
+  |<#DCEDC8> published observation |
+endlegend
+@enduml

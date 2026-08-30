@@ -149,6 +149,7 @@ phase-by-phase implementation ledger are frozen historical records — see
 | [Categorical Optimizer Contract](optimization/categorical-optimizer-contract.md) | Typed morphisms, exact rewrite witnesses, fibers, local monoids, ownership boundaries, and performance consequences |
 | [Plan, Concurrency, and Provenance](optimization/plan-and-provenance.md) | Rank-certified DAG syntax, stack-safe wavefront execution, budgets, cancellation, ordered commit, and publication |
 | [Formal Verification](optimization/formal-verification.md) | Rocq, TLA+/TLC, Z3, and Kani evidence with finite bounds, negative controls, and reproduction |
+| [Dictionary Surface Contract](optimization/dictionary-surface-contract.md) | Split libdictenstein/llattice and dictionary/fuzzy adapters, categorical semantics, required capabilities, parallel execution, and formal gates |
 
 ### Archive
 

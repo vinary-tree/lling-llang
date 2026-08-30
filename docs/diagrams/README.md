@@ -170,4 +170,5 @@ diagrams are added.)
 | `optimization/formal-evidence-stack.svg` | PlantUML | `optimization/formal-verification.md` |
 | `optimization/fuzzy-reference-contract.svg` | PlantUML | `optimization/domain-integration-contract.md` |
 | `optimization/hclg-typed-composition.svg` | PlantUML | `optimization/domain-integration-contract.md` |
+| `optimization/dictionary-surface-architecture.svg` | PlantUML | `optimization/dictionary-surface-contract.md` |
 | `algorithms/*` · `asr/*` · `advanced/*` · `transducers/*` · `correction/*` | Graphviz / PlantUML / D2 / TikZ | the corresponding topic docs |

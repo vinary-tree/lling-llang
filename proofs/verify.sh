@@ -105,6 +105,9 @@ python3 "$ROOT/scripts/check-abi-invariants.py" \
   2>&1 | tee "$LOG_DIR/abi-invariant-registry.log"
 python3 "$ROOT/scripts/check-domain-integration-invariants.py" \
   2>&1 | tee "$LOG_DIR/domain-integration-invariant-registry.log"
+python3 "$ROOT/scripts/check-dictionary-surface-invariants.py" \
+  2>&1 | tee "$LOG_DIR/dictionary-surface-invariant-registry.log"
+"$ROOT/scripts/check-dictionary-surface-required-red.sh"
 
 run_tlc rrwm "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWM.cfg"
 run_tlc rrwm-zero "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWMZeroExperts.cfg"
@@ -128,6 +131,9 @@ run_tlc optimizer-lifecycle \
 run_tlc fuzzy-reference-lifecycle \
   "$ROOT/proofs/tla/FuzzyReferenceLifecycle.tla" \
   "$ROOT/proofs/tla/MC/FuzzyReferenceLifecycle.cfg"
+run_tlc dictionary-surface-lifecycle \
+  "$ROOT/proofs/tla/DictionarySurfaceLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/DictionarySurfaceLifecycle.cfg"
 run_tlc lazy-wfst-lifecycle \
   "$ROOT/proofs/tla/LazyWfstLifecycle.tla" \
   "$ROOT/proofs/tla/MC/LazyWfstLifecycle.cfg"
@@ -143,6 +149,7 @@ mkdir -p \
   "$MUTANT_DIR/cascade" \
   "$MUTANT_DIR/optimizer" \
   "$MUTANT_DIR/domain-integration" \
+  "$MUTANT_DIR/dictionary-surface" \
   "$MUTANT_DIR/lazy-wfst" \
   "$MUTANT_DIR/abi-ownership"
 
@@ -206,6 +213,63 @@ run_tlc_expect_failure fuzzy-reference-confirmation-mutant \
   "$MUTANT_DIR/domain-integration/FuzzyReferenceLifecycle.cfg" \
   "Invariant AcceptedExactlyCheckedReference is violated."
 
+cp "$ROOT/proofs/tla/MC/DictionarySurfaceLifecycle.cfg" \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.cfg"
+
+cp "$ROOT/proofs/tla/DictionarySurfaceLifecycle.tla" \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.tla"
+perl -0pi -e "s/feedSnapshot' = capturedSnapshot/feedSnapshot' = NextSnapshot/" \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.tla"
+run_tlc_expect_failure dictionary-surface-stale-snapshot-mutant \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.tla" \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.cfg" \
+  "Invariant CandidateIdentityMatchesCapture is violated."
+
+cp "$ROOT/proofs/tla/DictionarySurfaceLifecycle.tla" \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.tla"
+perl -0pi -e "s/feedNormalization' = capturedNormalization/feedNormalization' = NextNormalization/" \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.tla"
+run_tlc_expect_failure dictionary-surface-normalization-mutant \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.tla" \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.cfg" \
+  "Invariant CandidateIdentityMatchesCapture is violated."
+
+cp "$ROOT/proofs/tla/DictionarySurfaceLifecycle.tla" \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.tla"
+perl -0pi -e "s/feedEditProfile' = capturedEditProfile/feedEditProfile' = NextEditProfile/" \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.tla"
+run_tlc_expect_failure dictionary-surface-edit-profile-mutant \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.tla" \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.cfg" \
+  "Invariant CandidateIdentityMatchesCapture is violated."
+
+cp "$ROOT/proofs/tla/DictionarySurfaceLifecycle.tla" \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.tla"
+perl -0pi -e "s/feedBound' = capturedBound/feedBound' = NextBound/" \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.tla"
+run_tlc_expect_failure dictionary-surface-bound-mutant \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.tla" \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.cfg" \
+  "Invariant CandidateIdentityMatchesCapture is violated."
+
+cp "$ROOT/proofs/tla/DictionarySurfaceLifecycle.tla" \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.tla"
+perl -0pi -e 's/THEN "Incomplete"\n       ELSE IF precision/THEN "CompleteExact"\n       ELSE IF precision/' \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.tla"
+run_tlc_expect_failure dictionary-surface-cap-promotion-mutant \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.tla" \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.cfg" \
+  "Invariant NonExhaustiveTerminationIsIncomplete is violated."
+
+cp "$ROOT/proofs/tla/DictionarySurfaceLifecycle.tla" \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.tla"
+perl -0pi -e "s/facadePublished' = accepted/facadePublished' = accepted \\\\cup {FalsePositive}/" \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.tla"
+run_tlc_expect_failure dictionary-surface-facade-mutant \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.tla" \
+  "$MUTANT_DIR/dictionary-surface/DictionarySurfaceLifecycle.cfg" \
+  "Invariant FacadeEqualsNative is violated."
+
 cp "$ROOT/proofs/tla/LazyWfstLifecycle.tla" \
   "$MUTANT_DIR/lazy-wfst/LazyWfstLifecycle.tla"
 cp "$ROOT/proofs/tla/MC/LazyWfstLifecycle.cfg" \
@@ -239,6 +303,12 @@ z3 "$ROOT/proofs/smt/vco-e6-domain-contracts.smt2" \
 diff -u \
   "$ROOT/proofs/smt/vco-e6-domain-contracts.expected" \
   "$LOG_DIR/z3-vco-e6-domain-contracts.log"
+
+z3 "$ROOT/proofs/smt/vco-e6-dictionary-surface.smt2" \
+  2>&1 | tee "$LOG_DIR/z3-vco-e6-dictionary-surface.log"
+diff -u \
+  "$ROOT/proofs/smt/vco-e6-dictionary-surface.expected" \
+  "$LOG_DIR/z3-vco-e6-dictionary-surface.log"
 
 "$ROOT/proofs/verify-abi-bounded.sh"
 

@@ -199,7 +199,7 @@ Definition counter_cost
   if configuration then 1 else 0.
 
 Definition counter_candidate
-    (_ : fuzzy_index bool unit bool) (_ : unit) : Prop := True.
+    (_ : fuzzy_index bool unit bool) (term : unit) : Prop := term = tt.
 
 Definition counter_confirmed
     (index : fuzzy_index bool unit bool) (term : unit) : Prop :=
@@ -262,7 +262,7 @@ Theorem candidate_membership_cannot_self_confirm :
       new_snapshot_index tt.
 Proof.
   split.
-  - exact I.
+  - reflexivity.
   - unfold reference_member, counter_present, counter_cost,
       new_snapshot_index; simpl.
     intuition discriminate.
