@@ -13,7 +13,7 @@ concurrency design (no resource-wide gate).
 The C-callable surface over this layer is documented in the
 [C ABI reference](../api/c-abi-reference.md); the family-neutral base
 protocol is normative in the
-[interop ABI reference](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-reference.md);
+[interop ABI reference](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md);
 the adversarial analysis lives in the
 [ABI trust model](../security/abi-trust-model.md).
 
@@ -28,14 +28,14 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); conventions in
 |---|---|
 | $`T_i = (Q_i, \Sigma, q_0^{(i)}, F_i, E_i, \rho_i)`$ | The $`i`$-th component WFST: states, alphabet, start, finals, arcs, final-weight function. |
 | $`\circ`$ | Composition: $`T_1 \circ T_2`$ matches $`T_1`$'s output tape against $`T_2`$'s input tape. |
-| $`\Phi`$ | The epsilon-filter state set $`\{\varnothing, \epsilon_1, \epsilon_2\}`$ (sequencing filter, [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009)). |
+| $`\Phi`$ | The epsilon-filter state set $`\{\varnothing, \epsilon_1, \epsilon_2\}`$ (sequencing filter, [Mohri 2009](https://doi.org/10.1007/978-3-642-01492-5_6)). |
 | $`\varepsilon`$ | The empty label; on the wire, a presence flag of zero. |
 | $`\oplus, \otimes, \bar{0}, \bar{1}`$ | Tropical semiring operations and identities: $`\min`$, $`+`$, $`+\infty`$, $`0`$. |
 | **provider** | Any implementation behind a `VtResource` that answers the `vt.scalar-wfst.1` callbacks. |
 | **capture** | Taking the provider's snapshot exactly once and holding one retain on it for the consumer's lifetime. |
 | **snapshot** | The immutable revision produced by the `snapshot` callback; state identifiers are scoped to it. |
 | **product state** | One triple $`(q_1, q_2, \phi)`$ of the lazy composition. |
-| **retain / release** | The reference-counting pair every owned copy of a resource must balance ([Collins 1960](../BIBLIOGRAPHY.md#ref-collins1960)). |
+| **retain / release** | The reference-counting pair every owned copy of a resource must balance ([Collins 1960](https://doi.org/10.1145/367487.367501)). |
 
 ## The model in one picture
 
@@ -46,6 +46,7 @@ foreign snapshots across the trust boundary; amber = leased page memory.*
 
 <details><summary>Text view</summary>
 
+<!-- vdl-disable-next-line ASCII001 -->
 ```text
 exported vt.scalar-wfst.1 (PARALLEL_REENTRANT | IMMUTABLE | LAZY)
 └─ CompositionResource
@@ -69,7 +70,7 @@ Q_\circ \;\subseteq\; Q_1 \times Q_2 \times \Phi,
 \qquad
 \Phi = \{\varnothing,\; \epsilon_1,\; \epsilon_2\},
 \qquad
-q_0^{\circ} = \bigl(q_0^{(1)},\, q_0^{(2)},\, \varnothing\bigr).
+q_0^{\circ} = (q_0^{(1)},\, q_0^{(2)},\, \varnothing).
 ```
 
 Only *discovered* triples exist: the registry starts with the start triple
@@ -81,25 +82,26 @@ and in practice only the reachable, traversed region is ever materialized.
 
 From product state $`(q_1, q_2, \phi)`$ the sequencing filter admits three
 move kinds, with successor filter states
-$`\varnothing \xrightarrow{\text{any}} \cdot`$,
+$`\varnothing \to \cdot \; [\text{any move}]`$,
 $`\epsilon_1 \not\to \text{right-}\varepsilon`$,
 $`\epsilon_2 \not\to \text{left-}\varepsilon`$ (blocking the duplicate
 $`\varepsilon`$-interleavings that would otherwise multiply paths):
 
 ```math
 \begin{aligned}
-\textbf{left-}\varepsilon:\;& q_1 \xrightarrow{\,i : \varepsilon / w_1\,} q_1'
+\textbf{left-}\varepsilon:\;& q_1 \to q_1' \; [i : \varepsilon / w_1]
   &&\Longrightarrow\;
-  (q_1, q_2, \phi) \xrightarrow{\,i : \varepsilon / w_1\,} (q_1', q_2, \epsilon_1),
+  (q_1, q_2, \phi) \to (q_1', q_2, \epsilon_1) \; [i : \varepsilon / w_1],
 \\
-\textbf{right-}\varepsilon:\;& q_2 \xrightarrow{\,\varepsilon : o / w_2\,} q_2'
+\textbf{right-}\varepsilon:\;& q_2 \to q_2' \; [\varepsilon : o / w_2]
   &&\Longrightarrow\;
-  (q_1, q_2, \phi) \xrightarrow{\,\varepsilon : o / w_2\,} (q_1, q_2', \epsilon_2),
+  (q_1, q_2, \phi) \to (q_1, q_2', \epsilon_2) \; [\varepsilon : o / w_2],
 \\
-\textbf{match}:\;& q_1 \xrightarrow{\,i : m / w_1\,} q_1',\;\;
-  q_2 \xrightarrow{\,m : o / w_2\,} q_2'
+\textbf{match}:\;& q_1 \to q_1' \; [i : m / w_1],\;\;
+  q_2 \to q_2' \; [m : o / w_2]
   &&\Longrightarrow\;
-  (q_1, q_2, \phi) \xrightarrow{\,i : o \,/\, w_1 \otimes w_2\,} (q_1', q_2', \varnothing).
+  (q_1, q_2, \phi) \to (q_1', q_2', \varnothing)
+  \; [i : o / (w_1 \otimes w_2)].
 \end{aligned}
 ```
 
@@ -112,10 +114,10 @@ state is final exactly when both components are, with
 ```
 
 This is the classical epsilon-filter composition of
-[Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) /
-[Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009), in the lazy, cache-as-you-go
+[Mohri 2002](https://doi.org/10.1006/csla.2001.0184) /
+[Mohri 2009](https://doi.org/10.1007/978-3-642-01492-5_6), in the lazy, cache-as-you-go
 style of OpenFst's delayed composition
-([Allauzen 2007](../BIBLIOGRAPHY.md#ref-allauzen2007)) — expressed over the
+([Allauzen 2007](https://doi.org/10.1007/978-3-540-76336-9_3)) — expressed over the
 ABI's paged arc protocol instead of native arc iterators. The native
 (non-ABI) counterpart is documented in
 [Composition](../algorithms/composition.md).
@@ -126,11 +128,11 @@ ABI's paged arc protocol instead of native arc iterators. The native
 dense `u64` identifiers the ABI exposes:
 
 ```math
-\mathrm{ids} : Q_\circ \rightarrow \{0, 1, \dots, n-1\},
+\mathrm{ids} : Q_\circ \to \{0, 1, \dots, n-1\},
 \qquad
 \mathrm{states} = \mathrm{ids}^{-1},
 \qquad
-\mathrm{ids}\bigl(q_0^{\circ}\bigr) = 0,
+\mathrm{ids}(q_0^{\circ}) = 0,
 ```
 
 with two invariants the implementation preserves under its `RwLock`:
@@ -178,6 +180,7 @@ grey = the caller.*
 
 <details><summary>Text view</summary>
 
+<!-- vdl-disable-next-line ASCII001 -->
 ```text
 Construction (once per compose call)
   caller ──▶ lling_wfst_compose(first, second, &out)      [catch_unwind]
@@ -194,6 +197,38 @@ First traversal (through the exported vtable)
 ```
 
 </details>
+
+## Typed metadata beside opaque resources
+
+API revision 2 adds a typed metadata plane beside the unchanged two-word
+resource plane. The separation is intentional:
+
+- `VtResource` owns executable behavior and a retained immutable snapshot;
+- `LlingWfstDescriptorV2` states the input-tape, output-tape, algebra,
+  snapshot, and domain-neutral context identities;
+- `LlingBudgetV2` bounds states, arcs, bytes, and abstract work independently;
+- `LlingOutcomeV2` reports precision, completeness, applicability,
+  termination, and evidence without collapsing them into one status; and
+- `LlingCancellationV2` carries the first cooperative-cancellation reason in
+  one atomic word.
+
+![The complete lling-llang C ABI: the original builder, immutable WFST, and VtResource plane is joined by pointer-free typed ABI-v2 metadata validators and the atomic cooperative-cancellation handle, with every fallible edge returning LlingStatus.](../diagrams/api/c-abi-surface.svg)
+
+*Yellow = project-owned WFST surface; green = family resources; purple =
+typed metadata; teal = cancellation; grey = status and diagnostics.*
+
+An ABI-v1 resource is still a valid operand but has no typed signature. It is
+therefore represented by an all-zero descriptor with no presence flags and
+cannot authorize typed evidence. An adapter may attach a canonical typed
+descriptor only when it owns the mapping from the external subject to the
+resource snapshot. lling-llang core never embeds CPG, libcpg, or another
+application's identity vocabulary.
+
+Replay compares all five descriptor identities byte-for-byte. Checking only a
+snapshot and context would allow evidence for one tape/algebra signature to be
+reused for another, so the formal `TypedAbiV2` model and property suite require
+the signature match as well. The C validators perform fixed work over fixed
+prefixes; they allocate nothing and have no input-shaped recursion.
 
 ## Architecture & API
 
@@ -355,8 +390,9 @@ harmonization review):
   `RepresentationLimit` (`LIMIT_EXCEEDED`) rather than
   `InvalidProviderOutput`, and caps the copy at $`2^{32}-1`$ states — the
   native `StateId` width.
-- The import page loop omits the $`\mathit{start} + \mathit{written} \le
-  \mathit{total}`$ conjunct; an overshooting final page is still rejected,
+- The import page loop omits the
+  $`\mathit{start} + \mathit{written} \le \mathit{total}`$ conjunct; an
+  overshooting final page is still rejected,
   one iteration later, by the $`\mathit{start} \le \mathit{total}`$ check.
 
 ## Concurrency: deliberately no resource-wide gate
@@ -416,11 +452,11 @@ hot path and linear scaling of independent product-state expansions.
 
 ## References
 
-- [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — WFSTs in speech
+- [Mohri 2002](https://doi.org/10.1006/csla.2001.0184) — WFSTs in speech
   recognition: the transducer model and composition semantics.
-- [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — the epsilon-filter
+- [Mohri 2009](https://doi.org/10.1007/978-3-642-01492-5_6) — the epsilon-filter
   composition algorithm implemented by the product engine.
-- [Allauzen 2007](../BIBLIOGRAPHY.md#ref-allauzen2007) — OpenFst: the
+- [Allauzen 2007](https://doi.org/10.1007/978-3-540-76336-9_3) — OpenFst: the
   delayed (lazy) composition and arc-iteration design the ABI mirrors.
-- [Collins 1960](../BIBLIOGRAPHY.md#ref-collins1960) — reference counting:
+- [Collins 1960](https://doi.org/10.1145/367487.367501) — reference counting:
   the retain/release discipline behind `VtResource` and `Arc`.

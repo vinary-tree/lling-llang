@@ -38,12 +38,46 @@ static VtResource single_arc_resource(uint32_t input, uint32_t output,
     return resource;
 }
 
+static void exercise_typed_v2_contract(void) {
+    LlingWfstDescriptorV2 descriptor = {0};
+    descriptor.header.struct_size = (uint32_t)sizeof(descriptor);
+    descriptor.header.abi_version = LLING_ABI_V2;
+    uint8_t typed_evidence = UINT8_MAX;
+    require_ok(lling_abi_v2_validate_descriptor(&descriptor, &typed_evidence),
+               "validate_descriptor_v2");
+    if (typed_evidence != 0) {
+        fprintf(stderr, "opaque ABI-v1 input gained typed evidence\n");
+        exit(EXIT_FAILURE);
+    }
+
+    LlingBudgetV2 budget = {0};
+    budget.header.struct_size = (uint32_t)sizeof(budget);
+    budget.header.abi_version = LLING_ABI_V2;
+    require_ok(lling_abi_v2_validate_budget(&budget), "validate_budget_v2");
+
+    LlingCancellationV2* cancellation = NULL;
+    uint32_t reason = UINT32_MAX;
+    require_ok(lling_cancellation_v2_new(&cancellation), "cancellation_new_v2");
+    require_ok(lling_cancellation_v2_request(
+                   cancellation, LLING_CANCELLATION_REQUESTED_V2),
+               "cancellation_request_v2");
+    require_ok(lling_cancellation_v2_reason(cancellation, &reason),
+               "cancellation_reason_v2");
+    if (reason != LLING_CANCELLATION_REQUESTED_V2) {
+        fprintf(stderr, "cancellation reason was not sticky\n");
+        exit(EXIT_FAILURE);
+    }
+    require_ok(lling_cancellation_v2_free(&cancellation),
+               "cancellation_free_v2");
+}
+
 int main(void) {
     if (lling_abi_version() != LLING_ABI_VERSION ||
         lling_api_revision() < LLING_API_REVISION) {
         fprintf(stderr, "incompatible lling-llang binary\n");
         return EXIT_FAILURE;
     }
+    exercise_typed_v2_contract();
 
     VtResource first = single_arc_resource((uint32_t)'a', (uint32_t)'x', 0.5);
     VtResource second = single_arc_resource((uint32_t)'x', (uint32_t)'z', 0.25);

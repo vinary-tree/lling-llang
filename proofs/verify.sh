@@ -134,6 +134,9 @@ run_tlc lazy-expansion-lifecycle \
 run_tlc abi-ownership-lifecycle \
   "$ROOT/proofs/tla/AbiOwnershipLifecycle.tla" \
   "$ROOT/proofs/tla/MC/AbiOwnershipLifecycle.cfg"
+run_tlc abi-v2-lifecycle \
+  "$ROOT/proofs/tla/AbiV2Lifecycle.tla" \
+  "$ROOT/proofs/tla/MC/AbiV2Lifecycle.cfg"
 
 rm -rf "$MUTANT_DIR"
 mkdir -p \
@@ -148,6 +151,10 @@ mkdir -p \
   "$MUTANT_DIR/lazy-expansion-retry" \
   "$MUTANT_DIR/lazy-expansion-snapshot" \
   "$MUTANT_DIR/abi-ownership"
+
+mkdir -p \
+  "$MUTANT_DIR/abi-v2-cancellation" \
+  "$MUTANT_DIR/abi-v2-authority"
 
 cp "$ROOT/proofs/tla/LazyComposition.tla" "$MUTANT_DIR/lazy/LazyComposition.tla"
 cp "$ROOT/proofs/tla/MC/LazyCompositionNoCache.cfg" "$MUTANT_DIR/lazy/LazyCompositionNoCache.cfg"
@@ -268,6 +275,28 @@ run_tlc_expect_failure abi-release-mutant \
   "$MUTANT_DIR/abi-ownership/AbiOwnershipLifecycle.cfg" \
   "Invariant RetainsEqualOwners is violated."
 
+cp "$ROOT/proofs/tla/AbiV2Lifecycle.tla" \
+  "$MUTANT_DIR/abi-v2-cancellation/AbiV2Lifecycle.tla"
+cp "$ROOT/proofs/tla/MC/AbiV2Lifecycle.cfg" \
+  "$MUTANT_DIR/abi-v2-cancellation/AbiV2Lifecycle.cfg"
+perl -0pi -e 's|(ObserveCancellation ==.*?/\\ resourcePresent'"'"' = )FALSE|$1TRUE|s' \
+  "$MUTANT_DIR/abi-v2-cancellation/AbiV2Lifecycle.tla"
+run_tlc_expect_failure abi-v2-cancellation-mutant \
+  "$MUTANT_DIR/abi-v2-cancellation/AbiV2Lifecycle.tla" \
+  "$MUTANT_DIR/abi-v2-cancellation/AbiV2Lifecycle.cfg" \
+  "Invariant TerminalNonSuccessNeverPublishes is violated."
+
+cp "$ROOT/proofs/tla/AbiV2Lifecycle.tla" \
+  "$MUTANT_DIR/abi-v2-authority/AbiV2Lifecycle.tla"
+cp "$ROOT/proofs/tla/MC/AbiV2Lifecycle.cfg" \
+  "$MUTANT_DIR/abi-v2-authority/AbiV2Lifecycle.cfg"
+perl -0pi -e 's|/\\ authoritative'"'"' = typedInput|/\\ authoritative'"'"' = TRUE|' \
+  "$MUTANT_DIR/abi-v2-authority/AbiV2Lifecycle.tla"
+run_tlc_expect_failure abi-v2-authority-mutant \
+  "$MUTANT_DIR/abi-v2-authority/AbiV2Lifecycle.tla" \
+  "$MUTANT_DIR/abi-v2-authority/AbiV2Lifecycle.cfg" \
+  "Invariant AuthoritativeRequiresVerifiedEvidence is violated."
+
 z3 "$ROOT/proofs/smt/vco-e4-contracts.smt2" \
   2>&1 | tee "$LOG_DIR/z3-vco-e4-contracts.log"
 diff -u \
@@ -279,6 +308,12 @@ z3 "$ROOT/proofs/smt/vco-e4-lazy-expansion.smt2" \
 diff -u \
   "$ROOT/proofs/smt/vco-e4-lazy-expansion.expected" \
   "$LOG_DIR/z3-vco-e4-lazy-expansion.log"
+
+z3 "$ROOT/proofs/smt/vco-e4-abi-v2.smt2" \
+  2>&1 | tee "$LOG_DIR/z3-vco-e4-abi-v2.log"
+diff -u \
+  "$ROOT/proofs/smt/vco-e4-abi-v2.expected" \
+  "$LOG_DIR/z3-vco-e4-abi-v2.log"
 
 "$ROOT/proofs/verify-abi-bounded.sh"
 

@@ -42,6 +42,7 @@ abi/CompositionSemantics.v
 # Resource ABI: the sequencing epsilon-filter soundness
 abi/EpsilonFilterSoundness.v
 abi/OwnershipLifecycle.v
+abi/TypedAbiV2.v
 
 # Categorical optimizer contracts
 optimizer/TapeSignatures.v

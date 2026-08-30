@@ -1,7 +1,7 @@
 @startuml c-abi-surface
-' The complete lling-llang C ABI surface: all 17 exported lling_* functions,
-' grouped by role, with the two opaque handle types and the family two-word
-' VtResource they exchange. Palette: docs/diagrams/README.md family extension —
+' The complete lling-llang C ABI surface: all 26 exported lling_* functions,
+' grouped by role, with opaque WFST/cancellation handles, typed ABI-v2 metadata,
+' and the family two-word VtResource. Palette: docs/diagrams/README.md family extension —
 ' lling #FCF3CF, VtResource handle #DCEDC8, foreign trust boundary #FFCDD2.
 skinparam backgroundColor #FFFFFF
 skinparam shadowing false
@@ -24,7 +24,7 @@ skinparam note {
 hide empty members
 hide circle
 
-title <b>lling-llang C ABI surface — 17 exported functions</b>\n<size:11><i>ABI v1, API revision 1 · every fallible call returns LlingStatus and latches a thread-local message</i></size>
+title <b>lling-llang C ABI surface — 26 exported functions</b>\n<size:11><i>Project ABI v1, API revision 2 · typed metadata headers carry version 2</i></size>
 
 package "Versioning (2)" {
   class "lling_abi_version() : uint32_t\nlling_api_revision() : uint32_t" as VERS #FCF3CF
@@ -70,6 +70,30 @@ package "Family resource (1)" {
   }
 }
 
+package "Typed metadata validation (5)" {
+  class "ABI-v2 pointer-free prefixes" as TYPED #D1C4E9 {
+    LlingAbiV2Header · LlingWfstDescriptorV2
+    LlingBudgetV2 · LlingOutcomeV2
+    --
+    +lling_abi_v2_validate_header(header, required_size, known_flags)
+    +lling_abi_v2_validate_descriptor(descriptor, out_typed)
+    +lling_abi_v2_validate_budget(budget)
+    +lling_abi_v2_validate_outcome(outcome, resource, evidence, out_exact)
+    +lling_abi_v2_identity_matches(expected, observed, out_matches)
+  }
+}
+
+package "Cooperative cancellation (4)" {
+  class "LlingCancellationV2" as CANCEL #B2DFDB {
+    caller-owned · atomic · first reason wins
+    --
+    +lling_cancellation_v2_new(out_cancellation)
+    +lling_cancellation_v2_request(cancellation, reason)
+    +lling_cancellation_v2_reason(cancellation, out_reason)
+    +lling_cancellation_v2_free(cancellation_slot)
+  }
+}
+
 class "LlingStatus : uint32_t" as STATUS #ECEFF1 {
   OK = 0
   INVALID_ARGUMENT = 1
@@ -91,11 +115,16 @@ RES ..> FOREIGN : same two-word ABI\n(any compatible producer)
 BUILDER ..> STATUS : returns
 WFST ..> STATUS : returns
 ERR ..> STATUS : explains last non-OK status\n(thread-local)
+TYPED ..> STATUS : malformed raw data is rejected\nbefore enum decoding or publication
+CANCEL ..> STATUS : allocation · raw reason · single release
+TYPED --> CANCEL : bounded operations poll\nthe sticky reason
 
 legend right
   |<#FCF3CF> lling-llang-owned surface |
   |<#DCEDC8> VtResource retained handle |
   |<#FFCDD2> foreign provider (trust boundary) |
   |<#ECEFF1> status / diagnostics |
+  |<#D1C4E9> typed ABI-v2 metadata |
+  |<#B2DFDB> cooperative cancellation |
 endlegend
 @enduml

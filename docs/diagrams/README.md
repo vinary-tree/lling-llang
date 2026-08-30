@@ -163,7 +163,7 @@ diagrams are added.)
 | `architecture/lazy-wfst-lifecycle-state.svg` | PlantUML | `architecture/lazy-wfst-lifecycle.md` |
 | `architecture/lazy-wfst-expansion-sequence.svg` | PlantUML | `architecture/lazy-wfst-lifecycle.md` |
 | `architecture/lattice-worked.svg` | Graphviz | `architecture/overview.md`, `architecture/lattices.md` |
-| `api/c-abi-surface.svg` | PlantUML | `api/c-abi-reference.md` |
+| [`api/c-abi-surface.puml`](api/c-abi-surface.puml) · [`api/c-abi-surface.svg`](api/c-abi-surface.svg) | PlantUML | `api/c-abi-reference.md` |
 | `architecture/builder-lifecycle-state.svg` | PlantUML | `api/c-abi-reference.md` |
 | `architecture/wfst-import-compose-sequence.svg` | PlantUML | `architecture/resource-abi.md`, `security/abi-trust-model.md` |
 | `architecture/composition-product-component.svg` | PlantUML | `architecture/resource-abi.md` |

@@ -28,3 +28,8 @@ timeout 120s kani "$ROOT/proofs/kani/abi_ownership_model.rs" \
   --target-dir "$EVIDENCE/kani-target" \
   --jobs 1 \
   2>&1 | tee "$LOG_DIR/kani-abi-ownership.log"
+
+timeout 120s kani "$ROOT/proofs/kani/abi_v2_model.rs" \
+  --target-dir "$EVIDENCE/kani-v2-target" \
+  --jobs 1 \
+  2>&1 | tee "$LOG_DIR/kani-abi-v2.log"

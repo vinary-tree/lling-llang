@@ -1,8 +1,9 @@
 # lling-llang C++ bindings
 
-Header-only C++20 RAII facade over lling-llang's stable C ABI. One header —
-[`include/lling_llang.hpp`](../../include/lling_llang.hpp) — wraps the 17
-`lling_*` functions in four move-aware types under
+Header-only C++20 RAII facade over lling-llang's 26-function stable C ABI. One
+header — [`include/lling_llang.hpp`](../../include/lling_llang.hpp) — wraps the
+ownership-bearing resource, builder, and API-revision-2 cancellation calls in
+five move-aware types under
 `namespace vinary_tree::lling_llang`:
 
 | Type | Wraps | Discipline |
@@ -10,7 +11,12 @@ Header-only C++20 RAII facade over lling-llang's stable C ABI. One header —
 | `builder` | `LlingWfstBuilder*` | constructed ready; frees on scope exit; fluent edits |
 | `wfst` | `LlingWfst*` | move-only; frees on destruction; `import`/`compose` factories |
 | `resource` | `VtResource` | move-only owned retain; releases on destruction |
+| `cancellation` | `LlingCancellationV2*` | move-only; atomic first-reason-wins request; single release on destruction |
 | `error` | `LlingStatus` + message | thrown by `check()` on any non-OK status |
+
+The pointer-free `LlingWfstDescriptorV2`, `LlingBudgetV2`, and
+`LlingOutcomeV2` structures and their five validators remain directly
+available from the included C header. They require no ownership wrapper.
 
 The semantics are exactly the C ABI's — statuses, ownership, capture-once
 composition, lazy product states — documented in the
@@ -70,6 +76,10 @@ resource (mirrors the CI smoke test
 int main() {
     using namespace vinary_tree::lling_llang;
 
+    cancellation stop;
+    stop.request(LLING_CANCELLATION_REQUESTED_V2);
+    if (stop.reason() != LLING_CANCELLATION_REQUESTED_V2) return 2;
+
     auto make = [](char32_t in, char32_t out, double w) {
         builder b;
         const auto q0 = b.add_state();
@@ -113,6 +123,9 @@ Pure RAII — every wrapper releases exactly once, in its destructor:
   builder remains editable — set a start state and build again.
 - `wfst` and `resource` are move-only (copying a raw handle would double
   the release). Moved-from objects are empty and safe to destroy.
+- `cancellation` is move-only. Its destructor passes the pointer slot to the
+  C API, which nulls the slot before freeing; concurrent users must be joined
+  before destruction.
 - `retained_resource()` mints an **independent** retain each call: the
   resource keeps the graph alive even after the `wfst` is destroyed, and
   vice versa. Teardown order is free.
@@ -140,7 +153,7 @@ diagnostic and whose `status()` is the exact `LlingStatus`:
 | `LLING_STATUS_INCOMPATIBLE_RESOURCE` | `import`/`compose` on a resource without Unicode/tropical `vt.scalar-wfst.1` |
 | `LLING_STATUS_PROVIDER_ERROR` | a foreign provider failed or returned invalid output during capture |
 | `LLING_STATUS_LIMIT_EXCEEDED` | graph exceeds native representation on `import` |
-| `LLING_STATUS_CLOSED` | builder used after a successful `build()` |
+| `LLING_STATUS_CLOSED` | builder used after `build()`, or a cancellation slot released twice through the C API |
 
 Catch `const error&`; `status()` is `noexcept`. The void C calls wrapped by
 destructors (`free`/`release`) have no failure mode, so destructors are
@@ -155,6 +168,9 @@ implicitly `noexcept`.
   resource-wide lock).
 - Diagnostics are thread-local: an `error` thrown on one thread carries
   that thread's message, unaffected by failures elsewhere.
+- `cancellation::request()` and `cancellation::reason()` may run concurrently;
+  the first valid request remains sticky. Destruction is not concurrent with
+  either operation.
 
 ## Zero-copy paths
 
@@ -182,10 +198,12 @@ implicitly `noexcept`.
 
 - Requires C++20 (`std::exchange`, `[[nodiscard]]`; the package smoke test
   compiles with `cxx_std_20`).
-- ABI v1, API revision 1: call `lling_abi_version()` /
+- Project ABI v1, API revision 2: call `lling_abi_version()` /
   `lling_api_revision()` for a runtime handshake when loading the library
   dynamically; the revision only grows within an ABI version (see the
-  [C ABI reference](https://github.com/vinary-tree/lling-llang/blob/master/docs/api/c-abi-reference.md#version-constants-and-the-handshake)).
+  [C ABI reference](../../docs/api/c-abi-reference.md#version-constants-and-the-handshake)).
+- Typed metadata uses its own `LLING_ABI_V2 == 2` header value. It is additive
+  and must not be compared to the project-wide `lling_abi_version()` result.
 - The header pair (`lling_llang.h`, `lling_llang.hpp`) is drift-gated
   against `src/ffi.rs` and `bindings/api.json` by
   `python3 scripts/check-bindings.py`.
@@ -194,7 +212,7 @@ implicitly `noexcept`.
 
 [`tests/package_smoke.cpp`](tests/package_smoke.cpp) is built as a consumer of
 the staged package, not against repository-private headers. It exercises the
-move-only builder/WFST/resource lifecycle and is run by the native-package
+move-only cancellation and builder/WFST/resource lifecycles and is run by the native-package
 release gate:
 
 ```sh

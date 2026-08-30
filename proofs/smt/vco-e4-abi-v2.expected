@@ -1,0 +1,16 @@
+[LLING-ABI2-HDR-1]
+unsat
+[LLING-ABI2-RAW-1]
+unsat
+[LLING-ABI2-AUTH-1]
+unsat
+[LLING-ABI2-TERM-1]
+unsat
+[LLING-ABI2-TERM-2]
+unsat
+[LLING-ABI2-AXIS-1]
+sat
+[LLING-ABI2-OPAQUE-1]
+unsat
+[LLING-ABI2-HDR-2]
+sat

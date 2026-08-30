@@ -193,7 +193,7 @@ Correction-layer implementations:
 
 | Document | Description |
 |----------|-------------|
-| [C ABI Reference](api/c-abi-reference.md) | The 17-function `lling_*` C ABI: signatures, statuses, ownership, thread-safety, complexity, and the weight-domain ↔ semiring table |
+| [C ABI Reference](api/c-abi-reference.md) | The 26-function `lling_*` C ABI: WFST/resource operations, typed metadata validation, cancellation, statuses, ownership, thread-safety, complexity, and the weight-domain ↔ semiring table |
 | [Semiring Reference](api/semiring-reference.md) | `Semiring`, `DivisibleSemiring`, `StarSemiring` |
 | [WFST Reference](api/wfst-reference.md) | `Wfst`, `MutableWfst`, `LazyWfst` |
 | [Lattice Reference](api/lattice-reference.md) | `Lattice`, `LatticeBuilder`, `EdgeMetadata` |

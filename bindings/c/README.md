@@ -29,7 +29,9 @@ from a shared-library filename.
 
 [`compose_demo.c`](examples/compose_demo.c) is compiled and run by CI. It builds
 `a:x/0.5` and `x:z/0.25`, composes them, discovers the scalar-WFST interface,
-observes the product arc `a:z/0.75`, and balances every owner. The four-library
+observes the product arc `a:z/0.75`, validates opaque ABI-v1 metadata and a
+canonical budget through the typed ABI-v2 surface, exercises sticky
+cancellation, and balances every owner. The four-library
 family pipeline in duallity independently tests producer-to-adapter-to-composer
 handoff.
 
@@ -42,6 +44,10 @@ handoff.
 | `LlingWfstBuilder` | Mutable, single-owner builder. State IDs are returned by `add_state`; build consumes the graph but not the shell. |
 | `LlingWfst` | Immutable WFST handle. Import copies a foreign snapshot; compose retains snapshots and expands product states lazily. |
 | `VtResource` | Two-word `{context, vtable}` handle. `lling_wfst_resource` returns one owned retain implementing `vt.scalar-wfst.1`. |
+| `LlingWfstDescriptorV2` | Pointer-free identity prefix with distinct input-tape, output-tape, algebra, snapshot, and context fields. |
+| `LlingBudgetV2` | Four independently enabled positive limits; inactive fields are canonically zero. |
+| `LlingOutcomeV2` | Raw, range-checked precision, completeness, applicability, termination, and evidence axes. |
+| `LlingCancellationV2` | Thread-safe first-reason-wins cancellation handle; release through the caller's pointer slot. |
 | label | Optional Unicode scalar. `has_label == 0` denotes epsilon; otherwise the scalar must be valid. |
 | weight | `double` interpreted under the advertised weight domain. The constructed/imported/composed C surface is tropical. |
 
@@ -54,6 +60,8 @@ uses `state_info` and paged `state_arcs`; concatenate pages until the stable
 
 - Free every builder and WFST exactly once.
 - Release every resource returned by `lling_wfst_resource` exactly once.
+- Release a cancellation handle with `lling_cancellation_v2_free(&slot)`;
+  the call nulls `slot`, and a repeated call returns `CLOSED` safely.
 - Builder build moves the graph in `$`\mathcal{O}(1)`$; the builder shell still
   requires `lling_wfst_builder_free`.
 - Composition captures one immutable snapshot per input at construction. Input
@@ -71,7 +79,9 @@ Every fallible function returns `LlingStatus`. Branch on the enum and copy
 replaced by the next call on that thread. Invalid arguments, null pointers,
 contained panics, incompatible resources, provider faults, representation
 limits, and consumed builders remain distinct. Rust panics never unwind through
-C.
+C. Typed ABI-v2 functions additionally reject misaligned pointers, unknown raw
+discriminants or flags, non-Boolean presence bytes, nonzero reserved fields,
+and inconsistent publication states before writing any output.
 
 ## Concurrency and reentrancy
 
@@ -79,7 +89,9 @@ Confine a mutable builder to one thread. Immutable WFSTs, retained snapshots,
 and distinct handles are reentrant; do not concurrently free the same handle.
 Foreign providers are serialized by default unless they explicitly advertise
 parallel reentrancy. Lazy product publication is shared without a
-resource-wide traversal lock.
+resource-wide traversal lock. Cancellation requests and reason reads may race;
+one atomic transition preserves the first valid reason. Synchronize all users
+before freeing the handle.
 
 ## Performance and marshalling
 
@@ -88,7 +100,9 @@ operations. Import is `$`\mathcal{O}(|Q|+|E|)`$ because it validates and copies
 every reachable state and arc. Prefer retained handoff to serialization, reserve
 builder states when cardinality is known, and fetch arcs in the recommended
 batch size. Do not optimize away interface/version validation at a foreign
-provider boundary.
+provider boundary. Typed validation and cancellation are fixed-work
+$`O(1)`$ operations with no recursion; only cancellation construction
+allocates.
 
 ## Security and provider trust
 
@@ -105,7 +119,9 @@ package version are independent counters. If loading fails, check the native
 artifact's OS/CPU, the bundled interop header/version, loader search path, and
 package pins in that order. An incompatible-resource result usually means the
 resource lacks Unicode-scalar `vt.scalar-wfst.1` or advertises another weight
-domain.
+domain. Project ABI v1 remains current; API revision 2 adds metadata whose own
+headers carry `LLING_ABI_V2 == 2`. Do not compare the metadata version to
+`lling_abi_version()`.
 
 ## Maintainer workflow
 

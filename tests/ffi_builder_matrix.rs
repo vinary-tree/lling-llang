@@ -133,9 +133,9 @@ unsafe fn state_info(resource: VtResource, state: u64) -> (u8, u8, f64) {
 #[test]
 fn abi_version_and_api_revision_are_pinned() {
     assert_eq!(lling_abi_version(), 1);
-    assert_eq!(lling_api_revision(), 1);
+    assert_eq!(lling_api_revision(), 2);
     assert_eq!(LLING_ABI_VERSION, 1);
-    assert_eq!(LLING_API_REVISION, 1);
+    assert_eq!(LLING_API_REVISION, 2);
 }
 
 #[test]

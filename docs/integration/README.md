@@ -67,6 +67,7 @@ component doc states its current status (Planned / Stub).
 
 ## Reading order
 
+<!-- vdl-disable-next-line ASCII001 -->
 ```text
 external/library-usage  ─▶  external/{speech-nlp, text-correction}
                                      │
@@ -94,6 +95,7 @@ Some integration docs link **out of this repository** into sibling F1R3FLY.io
 repositories that are expected to be checked out **beside** `lling-llang` in the
 same parent directory:
 
+<!-- vdl-disable-next-line ASCII001 -->
 ```text
 f1r3fly.io/
 ├── lling-llang/        ← this repository
@@ -106,6 +108,7 @@ per directory level **plus one more** to leave the repository root, then descend
 into the sibling repo — for example, from a two-level doc like
 `docs/integration/libgrammstein/phonetic-rescore.md`:
 
+<!-- vdl-disable-next-line ASCII001 -->
 ```text
 ../../../libgrammstein/docs/...
 └┬─┘└┬─┘└┬─┘
@@ -157,7 +160,7 @@ In this repository:
 
 | Doc | What it covers |
 |---|---|
-| [C ABI reference](../api/c-abi-reference.md) | The 17-function `lling_*` surface, statuses, ownership, complexity, weight-domain ↔ semiring table. |
+| [C ABI reference](../api/c-abi-reference.md) | The 26-function `lling_*` surface, including typed ABI-v2 metadata and cancellation, statuses, ownership, complexity, and the weight-domain ↔ semiring table. |
 | [Resource ABI architecture](../architecture/resource-abi.md) | Providers, capture-once snapshots, the lazy composition product, the registry, the raw-u32 status wire. |
 | [ABI trust model](../security/abi-trust-model.md) | Foreign providers as untrusted input; validation duties; panic containment. |
 | [JavaScript bindings guide](../../bindings/javascript/README.md) · [C++ bindings guide](../../bindings/cpp/README.md) | The per-language facades over this ABI. |
@@ -166,9 +169,9 @@ Family canon (normative, hosted with the interop crate):
 
 | Document | What it defines |
 |---|---|
-| [ABI reference](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-reference.md) | The annotated base protocol: `VtStatus`, `VtResource`, retain/release, `query_interface`, both interface vtables, the refcount and paging laws, the seven weight domains. |
-| [ABI evolution](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-evolution.md) | The four version counters, additive-vs-breaking rules, worked evolution examples, the compatibility matrix. |
-| [Security model](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/security-model.md) | The family trust zones, the panic/exception containment law, parallelism-by-claim, exhaustion vectors, non-goals. |
+| [ABI reference](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md) | The annotated base protocol: `VtStatus`, `VtResource`, retain/release, `query_interface`, both interface vtables, the refcount and paging laws, the seven weight domains. |
+| [ABI evolution](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-evolution.md) | The four version counters, additive-vs-breaking rules, worked evolution examples, the compatibility matrix. |
+| [Security model](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/security-model.md) | The family trust zones, the panic/exception containment law, parallelism-by-claim, exhaustion vectors, non-goals. |
 
 Data-flow neighbors:
 
@@ -187,6 +190,6 @@ sections linking the central [bibliography](../BIBLIOGRAPHY.md) by anchor — se
 [`liblevenshtein/overview.md`](liblevenshtein/overview.md#references) and
 [`libgrammstein/phonetic-rescore.md`](libgrammstein/phonetic-rescore.md#references).
 The foundational citations behind these integrations are
-[Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) (WFSTs in speech recognition),
-[Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) (weighted-automata algorithms), and
-[Allauzen 2007](../BIBLIOGRAPHY.md#ref-allauzen2007) (the OpenFst library design).
+[Mohri 2002](https://doi.org/10.1006/csla.2001.0184) (WFSTs in speech recognition),
+[Mohri 2009](https://doi.org/10.1007/978-3-642-01492-5_6) (weighted-automata algorithms), and
+[Allauzen 2007](https://doi.org/10.1007/978-3-540-76336-9_3) (the OpenFst library design).

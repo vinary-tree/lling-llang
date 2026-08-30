@@ -28,7 +28,17 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_API_REVISION 1u
+#define LLING_API_REVISION 2u
+#define LLING_ABI_V2 2u
+
+#define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
+#define LLING_DESCRIPTOR_SNAPSHOT_PRESENT (UINT64_C(1) << 1)
+#define LLING_DESCRIPTOR_CONTEXT_PRESENT (UINT64_C(1) << 2)
+
+#define LLING_BUDGET_STATES (UINT64_C(1) << 0)
+#define LLING_BUDGET_ARCS (UINT64_C(1) << 1)
+#define LLING_BUDGET_BYTES (UINT64_C(1) << 2)
+#define LLING_BUDGET_WORK (UINT64_C(1) << 3)
 
 typedef enum LlingStatus {
     LLING_STATUS_OK = 0,
@@ -43,6 +53,115 @@ typedef enum LlingStatus {
 
 typedef struct LlingWfstBuilder LlingWfstBuilder;
 typedef struct LlingWfst LlingWfst;
+typedef struct LlingCancellationV2 LlingCancellationV2;
+
+typedef struct LlingAbiV2Header {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint64_t flags;
+    uint64_t reserved;
+} LlingAbiV2Header;
+
+typedef struct LlingId128 {
+    uint8_t bytes[16];
+} LlingId128;
+
+typedef struct LlingDigest256 {
+    uint8_t bytes[32];
+} LlingDigest256;
+
+typedef struct LlingWfstDescriptorV2 {
+    LlingAbiV2Header header;
+    LlingId128 input_tape;
+    LlingId128 output_tape;
+    LlingId128 algebra;
+    LlingId128 snapshot;
+    LlingDigest256 context;
+} LlingWfstDescriptorV2;
+
+typedef struct LlingBudgetV2 {
+    LlingAbiV2Header header;
+    uint64_t max_states;
+    uint64_t max_arcs;
+    uint64_t max_bytes;
+    uint64_t max_work;
+    uint64_t reserved[2];
+} LlingBudgetV2;
+
+typedef enum LlingPrecisionV2 {
+    LLING_PRECISION_EXACT_V2 = 1,
+    LLING_PRECISION_APPROXIMATE_V2 = 2,
+    LLING_PRECISION_UNKNOWN_V2 = 3
+} LlingPrecisionV2;
+
+typedef enum LlingCompletenessV2 {
+    LLING_COMPLETENESS_COMPLETE_V2 = 1,
+    LLING_COMPLETENESS_INCOMPLETE_V2 = 2
+} LlingCompletenessV2;
+
+typedef enum LlingApplicabilityV2 {
+    LLING_APPLICABILITY_APPLICABLE_V2 = 1,
+    LLING_APPLICABILITY_UNSUPPORTED_V2 = 2,
+    LLING_APPLICABILITY_UNKNOWN_V2 = 3
+} LlingApplicabilityV2;
+
+typedef enum LlingTerminationV2 {
+    LLING_TERMINATION_SUCCEEDED_V2 = 1,
+    LLING_TERMINATION_CANCELLED_V2 = 2,
+    LLING_TERMINATION_BUDGET_EXHAUSTED_V2 = 3,
+    LLING_TERMINATION_FAILED_V2 = 4
+} LlingTerminationV2;
+
+typedef enum LlingEvidenceStateV2 {
+    LLING_EVIDENCE_NONE_V2 = 0,
+    LLING_EVIDENCE_CANDIDATE_V2 = 1,
+    LLING_EVIDENCE_VERIFIED_V2 = 2,
+    LLING_EVIDENCE_STALE_V2 = 3,
+    LLING_EVIDENCE_INVALID_V2 = 4
+} LlingEvidenceStateV2;
+
+typedef enum LlingCancellationReasonV2 {
+    LLING_CANCELLATION_REQUESTED_V2 = 1,
+    LLING_CANCELLATION_DEADLINE_V2 = 2,
+    LLING_CANCELLATION_BUDGET_V2 = 3,
+    LLING_CANCELLATION_SOURCE_V2 = 4
+} LlingCancellationReasonV2;
+
+typedef struct LlingOutcomeV2 {
+    LlingAbiV2Header header;
+    uint32_t precision;
+    uint32_t completeness;
+    uint32_t applicability;
+    uint32_t termination;
+    uint32_t evidence;
+    uint32_t reserved0;
+    uint64_t states;
+    uint64_t arcs;
+    uint64_t bytes;
+    uint64_t work;
+    uint64_t limitations;
+    uint64_t reserved1;
+} LlingOutcomeV2;
+
+#if defined(__cplusplus)
+static_assert(sizeof(LlingAbiV2Header) == 24, "LlingAbiV2Header layout drift");
+static_assert(sizeof(LlingId128) == 16, "LlingId128 layout drift");
+static_assert(alignof(LlingId128) == 1, "LlingId128 alignment drift");
+static_assert(sizeof(LlingDigest256) == 32, "LlingDigest256 layout drift");
+static_assert(alignof(LlingDigest256) == 1, "LlingDigest256 alignment drift");
+static_assert(sizeof(LlingWfstDescriptorV2) == 120, "LlingWfstDescriptorV2 layout drift");
+static_assert(sizeof(LlingBudgetV2) == 72, "LlingBudgetV2 layout drift");
+static_assert(sizeof(LlingOutcomeV2) == 96, "LlingOutcomeV2 layout drift");
+#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+_Static_assert(sizeof(LlingAbiV2Header) == 24, "LlingAbiV2Header layout drift");
+_Static_assert(sizeof(LlingId128) == 16, "LlingId128 layout drift");
+_Static_assert(_Alignof(LlingId128) == 1, "LlingId128 alignment drift");
+_Static_assert(sizeof(LlingDigest256) == 32, "LlingDigest256 layout drift");
+_Static_assert(_Alignof(LlingDigest256) == 1, "LlingDigest256 alignment drift");
+_Static_assert(sizeof(LlingWfstDescriptorV2) == 120, "LlingWfstDescriptorV2 layout drift");
+_Static_assert(sizeof(LlingBudgetV2) == 72, "LlingBudgetV2 layout drift");
+_Static_assert(sizeof(LlingOutcomeV2) == 96, "LlingOutcomeV2 layout drift");
+#endif
 
 LLING_API uint32_t lling_abi_version(void);
 LLING_API uint32_t lling_api_revision(void);
@@ -75,6 +194,28 @@ LLING_API LlingStatus lling_wfst_compose(
 LLING_API LlingStatus lling_wfst_resource(
     const LlingWfst* wfst, VtResource* out_resource);
 LLING_API void lling_resource_release(VtResource resource);
+LLING_API LlingStatus lling_abi_v2_validate_header(
+    const LlingAbiV2Header* header, uint32_t required_size,
+    uint64_t known_flags);
+LLING_API LlingStatus lling_abi_v2_validate_descriptor(
+    const LlingWfstDescriptorV2* descriptor,
+    uint8_t* out_typed_evidence_allowed);
+LLING_API LlingStatus lling_abi_v2_validate_budget(
+    const LlingBudgetV2* budget);
+LLING_API LlingStatus lling_abi_v2_validate_outcome(
+    const LlingOutcomeV2* outcome, uint8_t resource_present,
+    uint8_t evidence_present, uint8_t* out_authoritative_exact);
+LLING_API LlingStatus lling_abi_v2_identity_matches(
+    const LlingWfstDescriptorV2* expected,
+    const LlingWfstDescriptorV2* observed, uint8_t* out_matches);
+LLING_API LlingStatus lling_cancellation_v2_new(
+    LlingCancellationV2** out_cancellation);
+LLING_API LlingStatus lling_cancellation_v2_request(
+    const LlingCancellationV2* cancellation, uint32_t reason);
+LLING_API LlingStatus lling_cancellation_v2_reason(
+    const LlingCancellationV2* cancellation, uint32_t* out_reason);
+LLING_API LlingStatus lling_cancellation_v2_free(
+    LlingCancellationV2** cancellation);
 
 #ifdef __cplusplus
 }
