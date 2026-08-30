@@ -68,6 +68,7 @@ assumption closure of representative theorems.
 | `domain_integration/CanonicalArtifact.v` | Permutation/duplicate-invariant finite manifests; digest/size tamper rejection; complete provider-descriptor identity; six-coordinate evidence-binding equivalence and staleness |
 | `domain_integration/ProviderBoundary.v` | Control-domain independence; exact-publication rejection for approximate, incomplete, stale, untrusted, dependent, and self-confirmed reports; one-way public dependency; native ownership |
 | `abi/OwnershipLifecycle.v` | Initial retain count; release at zero rejected; retain then release neutral; transfer count preservation; opaque ABI v1 observational equivalence |
+| `algorithms/StrongBisimulation.v` | Labelled strong-bisimilarity equivalence; exact replay certificates; complete distinguishing modal formulas; total endpoint/vector/query validation; canonical relation invariance; refinement termination; logarithmic smaller-half charges; quasilinear work/evidence, linear core heap, zero whole-partition rescans, and constant native stack |
 
 ## Finite TLA+/TLC exploration
 
@@ -84,6 +85,10 @@ graph.
 | `LazyWfstLifecycle.tla` | 449 | 80 | 7 | no persistent entries for no-cache/zero-LRU, positive LRU capacity, exact finite LRU order, unique transient entry |
 | `AbiOwnershipLifecycle.tla` | 3,757 | 912 | 13 | retain count equals owned clients, moved/released clients do not own, ABI version and identity stable, private relayout unobservable |
 | `ProviderBoundaryLifecycle.tla` | 65,858 | 1,409 | 11 | immutable capture; status/limitation preservation; fresh trusted independent exact evidence; complete-only caches; balanced native ownership |
+| `StrongBisimulationLifecycle.tla` — valid | 19,012 | 14,916 | 5 | exhaustive three-state/one-action edge sets and colorings; descending refinement, exact oracle relation, canonical matrix, sound/complete separation trace, and eventual acceptance |
+| `StrongBisimulationLifecycle.tla` — invalid source | 192 | 128 | 2 | malformed source rejected before refinement or indexing |
+| `StrongBisimulationLifecycle.tla` — invalid target | 192 | 128 | 2 | malformed target rejected before refinement or indexing |
+| `StrongBisimulationLifecycle.tla` — invalid dense label | 192 | 128 | 2 | corrupt internal dense label rejected before refinement |
 
 The LazyWfst model deliberately represents LRU order as a finite sequence. An
 earlier timestamp encoding introduced irrelevant unbounded clock symmetry and
@@ -111,6 +116,7 @@ gate.
 | Provider adapter promotes incomplete to exact | `AdaptationPreservesStatus` violation |
 | Provider adapter discards approximation limitations | `AdaptationPreservesLimitations` violation |
 | Exact publication substitutes actor inequality for control-domain independence | `DependentGuaranteeBlocksExact` violation |
+| Ten executable strong-bisimulation defects accept malformed endpoints, ignore colors, weaken transfer, stop early, retain duplicates, corrupt modal negation, accept forged certificates, or accept noncanonical block IDs | The named exhaustive-oracle or negative-control invariant fails |
 
 ## Z3 dual transcript
 
@@ -131,6 +137,33 @@ input domains can coexist with an incompatible left output and right input.
 The unsatisfiable queries cover precision promotion, completeness promotion,
 release at zero under a positive-retain precondition, out-of-order successful
 commit, and publication after cancellation.
+
+`vco-e4-strong-bisimulation.smt2` adds fifteen independent controls:
+
+```text
+unsat
+unsat
+unsat
+sat
+unsat
+sat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+sat
+```
+
+The three satisfiable cases witness a valid canonical edge, the stable
+partition separating a self-loop from a deadlock, and a nonvacuous resource
+account. The contradictions reject malformed dense coordinates, an unsound
+relation, forged replay and separation steps, canonical-relabel disagreement,
+nonprogressing refinement, super-bound work or heap, and input-shaped native
+stack.
 
 `vco-e6-domain-contracts.smt2` adds seven independent fuzzy/H/C/L/G queries:
 
@@ -318,6 +351,15 @@ Properties for `vinary-requirements` and `vinary-doc-lint` are explicitly
 execution-blocked by their protected baselines; they are not misclassified as
 causal required-red results.
 
+The E4 strong-bisimulation registry adds 83 obligations in
+`proofs/doc/strong-bisimulation-invariants.tsv`: 53 Rocq theorems and lemmas,
+15 configured TLA+ checks, and 15 named Z3 controls. Every row maps to one of
+13 required-red Rust properties. The executable extraction independently
+checks 5,124 complete small LTS/color cases against a relational greatest
+fixed-point oracle and evaluates characteristic formulas without recursion.
+All ten injected semantic mutants are killed. These facts verify the contract;
+they do not claim that the current production routine already refines it.
+
 ## Reproduction
 
 ```bash
@@ -333,3 +375,6 @@ diagnosis and are ignored by Git.
 - [Lamport 2002](../BIBLIOGRAPHY.md)
 - [Delmas et al. 2026](../BIBLIOGRAPHY.md)
 - [Mac Lane 1998](../BIBLIOGRAPHY.md)
+- [Paige & Tarjan 1987](../BIBLIOGRAPHY.md)
+- [Valmari 2010](../BIBLIOGRAPHY.md)
+- [Wißmann, Milius & Schröder 2022](../BIBLIOGRAPHY.md)

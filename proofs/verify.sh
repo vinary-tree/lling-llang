@@ -113,6 +113,8 @@ python3 "$ROOT/scripts/check-provider-boundary-invariants.py" \
   2>&1 | tee "$LOG_DIR/provider-boundary-invariant-registry.log"
 python3 "$ROOT/scripts/check-neutral-foundation-invariants.py" \
   2>&1 | tee "$LOG_DIR/neutral-foundation-invariant-registry.log"
+python3 "$ROOT/scripts/check-strong-bisimulation-invariants.py" \
+  2>&1 | tee "$LOG_DIR/strong-bisimulation-invariant-registry.log"
 
 run_tlc rrwm "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWM.cfg"
 run_tlc rrwm-zero "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWMZeroExperts.cfg"
@@ -154,6 +156,18 @@ run_tlc abi-ownership-lifecycle \
 run_tlc neutral-foundations \
   "$ROOT/proofs/tla/NeutralFoundationLifecycle.tla" \
   "$ROOT/proofs/tla/MC/NeutralFoundationLifecycle.cfg"
+run_tlc strong-bisimulation-valid \
+  "$ROOT/proofs/tla/StrongBisimulationLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/StrongBisimulationValid.cfg"
+run_tlc strong-bisimulation-invalid-source \
+  "$ROOT/proofs/tla/StrongBisimulationLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/StrongBisimulationInvalidSource.cfg"
+run_tlc strong-bisimulation-invalid-target \
+  "$ROOT/proofs/tla/StrongBisimulationLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/StrongBisimulationInvalidTarget.cfg"
+run_tlc strong-bisimulation-invalid-label \
+  "$ROOT/proofs/tla/StrongBisimulationLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/StrongBisimulationInvalidLabel.cfg"
 
 rm -rf "$MUTANT_DIR"
 mkdir -p \
@@ -345,12 +359,22 @@ run_tlc_expect_failure neutral-eventually-terminal-mutant \
   "Temporal properties were violated."
 
 "$ROOT/scripts/check-libcpg-manifest-mutants.sh"
+python3 "$ROOT/scripts/check-strong-bisimulation-exhaustive.py" \
+  2>&1 | tee "$LOG_DIR/strong-bisimulation-exhaustive.log"
+python3 "$ROOT/scripts/strong_bisimulation_mutants.py" \
+  2>&1 | tee "$LOG_DIR/strong-bisimulation-mutants.log"
 
 z3 "$ROOT/proofs/smt/vco-e4-contracts.smt2" \
   2>&1 | tee "$LOG_DIR/z3-vco-e4-contracts.log"
 diff -u \
   "$ROOT/proofs/smt/vco-e4-contracts.expected" \
   "$LOG_DIR/z3-vco-e4-contracts.log"
+
+z3 "$ROOT/proofs/smt/vco-e4-strong-bisimulation.smt2" \
+  2>&1 | tee "$LOG_DIR/z3-vco-e4-strong-bisimulation.log"
+diff -u \
+  "$ROOT/proofs/smt/vco-e4-strong-bisimulation.expected" \
+  "$LOG_DIR/z3-vco-e4-strong-bisimulation.log"
 
 z3 "$ROOT/proofs/smt/vco-e6-domain-contracts.smt2" \
   2>&1 | tee "$LOG_DIR/z3-vco-e6-domain-contracts.log"
@@ -385,6 +409,27 @@ diff -u \
 "$ROOT/proofs/verify-abi-bounded.sh"
 "$ROOT/scripts/check-neutral-foundation-required-red.sh"
 "$ROOT/scripts/check-libcpg-manifest-required-red.sh"
+"$ROOT/scripts/check-strong-bisimulation-required-red.sh"
+
+if ! command -v vinary-doc-lint >/dev/null 2>&1; then
+  echo "ERROR: vinary-doc-lint is required for formal documentation acceptance." >&2
+  exit 127
+fi
+vinary-doc-lint check \
+  "$ROOT/docs/optimization/certified-strong-bisimulation-contract.md" \
+  "$ROOT/docs/optimization/formal-verification.md" \
+  "$ROOT/proofs/doc/proof-status.md" \
+  "$ROOT/docs/BIBLIOGRAPHY.md" \
+  "$ROOT/docs/README.md" \
+  "$ROOT/docs/diagrams/README.md" \
+  2>&1 | tee "$LOG_DIR/strong-bisimulation-doc-lint.log"
+vinary-doc-lint --diagram-tools check \
+  "$ROOT/docs/optimization/certified-strong-bisimulation-contract.md" \
+  "$ROOT/docs/diagrams/optimization/strong-bisimulation-flow.puml" \
+  "$ROOT/docs/diagrams/optimization/strong-bisimulation-evidence.puml" \
+  "$ROOT/docs/diagrams/optimization/strong-bisimulation-flow.svg" \
+  "$ROOT/docs/diagrams/optimization/strong-bisimulation-evidence.svg" \
+  2>&1 | tee "$LOG_DIR/strong-bisimulation-diagram-lint.log"
 
 rm -rf "$MUTANT_DIR"
 echo "Formal verification completed successfully. Evidence logs: $LOG_DIR"

@@ -9,6 +9,7 @@ Require Import LlingLlang.domain_integration.DataflowMigration.
 Require Import LlingLlang.domain_integration.GraphQuotient.
 Require Import LlingLlang.domain_integration.EvidenceAssurance.
 Require Import LlingLlang.abi.OwnershipLifecycle.
+Require Import LlingLlang.algorithms.StrongBisimulation.
 
 Print Assumptions compose_morphism_associative.
 Print Assumptions equal_inputs_do_not_imply_compatibility.
@@ -28,3 +29,12 @@ Print Assumptions candidate_self_confirmation_is_rejected.
 Print Assumptions distinct_actor_names_do_not_establish_independence.
 Print Assumptions commit_rejects_out_of_order.
 Print Assumptions opaque_v1_clients_cannot_observe_private_layout.
+Print Assumptions accepted_relation_certificate_exact.
+Print Assumptions accepted_certificate_decides_with_witness.
+Print Assumptions validated_lts_cannot_contain_malformed_endpoint.
+Print Assumptions canonical_relation_matrix_invariant_under_injective_relabeling.
+Print Assumptions strict_refinement_terminates.
+Print Assumptions smaller_half_charge_is_logarithmic.
+Print Assumptions valid_account_work_is_quasilinear.
+Print Assumptions valid_account_core_heap_is_linear.
+Print Assumptions valid_account_has_constant_native_stack.

@@ -1,0 +1,11 @@
+[package]
+name = "strong-bisimulation-required-red"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+lling-llang = { path = "../../..", default-features = false }
+proptest = "1.4"
+
+[workspace]

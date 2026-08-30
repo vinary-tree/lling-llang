@@ -29,6 +29,7 @@ algorithms/Viterbi.v
 algorithms/ShortestDistance.v
 algorithms/Determinize.v
 algorithms/Minimize.v
+algorithms/StrongBisimulation.v
 
 # Resource ABI: the f64 weight bridge over the seven VtWeightDomains
 abi/WeightBridge.v

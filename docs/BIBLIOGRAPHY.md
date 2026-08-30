@@ -37,6 +37,32 @@ fabricate a DOI**.
 
 ## Program analysis and graph algorithms
 
+- <a id="ref-paige-tarjan1987"></a>**[Paige & Tarjan 1987]** Paige, R., &
+  Tarjan, R. E. (1987). *Three Partition Refinement Algorithms.* SIAM Journal
+  on Computing 16(6):973–989.
+  [https://doi.org/10.1137/0216062](https://doi.org/10.1137/0216062)
+  *(DOI and SIAM metadata re-verified 2026-08-30.)*
+- <a id="ref-valmari2010"></a>**[Valmari 2010]** Valmari, A. (2010).
+  *Simple Bisimilarity Minimization in O(m log n) Time.* Fundamenta
+  Informaticae 105(3):319–339.
+  [https://doi.org/10.3233/FI-2010-369](https://doi.org/10.3233/FI-2010-369)
+  *(DOI and IOS Press metadata re-verified 2026-08-30.)*
+- <a id="ref-fernandez1990"></a>**[Fernandez 1990]** Fernandez, J.-C. (1990).
+  *An Implementation of an Efficient Algorithm for Bisimulation
+  Equivalence.* Science of Computer Programming 13(2–3):219–236.
+  [https://doi.org/10.1016/0167-6423(90)90071-K](https://doi.org/10.1016/0167-6423(90)90071-K)
+  *(DOI and Elsevier metadata re-verified 2026-08-30.)*
+- <a id="ref-groote2021"></a>**[Groote, Martens & de Vink 2021]** Groote,
+  J. F., Martens, J. J. A. K., & de Vink, E. P. (2021). *Lower Bounds for
+  Bisimulation by Partition Refinement.* CONCUR 2021, Article 31.
+  [https://doi.org/10.4230/LIPIcs.CONCUR.2021.31](https://doi.org/10.4230/LIPIcs.CONCUR.2021.31)
+  *(DOI and Dagstuhl metadata re-verified 2026-08-30.)*
+- <a id="ref-wissmann2022"></a>**[Wißmann, Milius & Schröder 2022]**
+  Wißmann, T., Milius, S., & Schröder, L. (2022). *Quasilinear-Time
+  Computation of Generic Modal Witnesses for Behavioural Inequivalence.*
+  Logical Methods in Computer Science 18(4), Article 6.
+  [https://doi.org/10.46298/LMCS-18(4:6)2022](https://doi.org/10.46298/LMCS-18(4:6)2022)
+  *(DOI and LMCS metadata re-verified 2026-08-30.)*
 - <a id="ref-mokhov2018"></a>**[Mokhov, Mitchell & Peyton Jones 2018]**
   Mokhov, A., Mitchell, N., & Peyton Jones, S. (2018). *Build Systems à la
   Carte.* Proceedings of the ACM on Programming Languages 2 (ICFP), Article 79.
