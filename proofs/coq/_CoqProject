@@ -51,6 +51,7 @@ domain_integration/TypedHclg.v
 domain_integration/DataflowMigration.v
 domain_integration/GraphQuotient.v
 domain_integration/EvidenceAssurance.v
+domain_integration/ManifestFactContracts.v
 domain_integration/ProviderResult.v
 domain_integration/CanonicalArtifact.v
 domain_integration/ProviderBoundary.v

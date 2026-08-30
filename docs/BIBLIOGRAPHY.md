@@ -37,15 +37,36 @@ fabricate a DOI**.
 
 ## Program analysis and graph algorithms
 
+- <a id="ref-mokhov2018"></a>**[Mokhov, Mitchell & Peyton Jones 2018]**
+  Mokhov, A., Mitchell, N., & Peyton Jones, S. (2018). *Build Systems à la
+  Carte.* Proceedings of the ACM on Programming Languages 2 (ICFP), Article 79.
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F3236774)
+  *(DOI and publisher metadata re-verified 2026-08-30.)*
+- <a id="ref-green2007"></a>**[Green, Karvounarakis & Tannen 2007]** Green,
+  T. J., Karvounarakis, G., & Tannen, V. (2007). *Provenance Semirings.*
+  PODS '07:31–40.
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F1265530.1265535)
+  *(DOI and ACM/Crossref metadata re-verified 2026-08-30.)*
+- <a id="ref-jordan2016"></a>**[Jordan, Scholz & Subotić 2016]** Jordan, H.,
+  Scholz, B., & Subotić, P. (2016). *Soufflé: On Synthesis of Program
+  Analyzers.* CAV 2016:422–430.
+  [https://doi.org/10.1007/978-3-319-41540-6_23](https://doi.org/10.1007/978-3-319-41540-6_23)
+  *(DOI and Springer metadata re-verified 2026-08-30.)*
+- <a id="ref-nist1804"></a>**[NIST 2015]** National Institute of Standards
+  and Technology. (2015). *Secure Hash Standard (SHS).* FIPS PUB 180-4.
+  [Official NIST publication record](https://csrc.nist.gov/pubs/fips/180-4/upd1/final)
+  *(The publication record and its DOI metadata were re-verified 2026-08-30;
+  the DOI resolver currently returns HTTP 404 to the documentation linter.)*
+
 - <a id="ref-kildall1973"></a>**[Kildall 1973]** Kildall, G. A. (1973).
   *A Unified Approach to Global Program Optimization.* POPL '73:194–206.
-  [https://doi.org/10.1145/512927.512945](https://doi.org/10.1145/512927.512945)
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F512927.512945)
   *(DOI and ACM metadata re-verified 2026-08-29.)*
 - <a id="ref-cousot1977"></a>**[Cousot & Cousot 1977]** Cousot, P., &
   Cousot, R. (1977). *Abstract Interpretation: A Unified Lattice Model for
   Static Analysis of Programs by Construction or Approximation of Fixpoints.*
   POPL '77:238–252.
-  [https://doi.org/10.1145/512950.512973](https://doi.org/10.1145/512950.512973)
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F512950.512973)
   *(DOI and ACM metadata re-verified 2026-08-29.)*
 - <a id="ref-tarjan1972"></a>**[Tarjan 1972]** Tarjan, R. E. (1972).
   *Depth-First Search and Linear Graph Algorithms.* SIAM Journal on Computing
@@ -55,7 +76,7 @@ fabricate a DOI**.
 - <a id="ref-reps1995"></a>**[Reps, Horwitz & Sagiv 1995]** Reps, T. W.,
   Horwitz, S., & Sagiv, S. (1995). *Precise Interprocedural Dataflow Analysis
   via Graph Reachability.* POPL '95:49–61.
-  [https://doi.org/10.1145/199448.199462](https://doi.org/10.1145/199448.199462)
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F199448.199462)
   *(DOI and ACM metadata re-verified 2026-08-29.)*
 
 ## Weighted automata & parsing foundations
@@ -77,7 +98,7 @@ fabricate a DOI**.
 - <a id="ref-earley1970"></a>**[Earley 1970]** Earley, J. (1970).
   *An Efficient Context-Free Parsing Algorithm.* Communications of the ACM
   13(2):94–102.
-  [https://doi.org/10.1145/362007.362035](https://doi.org/10.1145/362007.362035)
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F362007.362035)
 - <a id="ref-goodman1999"></a>**[Goodman 1999]** Goodman, J. (1999).
   *Semiring Parsing.* Computational Linguistics 25(4):573–605.
   [ACL J99-4004](https://aclanthology.org/J99-4004/)
@@ -87,7 +108,7 @@ fabricate a DOI**.
 - <a id="ref-graves2006"></a>**[Graves 2006]** Graves, A., Fernández, S., Gomez, F.,
   & Schmidhuber, J. (2006). *Connectionist Temporal Classification: Labelling
   Unsegmented Sequence Data with Recurrent Neural Networks.* ICML '06:369–376.
-  [https://doi.org/10.1145/1143844.1143891](https://doi.org/10.1145/1143844.1143891)
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F1143844.1143891)
 - <a id="ref-graves2012"></a>**[Graves 2012]** Graves, A. (2012).
   *Sequence Transduction with Recurrent Neural Networks.*
   [arXiv:1211.3711](https://arxiv.org/abs/1211.3711)
@@ -140,7 +161,7 @@ and the scalar-WFST resource-layer documentation.
 - <a id="ref-collins1960"></a>**[Collins 1960]** Collins, G. E. (1960).
   *A Method for Overlapping and Erasure of Lists.* Communications of the ACM
   3(12):655–657.
-  [https://doi.org/10.1145/367487.367501](https://doi.org/10.1145/367487.367501)
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F367487.367501)
   — the original reference-counting scheme; the retain/release discipline of
   `VtResource` handles. *(DOI verified 2026-08-09: resolves via doi.org to the
   ACM Digital Library; Crossref metadata matches.)*
@@ -181,7 +202,7 @@ These support specific module docs; each is verified before inclusion.
   and [`docs/advanced/beam-optimization.md`](advanced/beam-optimization.md).
 - <a id="ref-kahn1962"></a>**[Kahn 1962]** Kahn, A. B. (1962). *Topological Sorting
   of Large Networks.* Communications of the ACM 5(11):558–562.
-  [https://doi.org/10.1145/368996.369025](https://doi.org/10.1145/368996.369025)
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F368996.369025)
   — cited by [`docs/algorithms/topological-sort.md`](algorithms/topological-sort.md).
 - <a id="ref-huang2005"></a>**[Huang & Chiang 2005]** Huang, L., & Chiang, D. (2005).
   *Better k-best Parsing.* IWPT 2005:53–64.

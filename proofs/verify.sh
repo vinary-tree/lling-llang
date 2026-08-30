@@ -107,6 +107,8 @@ python3 "$ROOT/scripts/check-domain-integration-invariants.py" \
   2>&1 | tee "$LOG_DIR/domain-integration-invariant-registry.log"
 python3 "$ROOT/scripts/check-libcpg-assurance-invariants.py" \
   2>&1 | tee "$LOG_DIR/libcpg-assurance-invariant-registry.log"
+python3 "$ROOT/scripts/check-libcpg-manifest-invariants.py" \
+  2>&1 | tee "$LOG_DIR/libcpg-manifest-invariant-registry.log"
 python3 "$ROOT/scripts/check-provider-boundary-invariants.py" \
   2>&1 | tee "$LOG_DIR/provider-boundary-invariant-registry.log"
 python3 "$ROOT/scripts/check-neutral-foundation-invariants.py" \
@@ -137,6 +139,9 @@ run_tlc fuzzy-reference-lifecycle \
 run_tlc libcpg-evidence-lifecycle \
   "$ROOT/proofs/tla/LibcpgEvidenceLifecycle.tla" \
   "$ROOT/proofs/tla/MC/LibcpgEvidenceLifecycle.cfg"
+run_tlc libcpg-manifest-lifecycle \
+  "$ROOT/proofs/tla/LibcpgManifestLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/LibcpgManifestLifecycle.cfg"
 run_tlc provider-boundary-lifecycle \
   "$ROOT/proofs/tla/ProviderBoundaryLifecycle.tla" \
   "$ROOT/proofs/tla/MC/ProviderBoundaryLifecycle.cfg"
@@ -339,6 +344,8 @@ run_tlc_expect_failure neutral-eventually-terminal-mutant \
   "$eventually_output/NeutralFoundationLifecycle.cfg" \
   "Temporal properties were violated."
 
+"$ROOT/scripts/check-libcpg-manifest-mutants.sh"
+
 z3 "$ROOT/proofs/smt/vco-e4-contracts.smt2" \
   2>&1 | tee "$LOG_DIR/z3-vco-e4-contracts.log"
 diff -u \
@@ -357,6 +364,12 @@ diff -u \
   "$ROOT/proofs/smt/vco-e7-libcpg-assurance.expected" \
   "$LOG_DIR/z3-vco-e7-libcpg-assurance.log"
 
+z3 "$ROOT/proofs/smt/vco-e7-manifest-facts.smt2" \
+  2>&1 | tee "$LOG_DIR/z3-vco-e7-manifest-facts.log"
+diff -u \
+  "$ROOT/proofs/smt/vco-e7-manifest-facts.expected" \
+  "$LOG_DIR/z3-vco-e7-manifest-facts.log"
+
 z3 "$ROOT/proofs/smt/vco-e9-provider-boundary.smt2" \
   2>&1 | tee "$LOG_DIR/z3-vco-e9-provider-boundary.log"
 diff -u \
@@ -371,6 +384,7 @@ diff -u \
 
 "$ROOT/proofs/verify-abi-bounded.sh"
 "$ROOT/scripts/check-neutral-foundation-required-red.sh"
+"$ROOT/scripts/check-libcpg-manifest-required-red.sh"
 
 rm -rf "$MUTANT_DIR"
 echo "Formal verification completed successfully. Evidence logs: $LOG_DIR"

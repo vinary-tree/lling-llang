@@ -1,0 +1,17 @@
+[package]
+name = "vinary-libcpg-adapter-required-red"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[[test]]
+name = "vinary-libcpg-adapter"
+path = "../../libcpg_manifest/tests/adapter.rs"
+
+[dependencies]
+vinary-libcpg-adapter = { path = "../../../../../vinary-libcpg-adapter" }
+
+[dev-dependencies]
+proptest = "1.9"

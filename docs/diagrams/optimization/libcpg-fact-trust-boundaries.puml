@@ -1,0 +1,53 @@
+@startuml libcpg-fact-trust-boundaries
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #37474F
+skinparam ArrowThickness 1.6
+
+title <b>Durable fact trust boundaries</b>\n<size:11><i>untrusted bytes never become cache or lowering authority without validation</i></size>
+
+cloud "Untrusted inputs" as Untrusted #FFCDD2 {
+  artifact "source bytes / parser tree" as Source #FFAB91
+  artifact "portable snapshot bytes" as Bytes #FFAB91
+  artifact "cached artifact" as Cache #FFAB91
+}
+
+rectangle "libcpg validation boundary" as Validation #BBDEFB {
+  component "Manifest validator\ntyped identities · canonical bytes" as Manifest #90CAF9
+  component "Feature-history validator\nunique IDs · absorbing tombstones" as History #64B5F6
+  component "Bounded iterative decoder\ncounts · lengths · checked arithmetic" as Decoder #42A5F5
+  component "Dense correspondence\nkey ↔ u32 round trips" as Dense #2196F3
+  component "Source evidence\nidentity · revision · half-open range" as Evidence #1E88E5
+  database "Immutable canonical snapshot" as Snapshot #A5D6A7
+}
+
+rectangle "adapter validation boundary" as AdapterBoundary #FFE0B2 {
+  component "Relation replay\nevery pair retained" as Relation #FFCC80
+  component "Rule provenance\nno orphan output" as Provenance #FFB74D
+  artifact "Lowering certificate" as Certificate #FFA726
+}
+
+Source --> Manifest
+Source --> History
+Bytes --> Decoder
+Cache --> Manifest
+Decoder --> Dense
+Manifest --> Evidence
+History --> Snapshot
+Dense --> Snapshot
+Evidence --> Snapshot
+Snapshot --> Relation
+Relation --> Provenance
+Provenance --> Certificate
+
+note bottom of Snapshot
+  Canonical output is independent of
+  insertion and worker-completion order.
+end note
+
+note bottom of Certificate
+  Evidence of lowering, not authority
+  for libcpg or lling-llang semantics.
+end note
+@enduml
