@@ -9,7 +9,14 @@ class Build {
             'lling_llang_raku_provider'.IO);
         my $output = $root.add('resources/libraries').add($library-name);
         my $script = $root.add('build-provider.raku');
-        my $include = native-header-path().parent;
+        my $include = $root.add('.build/interop-include');
+        my $header = materialize-native-header($include);
+        LEAVE {
+            $header.unlink if $header.e;
+            $include.rmdir if $include.d && $include.dir.elems == 0;
+            my $build = $include.parent;
+            $build.rmdir if $build.d && $build.dir.elems == 0;
+        }
         my $process = run $*EXECUTABLE, $script,
             "--output=$output", "--interop-include=$include", :out, :err;
         my $stdout = $process.out.slurp-rest;

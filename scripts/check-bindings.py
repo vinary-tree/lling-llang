@@ -58,7 +58,14 @@ JULIA_ROOT = ROOT / "bindings" / "julia" / "LlingLlang"
 RAKU_ROOT = ROOT / "bindings" / "raku"
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "release-bindings.yml"
 
-SKIP_DIR_PARTS = {".git", "build", "node_modules", "obj", "target"}
+SKIP_DIR_PARTS = {
+    ".git",
+    ".precomp",
+    "build",
+    "node_modules",
+    "obj",
+    "target",
+}
 SEMVER_IDENTIFIER = r"(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
 EXACT_SEMVER = re.compile(
     rf"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
@@ -530,13 +537,18 @@ def main() -> int:
         julia_abi = read(JULIA_ROOT / "src" / "GeneratedAbi.jl")
         julia_status = {
             name: int(value)
-            for name, value in re.findall(r"^\s*STATUS_([A-Z0-9_]+)\s*=\s*(\d+)", julia_abi, re.MULTILINE)
+            for name, value in re.findall(
+                r"^\s*STATUS_([A-Z0-9_]+)\s*=\s*(\d+)", julia_abi, re.MULTILINE
+            )
         }
         if julia_status != expected_status:
             failures.append(
                 f"Julia generated Status mismatch: {julia_status} != {expected_status}"
             )
-        for constant, key in (("ABI_VERSION", "abiVersion"), ("API_REVISION", "apiRevision")):
+        for constant, key in (
+            ("ABI_VERSION", "abiVersion"),
+            ("API_REVISION", "apiRevision"),
+        ):
             match = re.search(rf"const\s+{constant}\s*=\s*UInt32\((\d+)\)", julia_abi)
             if match is None or int(match.group(1)) != model[key]:
                 failures.append(f"Julia {constant} does not match api.json {key}")
@@ -550,17 +562,33 @@ def main() -> int:
             failures.append(
                 f"Raku version {raku_meta.get('version')!r} != Cargo {version!r}"
             )
+        raku_family_version = version.replace("-rc.", ".rc.")
+        if (
+            f"Vinary-Tree-Interop:ver<{raku_family_version}>:auth<zef:vinary-tree>"
+            not in raku_meta.get("depends", [])
+        ):
+            failures.append(
+                "Raku distribution does not exact-pin the coordinated "
+                "Vinary-Tree-Interop release candidate"
+            )
         raku_abi = read(RAKU_ROOT / "lib" / "Lling" / "Llang" / "GeneratedAbi.rakumod")
         raku_status = {
             name.replace("-", "_"): int(value)
-            for name, value in re.findall(r"^\s*([A-Z][A-Z0-9-]+)\s*=>\s*(\d+)", raku_abi, re.MULTILINE)
+            for name, value in re.findall(
+                r"^\s*([A-Z][A-Z0-9-]+)\s*=>\s*(\d+)", raku_abi, re.MULTILINE
+            )
         }
         if raku_status != expected_status:
             failures.append(
                 f"Raku generated Status mismatch: {raku_status} != {expected_status}"
             )
-        for constant, key in (("ABI-VERSION", "abiVersion"), ("API-REVISION", "apiRevision")):
-            match = re.search(rf"constant\s+{constant}\s+is\s+export\s*=\s*(\d+)", raku_abi)
+        for constant, key in (
+            ("ABI-VERSION", "abiVersion"),
+            ("API-REVISION", "apiRevision"),
+        ):
+            match = re.search(
+                rf"constant\s+{constant}\s+is\s+export\s*=\s*(\d+)", raku_abi
+            )
             if match is None or int(match.group(1)) != model[key]:
                 failures.append(f"Raku {constant} does not match api.json {key}")
         raku_source = read(RAKU_ROOT / "lib" / "Lling" / "Llang.rakumod")
