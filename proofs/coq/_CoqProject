@@ -54,6 +54,7 @@ domain_integration/EvidenceAssurance.v
 domain_integration/ProviderResult.v
 domain_integration/CanonicalArtifact.v
 domain_integration/ProviderBoundary.v
+domain_integration/NeutralFoundationContracts.v
 optimizer/Assumptions.v
 
 # ============================================================================

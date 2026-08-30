@@ -38,7 +38,7 @@ fi
 if [[ "${LLING_LLANG_DIAGRAMS_SCOPED:-0}" != "1" ]]; then
   if command -v systemd-run >/dev/null 2>&1 \
      && systemd-run --user --scope -q true >/dev/null 2>&1; then
-    exec systemd-run --user --scope -q \
+    exec systemd-run --user --scope -q --expand-environment=no \
       -p MemoryMax=4G -p MemorySwapMax=0 -p CPUQuota=300% -p TasksMax=64 \
       --setenv=LLING_LLANG_DIAGRAMS_SCOPED=1 \
       --setenv=TMPDIR="$TEMP_ROOT" \

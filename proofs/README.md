@@ -42,7 +42,8 @@ proofs/
 │   │   ├── EvidenceAssurance.v # Fresh, bound, independent exact evidence
 │   │   ├── ProviderResult.v    # Non-promoting provider-result algebra
 │   │   ├── CanonicalArtifact.v # Canonical manifests and evidence identity
-│   │   └── ProviderBoundary.v  # Independence, dependency, and ownership laws
+│   │   ├── ProviderBoundary.v  # Independence, dependency, and ownership laws
+│   │   └── NeutralFoundationContracts.v # RegresSpec-driven neutral foundation laws
 │   └── abi/
 │       └── OwnershipLifecycle.v # Retain/release and opaque ABI v1
 ├── tla/                # TLA+ specifications
@@ -54,12 +55,15 @@ proofs/
 │   ├── AbiOwnershipLifecycle.tla # Opaque-handle ownership
 │   ├── LibcpgEvidenceLifecycle.tla # Candidate/guarantee publication
 │   ├── ProviderBoundaryLifecycle.tla # Generic result/evidence/handle lifecycle
+│   ├── NeutralFoundationLifecycle.tla # Neutral release safety and liveness
 │   └── MC/                 # TLC model checking configurations
 ├── smt/                # Z3 dual consistency/countermodel queries
 ├── kani/               # Bit-precise bounded ABI ownership model
 └── doc/                # Documentation
     ├── libcpg-assurance-invariants.tsv # 122 E7 formal/property mappings
     ├── provider-boundary-invariants.tsv # 132 E9 formal/property mappings
+    ├── neutral-foundation-invariants.tsv # 77 E9 formal/property/mutant mappings
+    ├── neutral-foundation-api-baselines.tsv # Protected owner hashes and gates
     ├── proof-status.md     # Current verification status
     └── failed-strategies.md # Documentation of failed approaches
 ```
@@ -200,6 +204,11 @@ Tool temporary files, model metadata, and evidence logs stay under ignored
   inside libcpg or create a reverse dependency. Its 132 properties must record
   a genuine red baseline before provider-adapter production work and pass
   afterward.
+- The RegresSpec-driven E9 neutral-foundation baseline adds 77 exhaustive
+  obligations and 20 causal TLA+ mutants. Five executable owner surfaces are
+  causally red; the independent content-identity crate is absent by design;
+  requirements and documentation remain explicitly blocked by protected
+  pre-API build baselines.
 
 ## Floating-Point Strategy
 

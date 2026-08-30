@@ -1,0 +1,13 @@
+[package]
+name = "content-identity-required-red"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+vinary-content-identity = { path = "../../../../vinary-content-identity" }
+
+[dev-dependencies]
+proptest = "1.9"

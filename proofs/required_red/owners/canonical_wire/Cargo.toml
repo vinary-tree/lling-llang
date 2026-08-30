@@ -1,0 +1,18 @@
+[package]
+name = "canonical-wire-required-red"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[[test]]
+name = "canonical_wire"
+path = "../../neutral_foundations/tests/canonical_wire.rs"
+
+[dependencies]
+vinary-canonical-json = { path = "../../../../../vinary-canonical-json" }
+vinary-wire-schema = { path = "../../../../../vinary-canonical-json/crates/vinary-wire-schema" }
+
+[dev-dependencies]
+proptest = "1.9"

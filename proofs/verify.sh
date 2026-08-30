@@ -17,7 +17,7 @@ mkdir -p "$LOG_DIR" "$TMP_DIR" "$TLC_DIR"
 if [[ "${LLING_LLANG_FORMAL_SCOPED:-0}" != "1" ]]; then
   if command -v systemd-run >/dev/null 2>&1 \
      && systemd-run --user --scope -q true >/dev/null 2>&1; then
-    exec systemd-run --user --scope -q \
+    exec systemd-run --user --scope -q --expand-environment=no \
       -p MemoryMax=4G -p MemorySwapMax=0 -p CPUQuota=400% -p TasksMax=64 \
       --setenv=LLING_LLANG_FORMAL_SCOPED=1 \
       --setenv=TMPDIR="$TMP_DIR" \
@@ -109,6 +109,8 @@ python3 "$ROOT/scripts/check-libcpg-assurance-invariants.py" \
   2>&1 | tee "$LOG_DIR/libcpg-assurance-invariant-registry.log"
 python3 "$ROOT/scripts/check-provider-boundary-invariants.py" \
   2>&1 | tee "$LOG_DIR/provider-boundary-invariant-registry.log"
+python3 "$ROOT/scripts/check-neutral-foundation-invariants.py" \
+  2>&1 | tee "$LOG_DIR/neutral-foundation-invariant-registry.log"
 
 run_tlc rrwm "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWM.cfg"
 run_tlc rrwm-zero "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWMZeroExperts.cfg"
@@ -144,6 +146,9 @@ run_tlc lazy-wfst-lifecycle \
 run_tlc abi-ownership-lifecycle \
   "$ROOT/proofs/tla/AbiOwnershipLifecycle.tla" \
   "$ROOT/proofs/tla/MC/AbiOwnershipLifecycle.cfg"
+run_tlc neutral-foundations \
+  "$ROOT/proofs/tla/NeutralFoundationLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/NeutralFoundationLifecycle.cfg"
 
 rm -rf "$MUTANT_DIR"
 mkdir -p \
@@ -158,7 +163,8 @@ mkdir -p \
   "$MUTANT_DIR/provider-limitations" \
   "$MUTANT_DIR/provider-independence" \
   "$MUTANT_DIR/lazy-wfst" \
-  "$MUTANT_DIR/abi-ownership"
+  "$MUTANT_DIR/abi-ownership" \
+  "$MUTANT_DIR/neutral-foundations"
 
 cp "$ROOT/proofs/tla/LazyComposition.tla" "$MUTANT_DIR/lazy/LazyComposition.tla"
 cp "$ROOT/proofs/tla/MC/LazyCompositionNoCache.cfg" "$MUTANT_DIR/lazy/LazyCompositionNoCache.cfg"
@@ -286,6 +292,53 @@ run_tlc_expect_failure abi-release-mutant \
   "$MUTANT_DIR/abi-ownership/AbiOwnershipLifecycle.cfg" \
   "Invariant RetainsEqualOwners is violated."
 
+run_neutral_mutant() {
+  local name="$1"
+  local target="$2"
+  local expected="Invariant $target is violated"
+  local output="$MUTANT_DIR/neutral-foundations/$name"
+  python3 "$ROOT/scripts/neutral_foundation_mutants.py" \
+    "$name" \
+    "$ROOT/proofs/tla/NeutralFoundationLifecycle.tla" \
+    "$ROOT/proofs/tla/MC/NeutralFoundationLifecycle.cfg" \
+    "$output"
+  run_tlc_expect_failure "neutral-$name-mutant" \
+    "$output/NeutralFoundationLifecycle.tla" \
+    "$output/NeutralFoundationLifecycle.cfg" \
+    "$expected"
+}
+
+run_neutral_mutant type-ok TypeOK
+run_neutral_mutant named-profile NamedProfileIsNotRfc8785
+run_neutral_mutant identity-domains WireAndContentIdentityDomainsAreSeparate
+run_neutral_mutant projection-strength ProjectionNeverStrengthens
+run_neutral_mutant patch-base PatchCommitRequiresMatchingBase
+run_neutral_mutant incomplete-cache IncompleteNeverEntersCache
+run_neutral_mutant release-locks RuntimeReleaseRequiresExactCompleteLockedInputs
+run_neutral_mutant repository-spill OverflowSpillsOnlyToRepositoryStorage
+run_neutral_mutant checkpoint-resume ResumeRequiresCompatibleCheckpoint
+run_neutral_mutant tombstone-active TombstonesAreNotActive
+run_neutral_mutant source-accounting SourceAccountingNeverDropsUnclassifiedText
+run_neutral_mutant statistics-theorem StatisticsNeverDischargeTheoremObligations
+run_neutral_mutant stale-evidence StaleEvidenceCannotVerify
+run_neutral_mutant negative-control VerifiedAssuranceRequiresNegativeControl
+run_neutral_mutant revision-attestation VerifiedAssuranceRequiresRevisionAttestation
+run_neutral_mutant check-only-mutation CheckOnlyLintNeverMutatesDocumentation
+run_neutral_mutant stale-manifest StaleManifestCannotPassLint
+run_neutral_mutant release-gates ReleaseRequiresEveryNeutralFoundationGate
+run_neutral_mutant native-stack NativeStackBoundIsInputIndependent
+
+eventually_output="$MUTANT_DIR/neutral-foundations/eventually-terminal"
+python3 "$ROOT/scripts/neutral_foundation_mutants.py" \
+  eventually-terminal \
+  "$ROOT/proofs/tla/NeutralFoundationLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/NeutralFoundationLifecycle.cfg" \
+  "$eventually_output"
+run_tlc_expect_failure neutral-eventually-terminal-mutant \
+  "$eventually_output/NeutralFoundationLifecycle.tla" \
+  "$eventually_output/NeutralFoundationLifecycle.cfg" \
+  "Temporal properties were violated."
+
 z3 "$ROOT/proofs/smt/vco-e4-contracts.smt2" \
   2>&1 | tee "$LOG_DIR/z3-vco-e4-contracts.log"
 diff -u \
@@ -310,7 +363,14 @@ diff -u \
   "$ROOT/proofs/smt/vco-e9-provider-boundary.expected" \
   "$LOG_DIR/z3-vco-e9-provider-boundary.log"
 
+z3 "$ROOT/proofs/smt/vco-e9-neutral-foundations.smt2" \
+  2>&1 | tee "$LOG_DIR/z3-vco-e9-neutral-foundations.log"
+diff -u \
+  "$ROOT/proofs/smt/vco-e9-neutral-foundations.expected" \
+  "$LOG_DIR/z3-vco-e9-neutral-foundations.log"
+
 "$ROOT/proofs/verify-abi-bounded.sh"
+"$ROOT/scripts/check-neutral-foundation-required-red.sh"
 
 rm -rf "$MUTANT_DIR"
 echo "Formal verification completed successfully. Evidence logs: $LOG_DIR"

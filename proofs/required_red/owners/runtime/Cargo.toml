@@ -1,0 +1,17 @@
+[package]
+name = "runtime-required-red"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[[test]]
+name = "runtime"
+path = "../../neutral_foundations/tests/runtime.rs"
+
+[dependencies]
+vinary-runtime = { path = "../../../../../vinary-runtime" }
+
+[dev-dependencies]
+proptest = "1.9"

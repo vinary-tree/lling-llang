@@ -9,9 +9,9 @@ This document tracks the current formal verification surface for lling-llang.
 | Semiring Foundations | 9 | 9 | 0 | 0 |
 | WFST Definitions | 4 | 4 | 0 | 0 |
 | Algorithm Models | 4 | 4 partial-correctness/spec files | 0 | 0 |
-| Campaign Rocq Contracts | 12 | 12 | 0 | 0 |
-| TLA+ Specifications | 10 specs / 16 configs + 12 expected-failure mutants | 16 finite TLC configs | 12 expected failures | 0 |
-| SMT Dual Checks | 4 transcripts / 41 queries | 41 expected results | 6 satisfiable witnesses/countermodels | 0 |
+| Campaign Rocq Contracts | 13 | 13 | 0 | 0 |
+| TLA+ Specifications | 11 specs / 17 configs + 32 expected-failure mutants | 17 finite TLC configs | 32 expected failures | 0 |
+| SMT Dual Checks | 5 transcripts / 62 queries | 62 expected results | 8 satisfiable witnesses/countermodels | 0 |
 | Kani ABI Models | 3 harnesses | 3 | 0 | 0 |
 
 ## Detailed Status
@@ -68,6 +68,7 @@ the finite real grid modeled in `Quantization.v`.
 | `LazyWfstLifecycle.tla` | Finite TLC model | no-cache/zero-LRU emptiness, positive LRU bound, exact finite LRU order, transient uniqueness | 80 distinct states, depth 7, plus policy-change mutant |
 | `AbiOwnershipLifecycle.tla` | Finite TLC model | retain/owner equality, moved/released non-ownership, stable ABI v1 identity and observations | 912 distinct states, depth 13, plus non-decrementing release mutant |
 | `ProviderBoundaryLifecycle.tla` | Finite TLC model | immutable capture, status/limitation preservation, exact-evidence freshness, control-domain independence, cache isolation, balanced native ownership | 1,409 distinct states, depth 11, plus status-promotion, limitation-loss, and dependent-guarantee mutants |
+| `NeutralFoundationLifecycle.tla` | Finite TLC model | canonical profile and identity separation; non-strengthening graph projection; atomic patch; complete-only cache; locked exact release; repository spill; compatible resume; tombstone, source, assurance, documentation, release, stack, and terminal-progress laws | 128 distinct states over 16 named adversarial scenarios, depth 8, plus 20 one-defect safety/liveness mutants |
 
 ### Phase 5: Optimizer and ABI Contracts
 
@@ -98,11 +99,15 @@ the finite real grid modeled in `Quantization.v`.
 | `ProviderBoundary.v` | Checked | Control-domain independence, stale/dependent/self rejection, one-way public dependency, private-access rejection, stable native ownership |
 | `vco-e9-provider-boundary.smt2` | Checked | Thirteen forbidden claims are unsatisfiable; exact and approximate valid witnesses are satisfiable |
 | `provider-boundary-invariants.tsv` | Checked | 132 exhaustive E9 declaration/check-to-property obligations, all required red before production |
+| `NeutralFoundationContracts.v` | Checked | 36 unbounded laws for canonical wire, identity, graph, runtime, requirements, assurance, documentation, and stack safety |
+| `vco-e9-neutral-foundations.smt2` | Checked | Nineteen forbidden boundary states are unsatisfiable; exact-release and complete-approximate-cache witnesses are satisfiable |
+| `neutral-foundation-invariants.tsv` | Checked | 77 exhaustive formal-to-property obligations with complete TLA+ mutant routing; protected-baseline blockers remain explicit |
+| `neutral-foundation-api-baselines.tsv` | Checked | Live branch, commit, file-set, and aggregate SHA-256 validation for seven protected or absent owner surfaces |
 | Rocq assumption audit | Checked | Every selected E4/E6/E7/E9 theorem is closed under the global context; no global axioms are reported |
 
 ## Last Updated
 
-2026-08-29
+2026-08-30
 
 ## Notes
 
@@ -113,6 +118,6 @@ the finite real grid modeled in `Quantization.v`.
 - TLA+ specs include TLC config files under `proofs/tla/MC`.
 - Algorithm files contain checked specification predicates and partial-correctness theorems over the current finite, stable-closed, matrix-backed epsilon-closure, or product-matrix WFST language surface.
 - `make verify-proofs` runs Rocq, every TLC config and expected-failure mutant,
-  all four Z3 transcripts, and Kani/CBMC under mandatory local systemd
+  all five Z3 transcripts, and Kani/CBMC under mandatory local systemd
   resource caps. Java runs headlessly. Persistent evidence lives under ignored
   `target/formal-verification/`.

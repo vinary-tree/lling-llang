@@ -29,6 +29,11 @@ fabricate a DOI**.
   Showcase Track.
   [https://doi.org/10.48550/arXiv.2607.01504](https://doi.org/10.48550/arXiv.2607.01504)
   *(DataCite DOI and venue metadata re-verified 2026-08-27.)*
+- <a id="ref-rfc8785"></a>**[Rundgren, Jordan & Erdtman 2020]** Rundgren, A.,
+  Jordan, B., & Erdtman, S. (2020). *JSON Canonicalization Scheme (JCS).* RFC
+  8785. Internet Engineering Task Force.
+  [https://doi.org/10.17487/RFC8785](https://doi.org/10.17487/RFC8785)
+  *(RFC and DOI metadata re-verified 2026-08-30.)*
 
 ## Program analysis and graph algorithms
 

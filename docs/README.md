@@ -151,6 +151,7 @@ phase-by-phase implementation ledger are frozen historical records — see
 | [Formal Verification](optimization/formal-verification.md) | Rocq, TLA+/TLC, Z3, and Kani evidence with finite bounds, negative controls, and reproduction |
 | [libcpg Dataflow, Graph, and Assurance Contract](optimization/libcpg-assurance-contract.md) | Lawful llattice v2 migration, exact libvgraph quotient semantics, stack/work bounds, and independently bound assurance evidence |
 | [Provider-Neutral Boundary Contract](optimization/provider-boundary-contract.md) | Canonical artifact identity, non-promoting provider results, limitation propagation, independent guarantees, native ownership, and the optional one-way libcpg-to-lling-llang public-API boundary |
+| [Neutral Vinary Foundation Contract](optimization/neutral-vinary-foundation-contract.md) | RegresSpec-driven ownership, canonical/schema/content identity, neutral graphs, runtime and assurance gates, stack-safe concurrency, and 77 formally traced pre-implementation obligations |
 
 ### Archive
 

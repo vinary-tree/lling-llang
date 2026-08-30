@@ -204,6 +204,42 @@ inequality, reverse/private dependencies, release underflow, and owner
 mutation. The satisfiable queries prove that valid exact and approximate
 results remain publishable, preventing a vacuous always-reject contract.
 
+`vco-e9-neutral-foundations.smt2` adds 21 RegresSpec-driven neutral-foundation
+queries:
+
+```text
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+unsat
+sat
+sat
+```
+
+The 19 unsatisfiable queries reject identity-domain collision, non-finite
+number admission, partial sink writes, claim-strengthening projection, stale
+patch commit, incomplete caching, unlocked exact release, memory-filesystem
+spill, incompatible resume, active tombstones, lost source text, evidence
+promotion, stale or uncontrolled assurance, stale generated assets, mutating
+check-only lint, release with a missing gate, and input-shaped native-stack
+growth. The satisfiable queries witness a valid exact release and a valid
+complete approximate cache entry.
+
 ## Kani bounded ABI refinement
 
 `proofs/kani/abi_ownership_model.rs` contains three harnesses:
@@ -270,6 +306,17 @@ the three provider-neutral Rocq modules, the provider lifecycle configuration,
 and the E9 Z3 transcript. These obligations govern generic Vinary foundation
 adapters; they do not assign either lling-llang or libcpg ownership of the
 other.
+
+The E9 neutral-foundation registry adds 77 obligations in
+`proofs/doc/neutral-foundation-invariants.tsv`: 36 Rocq theorems, 19 TLA+
+safety invariants, one TLA+ liveness property, and 21 named Z3 checks. Every
+row identifies one required-red property and its proof, mutant, contradiction,
+or positive-witness evidence. All 20 TLA+ obligations have dedicated
+single-defect mutants. The checker also recomputes the reviewed branch, commit,
+and aggregate API hashes for seven protected or absent foundation baselines.
+Properties for `vinary-requirements` and `vinary-doc-lint` are explicitly
+execution-blocked by their protected baselines; they are not misclassified as
+causal required-red results.
 
 ## Reproduction
 
