@@ -1,0 +1,97 @@
+=begin pod
+
+=NAME Lling::Llang
+
+=SUBTITLE Composable WFSTs and host-defined automata for Raku
+
+=DESCRIPTION
+
+C<Lling::Llang> provides an eager Unicode/tropical WFST builder, immutable
+resource import, lazy composition, and the C<WfstProvider> role for custom Raku
+automata. Provider state callbacks are cached and never execute under the
+facade's cache lock.
+
+=head1 Core types
+
+=item C<WfstBuilder> constructs a dense immutable graph and is consumed by
+C<build>.
+
+=item C<ProviderArc> represents one weighted input/output transition; an
+undefined label denotes epsilon.
+
+=item C<ProviderState> represents a complete immutable state expansion.
+
+=item C<WfstProvider> requires C<start-state> and C<state>; C<state-count> may
+return the C<Int> type object when unknown.
+
+=head1 Public operations
+
+=item C<abi-version> and C<api-revision> report the loaded native contract.
+
+=item C<WfstBuilder.new(:size-hint)> creates a builder. C<reserve-states>,
+C<add-state>, C<set-start>, C<set-final>, C<clear-final>, and C<add-arc> mutate
+it. C<build> consumes it on success; C<close> releases it without building and
+C<opened> reports whether it remains usable.
+
+=item C<resource($graph)> returns an independent retained resource.
+C<import-wfst($resource)> copies a compatible immutable graph into
+lling-llang. C<compose($first, $second)> returns a lazy tropical product over
+independent snapshots of both inputs.
+
+=item C<provider($implementation, :parallel, :acyclic)> exposes a
+C<WfstProvider> through the shared scalar-WFST resource ABI. The optional
+C<:unit-domain> and C<:weight-domain> arguments declare its data domains.
+
+=item C<provider-last-error()> copies the latest Raku callback diagnostic for
+test and troubleshooting output. It is process-wide and is not a replacement
+for calling a provider method directly when structured exception handling is
+required.
+
+=head1 Ownership
+
+All returned C<Vinary::Tree::Interop::Wfst> values own one retain. Close them
+deterministically. Lazy products retain independent snapshots of their inputs.
+
+=head1 Example
+
+=begin code :lang<raku>
+my $builder = WfstBuilder.new;
+my $from = $builder.add-state;
+my $to = $builder.add-state;
+$builder.set-start($from).set-final($to);
+$builder.add-arc($from, 'a', 'b', $to);
+my $graph = $builder.build;
+$graph.close;
+=end code
+
+=head1 Provider example
+
+=begin code :lang<raku>
+class RewriteAB does WfstProvider {
+    method start-state(--> UInt:D) { 0 }
+    method state-count(--> Int:D) { 2 }
+    method state(UInt:D $id --> ProviderState:D) {
+        return ProviderState.new(arcs => [ProviderArc.new(
+            input => 'a'.ord, output => 'b'.ord, target => 1,
+        )]) if $id == 0;
+        return ProviderState.new(final => True, final-weight => 0e0)
+            if $id == 1;
+        ProviderState.new(valid => False)
+    }
+}
+
+my $lazy = provider(RewriteAB.new, :acyclic);
+$lazy.close;
+=end code
+
+=head1 Failure and concurrency contracts
+
+Native failures throw C<X::Lling::Llang> with a stable C<Status>, operation,
+and copied diagnostic. Provider exceptions are contained at the C boundary.
+Customer C<state> methods execute outside the facade cache lock. Providers are
+serialized unless C<:parallel> truthfully declares concurrent reentrancy.
+
+See the packaged C<README.md> and C<t/01-conformance.rakutest> for the complete
+provider, composition, error, concurrency, and security contracts.
+
+=end pod

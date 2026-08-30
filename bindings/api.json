@@ -23,7 +23,9 @@
   },
   "packages": {
     "cratesIo": "lling-llang",
-    "npm": "@vinary-tree/lling-llang"
+    "npm": "@vinary-tree/lling-llang",
+    "julia": "LlingLlang",
+    "zef": "Lling-Llang"
   },
   "supportTiers": {
     "tier1": [
@@ -31,7 +33,9 @@
       "cpp",
       "javascript",
       "typescript",
-      "clojurescript"
+      "clojurescript",
+      "julia",
+      "raku"
     ]
   },
   "documentation": {
@@ -99,12 +103,52 @@
           "Executable conformance evidence",
           "Maintainer workflow"
         ]
+      },
+      "julia": {
+        "languages": [
+          "Julia"
+        ],
+        "guide": "bindings/julia/LlingLlang/README.md",
+        "example": "bindings/julia/LlingLlang/test/runtests.jl",
+        "requiredHeadings": [
+          "Install",
+          "Quickstart",
+          "Ownership & memory model",
+          "Errors",
+          "Concurrency",
+          "Zero-copy paths",
+          "Security and provider trust",
+          "Troubleshooting",
+          "Version compatibility",
+          "Executable conformance evidence",
+          "Maintainer workflow"
+        ]
+      },
+      "raku": {
+        "languages": [
+          "Raku"
+        ],
+        "guide": "bindings/raku/README.md",
+        "example": "bindings/raku/t/01-conformance.rakutest",
+        "requiredHeadings": [
+          "Install",
+          "Quickstart",
+          "Ownership & memory model",
+          "Errors",
+          "Concurrency",
+          "Zero-copy paths",
+          "Security and provider trust",
+          "Troubleshooting",
+          "Version compatibility",
+          "Executable conformance evidence",
+          "Maintainer workflow"
+        ]
       }
     }
   },
   "packageVersion": "4.0.0-rc.5",
   "abiVersion": 1,
-  "apiRevision": 1,
+  "apiRevision": 2,
   "cPrefix": "lling_",
   "headers": {
     "c": "include/lling_llang.h",
@@ -185,6 +229,23 @@
         "state_info",
         "state_arcs"
       ]
+    },
+    "HostScalarWfstProvider": {
+      "languages": [
+        "Julia",
+        "Raku"
+      ],
+      "snapshot": "identity-with-retain immutable revision",
+      "callbacks": [
+        "start",
+        "num_states",
+        "state_info",
+        "state_arcs"
+      ],
+      "callbackLocking": "customer callbacks execute without facade or native resource locks",
+      "defaultThreading": "serialized by the native consumer",
+      "optInThreading": "parallel and reentrant",
+      "stateCaching": "one immutable complete state per state identifier"
     }
   },
   "forbiddenFacadeSymbols": [
@@ -249,7 +310,15 @@
       "rustModule": "ffi"
     },
     {
+      "name": "lling_wfst_import_ref",
+      "rustModule": "ffi"
+    },
+    {
       "name": "lling_wfst_compose",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_wfst_compose_refs",
       "rustModule": "ffi"
     },
     {

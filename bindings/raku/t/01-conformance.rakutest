@@ -1,0 +1,72 @@
+use v6.d;
+use Test;
+use Lling::Llang;
+
+plan 22;
+
+is abi-version(), ABI-VERSION, 'native and Raku ABI versions agree';
+ok api-revision() >= API-REVISION, 'native API revision satisfies the facade';
+
+my $builder = WfstBuilder.new(size-hint => 2);
+my $first = $builder.add-state;
+my $second = $builder.add-state;
+is-deeply ($first, $second), (0, 1), 'builder allocates dense state identifiers';
+$builder.set-start($first).set-final($second, 0.25);
+$builder.add-arc($first, 'a', 'b', $second, 0.5);
+my $graph = $builder.build;
+nok $builder.opened, 'build consumes the builder';
+is $graph.start, 0, 'built graph publishes its start state';
+is $graph.state-count, 2, 'built graph publishes its exact state count';
+is $graph.state-info(1).final-weight, 0.25, 'final weights cross NativeCall';
+is $graph.arcs(0).head.output, 'b'.ord, 'Unicode labels cross NativeCall';
+my $imported = import-wfst($graph);
+is $imported.start, 0, 'import produces an independent owned graph';
+$imported.close;
+
+class ExampleProvider does WfstProvider {
+    method start-state(--> UInt:D) { 0 }
+    method state-count(--> Int:D) { 2 }
+    method state(UInt:D $identifier --> ProviderState:D) {
+        return ProviderState.new(arcs => [ProviderArc.new(
+            input => 'b'.ord, output => 'c'.ord, target => 1, weight => 0.75,
+        )]) if $identifier == 0;
+        return ProviderState.new(final => True, final-weight => 0.125)
+            if $identifier == 1;
+        ProviderState.new(valid => False)
+    }
+}
+
+my $host = provider(ExampleProvider.new, :acyclic);
+is $host.start, 0, 'Raku provider publishes its start state';
+is $host.state-count, 2, 'Raku provider publishes its state count';
+my @host-arcs;
+try {
+    @host-arcs = $host.arcs(0);
+    CATCH {
+        default {
+            diag provider-last-error;
+            .rethrow;
+        }
+    }
+}
+is @host-arcs.head.output, 'c'.ord, 'Raku provider publishes arcs';
+my $host-state = $host.state-info(1);
+ok $host-state.final, 'Raku provider publishes finality';
+is $host-state.final-weight, 0.125, 'Raku provider publishes final weight';
+
+my $product = compose($graph, $host);
+is $product.start, 0, 'lazy product has a stable dense start state';
+my $arc = $product.arcs(0).head;
+is $arc.input, 'a'.ord, 'composition preserves the left input tape';
+is $arc.output, 'c'.ord, 'composition preserves the right output tape';
+is $arc.weight, 1.25, 'composition multiplies tropical weights by addition';
+is $product.state-info($arc.target).final-weight, 0.375,
+    'composition combines both final weights';
+my $snapshot = $product.snapshot;
+$product.close;
+is $snapshot.start, 0, 'snapshot remains valid after product close';
+ok $host.opened, 'product close does not consume its input provider';
+$snapshot.close;
+$graph.close;
+$host.close;
+pass 'all owned resources close deterministically';

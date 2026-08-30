@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_API_REVISION 1u
+#define LLING_API_REVISION 2u
 
 typedef enum LlingStatus {
     LLING_STATUS_OK = 0,
@@ -69,8 +69,15 @@ LLING_API LlingStatus lling_wfst_builder_build(
 LLING_API void lling_wfst_free(LlingWfst* wfst);
 LLING_API LlingStatus lling_wfst_import(
     VtResource resource, LlingWfst** out_wfst);
+/* Pointer form for FFIs that cannot pass C aggregates by value. */
+LLING_API LlingStatus lling_wfst_import_ref(
+    const VtResource* resource, LlingWfst** out_wfst);
 LLING_API LlingStatus lling_wfst_compose(
     VtResource first, VtResource second, LlingWfst** out_wfst);
+/* Pointer form for FFIs that cannot pass C aggregates by value. */
+LLING_API LlingStatus lling_wfst_compose_refs(
+    const VtResource* first, const VtResource* second,
+    LlingWfst** out_wfst);
 /* On success, out_resource owns one retain. */
 LLING_API LlingStatus lling_wfst_resource(
     const LlingWfst* wfst, VtResource* out_resource);

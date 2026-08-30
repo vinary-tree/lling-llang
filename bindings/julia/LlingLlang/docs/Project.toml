@@ -1,0 +1,8 @@
+[deps]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+LlingLlang = "c0d6310b-ae37-4a72-96a5-37e0f0aef4be"
+VinaryTreeInterop = "8d6503e5-4d65-4bd8-a8ee-293a0149584e"
+
+[compat]
+Documenter = "1"
+VinaryTreeInterop = "4"

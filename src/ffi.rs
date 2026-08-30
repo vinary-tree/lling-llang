@@ -11,7 +11,7 @@ use vinary_tree_interop::VtResource;
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_API_REVISION: u32 = 1;
+pub const LLING_API_REVISION: u32 = 2;
 
 /// Status returned by lling-llang C functions.
 #[repr(u32)]
@@ -352,6 +352,22 @@ pub extern "C" fn lling_wfst_import(
     })
 }
 
+/// Pointer-form import for FFIs that cannot pass C aggregates by value.
+///
+/// # Safety
+/// `resource` must be null or point to a readable `VtResource` for this call.
+#[no_mangle]
+pub unsafe extern "C" fn lling_wfst_import_ref(
+    resource: *const VtResource,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingStatus {
+    if resource.is_null() {
+        set_error("resource is null");
+        return LlingStatus::NullPointer;
+    }
+    lling_wfst_import(unsafe { *resource }, out_wfst)
+}
+
 /// Lazily compose two captured scalar-WFST resources.
 #[no_mangle]
 pub extern "C" fn lling_wfst_compose(
@@ -369,6 +385,28 @@ pub extern "C" fn lling_wfst_compose(
         *output = Box::into_raw(Box::new(LlingWfst { resource }));
         Ok(())
     })
+}
+
+/// Pointer-form composition for FFIs that cannot pass C aggregates by value.
+///
+/// # Safety
+/// `first` and `second` must be null or point to readable `VtResource` values
+/// for this call.
+#[no_mangle]
+pub unsafe extern "C" fn lling_wfst_compose_refs(
+    first: *const VtResource,
+    second: *const VtResource,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingStatus {
+    if first.is_null() {
+        set_error("first resource is null");
+        return LlingStatus::NullPointer;
+    }
+    if second.is_null() {
+        set_error("second resource is null");
+        return LlingStatus::NullPointer;
+    }
+    lling_wfst_compose(unsafe { *first }, unsafe { *second }, out_wfst)
 }
 
 /// Return a new owned resource retain for a WFST handle.

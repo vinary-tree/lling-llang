@@ -41,7 +41,7 @@ use support::interop_wfst::{
 };
 use vinary_tree_interop::{VtResource, VtStatus, VtWfstArc};
 
-/// Feed a native graph through the 17-function C builder surface.
+/// Feed a native graph through the 19-function C builder surface.
 fn drive_builder(wfst: &VectorWfst<char, TropicalWeight>) -> *mut LlingWfst {
     let mut builder: *mut LlingWfstBuilder = ptr::null_mut();
     assert_eq!(lling_wfst_builder_new(&mut builder), LlingStatus::Ok);

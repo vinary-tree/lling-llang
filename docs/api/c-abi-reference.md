@@ -46,7 +46,7 @@ Seventeen functions in five groups. Every fallible call returns a
 `LlingStatus`; every non-`OK` return latches a thread-local, NUL-terminated
 diagnostic readable through `lling_last_error_message()`.
 
-![The 17-function lling-llang C ABI surface: versioning and diagnostics functions, the nine builder-lifecycle calls on the caller-owned LlingWfstBuilder, the four immutable-handle operations on LlingWfst, the two-word VtResource exchanged with foreign providers, and the LlingStatus enum they all return.](../diagrams/api/c-abi-surface.svg)
+![The 19-function lling-llang C ABI surface: versioning and diagnostics functions, the nine builder-lifecycle calls on the caller-owned LlingWfstBuilder, the six immutable-handle operations on LlingWfst, the two-word VtResource exchanged with foreign providers, and the LlingStatus enum they all return.](../diagrams/api/c-abi-surface.svg)
 
 *Yellow = lling-llang-owned surface; green = retained `VtResource` handles;
 red = foreign providers across the trust boundary; grey = status and
@@ -66,8 +66,10 @@ Builder (9)        lling_wfst_builder_new ─┐  caller-owned, mutable,
                    lling_wfst_builder_clear_final
                    lling_wfst_builder_add_arc
                    lling_wfst_builder_build ──▶ LlingWfst (immutable)
-Handle (4)         lling_wfst_free, lling_wfst_import,
-                   lling_wfst_compose, lling_wfst_resource ──▶ VtResource
+Handle (6)         lling_wfst_free, lling_wfst_import,
+                   lling_wfst_import_ref, lling_wfst_compose,
+                   lling_wfst_compose_refs,
+                   lling_wfst_resource ──▶ VtResource
 Resource (1)       lling_resource_release
                    (VtResource also flows IN to import/compose from any
                     compatible producer: libdictenstein, duallity, …)
@@ -79,7 +81,7 @@ Resource (1)       lling_resource_release
 
 ```c
 #define LLING_ABI_VERSION 1u
-#define LLING_API_REVISION 1u
+#define LLING_API_REVISION 2u
 
 LLING_API uint32_t lling_abi_version(void);
 LLING_API uint32_t lling_api_revision(void);
@@ -359,7 +361,7 @@ LLING_API LlingStatus lling_wfst_builder_build(
 > leave the builder exactly as it was — set a start state and call `build`
 > again.
 
-## Immutable handles and resources — five functions
+## Immutable handles and resources — six functions
 
 `LlingWfst` is an opaque, caller-owned, **immutable** scalar WFST: safe to
 share across threads, usable concurrently, and exportable as a family
@@ -400,10 +402,20 @@ LLING_API LlingStatus lling_wfst_import(
 Every weight crossing this boundary is validated with
 `TropicalWeight::is_valid_raw` — finite or $`+\infty`$; NaN **and**
 $`-\infty`$ are rejected as provider misbehavior (the LLING-B2/F1 hardening).
+The output pointer is validated before snapshot capture or materialization, so
+a `NULL_POINTER` result cannot leak a private graph or provider retain.
 
-> **Caution.** `out_wfst` is validated *after* the copy: passing null
-> returns `NULL_POINTER`, but the fully materialized private graph is then
-> unrecoverable (leaked). Always pass a valid out pointer.
+### `lling_wfst_import_ref`
+
+```c
+LLING_API LlingStatus lling_wfst_import_ref(
+    const VtResource* resource, LlingWfst** out_wfst);
+```
+
+API revision 2 adds this pointer-form twin for foreign-function interfaces
+that cannot pass a C aggregate by value. Its semantics, statuses, ownership,
+threading, and complexity are identical to `lling_wfst_import`; a null
+`resource` pointer returns `NULL_POINTER` before dereference.
 
 ### `lling_wfst_compose`
 
@@ -426,10 +438,22 @@ lazy expansion surface as `VT_STATUS_PROVIDER_ERROR` on the exported vtable
 calls — not as an `LlingStatus`, because traversal happens through the family
 interface. See [Resource ABI architecture](../architecture/resource-abi.md).
 
-> **Caution.** `out_wfst` is validated *after* capture: passing null returns
-> `NULL_POINTER`, but the constructed composition — holding one snapshot
-> retain per input — is then unrecoverable (those snapshot retains leak with
-> it). Always pass a valid out pointer.
+The output pointer is validated before either snapshot is captured, so failure
+cannot strand a composition or either input retain.
+
+### `lling_wfst_compose_refs`
+
+```c
+LLING_API LlingStatus lling_wfst_compose_refs(
+    const VtResource* first, const VtResource* second,
+    LlingWfst** out_wfst);
+```
+
+This API-revision-2 pointer form preserves the exact lazy composition contract
+while accommodating foreign runtimes such as Raku NativeCall that represent a
+`repr(C)` structure argument as a pointer. A null input pointer returns
+`NULL_POINTER`; non-null pointed resources undergo the same capability and
+domain validation as the aggregate-by-value entry point.
 
 ### `lling_wfst_resource`
 

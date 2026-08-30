@@ -1,0 +1,28 @@
+{
+  "name": "Lling-Llang",
+  "version": "4.0.0-rc.5",
+  "description": "Composable weighted finite-state transducers and host-defined automata for Raku",
+  "auth": "zef:vinary-tree",
+  "api": "1",
+  "license": "Apache-2.0",
+  "source-url": "https://github.com/vinary-tree/lling-llang.git",
+  "provides": {
+    "Lling::Llang": "lib/Lling/Llang.rakumod",
+    "Lling::Llang::GeneratedAbi": "lib/Lling/Llang/GeneratedAbi.rakumod"
+  },
+  "resources": [
+    "libraries/lling_llang_raku_provider"
+  ],
+  "depends": [
+    "Vinary::Tree::Interop:ver<4.0.0>:auth<zef:vinary-tree>"
+  ],
+  "test-depends": [
+    "Test"
+  ],
+  "tags": [
+    "automata",
+    "composition",
+    "nativecall",
+    "wfst"
+  ]
+}

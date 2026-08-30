@@ -110,6 +110,8 @@ fortran-bindings = ["native-bindings-full"]
 ocaml-bindings = ["native-bindings-full"]
 haskell-bindings = ["native-bindings-full"]
 lua-bindings = ["native-bindings-full"]
+julia-bindings = ["native-bindings-full"]
+raku-bindings = ["native-bindings-full"]
 
 # === Core Optional Features ===
 # Integration with liblevenshtein for lexical correction
@@ -177,3 +179,7 @@ all-features = true
 
 [lib]
 crate-type = ["rlib", "cdylib", "staticlib"]
+
+# Keep this standalone repository from being captured by an unrelated parent
+# workspace when it is checked out beneath another Rust project for validation.
+[workspace]

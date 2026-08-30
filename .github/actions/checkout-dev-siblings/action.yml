@@ -8,6 +8,13 @@ inputs:
       coordinated branch for every non-llattice sibling.
     required: false
     default: master
+  coordinated-ref:
+    description: >
+      Optional development branch selected for each sibling where that exact
+      remote branch exists. Repositories without it use their configured
+      fallback. Release workflows do not set this input.
+    required: false
+    default: ""
   llattice-ref:
     description: Immutable llattice release ref.
     required: false
@@ -20,6 +27,7 @@ runs:
       shell: bash
       env:
         BASELINE_REF: ${{ inputs.ref }}
+        COORDINATED_REF: ${{ inputs.coordinated-ref }}
         LLATTICE_REF: ${{ inputs.llattice-ref }}
       run: |
         set -euo pipefail
@@ -41,6 +49,12 @@ runs:
             selected_ref="$LLATTICE_REF"
           else
             selected_ref="$development_ref"
+          fi
+          if [ -n "$COORDINATED_REF" ] &&
+             git ls-remote --exit-code --heads \
+               "https://github.com/vinary-tree/$repo.git" \
+               "$COORDINATED_REF" >/dev/null 2>&1; then
+            selected_ref="$COORDINATED_REF"
           fi
           git check-ref-format --branch "$selected_ref" >/dev/null
           git clone --depth 1 --branch "$selected_ref" \

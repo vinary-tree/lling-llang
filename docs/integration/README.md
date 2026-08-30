@@ -157,7 +157,7 @@ In this repository:
 
 | Doc | What it covers |
 |---|---|
-| [C ABI reference](../api/c-abi-reference.md) | The 17-function `lling_*` surface, statuses, ownership, complexity, weight-domain ↔ semiring table. |
+| [C ABI reference](../api/c-abi-reference.md) | The 19-function `lling_*` surface, statuses, ownership, complexity, weight-domain ↔ semiring table. |
 | [Resource ABI architecture](../architecture/resource-abi.md) | Providers, capture-once snapshots, the lazy composition product, the registry, the raw-u32 status wire. |
 | [ABI trust model](../security/abi-trust-model.md) | Foreign providers as untrusted input; validation duties; panic containment. |
 | [JavaScript bindings guide](../../bindings/javascript/README.md) · [C++ bindings guide](../../bindings/cpp/README.md) | The per-language facades over this ABI. |

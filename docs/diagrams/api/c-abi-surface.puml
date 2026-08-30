@@ -1,5 +1,5 @@
 @startuml c-abi-surface
-' The complete lling-llang C ABI surface: all 17 exported lling_* functions,
+' The complete lling-llang C ABI surface: all 19 exported lling_* functions,
 ' grouped by role, with the two opaque handle types and the family two-word
 ' VtResource they exchange. Palette: docs/diagrams/README.md family extension —
 ' lling #FCF3CF, VtResource handle #DCEDC8, foreign trust boundary #FFCDD2.
@@ -24,7 +24,7 @@ skinparam note {
 hide empty members
 hide circle
 
-title <b>lling-llang C ABI surface — 17 exported functions</b>\n<size:11><i>ABI v1, API revision 1 · every fallible call returns LlingStatus and latches a thread-local message</i></size>
+title <b>lling-llang C ABI surface — 19 exported functions</b>\n<size:11><i>ABI v1, API revision 2 · every fallible call returns LlingStatus and latches a thread-local message</i></size>
 
 package "Versioning (2)" {
   class "lling_abi_version() : uint32_t\nlling_api_revision() : uint32_t" as VERS #FCF3CF
@@ -50,13 +50,15 @@ package "Builder lifecycle (9)" {
   }
 }
 
-package "Immutable handle (4)" {
+package "Immutable handle (6)" {
   class "LlingWfst" as WFST #FCF3CF {
     caller-owned, immutable, thread-safe
     --
     +lling_wfst_free(wfst)
     +lling_wfst_import(resource, out_wfst)
+    +lling_wfst_import_ref(resource_ptr, out_wfst)
     +lling_wfst_compose(first, second, out_wfst)
+    +lling_wfst_compose_refs(first_ptr, second_ptr, out_wfst)
     +lling_wfst_resource(wfst, out_resource)
   }
 }

@@ -54,6 +54,8 @@ FFI_PATH = ROOT / "src" / "ffi.rs"
 HEADER_PATH = ROOT / "include" / "lling_llang.h"
 HPP_PATH = ROOT / "include" / "lling_llang.hpp"
 JS_ROOT = ROOT / "bindings" / "javascript"
+JULIA_ROOT = ROOT / "bindings" / "julia" / "LlingLlang"
+RAKU_ROOT = ROOT / "bindings" / "raku"
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "release-bindings.yml"
 
 SKIP_DIR_PARTS = {".git", "build", "node_modules", "obj", "target"}
@@ -147,7 +149,12 @@ def publishable_files() -> list[Path]:
         for path in sorted(root.rglob("*")):
             if not path.is_file():
                 continue
-            if any(part in SKIP_DIR_PARTS for part in path.parts):
+            # Only repository-relative build/cache directories are excluded.
+            # Absolute paths may legitimately place the entire checkout below
+            # a parent called ``target`` (for example an isolated validation
+            # clone); treating those parent components as in-repository parts
+            # silently reduced this security scan to zero files.
+            if any(part in SKIP_DIR_PARTS for part in path.relative_to(ROOT).parts):
                 continue
             if path == MODEL_PATH:
                 # The binding model is this gate's own configuration (it names
@@ -504,7 +511,102 @@ def main() -> int:
 
     report.run("JS facade parity (exports, pins, d.ts/mjs/cjs/cljs)", js_parity)
 
-    # ── 4. workflow version-derivation guard [LLING-B1] ─────────────────────
+    # ── 4. Julia/Raku facade and generated-ABI parity ───────────────────────
+    def julia_raku_parity(failures: list[str], info: dict[str, object]) -> None:
+        cargo = tomllib.loads(read(ROOT / "Cargo.toml"))
+        version = cargo["package"]["version"]
+        expected_status = {
+            str(name): int(value)
+            for name, value in model["enums"]["status"]["values"].items()
+        }
+
+        julia_project = tomllib.loads(read(JULIA_ROOT / "Project.toml"))
+        if julia_project.get("name") != model["packages"].get("julia"):
+            failures.append("Julia project name does not match bindings/api.json")
+        if julia_project.get("version") != version:
+            failures.append(
+                f"Julia version {julia_project.get('version')!r} != Cargo {version!r}"
+            )
+        julia_abi = read(JULIA_ROOT / "src" / "GeneratedAbi.jl")
+        julia_status = {
+            name: int(value)
+            for name, value in re.findall(r"^\s*STATUS_([A-Z0-9_]+)\s*=\s*(\d+)", julia_abi, re.MULTILINE)
+        }
+        if julia_status != expected_status:
+            failures.append(
+                f"Julia generated Status mismatch: {julia_status} != {expected_status}"
+            )
+        for constant, key in (("ABI_VERSION", "abiVersion"), ("API_REVISION", "apiRevision")):
+            match = re.search(rf"const\s+{constant}\s*=\s*UInt32\((\d+)\)", julia_abi)
+            if match is None or int(match.group(1)) != model[key]:
+                failures.append(f"Julia {constant} does not match api.json {key}")
+        julia_source = read(JULIA_ROOT / "src" / "LlingLlang.jl")
+        julia_symbols = set(re.findall(r"native\(:(lling_[a-z0-9_]+)\)", julia_source))
+
+        raku_meta = json.loads(read(RAKU_ROOT / "META6.json"))
+        if raku_meta.get("name") != model["packages"].get("zef"):
+            failures.append("Raku distribution name does not match bindings/api.json")
+        if raku_meta.get("version") != version:
+            failures.append(
+                f"Raku version {raku_meta.get('version')!r} != Cargo {version!r}"
+            )
+        raku_abi = read(RAKU_ROOT / "lib" / "Lling" / "Llang" / "GeneratedAbi.rakumod")
+        raku_status = {
+            name.replace("-", "_"): int(value)
+            for name, value in re.findall(r"^\s*([A-Z][A-Z0-9-]+)\s*=>\s*(\d+)", raku_abi, re.MULTILINE)
+        }
+        if raku_status != expected_status:
+            failures.append(
+                f"Raku generated Status mismatch: {raku_status} != {expected_status}"
+            )
+        for constant, key in (("ABI-VERSION", "abiVersion"), ("API-REVISION", "apiRevision")):
+            match = re.search(rf"constant\s+{constant}\s+is\s+export\s*=\s*(\d+)", raku_abi)
+            if match is None or int(match.group(1)) != model[key]:
+                failures.append(f"Raku {constant} does not match api.json {key}")
+        raku_source = read(RAKU_ROOT / "lib" / "Lling" / "Llang.rakumod")
+        raku_symbols = set(re.findall(r"symbol\('(lling_[a-z0-9_]+)'\)", raku_source))
+
+        modeled = {item["name"] for item in model["cFunctions"]}
+        expected_julia_symbols = modeled - {
+            "lling_resource_release",
+            "lling_wfst_import_ref",
+            "lling_wfst_compose_refs",
+        }
+        if julia_symbols != expected_julia_symbols:
+            failures.append(
+                "Julia native symbol drift: "
+                f"missing={sorted(expected_julia_symbols - julia_symbols)}, "
+                f"unmodeled={sorted(julia_symbols - expected_julia_symbols)}"
+            )
+        expected_raku_symbols = modeled - {
+            "lling_resource_release",
+            "lling_wfst_import",
+            "lling_wfst_compose",
+        } | {
+            "lling_raku_provider_configure",
+            "lling_raku_provider_create",
+        }
+        if raku_symbols != expected_raku_symbols:
+            failures.append(
+                "Raku native symbol drift: "
+                f"missing={sorted(expected_raku_symbols - raku_symbols)}, "
+                f"unmodeled={sorted(raku_symbols - expected_raku_symbols)}"
+            )
+        for relative in (
+            "Build.rakumod",
+            "build-provider.raku",
+            "cbits/provider.c",
+            "doc/Lling-Llang.rakudoc",
+            "t/01-conformance.rakutest",
+        ):
+            read(RAKU_ROOT / relative)
+        info["julia_native_symbols"] = len(julia_symbols)
+        info["raku_native_symbols"] = len(raku_symbols)
+        info["host_provider_languages"] = 2
+
+    report.run("Julia/Raku facade + generated ABI parity", julia_raku_parity)
+
+    # ── 5. workflow version-derivation guard [LLING-B1] ─────────────────────
     def workflow_guard(failures: list[str], info: dict[str, object]) -> None:
         workflow = read(WORKFLOW_PATH)
         hardcoded = re.findall(r"dist/lling-llang-\d+\.\d+\.\d+", workflow)
@@ -527,7 +629,7 @@ def main() -> int:
 
     report.run("workflow version-derivation guard [LLING-B1]", workflow_guard)
 
-    # ── 5. identity + sibling-symbol guard over publishable files ───────────
+    # ── 6. identity + sibling-symbol guard over publishable files ───────────
     def identity_guard(failures: list[str], info: dict[str, object]) -> None:
         forbidden_identities = ("f1r3fly", "universal-automata", "universal_automata")
         forbidden_symbols = [
