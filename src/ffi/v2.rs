@@ -4,8 +4,8 @@
 //! Their `struct_size` field admits a larger future tail, while every known
 //! field, flag, discriminant, and reserved word remains canonical.
 
-use std::mem::size_of;
-use std::sync::atomic::{AtomicU32, Ordering};
+use core::mem::size_of;
+use core::sync::atomic::{AtomicU32, Ordering};
 
 /// Version carried by typed ABI-v2 metadata headers.
 pub const LLING_ABI_V2: u32 = 2;
