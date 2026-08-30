@@ -1,0 +1,59 @@
+@startuml wpds-portability-boundary
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #37474F
+skinparam ArrowThickness 1.4
+skinparam componentStyle rectangle
+
+title <b>WPDS portability boundary</b>\n<size:11><i>portable caller identity outside; dense local identity inside</i></size>
+
+actor "Caller / adapter" as Caller #FFE0B2
+
+package "lling-llang · pushdown::wpds::portability" #FAFAFA {
+  component "Snapshot sealer\nvalidate · radix order · duplicate rejection" as Seal #FFF59D
+  database "External key tape\n128-bit keys in snapshot order" as Keys #B2DFDB
+  component "Flat Patricia radix index\nexternal key → dense rule id" as Index #C8E6C9
+  component "Dense WPDS engine\nlocal PdsRuleId hot path" as Engine #BBDEFB
+
+  component "Portable flat codec\nexternal keys · no local ids" as Codec #D1C4E9
+  component "Bounded cursor decoder\nchecked lengths · explicit frames" as Decoder #B3E5FC
+  component "Exact replay gate\nfive identity fields · checksum\nbudget · sticky cancellation" as Gate #FFCDD2
+  component "Premises-first witness replay\nknown keys · local inference checks" as Replay #CE93D8
+
+  component "Published result" as Published #A5D6A7
+  component "Typed rejection" as Rejected #EF9A9A
+}
+
+Caller --> Seal : rules + stable external keys
+Seal --> Keys : seal immutable snapshot
+Keys --> Index : build collision-free index
+Index --> Engine : translate once at boundary
+Engine --> Codec : provenance + continuation
+Keys --> Codec : write external keys
+Caller --> Decoder : untrusted portable bytes
+Decoder --> Gate : canonical bounded payload
+Keys --> Gate : expected snapshot identity
+Gate --> Replay : admitted only
+Replay --> Engine : translate keys and check inference
+Replay --> Published : sound root
+Seal --> Rejected : duplicate / malformed
+Decoder --> Rejected : length\nbudget\nchecksum
+Gate --> Rejected : stale / mismatch / cancelled
+Replay --> Rejected : unknown key / invalid premise
+
+note bottom of Engine
+  Dense identifiers never cross
+  the portability boundary.
+end note
+
+legend right
+  |<#FFE0B2> caller-owned identity |
+  |<#FFF59D> snapshot admission |
+  |<#C8E6C9> immutable lookup index |
+  |<#BBDEFB> local hot path |
+  |<#D1C4E9> portable representation |
+  |<#FFCDD2> safety gate / rejection |
+  |<#A5D6A7> verified publication |
+endlegend
+@enduml

@@ -67,6 +67,7 @@ mod stack;
 mod traits;
 mod transition;
 mod vector;
+pub mod wpds;
 
 pub use builder::{BracketAlphabetError, BracketPair, DyckAlphabet, PdaBuilder};
 pub use decode::PdaDecoder;

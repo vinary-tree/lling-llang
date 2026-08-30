@@ -177,6 +177,8 @@ if [[ "$MODE" == "all" ]]; then
 else
   echo "Skipping ownership-gated baseline registries and dictionary required-red harness in portable TLA mode."
 fi
+python3 "$ROOT/scripts/check-wpds-portability-invariants.py" \
+  2>&1 | tee "$LOG_DIR/wpds-portability-invariant-registry.log"
 
 run_tlc rrwm "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWM.cfg"
 run_tlc rrwm-zero "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWMZeroExperts.cfg"
@@ -257,6 +259,9 @@ run_tlc stack-deep \
 run_tlc stack-short-circuit \
   "$ROOT/proofs/tla/StackMachineProtocol.tla" \
   "$ROOT/proofs/tla/MC/StackMachineShortCircuit.cfg"
+run_tlc wpds-portability \
+  "$ROOT/proofs/tla/WpdsPortabilityLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/WpdsPortabilityLifecycle.cfg"
 
 rm -rf "$MUTANT_DIR"
 mkdir -p \
@@ -281,7 +286,10 @@ mkdir -p \
 
 mkdir -p \
   "$MUTANT_DIR/abi-v2-cancellation" \
-  "$MUTANT_DIR/abi-v2-authority"
+  "$MUTANT_DIR/abi-v2-authority" \
+  "$MUTANT_DIR/wpds-portability-duplicate" \
+  "$MUTANT_DIR/wpds-portability-identity" \
+  "$MUTANT_DIR/wpds-portability-cancellation"
 
 cp "$ROOT/proofs/tla/LazyComposition.tla" "$MUTANT_DIR/lazy/LazyComposition.tla"
 cp "$ROOT/proofs/tla/MC/LazyCompositionNoCache.cfg" "$MUTANT_DIR/lazy/LazyCompositionNoCache.cfg"
@@ -590,6 +598,34 @@ python3 "$ROOT/scripts/check-strong-bisimulation-exhaustive.py" \
 python3 "$ROOT/scripts/strong_bisimulation_mutants.py" \
   2>&1 | tee "$LOG_DIR/strong-bisimulation-mutants.log"
 
+for mutant in duplicate identity cancellation; do
+  cp "$ROOT/proofs/tla/WpdsPortabilityLifecycle.tla" \
+    "$MUTANT_DIR/wpds-portability-$mutant/WpdsPortabilityLifecycle.tla"
+  cp "$ROOT/proofs/tla/MC/WpdsPortabilityLifecycle.cfg" \
+    "$MUTANT_DIR/wpds-portability-$mutant/WpdsPortabilityLifecycle.cfg"
+done
+
+perl -0pi -e 's/THEN \/\\ phase\x27 = "rejected"\n            \/\\ UNCHANGED <<denseMap, sealedMap>>/THEN \/\\ denseMap\x27 = Append(denseMap,\n                    [key |-> key, dense |-> Len(denseMap)])\n            \/\\ UNCHANGED <<phase, sealedMap>>/' \
+  "$MUTANT_DIR/wpds-portability-duplicate/WpdsPortabilityLifecycle.tla"
+run_tlc_expect_failure wpds-portability-duplicate-mutant \
+  "$MUTANT_DIR/wpds-portability-duplicate/WpdsPortabilityLifecycle.tla" \
+  "$MUTANT_DIR/wpds-portability-duplicate/WpdsPortabilityLifecycle.cfg" \
+  "Invariant DenseMapBijection is violated."
+
+perl -0pi -e 's/IdentityMatches == observedIdentity = ExpectedIdentity/IdentityMatches == TRUE/' \
+  "$MUTANT_DIR/wpds-portability-identity/WpdsPortabilityLifecycle.tla"
+run_tlc_expect_failure wpds-portability-identity-mutant \
+  "$MUTANT_DIR/wpds-portability-identity/WpdsPortabilityLifecycle.tla" \
+  "$MUTANT_DIR/wpds-portability-identity/WpdsPortabilityLifecycle.cfg" \
+  "Invariant PublicationHasExactIdentity is violated."
+
+perl -0pi -e 's|/\\ PremisesPrecede /\\ cancellationReason = "none"|/\\ PremisesPrecede|' \
+  "$MUTANT_DIR/wpds-portability-cancellation/WpdsPortabilityLifecycle.tla"
+run_tlc_expect_failure wpds-portability-cancellation-mutant \
+  "$MUTANT_DIR/wpds-portability-cancellation/WpdsPortabilityLifecycle.tla" \
+  "$MUTANT_DIR/wpds-portability-cancellation/WpdsPortabilityLifecycle.cfg" \
+  "Invariant PublicationWasNeverCancelled is violated."
+
 rm -rf "$MUTANT_DIR"
 
 # The dedicated TLA job validates every finite model, negative model, portable
@@ -664,7 +700,14 @@ diff -u \
   "$ROOT/proofs/smt/vco-e6-dictionary-surface.expected" \
   "$LOG_DIR/z3-vco-e6-dictionary-surface.log"
 
+z3 "$ROOT/proofs/smt/vco-e4-wpds-portability.smt2" \
+  2>&1 | tee "$LOG_DIR/z3-vco-e4-wpds-portability.log"
+diff -u \
+  "$ROOT/proofs/smt/vco-e4-wpds-portability.expected" \
+  "$LOG_DIR/z3-vco-e4-wpds-portability.log"
+
 "$ROOT/proofs/verify-abi-bounded.sh"
+"$ROOT/proofs/verify-wpds-portability-bounded.sh"
 "$ROOT/scripts/check-neutral-foundation-required-red.sh"
 "$ROOT/scripts/check-libcpg-manifest-required-red.sh"
 "$ROOT/scripts/check-strong-bisimulation-properties.sh"

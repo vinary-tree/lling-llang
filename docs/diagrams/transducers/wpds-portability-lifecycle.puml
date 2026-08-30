@@ -1,0 +1,60 @@
+@startuml wpds-portability-lifecycle
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #37474F
+skinparam ArrowThickness 1.4
+skinparam activity {
+  BorderColor #455A64
+  FontColor #102027
+  DiamondBackgroundColor #FFF9C4
+  DiamondBorderColor #F9A825
+}
+
+title <b>Portable checkpoint and witness lifecycle</b>\n<size:11><i>every failure is terminal and non-publishing</i></size>
+
+start
+:Map external keys to dense identifiers; <<#FFF59D>>
+note right
+  Full-width duplicate keys reject.
+  The sealed map is immutable.
+end note
+
+if (Map canonical and identity exact?) then (yes)
+  :Decode one bounded flat record at a time; <<#B3E5FC>>
+  note right
+    Cursor, node, edge, and allocation
+    budgets are checked before mutation.
+  end note
+  if (Bytes consumed and witness structural checks pass?) then (yes)
+    :Ready with canonical portable payload; <<#D1C4E9>>
+    if (Five identity fields exact and not cancelled?) then (yes)
+      :Replay premises-first local inferences; <<#CE93D8>>
+      if (Replayed root is semantically sound?) then (yes)
+        :Publish result; <<#A5D6A7>>
+      else (no)
+        :Reject invalid inference; <<#EF9A9A>>
+      endif
+    else (no)
+      :Reject stale, mismatched, or cancelled replay; <<#EF9A9A>>
+    endif
+  else (no)
+    :Reject malformed, over-budget, or invalid witness; <<#EF9A9A>>
+  endif
+else (no)
+  :Reject duplicate, stale, or malformed map; <<#EF9A9A>>
+endif
+
+:Release owned flat arenas exactly once; <<#CFD8DC>>
+stop
+
+legend right
+  |<#FFF59D> identity mapping |
+  |<#B3E5FC> bounded decoding |
+  |<#D1C4E9> admitted payload |
+  |<#CE93D8> semantic replay |
+  |<#A5D6A7> published result |
+  |<#EF9A9A> terminal rejection |
+  |<#CFD8DC> released ownership |
+endlegend
+@enduml
