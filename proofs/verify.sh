@@ -69,6 +69,11 @@ else
   exit 127
 fi
 
+TLC_TRACE_ARGS=()
+if "${TLC_COMMAND[@]}" -help 2>&1 | grep -Fq -- '-noGenerateSpecTE'; then
+  TLC_TRACE_ARGS=(-noGenerateSpecTE)
+fi
+
 run_tlc() {
   local name="$1"
   local spec="$2"
@@ -80,12 +85,19 @@ run_tlc() {
   mkdir -p "$metadir"
   set +e
   timeout "${TLC_TIMEOUT_SECONDS}s" "${TLC_COMMAND[@]}" \
-    -workers 1 -metadir "$metadir" -config "$cfg" "$spec" \
+    "${TLC_TRACE_ARGS[@]}" -workers 1 -metadir "$metadir" \
+    -config "$cfg" "$spec" \
     2>&1 | tee "$log"
   local status="${PIPESTATUS[0]}"
   set -e
   rm -rf "$metadir"
   return "$status"
+}
+
+log_contains() {
+  python3 -c \
+    'import pathlib, sys; raise SystemExit(sys.argv[2].encode() not in pathlib.Path(sys.argv[1]).read_bytes())' \
+    "$1" "$2"
 }
 
 run_tlc_expect_failure() {
@@ -100,7 +112,8 @@ run_tlc_expect_failure() {
   mkdir -p "$metadir"
   set +e
   timeout "${TLC_TIMEOUT_SECONDS}s" "${TLC_COMMAND[@]}" \
-    -workers 1 -metadir "$metadir" -config "$cfg" "$spec" \
+    "${TLC_TRACE_ARGS[@]}" -workers 1 -metadir "$metadir" \
+    -config "$cfg" "$spec" \
     2>&1 | tee "$log"
   local status="${PIPESTATUS[0]}"
   set -e
@@ -114,10 +127,7 @@ run_tlc_expect_failure() {
     echo "ERROR: TLC model '$name' exceeded ${TLC_TIMEOUT_SECONDS}s." >&2
     return 1
   fi
-  # Current TLC releases may emit trace-exploration metadata that makes GNU
-  # grep classify the combined log as binary. Match it as text so a later,
-  # human-readable invariant verdict is not hidden by that heuristic.
-  if ! LC_ALL=C grep -aFq -- "$expected" "$log"; then
+  if ! log_contains "$log" "$expected"; then
     echo "ERROR: TLC model '$name' failed for an unexpected reason." >&2
     tail -n 30 "$log" >&2
     return 1

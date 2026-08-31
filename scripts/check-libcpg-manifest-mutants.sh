@@ -38,6 +38,17 @@ else
   exit 127
 fi
 
+TLC_TRACE_ARGS=()
+if "${TLC_COMMAND[@]}" -help 2>&1 | grep -Fq -- '-noGenerateSpecTE'; then
+  TLC_TRACE_ARGS=(-noGenerateSpecTE)
+fi
+
+log_contains() {
+  python3 -c \
+    'import pathlib, sys; raise SystemExit(sys.argv[2].encode() not in pathlib.Path(sys.argv[1]).read_bytes())' \
+    "$1" "$2"
+}
+
 case "$MUTANT_DIR" in
   "$ROOT"/target/formal-verification/mutants/libcpg-manifest) rm -rf "$MUTANT_DIR" ;;
   *) echo "ERROR: refusing to clean an unexpected mutant path." >&2; exit 1 ;;
@@ -56,7 +67,8 @@ while IFS=$'\t' read -r name target kind; do
   mkdir -p "$output/states"
 
   set +e
-  timeout "${TIMEOUT_SECONDS}s" "${TLC_COMMAND[@]}" -workers 1 \
+  timeout "${TIMEOUT_SECONDS}s" "${TLC_COMMAND[@]}" \
+    "${TLC_TRACE_ARGS[@]}" -workers 1 \
     -metadir "$output/states" \
     -config "$output/LibcpgManifestLifecycle.cfg" \
     "$output/LibcpgManifestLifecycle.tla" \
@@ -74,7 +86,7 @@ while IFS=$'\t' read -r name target kind; do
   fi
   if [[ "$kind" == "property" ]]; then
     expected="Temporal properties were violated."
-    if ! LC_ALL=C grep -aFq -- "$expected" "$log"; then
+    if ! log_contains "$log" "$expected"; then
       echo "ERROR: mutant '$name' failed for an unexpected reason." >&2
       tail -n 30 "$log" >&2
       exit 1
@@ -82,8 +94,8 @@ while IFS=$'\t' read -r name target kind; do
   else
     expected="Invariant $target is violated"
     constant_expected="invariant of $target is equal to FALSE"
-    if ! LC_ALL=C grep -aFq -- "$expected" "$log" \
-       && ! LC_ALL=C grep -aFq -- "$constant_expected" "$log"; then
+    if ! log_contains "$log" "$expected" \
+       && ! log_contains "$log" "$constant_expected"; then
       echo "ERROR: mutant '$name' failed for an unexpected reason." >&2
       tail -n 30 "$log" >&2
       exit 1
