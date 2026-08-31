@@ -29,6 +29,15 @@ fi
 export TMPDIR="$TMP_DIR"
 export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:--Djava.awt.headless=true -Xmx3g -XX:+UseParallelGC -Djava.io.tmpdir=$TMP_DIR}"
 
+if command -v tlc >/dev/null 2>&1; then
+  TLC_COMMAND=(tlc)
+elif [[ -n "${TLA2TOOLS_JAR:-}" ]]; then
+  TLC_COMMAND=(java -jar "$TLA2TOOLS_JAR")
+else
+  echo "ERROR: TLC not found. Install tlc or set TLA2TOOLS_JAR." >&2
+  exit 127
+fi
+
 case "$MUTANT_DIR" in
   "$ROOT"/target/formal-verification/mutants/libcpg-manifest) rm -rf "$MUTANT_DIR" ;;
   *) echo "ERROR: refusing to clean an unexpected mutant path." >&2; exit 1 ;;
@@ -47,7 +56,7 @@ while IFS=$'\t' read -r name target kind; do
   mkdir -p "$output/states"
 
   set +e
-  timeout "${TIMEOUT_SECONDS}s" tlc -workers 1 \
+  timeout "${TIMEOUT_SECONDS}s" "${TLC_COMMAND[@]}" -workers 1 \
     -metadir "$output/states" \
     -config "$output/LibcpgManifestLifecycle.cfg" \
     "$output/LibcpgManifestLifecycle.tla" \
@@ -65,7 +74,7 @@ while IFS=$'\t' read -r name target kind; do
   fi
   if [[ "$kind" == "property" ]]; then
     expected="Temporal properties were violated."
-    if ! rg -Fq "$expected" "$log"; then
+    if ! grep -Fq "$expected" "$log"; then
       echo "ERROR: mutant '$name' failed for an unexpected reason." >&2
       tail -n 30 "$log" >&2
       exit 1
@@ -73,7 +82,7 @@ while IFS=$'\t' read -r name target kind; do
   else
     expected="Invariant $target is violated"
     constant_expected="invariant of $target is equal to FALSE"
-    if ! rg -Fq "$expected" "$log" && ! rg -Fq "$constant_expected" "$log"; then
+    if ! grep -Fq "$expected" "$log" && ! grep -Fq "$constant_expected" "$log"; then
       echo "ERROR: mutant '$name' failed for an unexpected reason." >&2
       tail -n 30 "$log" >&2
       exit 1

@@ -114,7 +114,7 @@ run_tlc_expect_failure() {
     echo "ERROR: TLC model '$name' exceeded ${TLC_TIMEOUT_SECONDS}s." >&2
     return 1
   fi
-  if ! rg -Fq "$expected" "$log"; then
+  if ! grep -Fq "$expected" "$log"; then
     echo "ERROR: TLC model '$name' failed for an unexpected reason." >&2
     return 1
   fi
@@ -140,7 +140,6 @@ python3 "$ROOT/scripts/check-strong-bisimulation-invariants.py" \
   2>&1 | tee "$LOG_DIR/strong-bisimulation-invariant-registry.log"
 python3 "$ROOT/scripts/check-dictionary-surface-invariants.py" \
   2>&1 | tee "$LOG_DIR/dictionary-surface-invariant-registry.log"
-"$ROOT/scripts/check-dictionary-surface-required-red.sh"
 
 # These two registries intentionally attest exact protected baselines in
 # independently owned sibling repositories. They belong to the complete local
@@ -151,8 +150,9 @@ if [[ "$MODE" == "all" ]]; then
     2>&1 | tee "$LOG_DIR/libcpg-manifest-invariant-registry.log"
   python3 "$ROOT/scripts/check-neutral-foundation-invariants.py" \
     2>&1 | tee "$LOG_DIR/neutral-foundation-invariant-registry.log"
+  "$ROOT/scripts/check-dictionary-surface-required-red.sh"
 else
-  echo "Skipping ownership-gated libcpg and neutral-foundation baseline registries in portable TLA mode."
+  echo "Skipping ownership-gated baseline registries and dictionary required-red harness in portable TLA mode."
 fi
 
 run_tlc rrwm "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWM.cfg"
