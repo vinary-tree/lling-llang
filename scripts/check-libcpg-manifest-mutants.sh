@@ -74,7 +74,7 @@ while IFS=$'\t' read -r name target kind; do
   fi
   if [[ "$kind" == "property" ]]; then
     expected="Temporal properties were violated."
-    if ! grep -Fq "$expected" "$log"; then
+    if ! LC_ALL=C grep -aFq -- "$expected" "$log"; then
       echo "ERROR: mutant '$name' failed for an unexpected reason." >&2
       tail -n 30 "$log" >&2
       exit 1
@@ -82,7 +82,8 @@ while IFS=$'\t' read -r name target kind; do
   else
     expected="Invariant $target is violated"
     constant_expected="invariant of $target is equal to FALSE"
-    if ! grep -Fq "$expected" "$log" && ! grep -Fq "$constant_expected" "$log"; then
+    if ! LC_ALL=C grep -aFq -- "$expected" "$log" \
+       && ! LC_ALL=C grep -aFq -- "$constant_expected" "$log"; then
       echo "ERROR: mutant '$name' failed for an unexpected reason." >&2
       tail -n 30 "$log" >&2
       exit 1

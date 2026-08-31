@@ -114,8 +114,12 @@ run_tlc_expect_failure() {
     echo "ERROR: TLC model '$name' exceeded ${TLC_TIMEOUT_SECONDS}s." >&2
     return 1
   fi
-  if ! grep -Fq "$expected" "$log"; then
+  # Current TLC releases may emit trace-exploration metadata that makes GNU
+  # grep classify the combined log as binary. Match it as text so a later,
+  # human-readable invariant verdict is not hidden by that heuristic.
+  if ! LC_ALL=C grep -aFq -- "$expected" "$log"; then
     echo "ERROR: TLC model '$name' failed for an unexpected reason." >&2
+    tail -n 30 "$log" >&2
     return 1
   fi
 }
