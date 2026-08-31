@@ -29,19 +29,21 @@ fi
 export TMPDIR="$TMP_DIR"
 export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:--Djava.awt.headless=true -Xmx3g -XX:+UseParallelGC -Djava.io.tmpdir=$TMP_DIR}"
 
-if command -v tlc >/dev/null 2>&1; then
-  TLC_COMMAND=(tlc)
-elif [[ -n "${TLA2TOOLS_JAR:-}" ]]; then
+if [[ -n "${TLA2TOOLS_JAR:-}" ]]; then
   TLC_COMMAND=(java -jar "$TLA2TOOLS_JAR")
+elif command -v tlc >/dev/null 2>&1; then
+  TLC_COMMAND=(tlc)
 else
   echo "ERROR: TLC not found. Install tlc or set TLA2TOOLS_JAR." >&2
   exit 127
 fi
 
 TLC_TRACE_ARGS=()
-if "${TLC_COMMAND[@]}" -help 2>&1 | grep -Fq -- '-noGenerateSpecTE'; then
+TLC_HELP_OUTPUT="$("${TLC_COMMAND[@]}" -help 2>&1 || true)"
+if [[ "$TLC_HELP_OUTPUT" == *"-noGenerateSpecTE"* ]]; then
   TLC_TRACE_ARGS=(-noGenerateSpecTE)
 fi
+unset TLC_HELP_OUTPUT
 
 log_contains() {
   python3 -c \
@@ -86,7 +88,9 @@ while IFS=$'\t' read -r name target kind; do
   fi
   if [[ "$kind" == "property" ]]; then
     expected="Temporal properties were violated."
-    if ! log_contains "$log" "$expected"; then
+    specific_expected="Temporal property $target was violated."
+    if ! log_contains "$log" "$expected" \
+       && ! log_contains "$log" "$specific_expected"; then
       echo "ERROR: mutant '$name' failed for an unexpected reason." >&2
       tail -n 30 "$log" >&2
       exit 1

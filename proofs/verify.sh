@@ -60,19 +60,21 @@ if [[ "$MODE" == "--rocq-only" ]]; then
   exit 0
 fi
 
-if command -v tlc >/dev/null 2>&1; then
-  TLC_COMMAND=(tlc)
-elif [[ -n "${TLA2TOOLS_JAR:-}" ]]; then
+if [[ -n "${TLA2TOOLS_JAR:-}" ]]; then
   TLC_COMMAND=(java -jar "$TLA2TOOLS_JAR")
+elif command -v tlc >/dev/null 2>&1; then
+  TLC_COMMAND=(tlc)
 else
   echo "ERROR: TLC not found. Install tlc or set TLA2TOOLS_JAR." >&2
   exit 127
 fi
 
 TLC_TRACE_ARGS=()
-if "${TLC_COMMAND[@]}" -help 2>&1 | grep -Fq -- '-noGenerateSpecTE'; then
+TLC_HELP_OUTPUT="$("${TLC_COMMAND[@]}" -help 2>&1 || true)"
+if [[ "$TLC_HELP_OUTPUT" == *"-noGenerateSpecTE"* ]]; then
   TLC_TRACE_ARGS=(-noGenerateSpecTE)
 fi
+unset TLC_HELP_OUTPUT
 
 run_tlc() {
   local name="$1"
@@ -105,6 +107,7 @@ run_tlc_expect_failure() {
   local spec="$2"
   local cfg="$3"
   local expected="$4"
+  local expected_alternative="${5:-}"
   local metadir="$TLC_DIR/$name"
   local log="$LOG_DIR/tlc-$name.log"
 
@@ -127,7 +130,9 @@ run_tlc_expect_failure() {
     echo "ERROR: TLC model '$name' exceeded ${TLC_TIMEOUT_SECONDS}s." >&2
     return 1
   fi
-  if ! log_contains "$log" "$expected"; then
+  if ! log_contains "$log" "$expected" \
+     && { [[ -z "$expected_alternative" ]] \
+          || ! log_contains "$log" "$expected_alternative"; }; then
     echo "ERROR: TLC model '$name' failed for an unexpected reason." >&2
     tail -n 30 "$log" >&2
     return 1
@@ -554,7 +559,8 @@ python3 "$ROOT/scripts/neutral_foundation_mutants.py" \
 run_tlc_expect_failure neutral-eventually-terminal-mutant \
   "$eventually_output/NeutralFoundationLifecycle.tla" \
   "$eventually_output/NeutralFoundationLifecycle.cfg" \
-  "Temporal properties were violated."
+  "Temporal properties were violated." \
+  "Temporal property EventuallyTerminal was violated."
 
 "$ROOT/scripts/check-libcpg-manifest-mutants.sh"
 python3 "$ROOT/scripts/check-strong-bisimulation-exhaustive.py" \
