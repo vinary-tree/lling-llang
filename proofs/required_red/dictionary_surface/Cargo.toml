@@ -1,0 +1,21 @@
+[package]
+name = "dictionary-surface-required-red"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+duallity = { path = "../../../../duallity" }
+libdictenstein = { path = "../../../../libdictenstein" }
+libdictenstein-llattice = { path = "../../../../libdictenstein-llattice" }
+liblevenshtein = { path = "../../../../liblevenshtein-rust" }
+llattice = { path = "../../../../llattice" }
+lling-llang = { path = "../../../..", features = ["lattice"] }
+vinary-dictionary-pipeline = { path = "../../../../vinary-dictionary-pipeline" }
+
+[dev-dependencies]
+proptest = "1.11"
+static_assertions = "1.1"
+toml = "0.9"

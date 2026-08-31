@@ -156,6 +156,7 @@ phase-by-phase implementation ledger are frozen historical records — see
 | [libcpg Manifest and Durable-Fact Contract](optimization/libcpg-manifest-fact-contract.md) | Exact extractor manifests, durable fact identities, dense-index correspondence, source evidence, deterministic exports, cache invalidation, and adapter ownership |
 | [Provider-Neutral Boundary Contract](optimization/provider-boundary-contract.md) | Canonical artifact identity, non-promoting provider results, limitation propagation, independent guarantees, native ownership, and the optional one-way libcpg-to-lling-llang public-API boundary |
 | [Neutral Vinary Foundation Contract](optimization/neutral-vinary-foundation-contract.md) | RegresSpec-driven ownership, canonical/schema/content identity, neutral graphs, runtime and assurance gates, stack-safe concurrency, and 77 formally traced pre-implementation obligations |
+| [Dictionary Surface Contract](optimization/dictionary-surface-contract.md) | Split libdictenstein/llattice and dictionary/fuzzy adapters, categorical semantics, required capabilities, parallel execution, and formal gates |
 
 ### Archive
 

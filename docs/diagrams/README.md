@@ -182,4 +182,5 @@ diagrams are added.)
 | `optimization/neutral-foundation-lifecycle.svg` | PlantUML | `optimization/neutral-vinary-foundation-contract.md` |
 | `optimization/strong-bisimulation-flow.svg` | PlantUML | `optimization/certified-strong-bisimulation-contract.md` |
 | `optimization/strong-bisimulation-evidence.svg` | PlantUML | `optimization/certified-strong-bisimulation-contract.md` |
+| `optimization/dictionary-surface-architecture.svg` | PlantUML | `optimization/dictionary-surface-contract.md` |
 | `algorithms/*` · `asr/*` · `advanced/*` · `transducers/*` · `correction/*` | Graphviz / PlantUML / D2 / TikZ | the corresponding topic docs |
