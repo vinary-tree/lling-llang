@@ -181,6 +181,8 @@ pub mod cfg;
 pub mod composition;
 pub mod ctc;
 pub mod differentiable;
+#[cfg(feature = "bindings-core")]
+pub mod dynamic_semiring;
 pub mod error_models;
 pub mod gpu;
 pub mod lattice;

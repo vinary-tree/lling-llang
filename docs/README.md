@@ -48,6 +48,7 @@ Core concepts and design of the framework:
 |----------|-------------|
 | [Overview](architecture/overview.md) | High-level architecture and component relationships |
 | [Semirings](architecture/semirings.md) | Algebraic weight structures (Tropical, Log, Probability, String, Expectation, …) |
+| [Dynamic Semirings](architecture/dynamic-semirings.md) | Safe host-defined weight algebras: capability negotiation, token ownership, lock-free callback admission, batching, and law validation |
 | [Arctic / max-plus](architecture/semirings.md#arcticweight) | Maximum-score paths with gains, penalties, and explicit positive-cycle behavior |
 | [Signed Tropical Semiring](architecture/signed-tropical-semiring.md) | Extended tropical semiring with negative weights (rewards) |
 | [Power Semiring](architecture/power-semiring.md) | $`\eta`$-power semiring for soft path selection and online learning |

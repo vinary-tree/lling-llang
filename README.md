@@ -119,6 +119,12 @@ let in_sequence  = a.times(&b);  //     2 + 3 = 5   ← pay both costs
 > [[3]](#references) extends this to the full suite of transducer operations. `lling-llang` is a
 > direct, statically-typed embodiment of that insight.
 
+Native Rust semirings keep this monomorphized `Copy` path. A semiring owned by
+Julia, Raku, or another runtime uses the separate
+[dynamic operation-context adapter](docs/architecture/dynamic-semirings.md):
+explicit token ownership, negotiated algebra capabilities, lock-free callback
+admission, bounded folds, and pre-specialization law checks.
+
 ### Lattices — weighted DAGs of hypotheses
 
 A **lattice** is a weighted DAG whose nodes are positions in the input and whose arcs are scored

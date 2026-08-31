@@ -17,6 +17,11 @@ protocol is normative in the
 the adversarial analysis lives in the
 [ABI trust model](../security/abi-trust-model.md).
 
+Host-defined weight algebras use the sibling
+[dynamic-semiring architecture](dynamic-semirings.md): compact provider-scoped
+tokens and separately negotiated algebra capabilities, not the scalar `double`
+weight domain described here.
+
 ---
 
 ## Terms & symbols
