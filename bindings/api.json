@@ -19,7 +19,9 @@
       "vtable"
     ],
     "scalarWfstInterfaceId": "vt.scalar-wfst.1",
-    "scalarWfstInterfaceVersion": 1
+    "scalarWfstInterfaceVersion": 1,
+    "semiringInterfaceId": "vt.semiring.val1",
+    "semiringInterfaceVersion": 1
   },
   "packages": {
     "cratesIo": "lling-llang",
@@ -148,7 +150,7 @@
   },
   "packageVersion": "4.0.0-rc.5",
   "abiVersion": 1,
-  "apiRevision": 2,
+  "apiRevision": 3,
   "cPrefix": "lling_",
   "headers": {
     "c": "include/lling_llang.h",
@@ -166,7 +168,9 @@
     "wfstComposition": "retained-snapshots-and-lazy-product-states",
     "wfstExpansion": "one-batched-state-and-paged-contiguous-arcs",
     "customProviderDefault": "serialized-caller-thread",
-    "customProviderOptIn": "parallel-reentrant"
+    "customProviderOptIn": "parallel-reentrant",
+    "dynamicSemiringHandoff": "retained-context-and-two-word-provider-tokens",
+    "dynamicSemiringBatch": "bounded-256-value-folds"
   },
   "enums": {
     "status": {
@@ -246,6 +250,19 @@
       "defaultThreading": "serialized by the native consumer",
       "optInThreading": "parallel and reentrant",
       "stateCaching": "one immutable complete state per state identifier"
+    },
+    "DynamicSemiringContext": {
+      "interface": "vt.semiring.*1",
+      "ownership": "retained-operation-context-and-explicit-owned-value-handles",
+      "threading": "same-thread-by-default; Rust-only promotion after PARALLEL_REENTRANT validation",
+      "capabilities": [
+        "base-algebra",
+        "division",
+        "kleene-star",
+        "numerical-projections",
+        "declared-laws"
+      ],
+      "validation": "wire-output checks plus bounded representative law probes"
     }
   },
   "forbiddenFacadeSymbols": [
@@ -263,6 +280,90 @@
     },
     {
       "name": "lling_last_error_message",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_open",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_free",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_weight_free",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_properties",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_zero",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_one",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_weight_clone",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_plus",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_times",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_equal",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_approx_equal",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_natural_order",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_divide",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_left_divide",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_star",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_numerical_value",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_quantize",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_to_probability",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_closure_bound",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_stable_bytes",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_validate_laws",
       "rustModule": "ffi"
     },
     {

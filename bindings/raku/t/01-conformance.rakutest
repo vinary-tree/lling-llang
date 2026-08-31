@@ -2,7 +2,7 @@ use v6.d;
 use Test;
 use Lling::Llang;
 
-plan 22;
+plan 36;
 
 is abi-version(), ABI-VERSION, 'native and Raku ABI versions agree';
 ok api-revision() >= API-REVISION, 'native API revision satisfies the facade';
@@ -70,3 +70,72 @@ $snapshot.close;
 $graph.close;
 $host.close;
 pass 'all owned resources close deterministically';
+
+class TropicalSemiring does SemiringProvider {
+    method zero(--> Mu) { Inf }
+    method one(--> Mu) { 0e0 }
+    method plus(Mu:D $left, Mu:D $right --> Mu) { min($left, $right) }
+    method times(Mu:D $left, Mu:D $right --> Mu) { $left + $right }
+    method equal(Mu:D $left, Mu:D $right --> Bool:D) { $left == $right }
+    method approx-equal(Mu:D $left, Mu:D $right, Real:D $epsilon --> Bool:D) {
+        self.equal($left, $right) || abs($left - $right) <= $epsilon
+    }
+    method natural-order(Mu:D $left, Mu:D $right --> Int:D) {
+        $left < $right ?? -1 !! $left > $right ?? 1 !! 0
+    }
+    method stable-bytes(Mu:D $value --> Blob:D) { $value.Num.Str.encode('utf8') }
+    method divide(Mu:D $dividend, Mu:D $divisor --> Mu) {
+        $divisor == Inf ?? Mu !! $dividend - $divisor
+    }
+    method left-divide(Mu:D $value, Mu:D $divisor --> Mu) {
+        self.divide($value, $divisor)
+    }
+    method star(Mu:D $value --> Mu) { $value >= 0 ?? 0e0 !! Mu }
+    method numerical-value(Mu:D $value --> Mu) { $value.Num }
+    method quantize(Mu:D $value, Real:D $epsilon --> Mu) {
+        ($value / $epsilon).round.Int
+    }
+    method probability(Mu:D $value --> Mu) { exp(-$value) }
+    method properties(--> UInt:D) { 1 +| 2 +| 4 +| 8 +| 16 +| 32 }
+    method closure-bound(--> Mu) { 1 }
+}
+
+my $semiring-resource = semiring-provider(TropicalSemiring.new,
+    domain-id => semiring-domain-id('test.tropical.v1'), :division, :star,
+    :numeric, :stable-bytes);
+my $semiring = semiring-context($semiring-resource);
+$semiring-resource.close;
+my $zero = $semiring.zero;
+my $one = $semiring.one;
+my $sum = $one.plus($zero);
+my $semiring-product = $one.times($one);
+my $quotient = $semiring.divide($semiring-product, $one);
+my $closure = $semiring.star($one);
+is $semiring.properties, 63, 'Raku provider publishes declared semiring laws';
+ok $semiring.equal($sum, $one), 'Raku semiring addition crosses Rust';
+ok $semiring.approx-equal($semiring-product, $one, 1e-12),
+    'Raku approximate equality crosses Rust';
+is $semiring.natural-order($one, $zero), -1,
+    'Raku natural order crosses Rust';
+is $semiring.numerical-value($semiring-product), 0e0,
+    'Raku numerical projection crosses Rust';
+is $semiring.quantize($semiring-product, 0.25), 0,
+    'Raku quantization crosses Rust';
+is $semiring.probability($semiring-product), 1e0,
+    'Raku probability projection crosses Rust';
+is $semiring.closure-bound, 1, 'Raku closure bound crosses Rust';
+is $semiring.stable-bytes($one).decode('utf8'), '0',
+    'Raku stable bytes cross Rust';
+ok $quotient.defined, 'Raku optional division returns a weight';
+ok $closure.defined, 'Raku optional closure returns a weight';
+nok $semiring.divide($one, $zero).defined,
+    'Raku undefined division remains explicitly partial';
+$semiring.validate-laws([$zero, $one, $sum, $semiring-product],
+    epsilon => 1e-12);
+my $copy = $one.clone;
+$one.close;
+ok $semiring.equal($copy, $semiring-product),
+    'cloned Raku weights own independent token references';
+.close for $zero, $sum, $semiring-product, $quotient, $closure, $copy;
+$semiring.close;
+nok $semiring.opened, 'Raku semiring resources close deterministically';

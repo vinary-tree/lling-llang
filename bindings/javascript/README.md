@@ -182,7 +182,7 @@ their own runtime instance — handles must not be passed between instances
 
 ## Version compatibility
 
-- Package `4.0.0-rc.5` = crate `4.0.0-rc.5`; native ABI v1, API revision 2 — the same
+- Package `4.0.0-rc.5` = crate `4.0.0-rc.5`; native ABI v1, API revision 3 — the same
   contract the [C ABI reference](https://github.com/vinary-tree/lling-llang/blob/master/docs/api/c-abi-reference.md)
   documents (the API revision only grows within an ABI version).
 - `@vinary-tree/*` dependencies are exact pins; the drift gate

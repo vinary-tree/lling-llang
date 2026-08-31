@@ -1,6 +1,6 @@
 # C ABI reference — `lling_llang.h`
 
-The complete reference for lling-llang's stable, project-owned C ABI: all 17
+The complete reference for lling-llang's stable, project-owned C ABI: all 40
 exported `lling_*` functions, their exact signatures, preconditions, returnable
 status sets, ownership and threading rules, and complexity — plus the
 weight-domain ↔ semiring dictionary shared with the whole vinary-tree family.
@@ -42,11 +42,11 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); authoring rules in
 
 ## The surface at a glance
 
-Seventeen functions in five groups. Every fallible call returns a
+Forty functions in seven groups. Every fallible call returns a
 `LlingStatus`; every non-`OK` return latches a thread-local, NUL-terminated
 diagnostic readable through `lling_last_error_message()`.
 
-![The 19-function lling-llang C ABI surface: versioning and diagnostics functions, the nine builder-lifecycle calls on the caller-owned LlingWfstBuilder, the six immutable-handle operations on LlingWfst, the two-word VtResource exchanged with foreign providers, and the LlingStatus enum they all return.](../diagrams/api/c-abi-surface.svg)
+![The 40-function lling-llang C ABI surface: versioning and diagnostics, 21 host-semiring consumer calls, nine builder-lifecycle calls, six immutable-WFST operations, the shared two-word resource, and their status contract.](../diagrams/api/c-abi-surface.svg)
 
 *Yellow = lling-llang-owned surface; green = retained `VtResource` handles;
 red = foreign providers across the trust boundary; grey = status and
@@ -57,6 +57,12 @@ diagnostics.*
 ```text
 Versioning (2)     lling_abi_version, lling_api_revision
 Diagnostics (1)    lling_last_error_message
+Dynamic semiring   lling_semiring_open, lling_semiring_free,
+             (21)  lling_semiring_weight_free, lling_semiring_properties,
+                   zero, one, clone, plus, times, exact/approx equality,
+                   natural order, right/left division, star, numerical value,
+                   quantization, probability, closure bound, stable bytes,
+                   and representative-sample law validation
 Builder (9)        lling_wfst_builder_new ─┐  caller-owned, mutable,
                    lling_wfst_builder_free │  single-threaded
                    lling_wfst_builder_reserve_states
@@ -81,7 +87,7 @@ Resource (1)       lling_resource_release
 
 ```c
 #define LLING_ABI_VERSION 1u
-#define LLING_API_REVISION 2u
+#define LLING_API_REVISION 3u
 
 LLING_API uint32_t lling_abi_version(void);
 LLING_API uint32_t lling_api_revision(void);
@@ -156,6 +162,119 @@ Statuses arriving **from** foreign providers travel the wire as raw `uint32_t`
 and are decoded with a range check before any typed use — an out-of-range
 value is classified as `PROVIDER_ERROR`-class misbehavior, never undefined
 behavior. See [Resource ABI architecture](../architecture/resource-abi.md#the-raw-u32-status-wire).
+
+## Host-defined dynamic semirings — 21 functions
+
+API revision 3 adds an operation-context surface for semirings implemented by
+another runtime. It is deliberately separate from `LlingWfst`: a semiring
+resource owns callbacks and storage, `LlingSemiring` owns one validated retain
+of that resource, and each `LlingSemiringWeight` owns exactly one provider
+token. The normative raw vtables and token layout are defined by
+`vinary_tree_interop.h`; the functions below are lling-llang's checked facade.
+
+```c
+LlingSemiring *algebra = NULL;
+LlingSemiringWeight *zero = NULL;
+LlingSemiringWeight *one = NULL;
+LlingSemiringWeight *sum = NULL;
+
+if (lling_semiring_open(&provider_resource, &algebra) != LLING_STATUS_OK ||
+    lling_semiring_zero(algebra, &zero) != LLING_STATUS_OK ||
+    lling_semiring_one(algebra, &one) != LLING_STATUS_OK ||
+    lling_semiring_plus(algebra, one, zero, &sum) != LLING_STATUS_OK) {
+    /* Copy lling_last_error_message() before another failing call. */
+}
+
+lling_semiring_weight_free(sum);
+lling_semiring_weight_free(one);
+lling_semiring_weight_free(zero);
+lling_semiring_free(algebra);
+```
+
+### Context and weight ownership
+
+| Function | Contract |
+|---|---|
+| `lling_semiring_open(resource, out)` | Validates the resource ABI and mandatory `vt.semiring.val1` prefix, discovers optional capabilities, retains the resource independently, and writes a same-thread operation context. The input resource needs to remain live only for this call. |
+| `lling_semiring_free(context)` | Releases the context retain. Null is a no-op. All weight handles from this context must already be freed. |
+| `lling_semiring_weight_free(weight)` | Releases one owned provider token and its context reference. Null is a no-op. |
+| `lling_semiring_weight_clone(weight, out)` | Calls `clone_value`; this is the only valid ownership duplication. Copying an opaque pointer or raw token words is not a clone. |
+
+Opaque handles are context-scoped. Passing weights issued by another
+`LlingSemiring`, even one with the same 16-byte domain identifier, returns
+`INVALID_ARGUMENT`. A non-null handle must be freed exactly once. Destruction
+order is weights first, context last.
+
+### Base algebra and comparisons
+
+```c
+LlingStatus lling_semiring_properties(const LlingSemiring*, uint64_t*);
+LlingStatus lling_semiring_zero(const LlingSemiring*, LlingSemiringWeight**);
+LlingStatus lling_semiring_one(const LlingSemiring*, LlingSemiringWeight**);
+LlingStatus lling_semiring_plus(const LlingSemiring*,
+    const LlingSemiringWeight*, const LlingSemiringWeight*,
+    LlingSemiringWeight**);
+LlingStatus lling_semiring_times(const LlingSemiring*,
+    const LlingSemiringWeight*, const LlingSemiringWeight*,
+    LlingSemiringWeight**);
+LlingStatus lling_semiring_equal(const LlingSemiring*,
+    const LlingSemiringWeight*, const LlingSemiringWeight*, uint8_t*);
+LlingStatus lling_semiring_approx_equal(const LlingSemiring*,
+    const LlingSemiringWeight*, const LlingSemiringWeight*, double, uint8_t*);
+LlingStatus lling_semiring_natural_order(const LlingSemiring*,
+    const LlingSemiringWeight*, const LlingSemiringWeight*, int32_t*);
+```
+
+`zero`, `one`, `plus`, and `times` return new owned weights. Boolean outputs
+are normalized to 0 or 1. Natural order is `-1` (better), `0` (equal), `1`
+(worse), or `2` (incomparable). The adapter rejects every other provider
+value. Approximation epsilon must be finite and nonnegative. Properties are
+the provider's declared `VT_SEMIRING_PROPERTY_*` bits; a declaration is a
+claim, not proof, until checked against representative values.
+
+### Optional refinements
+
+| Function | Capability | Result |
+|---|---|---|
+| `lling_semiring_divide` | `vt.semiring.div1` | Right quotient; `out_defined=0` and a null output represent an undefined quotient. |
+| `lling_semiring_left_divide` | `vt.semiring.div1` | Weak left quotient with the same explicit-partial convention. |
+| `lling_semiring_star` | `vt.semiring.str1` | Kleene closure; undefined denotes divergence. |
+| `lling_semiring_numerical_value` | `vt.semiring.num1` | Finite provider-defined scalar projection. |
+| `lling_semiring_quantize` | `vt.semiring.num1` | Provider-defined integer bucket at a finite, nonnegative epsilon. |
+| `lling_semiring_to_probability` | `vt.semiring.num1` | Finite nonnegative sampling probability. |
+| `lling_semiring_closure_bound` | `vt.semiring.prp1` | `out_known=1` carries a uniform finite bound; otherwise the bound output is zero. |
+
+Calling an absent optional capability returns `INCOMPATIBLE_RESOURCE`.
+Undefined division or star is a successful `OK` result with `out_defined=0`;
+it is not a provider failure.
+
+### Stable bytes and law validation
+
+`lling_semiring_stable_bytes` uses the standard two-call buffer protocol.
+Call with `out_bytes=NULL, capacity=0` to obtain `out_required`, allocate that
+many bytes, then call again. `out_written` is never greater than capacity;
+the safe adapter rejects unstable lengths and values larger than 16 MiB.
+
+`lling_semiring_validate_laws(context, weights, count, epsilon)` borrows an
+array of live weight handles, clones them for validation, and checks the base
+semiring axioms plus every declared property over at most 16 samples. It is a
+falsification gate, not a mathematical proof. Supply both identities, boundary
+values, and workload-representative values. A violation returns
+`PROVIDER_ERROR` with a diagnostic naming the failed law.
+
+All 19 fallible semiring calls may return `OK`, `NULL_POINTER`, `PANIC`, and a
+more specific mapped status: `INCOMPATIBLE_RESOURCE` for missing or malformed
+capabilities, `INVALID_ARGUMENT` for context mismatch or invalid epsilon,
+`LIMIT_EXCEEDED` for bounded allocations, and `PROVIDER_ERROR` for callback,
+threading, output-validation, concurrency, or law failures. The two free
+functions are null-tolerant and return `void`.
+
+The C facade remains same-thread. A thread-bound provider rejects calls from
+another thread; an unflagged provider uses nonblocking serial admission and
+rejects overlap or recursion; a parallel-reentrant provider may overlap, but
+the C handle itself is not promoted to an unconditional C thread-safety claim.
+See [Dynamic semirings](../architecture/dynamic-semirings.md) for the complete
+token, batching, validation, and concurrency design.
 
 ## Builder lifecycle — nine functions
 

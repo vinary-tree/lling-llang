@@ -10,8 +10,10 @@ JavaScript, TypeScript, and ClojureScript deliberately share one package and
 one singleton runtime, so their guide documents both the common ownership laws
 and each language's syntax. Julia and Raku additionally expose the producer
 side of `vt.scalar-wfst.1`, allowing customer automata to participate directly
-in snapshot-consistent lazy composition. The project-neutral
-`vt.semiring.*1` contract and its Rust consumer are documented in
+in snapshot-consistent lazy composition. They also implement both sides of
+`vt.semiring.*1`: arbitrary Julia or Raku values cross Rust as owned,
+generation-checked tokens with explicit optional algebra capabilities. The
+project-neutral contract and its Rust consumer are documented in
 [Dynamic semirings](../architecture/dynamic-semirings.md); language-side
 provider facades use the same capability split rather than pretending a
 foreign-owned weight satisfies Rust's `Copy` bound.

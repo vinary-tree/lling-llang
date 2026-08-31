@@ -7,6 +7,14 @@ use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use lling_llang::dynamic_semiring::{
     DynamicSemiringContext, DynamicSemiringError, NaturalOrder, ParallelDynamicSemiringContext,
 };
+#[cfg(feature = "ffi")]
+use lling_llang::ffi::{
+    lling_semiring_divide, lling_semiring_equal, lling_semiring_free, lling_semiring_natural_order,
+    lling_semiring_numerical_value, lling_semiring_one, lling_semiring_open, lling_semiring_plus,
+    lling_semiring_properties, lling_semiring_stable_bytes, lling_semiring_validate_laws,
+    lling_semiring_weight_free, lling_semiring_zero, LlingSemiring, LlingSemiringWeight,
+    LlingStatus,
+};
 use vinary_tree_interop::{
     semiring_flags, semiring_order, semiring_properties, VtInterfaceId, VtResource,
     VtResourceVTable, VtSemiringDivisionVTable, VtSemiringNumericVTable,
@@ -717,4 +725,109 @@ fn law_validation_rejects_a_misbehaving_base_algebra() {
         context.validate_declared_laws(&[one, two], 0.0),
         Err(DynamicSemiringError::LawViolation(_))
     ));
+}
+
+#[cfg(feature = "ffi")]
+#[test]
+fn c_surface_consumes_the_same_validated_context_and_owned_weights() {
+    let resource = TestResource::new(false);
+    let mut semiring: *mut LlingSemiring = std::ptr::null_mut();
+    assert_eq!(
+        unsafe { lling_semiring_open(&resource.raw, &mut semiring) },
+        LlingStatus::Ok
+    );
+    assert!(!semiring.is_null());
+
+    let mut properties = 0;
+    assert_eq!(
+        lling_semiring_properties(semiring, &mut properties),
+        LlingStatus::Ok
+    );
+    assert_ne!(properties & semiring_properties::HASHABLE, 0);
+
+    let mut zero: *mut LlingSemiringWeight = std::ptr::null_mut();
+    let mut one: *mut LlingSemiringWeight = std::ptr::null_mut();
+    let mut two: *mut LlingSemiringWeight = std::ptr::null_mut();
+    assert_eq!(lling_semiring_zero(semiring, &mut zero), LlingStatus::Ok);
+    assert_eq!(lling_semiring_one(semiring, &mut one), LlingStatus::Ok);
+    assert_eq!(
+        lling_semiring_plus(semiring, one, one, &mut two),
+        LlingStatus::Ok
+    );
+
+    let mut numerical = f64::NAN;
+    assert_eq!(
+        lling_semiring_numerical_value(semiring, two, &mut numerical),
+        LlingStatus::Ok
+    );
+    assert_eq!(numerical, 2.0);
+
+    let mut equal = u8::MAX;
+    assert_eq!(
+        lling_semiring_equal(semiring, one, two, &mut equal),
+        LlingStatus::Ok
+    );
+    assert_eq!(equal, 0);
+    let mut order = i32::MIN;
+    assert_eq!(
+        lling_semiring_natural_order(semiring, one, two, &mut order),
+        LlingStatus::Ok
+    );
+    assert_eq!(order, semiring_order::BETTER);
+
+    let mut written = usize::MAX;
+    let mut required = usize::MAX;
+    assert_eq!(
+        unsafe {
+            lling_semiring_stable_bytes(
+                semiring,
+                two,
+                std::ptr::null_mut(),
+                0,
+                &mut written,
+                &mut required,
+            )
+        },
+        LlingStatus::Ok
+    );
+    assert_eq!((written, required), (0, 8));
+    let mut bytes = [0_u8; 8];
+    assert_eq!(
+        unsafe {
+            lling_semiring_stable_bytes(
+                semiring,
+                two,
+                bytes.as_mut_ptr(),
+                bytes.len(),
+                &mut written,
+                &mut required,
+            )
+        },
+        LlingStatus::Ok
+    );
+    assert_eq!(bytes, 2.0_f64.to_bits().to_be_bytes());
+
+    let mut undefined: *mut LlingSemiringWeight = std::ptr::null_mut();
+    let mut defined = u8::MAX;
+    assert_eq!(
+        lling_semiring_divide(semiring, two, zero, &mut undefined, &mut defined),
+        LlingStatus::Ok
+    );
+    assert_eq!(defined, 0);
+    assert!(undefined.is_null());
+
+    let samples = [one as *const _, two as *const _];
+    assert_eq!(
+        unsafe { lling_semiring_validate_laws(semiring, samples.as_ptr(), samples.len(), 0.0) },
+        LlingStatus::Ok
+    );
+
+    unsafe {
+        lling_semiring_weight_free(two);
+        lling_semiring_weight_free(one);
+        lling_semiring_weight_free(zero);
+        lling_semiring_free(semiring);
+    }
+    assert_eq!(resource.state().live_tokens.load(Ordering::Relaxed), 0);
+    assert_eq!(resource.state().references.load(Ordering::Relaxed), 1);
 }

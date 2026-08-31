@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_API_REVISION 2u
+#define LLING_API_REVISION 3u
 
 typedef enum LlingStatus {
     LLING_STATUS_OK = 0,
@@ -43,10 +43,69 @@ typedef enum LlingStatus {
 
 typedef struct LlingWfstBuilder LlingWfstBuilder;
 typedef struct LlingWfst LlingWfst;
+typedef struct LlingSemiring LlingSemiring;
+typedef struct LlingSemiringWeight LlingSemiringWeight;
 
 LLING_API uint32_t lling_abi_version(void);
 LLING_API uint32_t lling_api_revision(void);
 LLING_API const char* lling_last_error_message(void);
+/* Host-defined dynamic semiring consumer. The context retains resource. */
+LLING_API LlingStatus lling_semiring_open(
+    const VtResource* resource, LlingSemiring** out_semiring);
+LLING_API void lling_semiring_free(LlingSemiring* semiring);
+LLING_API void lling_semiring_weight_free(LlingSemiringWeight* weight);
+LLING_API LlingStatus lling_semiring_properties(
+    const LlingSemiring* semiring, uint64_t* out_properties);
+LLING_API LlingStatus lling_semiring_zero(
+    const LlingSemiring* semiring, LlingSemiringWeight** out_weight);
+LLING_API LlingStatus lling_semiring_one(
+    const LlingSemiring* semiring, LlingSemiringWeight** out_weight);
+LLING_API LlingStatus lling_semiring_weight_clone(
+    const LlingSemiringWeight* weight, LlingSemiringWeight** out_weight);
+LLING_API LlingStatus lling_semiring_plus(
+    const LlingSemiring* semiring, const LlingSemiringWeight* left,
+    const LlingSemiringWeight* right, LlingSemiringWeight** out_weight);
+LLING_API LlingStatus lling_semiring_times(
+    const LlingSemiring* semiring, const LlingSemiringWeight* left,
+    const LlingSemiringWeight* right, LlingSemiringWeight** out_weight);
+LLING_API LlingStatus lling_semiring_equal(
+    const LlingSemiring* semiring, const LlingSemiringWeight* left,
+    const LlingSemiringWeight* right, uint8_t* out_equal);
+LLING_API LlingStatus lling_semiring_approx_equal(
+    const LlingSemiring* semiring, const LlingSemiringWeight* left,
+    const LlingSemiringWeight* right, double epsilon, uint8_t* out_equal);
+LLING_API LlingStatus lling_semiring_natural_order(
+    const LlingSemiring* semiring, const LlingSemiringWeight* left,
+    const LlingSemiringWeight* right, int32_t* out_order);
+LLING_API LlingStatus lling_semiring_divide(
+    const LlingSemiring* semiring, const LlingSemiringWeight* dividend,
+    const LlingSemiringWeight* divisor, LlingSemiringWeight** out_weight,
+    uint8_t* out_defined);
+LLING_API LlingStatus lling_semiring_left_divide(
+    const LlingSemiring* semiring, const LlingSemiringWeight* value,
+    const LlingSemiringWeight* divisor, LlingSemiringWeight** out_weight,
+    uint8_t* out_defined);
+LLING_API LlingStatus lling_semiring_star(
+    const LlingSemiring* semiring, const LlingSemiringWeight* value,
+    LlingSemiringWeight** out_weight, uint8_t* out_defined);
+LLING_API LlingStatus lling_semiring_numerical_value(
+    const LlingSemiring* semiring, const LlingSemiringWeight* value,
+    double* out_value);
+LLING_API LlingStatus lling_semiring_quantize(
+    const LlingSemiring* semiring, const LlingSemiringWeight* value,
+    double epsilon, int64_t* out_value);
+LLING_API LlingStatus lling_semiring_to_probability(
+    const LlingSemiring* semiring, const LlingSemiringWeight* value,
+    double* out_value);
+LLING_API LlingStatus lling_semiring_closure_bound(
+    const LlingSemiring* semiring, size_t* out_bound, uint8_t* out_known);
+LLING_API LlingStatus lling_semiring_stable_bytes(
+    const LlingSemiring* semiring, const LlingSemiringWeight* value,
+    uint8_t* out_bytes, size_t capacity, size_t* out_written,
+    size_t* out_required);
+LLING_API LlingStatus lling_semiring_validate_laws(
+    const LlingSemiring* semiring,
+    const LlingSemiringWeight* const* weights, size_t count, double epsilon);
 LLING_API LlingStatus lling_wfst_builder_new(LlingWfstBuilder** out_builder);
 LLING_API void lling_wfst_builder_free(LlingWfstBuilder* builder);
 LLING_API LlingStatus lling_wfst_builder_reserve_states(

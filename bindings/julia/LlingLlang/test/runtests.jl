@@ -28,6 +28,74 @@ const VTI = VinaryTreeInterop
     close(graph)
 end
 
+struct TropicalProvider <: AbstractSemiringProvider end
+LlingLlang.semiring_zero(::TropicalProvider) = Inf
+LlingLlang.semiring_one(::TropicalProvider) = 0.0
+LlingLlang.semiring_plus(::TropicalProvider, left, right) = min(left, right)
+LlingLlang.semiring_times(::TropicalProvider, left, right) = left + right
+LlingLlang.semiring_approx_equal(::TropicalProvider, left, right, epsilon) =
+    isapprox(left, right; atol=epsilon, rtol=0)
+LlingLlang.semiring_natural_order(::TropicalProvider, left, right) =
+    left < right ? VTI.SEMIRING_ORDER_BETTER :
+    left > right ? VTI.SEMIRING_ORDER_WORSE : VTI.SEMIRING_ORDER_EQUAL
+LlingLlang.semiring_stable_bytes(::TropicalProvider, value) =
+    Vector{UInt8}(codeunits(repr(Float64(value))))
+LlingLlang.semiring_divide(::TropicalProvider, dividend, divisor) =
+    isfinite(divisor) ? dividend - divisor : nothing
+LlingLlang.semiring_left_divide(provider::TropicalProvider, value, divisor) =
+    LlingLlang.semiring_divide(provider, value, divisor)
+LlingLlang.semiring_star(::TropicalProvider, value) = value >= 0 ? 0.0 : nothing
+LlingLlang.semiring_numerical_value(::TropicalProvider, value) = value
+LlingLlang.semiring_quantize(::TropicalProvider, value, epsilon) =
+    round(Int64, value / epsilon)
+LlingLlang.semiring_probability(::TropicalProvider, value) = exp(-value)
+LlingLlang.semiring_properties(::TropicalProvider) =
+    VTI.SEMIRING_PROPERTY_HASHABLE |
+    VTI.SEMIRING_PROPERTY_IDEMPOTENT_PLUS |
+    VTI.SEMIRING_PROPERTY_K_CLOSED |
+    VTI.SEMIRING_PROPERTY_ZERO_SUM_FREE |
+    VTI.SEMIRING_PROPERTY_COMMUTATIVE_TIMES |
+    VTI.SEMIRING_PROPERTY_TOTALLY_ORDERED
+LlingLlang.semiring_closure_bound(::TropicalProvider) = 1
+
+@testset "host-defined dynamic semiring" begin
+    resource = semiring_provider(TropicalProvider();
+        domain_id=VTI.interface_id("test.tropical.v1"), division=true, star=true,
+        numeric=true, stable_bytes=true)
+    context = semiring_context(resource)
+    close(resource)
+
+    zero = semiring_zero(context)
+    one = semiring_one(context)
+    sum = one + zero
+    product = one * one
+    quotient = semiring_divide(context, product, one)
+    closure = semiring_star(context, one)
+
+    @test semiring_equal(context, sum, one)
+    @test semiring_approx_equal(context, product, one, 1e-12)
+    @test semiring_natural_order(context, one, zero) == VTI.SEMIRING_ORDER_BETTER
+    @test semiring_numerical_value(context, product) == 0.0
+    @test semiring_quantize(context, product, 0.25) == 0
+    @test semiring_probability(context, product) == 1.0
+    @test semiring_closure_bound(context) == 1
+    @test String(semiring_stable_bytes(context, one)) == "0.0"
+    @test semiring_properties(context) == LlingLlang.semiring_properties(TropicalProvider())
+    @test !isnothing(quotient)
+    @test !isnothing(closure)
+    @test isnothing(semiring_divide(context, one, zero))
+    validate_semiring_laws(context, [zero, one, sum, product]; epsilon=1e-12)
+
+    copied = copy(one)
+    close(one)
+    @test semiring_equal(context, copied, product)
+    for weight in (zero, sum, product, quotient, closure, copied)
+        close(weight)
+    end
+    close(context)
+    @test !isopen(context)
+end
+
 struct ExampleProvider <: AbstractWfstProvider end
 LlingLlang.wfst_start(::ExampleProvider) = 0
 LlingLlang.wfst_state_count(::ExampleProvider) = 2

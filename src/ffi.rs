@@ -1,6 +1,9 @@
 //! Stable project-owned C ABI for Unicode/tropical lling-llang WFSTs.
 
 use crate::bindings::{BindingError, OwnedWfstResource};
+use crate::dynamic_semiring::{
+    DynamicSemiringContext, DynamicSemiringError, DynamicSemiringWeight, NaturalOrder,
+};
 use crate::semiring::TropicalWeight;
 use crate::wfst::{MutableWfst, VectorWfst, Wfst, NO_STATE};
 use std::cell::RefCell;
@@ -11,7 +14,7 @@ use vinary_tree_interop::VtResource;
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_API_REVISION: u32 = 2;
+pub const LLING_API_REVISION: u32 = 3;
 
 /// Status returned by lling-llang C functions.
 #[repr(u32)]
@@ -43,6 +46,14 @@ pub struct LlingWfstBuilder {
 pub struct LlingWfst {
     resource: OwnedWfstResource,
 }
+/// Opaque same-thread host-defined semiring operation context.
+pub struct LlingSemiring {
+    context: DynamicSemiringContext,
+}
+/// Opaque owned value issued by one [`LlingSemiring`] context.
+pub struct LlingSemiringWeight {
+    weight: DynamicSemiringWeight,
+}
 
 thread_local! {
     static LAST_ERROR: RefCell<CString> = RefCell::new(CString::new("ok").expect("literal has no NUL"));
@@ -69,6 +80,26 @@ fn map_error(error: BindingError) -> LlingStatus {
         | BindingError::IncompatibleWfstInterface
         | BindingError::UnitDomainMismatch(_)
         | BindingError::WeightDomainMismatch(_) => LlingStatus::IncompatibleResource,
+    }
+}
+
+fn map_semiring_error(error: DynamicSemiringError) -> LlingStatus {
+    set_error(error.to_string());
+    match error {
+        DynamicSemiringError::NullResource => LlingStatus::NullPointer,
+        DynamicSemiringError::IncompatibleResourceAbi
+        | DynamicSemiringError::MissingSemiringInterface
+        | DynamicSemiringError::IncompatibleInterface(_)
+        | DynamicSemiringError::MissingCapability(_) => LlingStatus::IncompatibleResource,
+        DynamicSemiringError::ContextMismatch | DynamicSemiringError::InvalidArgument(_) => {
+            LlingStatus::InvalidArgument
+        }
+        DynamicSemiringError::ResourceLimit => LlingStatus::LimitExceeded,
+        DynamicSemiringError::Provider { .. }
+        | DynamicSemiringError::InvalidProviderOutput { .. }
+        | DynamicSemiringError::WrongThread
+        | DynamicSemiringError::ConcurrentCall
+        | DynamicSemiringError::LawViolation(_) => LlingStatus::ProviderError,
     }
 }
 
@@ -104,6 +135,60 @@ fn graph(
         })
 }
 
+fn dynamic_semiring(
+    semiring: *const LlingSemiring,
+) -> Result<&'static DynamicSemiringContext, LlingStatus> {
+    if semiring.is_null() {
+        set_error("semiring is null");
+        Err(LlingStatus::NullPointer)
+    } else {
+        // SAFETY: the C caller promises this is a live opaque handle.
+        Ok(unsafe { &(*semiring).context })
+    }
+}
+
+fn dynamic_weight(
+    weight: *const LlingSemiringWeight,
+) -> Result<&'static DynamicSemiringWeight, LlingStatus> {
+    if weight.is_null() {
+        set_error("semiring weight is null");
+        Err(LlingStatus::NullPointer)
+    } else {
+        // SAFETY: the C caller promises this is a live opaque handle.
+        Ok(unsafe { &(*weight).weight })
+    }
+}
+
+fn write_dynamic_weight(
+    output: *mut *mut LlingSemiringWeight,
+    create: impl FnOnce() -> Result<DynamicSemiringWeight, DynamicSemiringError>,
+) -> Result<(), LlingStatus> {
+    let output = required_mut(output, "out_weight")?;
+    let weight = create().map_err(map_semiring_error)?;
+    *output = Box::into_raw(Box::new(LlingSemiringWeight { weight }));
+    Ok(())
+}
+
+fn write_optional_dynamic_weight(
+    output: *mut *mut LlingSemiringWeight,
+    out_defined: *mut u8,
+    create: impl FnOnce() -> Result<Option<DynamicSemiringWeight>, DynamicSemiringError>,
+) -> Result<(), LlingStatus> {
+    let output = required_mut(output, "out_weight")?;
+    let defined = required_mut(out_defined, "out_defined")?;
+    match create().map_err(map_semiring_error)? {
+        Some(weight) => {
+            *output = Box::into_raw(Box::new(LlingSemiringWeight { weight }));
+            *defined = 1;
+        }
+        None => {
+            *output = std::ptr::null_mut();
+            *defined = 0;
+        }
+    }
+    Ok(())
+}
+
 /// Return the project C ABI version.
 #[no_mangle]
 pub extern "C" fn lling_abi_version() -> u32 {
@@ -120,6 +205,403 @@ pub extern "C" fn lling_api_revision() -> u32 {
 #[no_mangle]
 pub extern "C" fn lling_last_error_message() -> *const c_char {
     LAST_ERROR.with(|slot| slot.borrow().as_ptr())
+}
+
+/// Retain and validate a host-defined semiring operation context.
+///
+/// # Safety
+/// `resource` must point to a live `VtResource` for this call. The returned
+/// context owns an independent retain and is same-thread unless its provider
+/// is explicitly promoted through the Rust API.
+#[no_mangle]
+pub unsafe extern "C" fn lling_semiring_open(
+    resource: *const VtResource,
+    out_semiring: *mut *mut LlingSemiring,
+) -> LlingStatus {
+    boundary(|| {
+        let output = required_mut(out_semiring, "out_semiring")?;
+        if resource.is_null() {
+            set_error("resource is null");
+            return Err(LlingStatus::NullPointer);
+        }
+        *output = std::ptr::null_mut();
+        let context = DynamicSemiringContext::borrow_raw(*resource).map_err(map_semiring_error)?;
+        *output = Box::into_raw(Box::new(LlingSemiring { context }));
+        Ok(())
+    })
+}
+
+/// Release an imported semiring context. Null is accepted.
+///
+/// # Safety
+/// A non-null pointer must have been returned by [`lling_semiring_open`] and
+/// must not already have been freed.
+#[no_mangle]
+pub unsafe extern "C" fn lling_semiring_free(semiring: *mut LlingSemiring) {
+    if !semiring.is_null() {
+        drop(Box::from_raw(semiring));
+    }
+}
+
+/// Release one owned dynamic semiring weight. Null is accepted.
+///
+/// # Safety
+/// A non-null pointer must have been returned by a `lling_semiring_*`
+/// constructor or algebra operation and must not already have been freed.
+#[no_mangle]
+pub unsafe extern "C" fn lling_semiring_weight_free(weight: *mut LlingSemiringWeight) {
+    if !weight.is_null() {
+        drop(Box::from_raw(weight));
+    }
+}
+
+/// Return the provider's declared algebraic-property bits.
+#[no_mangle]
+pub extern "C" fn lling_semiring_properties(
+    semiring: *const LlingSemiring,
+    out_properties: *mut u64,
+) -> LlingStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        let output = required_mut(out_properties, "out_properties")?;
+        *output = context.declared_properties();
+        Ok(())
+    })
+}
+
+/// Construct the additive identity.
+#[no_mangle]
+pub extern "C" fn lling_semiring_zero(
+    semiring: *const LlingSemiring,
+    out_weight: *mut *mut LlingSemiringWeight,
+) -> LlingStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        write_dynamic_weight(out_weight, || context.zero())
+    })
+}
+
+/// Construct the multiplicative identity.
+#[no_mangle]
+pub extern "C" fn lling_semiring_one(
+    semiring: *const LlingSemiring,
+    out_weight: *mut *mut LlingSemiringWeight,
+) -> LlingStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        write_dynamic_weight(out_weight, || context.one())
+    })
+}
+
+/// Clone one owned weight through its provider.
+#[no_mangle]
+pub extern "C" fn lling_semiring_weight_clone(
+    weight: *const LlingSemiringWeight,
+    out_weight: *mut *mut LlingSemiringWeight,
+) -> LlingStatus {
+    boundary(|| {
+        let weight = dynamic_weight(weight)?;
+        write_dynamic_weight(out_weight, || weight.try_clone())
+    })
+}
+
+/// Add two dynamic weights.
+#[no_mangle]
+pub extern "C" fn lling_semiring_plus(
+    semiring: *const LlingSemiring,
+    left: *const LlingSemiringWeight,
+    right: *const LlingSemiringWeight,
+    out_weight: *mut *mut LlingSemiringWeight,
+) -> LlingStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        let left = dynamic_weight(left)?;
+        let right = dynamic_weight(right)?;
+        write_dynamic_weight(out_weight, || context.plus(left, right))
+    })
+}
+
+/// Multiply two dynamic weights.
+#[no_mangle]
+pub extern "C" fn lling_semiring_times(
+    semiring: *const LlingSemiring,
+    left: *const LlingSemiringWeight,
+    right: *const LlingSemiringWeight,
+    out_weight: *mut *mut LlingSemiringWeight,
+) -> LlingStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        let left = dynamic_weight(left)?;
+        let right = dynamic_weight(right)?;
+        write_dynamic_weight(out_weight, || context.times(left, right))
+    })
+}
+
+/// Compare two dynamic weights for exact equality.
+#[no_mangle]
+pub extern "C" fn lling_semiring_equal(
+    semiring: *const LlingSemiring,
+    left: *const LlingSemiringWeight,
+    right: *const LlingSemiringWeight,
+    out_equal: *mut u8,
+) -> LlingStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        let left = dynamic_weight(left)?;
+        let right = dynamic_weight(right)?;
+        let output = required_mut(out_equal, "out_equal")?;
+        *output = u8::from(context.equal(left, right).map_err(map_semiring_error)?);
+        Ok(())
+    })
+}
+
+/// Compare two dynamic weights using the provider's natural metric.
+#[no_mangle]
+pub extern "C" fn lling_semiring_approx_equal(
+    semiring: *const LlingSemiring,
+    left: *const LlingSemiringWeight,
+    right: *const LlingSemiringWeight,
+    epsilon: f64,
+    out_equal: *mut u8,
+) -> LlingStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        let left = dynamic_weight(left)?;
+        let right = dynamic_weight(right)?;
+        let output = required_mut(out_equal, "out_equal")?;
+        *output = u8::from(
+            context
+                .approx_equal(left, right, epsilon)
+                .map_err(map_semiring_error)?,
+        );
+        Ok(())
+    })
+}
+
+/// Compare two dynamic weights in natural order.
+#[no_mangle]
+pub extern "C" fn lling_semiring_natural_order(
+    semiring: *const LlingSemiring,
+    left: *const LlingSemiringWeight,
+    right: *const LlingSemiringWeight,
+    out_order: *mut i32,
+) -> LlingStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        let left = dynamic_weight(left)?;
+        let right = dynamic_weight(right)?;
+        let output = required_mut(out_order, "out_order")?;
+        *output = match context
+            .natural_order(left, right)
+            .map_err(map_semiring_error)?
+        {
+            NaturalOrder::Better => -1,
+            NaturalOrder::Equal => 0,
+            NaturalOrder::Worse => 1,
+            NaturalOrder::Incomparable => 2,
+        };
+        Ok(())
+    })
+}
+
+/// Compute right division. `out_defined` is zero for an undefined quotient.
+#[no_mangle]
+pub extern "C" fn lling_semiring_divide(
+    semiring: *const LlingSemiring,
+    dividend: *const LlingSemiringWeight,
+    divisor: *const LlingSemiringWeight,
+    out_weight: *mut *mut LlingSemiringWeight,
+    out_defined: *mut u8,
+) -> LlingStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        let dividend = dynamic_weight(dividend)?;
+        let divisor = dynamic_weight(divisor)?;
+        write_optional_dynamic_weight(out_weight, out_defined, || {
+            context.divide(dividend, divisor)
+        })
+    })
+}
+
+/// Compute weak left division. `out_defined` is zero when undefined.
+#[no_mangle]
+pub extern "C" fn lling_semiring_left_divide(
+    semiring: *const LlingSemiring,
+    value: *const LlingSemiringWeight,
+    divisor: *const LlingSemiringWeight,
+    out_weight: *mut *mut LlingSemiringWeight,
+    out_defined: *mut u8,
+) -> LlingStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        let value = dynamic_weight(value)?;
+        let divisor = dynamic_weight(divisor)?;
+        write_optional_dynamic_weight(out_weight, out_defined, || {
+            context.left_divide(value, divisor)
+        })
+    })
+}
+
+/// Compute Kleene closure. `out_defined` is zero when closure diverges.
+#[no_mangle]
+pub extern "C" fn lling_semiring_star(
+    semiring: *const LlingSemiring,
+    value: *const LlingSemiringWeight,
+    out_weight: *mut *mut LlingSemiringWeight,
+    out_defined: *mut u8,
+) -> LlingStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        let value = dynamic_weight(value)?;
+        write_optional_dynamic_weight(out_weight, out_defined, || context.star(value))
+    })
+}
+
+/// Extract the numerical projection of one dynamic weight.
+#[no_mangle]
+pub extern "C" fn lling_semiring_numerical_value(
+    semiring: *const LlingSemiring,
+    value: *const LlingSemiringWeight,
+    out_value: *mut f64,
+) -> LlingStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        let value = dynamic_weight(value)?;
+        let output = required_mut(out_value, "out_value")?;
+        *output = context.numerical_value(value).map_err(map_semiring_error)?;
+        Ok(())
+    })
+}
+
+/// Quantize one dynamic weight.
+#[no_mangle]
+pub extern "C" fn lling_semiring_quantize(
+    semiring: *const LlingSemiring,
+    value: *const LlingSemiringWeight,
+    epsilon: f64,
+    out_value: *mut i64,
+) -> LlingStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        let value = dynamic_weight(value)?;
+        let output = required_mut(out_value, "out_value")?;
+        *output = context
+            .quantize(value, epsilon)
+            .map_err(map_semiring_error)?;
+        Ok(())
+    })
+}
+
+/// Convert one dynamic weight to a sampling probability.
+#[no_mangle]
+pub extern "C" fn lling_semiring_to_probability(
+    semiring: *const LlingSemiring,
+    value: *const LlingSemiringWeight,
+    out_value: *mut f64,
+) -> LlingStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        let value = dynamic_weight(value)?;
+        let output = required_mut(out_value, "out_value")?;
+        *output = context.to_probability(value).map_err(map_semiring_error)?;
+        Ok(())
+    })
+}
+
+/// Return the optional uniform closure bound.
+#[no_mangle]
+pub extern "C" fn lling_semiring_closure_bound(
+    semiring: *const LlingSemiring,
+    out_bound: *mut usize,
+    out_known: *mut u8,
+) -> LlingStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        let bound = required_mut(out_bound, "out_bound")?;
+        let known = required_mut(out_known, "out_known")?;
+        match context.closure_bound().map_err(map_semiring_error)? {
+            Some(value) => {
+                *bound = value;
+                *known = 1;
+            }
+            None => {
+                *bound = 0;
+                *known = 0;
+            }
+        }
+        Ok(())
+    })
+}
+
+/// Copy canonical value bytes into caller-owned storage.
+///
+/// # Safety
+/// When `capacity` is nonzero, `out_bytes` must point to at least `capacity`
+/// writable bytes. Every other non-null handle and output pointer must be live
+/// for this call.
+#[no_mangle]
+pub unsafe extern "C" fn lling_semiring_stable_bytes(
+    semiring: *const LlingSemiring,
+    value: *const LlingSemiringWeight,
+    out_bytes: *mut u8,
+    capacity: usize,
+    out_written: *mut usize,
+    out_required: *mut usize,
+) -> LlingStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        let value = dynamic_weight(value)?;
+        let written = required_mut(out_written, "out_written")?;
+        let required = required_mut(out_required, "out_required")?;
+        if capacity != 0 && out_bytes.is_null() {
+            set_error("out_bytes is null with nonzero capacity");
+            return Err(LlingStatus::NullPointer);
+        }
+        let bytes = context.stable_bytes(value).map_err(map_semiring_error)?;
+        *required = bytes.len();
+        *written = capacity.min(bytes.len());
+        if *written != 0 {
+            // SAFETY: the C caller promises `capacity` writable bytes.
+            unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_bytes, *written) };
+        }
+        Ok(())
+    })
+}
+
+/// Validate base axioms and declared laws over borrowed representative values.
+///
+/// # Safety
+/// For nonzero `count`, `weights` must point to `count` live weight handles.
+#[no_mangle]
+pub unsafe extern "C" fn lling_semiring_validate_laws(
+    semiring: *const LlingSemiring,
+    weights: *const *const LlingSemiringWeight,
+    count: usize,
+    epsilon: f64,
+) -> LlingStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        if count != 0 && weights.is_null() {
+            set_error("weights is null with nonzero count");
+            return Err(LlingStatus::NullPointer);
+        }
+        let pointers = if count == 0 {
+            &[][..]
+        } else {
+            std::slice::from_raw_parts(weights, count)
+        };
+        let mut owned = Vec::with_capacity(pointers.len());
+        for pointer in pointers {
+            owned.push(
+                dynamic_weight(*pointer)?
+                    .try_clone()
+                    .map_err(map_semiring_error)?,
+            );
+        }
+        context
+            .validate_declared_laws(&owned, epsilon)
+            .map_err(map_semiring_error)
+    })
 }
 
 /// Allocate an empty Unicode/tropical WFST builder.

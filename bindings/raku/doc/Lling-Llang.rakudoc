@@ -11,6 +11,10 @@ resource import, lazy composition, and the C<WfstProvider> role for custom Raku
 automata. Provider state callbacks are cached and never execute under the
 facade's cache lock.
 
+The C<SemiringProvider> role also lets Raku define the weight algebra consumed
+by native code. Arbitrary host values are represented by owned,
+generation-checked tokens rather than copied object pointers.
+
 =head1 Core types
 
 =item C<WfstBuilder> constructs a dense immutable graph and is consumed by
@@ -23,6 +27,14 @@ undefined label denotes epsilon.
 
 =item C<WfstProvider> requires C<start-state> and C<state>; C<state-count> may
 return the C<Int> type object when unknown.
+
+=item C<SemiringProvider> requires C<zero>, C<one>, C<plus>, C<times>,
+C<natural-order>, and C<stable-bytes>. It may implement division, Kleene star,
+numeric projections, declared properties, and a closure bound.
+
+=item C<SemiringContext> owns one retained operation context. C<SemiringWeight>
+owns one provider token and supports C<clone>, C<plus>, C<times>, and
+deterministic C<close>.
 
 =head1 Public operations
 
@@ -41,6 +53,16 @@ independent snapshots of both inputs.
 =item C<provider($implementation, :parallel, :acyclic)> exposes a
 C<WfstProvider> through the shared scalar-WFST resource ABI. The optional
 C<:unit-domain> and C<:weight-domain> arguments declare its data domains.
+
+=item C<semiring-provider($implementation, :domain-id, ...)> publishes a
+C<SemiringProvider>. C<:division>, C<:star>, and C<:numeric> expose optional
+capabilities; C<:stable-bytes>, C<:batch>, C<:parallel>, and C<:thread-bound>
+declare operational contracts.
+
+=item C<semiring-context($resource)> validates and retains a published
+semiring. Its C<zero>, C<one>, C<plus>, C<times>, C<equal>,
+C<approx-equal>, C<natural-order>, optional-operation, projection,
+C<stable-bytes>, and C<validate-laws> methods invoke the safe Rust adapter.
 
 =item C<provider-last-error()> copies the latest Raku callback diagnostic for
 test and troubleshooting output. It is process-wide and is not a replacement
@@ -84,12 +106,42 @@ my $lazy = provider(RewriteAB.new, :acyclic);
 $lazy.close;
 =end code
 
+=head1 Semiring provider example
+
+=begin code :lang<raku>
+class Tropical does SemiringProvider {
+    method zero(--> Mu) { Inf }
+    method one(--> Mu) { 0e0 }
+    method plus(Mu:D $a, Mu:D $b --> Mu) { min($a, $b) }
+    method times(Mu:D $a, Mu:D $b --> Mu) { $a + $b }
+    method natural-order(Mu:D $a, Mu:D $b --> Int:D) {
+        $a < $b ?? -1 !! $a > $b ?? 1 !! 0
+    }
+    method stable-bytes(Mu:D $value --> Blob:D) {
+        $value.Num.Str.encode('utf8')
+    }
+}
+
+my $host = semiring-provider(Tropical.new,
+    domain-id => semiring-domain-id('demo.tropical.v1'), :stable-bytes);
+my $algebra = semiring-context($host);
+$host.close;
+my $zero = $algebra.zero;
+my $one = $algebra.one;
+my $best = $one.plus($zero);
+.close for $zero, $one, $best;
+$algebra.close;
+=end code
+
 =head1 Failure and concurrency contracts
 
 Native failures throw C<X::Lling::Llang> with a stable C<Status>, operation,
 and copied diagnostic. Provider exceptions are contained at the C boundary.
 Customer C<state> methods execute outside the facade cache lock. Providers are
 serialized unless C<:parallel> truthfully declares concurrent reentrancy.
+Semiring providers default to C<:thread-bound>; their Raku operations execute
+outside the recycling-arena lock. Tokens from different operation contexts
+must never be mixed, even when their 16-byte domain identifiers match.
 
 See the packaged C<README.md> and C<t/01-conformance.rakutest> for the complete
 provider, composition, error, concurrency, and security contracts.

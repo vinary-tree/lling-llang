@@ -5,6 +5,8 @@ Raku. A **weighted finite-state transducer** (WFST) is a directed graph whose
 arcs consume an input label, produce an output label, and carry a weight. This
 package builds Unicode/tropical WFSTs, imports Vinary Tree resources, composes
 immutable snapshots lazily, and lets Raku classes implement custom providers.
+Raku classes can also implement weight semirings that native lling-llang
+algorithms consume through the shared capability ABI.
 
 ## Install
 
@@ -68,6 +70,40 @@ $graph.close;
 label denotes epsilon. Return the `Int` type object from `state-count` when a
 lazy graph does not know its final size.
 
+### Implement a Raku semiring
+
+```raku
+class Tropical does SemiringProvider {
+    method zero(--> Mu) { Inf }
+    method one(--> Mu) { 0e0 }
+    method plus(Mu:D $a, Mu:D $b --> Mu) { min($a, $b) }
+    method times(Mu:D $a, Mu:D $b --> Mu) { $a + $b }
+    method natural-order(Mu:D $a, Mu:D $b --> Int:D) {
+        $a < $b ?? -1 !! $a > $b ?? 1 !! 0
+    }
+    method stable-bytes(Mu:D $value --> Blob:D) {
+        $value.Num.Str.encode('utf8')
+    }
+}
+
+my $host = semiring-provider(Tropical.new,
+    domain-id => semiring-domain-id('demo.tropical.v1'), :stable-bytes);
+my $algebra = semiring-context($host);
+$host.close;
+my $zero = $algebra.zero;
+my $one = $algebra.one;
+my $best = $one.plus($zero);
+die 'bad algebra' unless $algebra.equal($best, $one);
+.close for $zero, $one, $best;
+$algebra.close;
+```
+
+The domain identifier is exactly 16 bytes. Enable `:division`, `:star`, or
+`:numeric` only when the corresponding provider methods are meaningful;
+undefined division and star return the `SemiringWeight` type object. Declared
+properties and `closure-bound` come from provider methods. Call
+`validate-laws` on representative weights before relying on those claims.
+
 ## Ownership & memory model
 
 `WfstBuilder.build` consumes its native builder on success. Every returned
@@ -80,6 +116,11 @@ The provider shim owns an atomic retain count and roots the corresponding Raku
 object until the last resource release. Provider snapshots are
 identity-with-retain; changing the provider's visible graph after construction
 breaks the immutable snapshot law.
+
+Each semiring weight owns a generation-checked token in a recycling Raku
+arena. `.clone` asks the provider to retain the token; copying its two raw
+words is not ownership. The operation context retains the host resource
+independently, and deterministic `.close` releases every token exactly once.
 
 ## Errors
 
@@ -95,6 +136,13 @@ that flag only if all provider methods are concurrently callable and
 reentrant. The cache lock protects publication only; customer `state` methods
 run outside it. The C shim uses atomics for resource lifetime and holds no lock
 while invoking Raku.
+
+Semiring providers default to `:thread-bound`. Their arena lock protects only
+token lookup and publication; user algebra methods execute outside it. Use
+`:parallel, :!thread-bound` only for a genuinely concurrent, reentrant
+provider. The shim splits callback registration into bounded groups because
+large NativeCall signatures are not portable across supported Rakudo/libffi
+combinations.
 
 ## Zero-copy paths
 
@@ -132,7 +180,7 @@ weight domain, acyclicity, and threading behavior.
 |---|---:|
 | Lling-Llang | `4.0.0-rc.5` |
 | lling-llang C ABI | `1` |
-| lling-llang API revision | at least `2` |
+| lling-llang API revision | at least `3` |
 | Vinary-Tree-Interop | `4.0.0` compatible |
 | Raku | language version `6.d` |
 
@@ -142,7 +190,9 @@ Module initialization checks the native ABI and API revision.
 
 [`t/01-conformance.rakutest`](t/01-conformance.rakutest) exercises ABI
 negotiation, the eager builder, resource import, a Raku-defined provider,
-snapshot survival, arc paging, and lazy tropical composition.
+snapshot survival, arc paging, and lazy tropical composition. It also sends a
+Raku-defined semiring through Rust and tests optional operations, law
+validation, stable bytes, token cloning, and deterministic release.
 
 ```sh
 TMPDIR="$PWD/target/raku-tmp" \

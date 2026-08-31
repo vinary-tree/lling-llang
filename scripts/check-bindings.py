@@ -613,6 +613,12 @@ def main() -> int:
         } | {
             "lling_raku_provider_configure",
             "lling_raku_provider_create",
+            "lling_raku_semiring_configure_lifecycle",
+            "lling_raku_semiring_configure_algebra",
+            "lling_raku_semiring_configure_buffers",
+            "lling_raku_semiring_configure_optional",
+            "lling_raku_semiring_configure_metadata",
+            "lling_raku_semiring_create",
         }
         if raku_symbols != expected_raku_symbols:
             failures.append(

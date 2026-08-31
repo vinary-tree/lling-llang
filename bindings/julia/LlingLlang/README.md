@@ -10,6 +10,9 @@ The package also lets Julia code implement a WFST by extending three methods.
 The native engine captures that provider once, expands states on demand, and
 caches each expanded state. This is the customer integration boundary used by
 custom normalization, language-model, grammar, and correction automata.
+Julia code may also implement the weight algebra itself. The native engine
+consumes that algebra through a retained, capability-negotiated semiring
+resource without requiring the weight type to be `isbits` or `Copy`.
 
 ## Install
 
@@ -83,6 +86,46 @@ close(graph)
 `UInt64`; `nothing` on an arc tape means epsilon. `wfst_state_count` may return
 `nothing` when a lazy graph does not know its final size.
 
+### Implement a Julia semiring
+
+Subtype `AbstractSemiringProvider` and implement the two identities, `plus`,
+`times`, and natural order. Equality defaults to Julia's `==`; stable bytes
+are required only when callers use them. Optional division, Kleene star,
+numeric projections, declared laws, and a closure bound are ordinary method
+overloads enabled explicitly at publication.
+
+```julia
+struct Tropical <: AbstractSemiringProvider end
+LlingLlang.semiring_zero(::Tropical) = Inf
+LlingLlang.semiring_one(::Tropical) = 0.0
+LlingLlang.semiring_plus(::Tropical, a, b) = min(a, b)
+LlingLlang.semiring_times(::Tropical, a, b) = a + b
+LlingLlang.semiring_natural_order(::Tropical, a, b) =
+    a < b ? VTI.SEMIRING_ORDER_BETTER :
+    a > b ? VTI.SEMIRING_ORDER_WORSE : VTI.SEMIRING_ORDER_EQUAL
+LlingLlang.semiring_stable_bytes(::Tropical, value) =
+    Vector{UInt8}(codeunits(repr(Float64(value))))
+
+host = semiring_provider(Tropical();
+    domain_id=VTI.interface_id("demo.tropical.v1"), stable_bytes=true)
+algebra = semiring_context(host)
+close(host) # `algebra` owns an independent retain
+
+zero = semiring_zero(algebra)
+one = semiring_one(algebra)
+best = one + zero
+@assert semiring_equal(algebra, best, one)
+close(zero); close(one); close(best); close(algebra)
+```
+
+`domain_id` is exactly 16 bytes and identifies compatible carrier semantics;
+it does not make values from two provider instances interchangeable. Host
+values live in a recycling generation-checked arena. Every `SemiringWeight`
+owns one token reference, `copy` invokes the provider's clone operation, and
+`close` releases exactly once. A stale or cross-context token is rejected.
+Use `validate_semiring_laws` with representative identities, boundaries, and
+workload values before enabling algorithms that trust declared properties.
+
 ## Ownership & memory model
 
 `WfstBuilder` owns one native builder and `build!` consumes it on success.
@@ -95,6 +138,11 @@ Provider objects are rooted while any native retain exists. A provider
 snapshot is identity-with-retain because the facade advertises immutable
 resources. Mutating provider-visible state after `provider` therefore violates
 the snapshot contract.
+
+A `SemiringContext` independently retains its provider resource, so the
+original resource may close immediately after import. Weights keep their exact
+context rooted. Close weights before their context for deterministic error
+reporting; finalizers remain leak-safety fallbacks only.
 
 ## Errors
 
@@ -111,6 +159,12 @@ declared. Set it only when `wfst_start`, `wfst_state_count`, and `wfst_state`
 are safe for concurrent and reentrant calls. The facade never invokes customer
 code while holding its cache lock; two racing first expansions may compute the
 same state, after which one immutable value is retained.
+
+Semiring providers default to `thread_bound=true`, matching Julia's runtime
+attachment requirements. Their arena lock covers only token lookup,
+allocation, and publication; Julia algebra methods run outside it. Set
+`parallel=true, thread_bound=false` only when every method and stored value is
+concurrently callable and reentrant.
 
 ## Zero-copy paths
 
@@ -146,7 +200,7 @@ their work and do not expose secrets through callbacks.
 |---|---:|
 | LlingLlang.jl | `4.0.0-rc.5` |
 | lling-llang C ABI | `1` |
-| lling-llang API revision | at least `2` |
+| lling-llang API revision | at least `3` |
 | VinaryTreeInterop.jl | major version `4` |
 | Julia | `1.10` or newer |
 
@@ -156,7 +210,10 @@ The module validates ABI and API compatibility during initialization.
 
 [`test/runtests.jl`](test/runtests.jl) exercises ABI negotiation, the eager
 builder, import, a Julia-defined lazy provider, tropical composition, snapshot
-lifetime, arc tapes, and final weights against the real native library.
+lifetime, arc tapes, and final weights against the real native library. It
+also publishes a Julia-defined semiring and exercises base algebra, optional
+capabilities, law validation, stable bytes, cloning, and deterministic release
+through Rust.
 
 ```sh
 TMPDIR="$PWD/target/julia-tmp" \

@@ -152,6 +152,31 @@ fn combine(raw: VtResource) -> Result<Vec<u8>, DynamicSemiringError> {
 }
 ```
 
+## Julia and Raku host providers
+
+The Julia and Raku facades implement the producer and consumer sides of this
+protocol. Both use a recycling arena whose token words are `(slot,
+generation)`. The arena lock covers lookup, reference-count updates, and slot
+publication only; customer algebra methods run after inputs have been resolved
+and before outputs are allocated. This avoids holding a facade lock across
+foreign code while still rejecting stale tokens after a slot is reused.
+
+| Concern | Julia | Raku |
+|---|---|---|
+| Provider abstraction | `AbstractSemiringProvider` methods | `SemiringProvider` role |
+| Consumer handles | `SemiringContext`, `SemiringWeight` | `SemiringContext`, `SemiringWeight` |
+| Deterministic duplication | `copy(weight)` | `weight.clone` |
+| Partial operations | `nothing` | `SemiringWeight` type object |
+| Default threading | `thread_bound=true` | `:thread-bound` |
+| Native trampoline | direct `@cfunction` vtables | atomically retained C17 shim with bounded callback-registration groups |
+
+Optional vtables are published only when requested. A provider cannot declare
+both thread-bound and parallel-reentrant. Stable bytes and batch flags are
+independent, so a carrier may support efficient folds without claiming a
+canonical encoding. The package guides contain complete executable tropical
+examples: [Julia](../../bindings/julia/LlingLlang/README.md#implement-a-julia-semiring)
+and [Raku](../../bindings/raku/README.md#implement-a-raku-semiring).
+
 ## Verification
 
 `tests/dynamic_semiring_abi.rs` supplies a complete independent provider. It
@@ -160,6 +185,12 @@ forces a 600-value fold across three bounded callbacks, moves only a validated
 parallel context to another thread, and injects unknown statuses, malformed
 booleans, malformed order values, non-finite probabilities, context confusion,
 and a false base algebra.
+
+The Julia suite adds 14 assertions over a Julia-owned arena and the Raku suite
+adds 14 over a Raku-owned arena. Each publishes base and optional capabilities,
+closes the original resource after native import, runs operations through
+Rust, validates declared laws, clones an owned token, and proves the operation
+context remains independently retained until deterministic close.
 
 The mathematical basis follows Goodman’s semiring parsing formulation
 ([Goodman 1999](../BIBLIOGRAPHY.md#ref-goodman1999)) and the weighted-automata
