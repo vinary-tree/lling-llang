@@ -92,6 +92,17 @@ jobs:
             -o target/lling-c-compose
           target/lling-c-compose
 
+      - name: C++ RAII and host-lattice smoke test
+        shell: bash
+        run: |
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            -Iinclude -I../vinary-tree-interop/include \
+            bindings/cpp/tests/package_smoke.cpp \
+            -Ltarget/debug -llling_llang \
+            -Wl,-rpath,"$PWD/target/debug" \
+            -o target/lling-cpp-package-smoke
+          target/lling-cpp-package-smoke
+
       # Use --no-deps for the same reason as the main Rust job: warnings in
       # sibling path dependencies must not gate this crate's CI.
       - name: Clippy (ffi + test-utils, all test targets)

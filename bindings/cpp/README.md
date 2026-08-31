@@ -1,8 +1,9 @@
 # lling-llang C++ bindings
 
 Header-only C++20 RAII facade over lling-llang's stable C ABI. One header —
-[`include/lling_llang.hpp`](../../include/lling_llang.hpp) — wraps the 17
-`lling_*` functions in four move-aware types under
+[`include/lling_llang.hpp`](../../include/lling_llang.hpp) — wraps WFST
+construction/resource exchange and the complete 12-function dynamic-lattice
+consumer in five move-aware types under
 `namespace vinary_tree::lling_llang`:
 
 | Type | Wraps | Discipline |
@@ -10,6 +11,7 @@ Header-only C++20 RAII facade over lling-llang's stable C ABI. One header —
 | `builder` | `LlingWfstBuilder*` | constructed ready; frees on scope exit; fluent edits |
 | `wfst` | `LlingWfst*` | move-only; frees on destruction; `import`/`compose` factories |
 | `resource` | `VtResource` | move-only owned retain; releases on destruction |
+| `lattice_value` | `LlingLatticeValue*` | move-only retained host value; checked join/meet/folds and law probes |
 | `error` | `LlingStatus` + message | thrown by `check()` on any non-OK status |
 
 The semantics are exactly the C ABI's — statuses, ownership, capture-once
@@ -17,6 +19,9 @@ composition, lazy product states — documented in the
 [C ABI reference](https://github.com/vinary-tree/lling-llang/blob/master/docs/api/c-abi-reference.md)
 and the
 [resource ABI architecture](https://github.com/vinary-tree/lling-llang/blob/master/docs/architecture/resource-abi.md).
+Host lattice ownership, algebra, batching, validation, and threading are
+specified in the
+[dynamic-lattice architecture](https://github.com/vinary-tree/lling-llang/blob/master/docs/architecture/dynamic-lattices.md).
 This facade adds zero overhead beyond a status check per call.
 
 ## Install
@@ -106,6 +111,36 @@ Fluent builder notes: `final_state(q)` defaults the final weight to `0.0`
 `epsilon(from, to, w)` adds an $`\varepsilon`$:$`\varepsilon`$ arc; labels
 are `char32_t` Unicode scalar values (`U'🦀'` works).
 
+### Consume host-defined lattice values
+
+`lattice_value::open` borrows a live `VtResource` for one call and retains an
+independent owner. The resource may come from LLattice, Julia, Raku, C++, or
+any provider implementing `vt.lattice.val.1`:
+
+```cpp
+// `left_resource` and `right_resource` remain owned by their producer.
+auto left = lattice_value::open(left_resource);
+auto right = lattice_value::open(right_resource);
+auto upper = left.join(right);
+auto lower = left.meet(right);
+
+std::array<const lattice_value*, 2> remainder{&right, &lower};
+auto folded = left.join_many(remainder);
+std::array<const lattice_value*, 3> samples{&left, &right, &folded};
+lattice_value::validate_laws(samples);
+
+const auto identity = folded.stable_bytes();
+const auto explanation = folded.diagnostic();
+```
+
+`domain_id()` returns the exact 16-byte carrier/law identifier; `flags()`
+returns the validated provider capabilities; and `equivalent()` performs
+semantic equality. Binary operations reject a domain mismatch before invoking
+foreign code. Batches preserve associative left-fold order and the native
+adapter caps each foreign callback at 256 operands. Law validation accepts at
+most sixteen representative values and can falsify—but cannot prove—the
+universal lattice laws.
+
 ## Ownership & memory model
 
 Pure RAII — every wrapper releases exactly once, in its destructor:
@@ -118,6 +153,9 @@ Pure RAII — every wrapper releases exactly once, in its destructor:
   builder remains editable — set a start state and build again.
 - `wfst` and `resource` are move-only (copying a raw handle would double
   the release). Moved-from objects are empty and safe to destroy.
+- `lattice_value` is move-only for the same reason. `open`, `join`, `meet`,
+  `join_many`, and `meet_many` each return one independent owner; every owner
+  is released exactly once by its destructor.
 - `retained_resource()` mints an **independent** retain each call: the
   resource keeps the graph alive even after the `wfst` is destroyed, and
   vice versa. Teardown order is free.
@@ -160,6 +198,10 @@ implicitly `noexcept`.
   resource-wide lock).
 - Diagnostics are thread-local: an `error` thrown on one thread carries
   that thread's message, unaffected by failures elsewhere.
+- `lattice_value` is deliberately same-thread even when its provider advertises
+  parallel reentrancy. The native adapter uses a nonblocking atomic admission
+  gate for serial providers and holds no consumer mutex while host join/meet
+  code executes.
 
 ## Zero-copy paths
 
@@ -172,6 +214,10 @@ implicitly `noexcept`.
 - `wfst::import(r)` is the one deliberate copy: it materializes a private
   eager graph from a foreign resource, touching each reachable state and
   arc exactly once.
+- Lattice `open`, move, and destruction are constant-time retain/handle
+  operations. Join/meet cost is provider-defined. Batch folds amortize the C
+  boundary; stable bytes and diagnostics allocate exactly their returned size
+  after a bounded two-call length negotiation.
 
 ## Troubleshooting
 
@@ -182,6 +228,8 @@ implicitly `noexcept`.
 | Undefined references to `lling_*` | Link `-llling_llang` (note the double `l`: lib + lling); with CMake, link the `lling-llang::lling-llang` target. |
 | Shared library not found at run time | Set an rpath to the package's `lib/` directory or use the static library from the staged package. |
 | `error: builder has already been consumed` | The builder was used after `build()`; construct a new one. |
+| `LLING_STATUS_INVALID_ARGUMENT` from join/meet | The two lattice values use different 16-byte domains. |
+| `lattice byte length did not stabilize` | The provider violated immutable byte-length expectations across three bounded reads. |
 
 ## Version compatibility
 
@@ -199,8 +247,13 @@ implicitly `noexcept`.
 
 [`tests/package_smoke.cpp`](tests/package_smoke.cpp) is built as a consumer of
 the staged package, not against repository-private headers. It exercises the
-move-only builder/WFST/resource lifecycle and is run by the native-package
-release gate:
+move-only builder/WFST/resource lifecycle and a complete C++ max/min lattice
+provider through the RAII consumer. The lattice checks cover retained
+ownership, move safety, join, meet, both batch folds, equality, domain/flag
+negotiation, stable bytes, diagnostics, law validation, and zero live values
+after scope exit. CI runs it against the source-built shared library, and the
+native-package release gate repeats it against staged shared and static
+packages:
 
 ```sh
 cmake -S bindings/cpp/tests/package -B target/lling-cpp-package
@@ -213,7 +266,10 @@ ctest --test-dir target/lling-cpp-package --output-on-failure
 RAII prevents local leaks but does not make an arbitrary `VtResource`
 trustworthy. Import and composition validate the base vtable, interface ID and
 version, unit/weight domains, state IDs, labels, weights, page totals, and
-provider statuses before publishing native state. Never construct `resource`
+provider statuses before publishing native state. The lattice consumer also
+validates its capability prefix, flags, domain preservation, status/Boolean
+encodings, success/failure output ownership, byte bounds, and law samples.
+Never construct `resource`
 from manually copied raw words unless the corresponding retain has succeeded.
 The complete boundary analysis is the
 [ABI trust model](../../docs/security/abi-trust-model.md).
