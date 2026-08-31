@@ -21,7 +21,9 @@
     "scalarWfstInterfaceId": "vt.scalar-wfst.1",
     "scalarWfstInterfaceVersion": 1,
     "semiringInterfaceId": "vt.semiring.val1",
-    "semiringInterfaceVersion": 1
+    "semiringInterfaceVersion": 1,
+    "latticeInterfaceId": "vt.lattice.val.1",
+    "latticeInterfaceVersion": 1
   },
   "packages": {
     "cratesIo": "lling-llang",
@@ -150,7 +152,7 @@
   },
   "packageVersion": "4.0.0-rc.5",
   "abiVersion": 1,
-  "apiRevision": 3,
+  "apiRevision": 4,
   "cPrefix": "lling_",
   "headers": {
     "c": "include/lling_llang.h",
@@ -170,7 +172,9 @@
     "customProviderDefault": "serialized-caller-thread",
     "customProviderOptIn": "parallel-reentrant",
     "dynamicSemiringHandoff": "retained-context-and-two-word-provider-tokens",
-    "dynamicSemiringBatch": "bounded-256-value-folds"
+    "dynamicSemiringBatch": "bounded-256-value-folds",
+    "dynamicLatticeHandoff": "one-retained-resource-per-immutable-value",
+    "dynamicLatticeBatch": "bounded-256-value-folds-with-pairwise-fallback"
   },
   "enums": {
     "status": {
@@ -263,6 +267,20 @@
         "declared-laws"
       ],
       "validation": "wire-output checks plus bounded representative law probes"
+    },
+    "DynamicLatticeValue": {
+      "interface": "vt.lattice.val.1",
+      "ownership": "one-independent-retained-resource-per-immutable-value",
+      "threading": "same-thread C and managed-runtime handles; Rust promotion only after PARALLEL_REENTRANT validation",
+      "capabilities": [
+        "join",
+        "meet",
+        "semantic-equality",
+        "stable-encoding",
+        "diagnostics",
+        "bounded-batch-folds"
+      ],
+      "validation": "base and capability ABI checks, exact output ownership, domain preservation, bounded buffers, and representative lattice-law probes"
     }
   },
   "forbiddenFacadeSymbols": [
@@ -365,6 +383,54 @@
     {
       "name": "lling_semiring_validate_laws",
       "rustModule": "ffi"
+    },
+    {
+      "name": "lling_lattice_open",
+      "rustModule": "ffi::lattice"
+    },
+    {
+      "name": "lling_lattice_free",
+      "rustModule": "ffi::lattice"
+    },
+    {
+      "name": "lling_lattice_domain_id",
+      "rustModule": "ffi::lattice"
+    },
+    {
+      "name": "lling_lattice_flags",
+      "rustModule": "ffi::lattice"
+    },
+    {
+      "name": "lling_lattice_join",
+      "rustModule": "ffi::lattice"
+    },
+    {
+      "name": "lling_lattice_meet",
+      "rustModule": "ffi::lattice"
+    },
+    {
+      "name": "lling_lattice_equal",
+      "rustModule": "ffi::lattice"
+    },
+    {
+      "name": "lling_lattice_stable_bytes",
+      "rustModule": "ffi::lattice"
+    },
+    {
+      "name": "lling_lattice_diagnostic",
+      "rustModule": "ffi::lattice"
+    },
+    {
+      "name": "lling_lattice_join_many",
+      "rustModule": "ffi::lattice"
+    },
+    {
+      "name": "lling_lattice_meet_many",
+      "rustModule": "ffi::lattice"
+    },
+    {
+      "name": "lling_lattice_validate_laws",
+      "rustModule": "ffi::lattice"
     },
     {
       "name": "lling_wfst_builder_new",

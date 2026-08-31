@@ -1,6 +1,6 @@
 # Generated from bindings/api.json. Do not edit by hand.
 const ABI_VERSION = UInt32(1)
-const API_REVISION = UInt32(3)
+const API_REVISION = UInt32(4)
 
 @enum Status::UInt32 begin
     STATUS_OK = 0

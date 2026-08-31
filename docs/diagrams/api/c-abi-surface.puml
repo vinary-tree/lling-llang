@@ -1,5 +1,5 @@
 @startuml c-abi-surface
-' The complete lling-llang C ABI surface: all 40 exported lling_* functions,
+' The complete lling-llang C ABI surface: all 52 exported lling_* functions,
 ' grouped by role, with the two opaque handle types and the family two-word
 ' VtResource they exchange. Palette: docs/diagrams/README.md family extension —
 ' lling #FCF3CF, VtResource handle #DCEDC8, foreign trust boundary #FFCDD2.
@@ -24,7 +24,7 @@ skinparam note {
 hide empty members
 hide circle
 
-title <b>lling-llang C ABI surface — 40 exported functions</b>\n<size:11><i>ABI v1, API revision 3 · every fallible call returns LlingStatus and latches a thread-local message</i></size>
+title <b>lling-llang C ABI surface — 52 exported functions</b>\n<size:11><i>ABI v1, API revision 4 · every fallible call returns LlingStatus and latches a thread-local message</i></size>
 
 package "Versioning (2)" {
   class "lling_abi_version() : uint32_t\nlling_api_revision() : uint32_t" as VERS #FCF3CF
@@ -55,6 +55,21 @@ package "Host-defined semiring (21)" {
     --
     +weight_clone(weight)
     +weight_free(weight)
+  }
+}
+
+package "Host-defined lattice (12)" {
+  class "LlingLatticeValue" as LATTICE #FCF3CF {
+    one retained immutable value
+    same-thread checked facade
+    --
+    +open(resource) / free(value)
+    +domain_id(value) / flags(value)
+    +join(left, right) / meet(left, right)
+    +equal(left, right)
+    +stable_bytes(value) / diagnostic(value)
+    +join_many / meet_many
+    +validate_laws(samples)
   }
 }
 
@@ -109,6 +124,7 @@ class "LlingStatus : uint32_t" as STATUS #ECEFF1 {
 
 class "foreign scalar-WFST resource\n(libdictenstein · duallity · any provider)" as FOREIGN #FFCDD2
 class "foreign semiring provider\n(Julia · Raku · any runtime)" as SEMIRING_PROVIDER #FFCDD2
+class "foreign lattice value\n(LLattice · Julia · Raku · any runtime)" as LATTICE_PROVIDER #FFCDD2
 
 BUILDER --> WFST : lling_wfst_builder_build\n<latex>O(1)</latex> freeze, builder consumed
 WFST --> RES : lling_wfst_resource\n+1 owned retain, <latex>O(1)</latex>
@@ -118,9 +134,12 @@ RES ..> FOREIGN : same two-word ABI\n(any compatible producer)
 SEMIRING_PROVIDER --> RES : vt.semiring.*1\nbase + optional refinements
 RES --> SEMIRING : open retains + validates
 SEMIRING --> WEIGHT : operations produce\nowned tokens
+LATTICE_PROVIDER --> RES : vt.lattice.val.1
+RES --> LATTICE : open retains + validates
 BUILDER ..> STATUS : returns
 WFST ..> STATUS : returns
 SEMIRING ..> STATUS : returns
+LATTICE ..> STATUS : returns
 ERR ..> STATUS : explains last non-OK status\n(thread-local)
 
 legend right

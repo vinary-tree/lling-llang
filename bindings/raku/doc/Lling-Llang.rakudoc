@@ -15,6 +15,11 @@ The C<SemiringProvider> role also lets Raku define the weight algebra consumed
 by native code. Arbitrary host values are represented by owned,
 generation-checked tokens rather than copied object pointers.
 
+C<DynamicLatticeValue> consumes immutable lattice values published by
+LLattice or another compatible runtime. Join, meet, equality, bounded folds,
+stable encodings, diagnostics, and representative-sample law validation cross
+the same retained resource ABI.
+
 =head1 Core types
 
 =item C<WfstBuilder> constructs a dense immutable graph and is consumed by
@@ -35,6 +40,10 @@ numeric projections, declared properties, and a closure bound.
 =item C<SemiringContext> owns one retained operation context. C<SemiringWeight>
 owns one provider token and supports C<clone>, C<plus>, C<times>, and
 deterministic C<close>.
+
+=item C<DynamicLatticeValue> owns one retained C<vt.lattice.val.1> value. Its
+C<join>, C<meet>, C<join-many>, and C<meet-many> methods return new independent
+owners.
 
 =head1 Public operations
 
@@ -64,6 +73,15 @@ semiring. Its C<zero>, C<one>, C<plus>, C<times>, C<equal>,
 C<approx-equal>, C<natural-order>, optional-operation, projection,
 C<stable-bytes>, and C<validate-laws> methods invoke the safe Rust adapter.
 
+=item C<dynamic-lattice-value($resource)> validates and independently retains
+a host lattice value. C<domain-id>, C<flags>, C<join>, C<meet>,
+C<equivalent>, C<stable-bytes>, C<diagnostic>, C<join-many>, and C<meet-many>
+expose its checked operations.
+
+=item C<validate-lattice-laws(@values)> checks idempotence, commutativity,
+associativity, and absorption over at most sixteen representative values. It
+is a falsification gate, not a proof of universal laws.
+
 =item C<provider-last-error()> copies the latest Raku callback diagnostic for
 test and troubleshooting output. It is process-wide and is not a replacement
 for calling a provider method directly when structured exception handling is
@@ -73,6 +91,8 @@ required.
 
 All returned C<Vinary::Tree::Interop::Wfst> values own one retain. Close them
 deterministically. Lazy products retain independent snapshots of their inputs.
+Each C<DynamicLatticeValue> and every value returned by its algebraic methods
+also owns exactly one retain and must be closed exactly once.
 
 =head1 Example
 
@@ -133,6 +153,20 @@ my $best = $one.plus($zero);
 $algebra.close;
 =end code
 
+=head1 LLattice integration example
+
+=begin code :lang<raku>
+use Lling::Llang;
+
+# `$host` is a Vinary::Tree::Interop::LatticeValue published by LLattice.
+my $value = dynamic-lattice-value($host.resource);
+$host.close; # `$value` owns an independent retain.
+my $joined = $value.join($value);
+validate-lattice-laws([$value, $joined]);
+say $joined.stable-bytes.decode('utf8');
+.close for $joined, $value;
+=end code
+
 =head1 Failure and concurrency contracts
 
 Native failures throw C<X::Lling::Llang> with a stable C<Status>, operation,
@@ -142,6 +176,10 @@ serialized unless C<:parallel> truthfully declares concurrent reentrancy.
 Semiring providers default to C<:thread-bound>; their Raku operations execute
 outside the recycling-arena lock. Tokens from different operation contexts
 must never be mixed, even when their 16-byte domain identifiers match.
+Dynamic lattice handles are also same-thread consumers. Serial callback
+admission uses a nonblocking atomic gate, and the Rust consumer holds no mutex
+while Raku join or meet code executes. Operands with different 16-byte lattice
+domains are rejected before invoking the provider.
 
 See the packaged C<README.md> and C<t/01-conformance.rakutest> for the complete
 provider, composition, error, concurrency, and security contracts.

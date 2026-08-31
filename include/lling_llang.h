@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_API_REVISION 3u
+#define LLING_API_REVISION 4u
 
 typedef enum LlingStatus {
     LLING_STATUS_OK = 0,
@@ -45,6 +45,7 @@ typedef struct LlingWfstBuilder LlingWfstBuilder;
 typedef struct LlingWfst LlingWfst;
 typedef struct LlingSemiring LlingSemiring;
 typedef struct LlingSemiringWeight LlingSemiringWeight;
+typedef struct LlingLatticeValue LlingLatticeValue;
 
 LLING_API uint32_t lling_abi_version(void);
 LLING_API uint32_t lling_api_revision(void);
@@ -106,6 +107,39 @@ LLING_API LlingStatus lling_semiring_stable_bytes(
 LLING_API LlingStatus lling_semiring_validate_laws(
     const LlingSemiring* semiring,
     const LlingSemiringWeight* const* weights, size_t count, double epsilon);
+/* Validated, same-thread consumer for immutable vt.lattice.val.1 values. */
+LLING_API LlingStatus lling_lattice_open(
+    const VtResource* resource, LlingLatticeValue** out_value);
+LLING_API void lling_lattice_free(LlingLatticeValue* value);
+LLING_API LlingStatus lling_lattice_domain_id(
+    const LlingLatticeValue* value, VtInterfaceId* out_domain);
+LLING_API LlingStatus lling_lattice_flags(
+    const LlingLatticeValue* value, uint64_t* out_flags);
+LLING_API LlingStatus lling_lattice_join(
+    const LlingLatticeValue* left, const LlingLatticeValue* right,
+    LlingLatticeValue** out_value);
+LLING_API LlingStatus lling_lattice_meet(
+    const LlingLatticeValue* left, const LlingLatticeValue* right,
+    LlingLatticeValue** out_value);
+LLING_API LlingStatus lling_lattice_equal(
+    const LlingLatticeValue* left, const LlingLatticeValue* right,
+    uint8_t* out_equal);
+LLING_API LlingStatus lling_lattice_stable_bytes(
+    const LlingLatticeValue* value, uint8_t* out_bytes, size_t capacity,
+    size_t* out_written, size_t* out_required);
+LLING_API LlingStatus lling_lattice_diagnostic(
+    const LlingLatticeValue* value, uint8_t* out_bytes, size_t capacity,
+    size_t* out_written, size_t* out_required);
+LLING_API LlingStatus lling_lattice_join_many(
+    const LlingLatticeValue* receiver,
+    const LlingLatticeValue* const* others, size_t count,
+    LlingLatticeValue** out_value);
+LLING_API LlingStatus lling_lattice_meet_many(
+    const LlingLatticeValue* receiver,
+    const LlingLatticeValue* const* others, size_t count,
+    LlingLatticeValue** out_value);
+LLING_API LlingStatus lling_lattice_validate_laws(
+    const LlingLatticeValue* const* values, size_t count);
 LLING_API LlingStatus lling_wfst_builder_new(LlingWfstBuilder** out_builder);
 LLING_API void lling_wfst_builder_free(LlingWfstBuilder* builder);
 LLING_API LlingStatus lling_wfst_builder_reserve_states(

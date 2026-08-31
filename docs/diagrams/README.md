@@ -160,6 +160,7 @@ diagrams are added.)
 | `architecture/lattice-worked.svg` | Graphviz | `architecture/overview.md`, `architecture/lattices.md` |
 | `api/c-abi-surface.svg` | PlantUML | `api/c-abi-reference.md` |
 | `architecture/builder-lifecycle-state.svg` | PlantUML | `api/c-abi-reference.md` |
+| `architecture/dynamic-lattice-adapter.svg` | PlantUML | `architecture/dynamic-lattices.md` |
 | `architecture/wfst-import-compose-sequence.svg` | PlantUML | `architecture/resource-abi.md`, `security/abi-trust-model.md` |
 | `architecture/composition-product-component.svg` | PlantUML | `architecture/resource-abi.md` |
 | `algorithms/*` · `asr/*` · `advanced/*` · `transducers/*` · `correction/*` | Graphviz / PlantUML / D2 / TikZ | the corresponding topic docs |

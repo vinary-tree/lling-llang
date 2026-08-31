@@ -51,6 +51,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = ROOT / "bindings" / "api.json"
 FFI_PATH = ROOT / "src" / "ffi.rs"
+FFI_MODULE_ROOT = ROOT / "src" / "ffi"
 HEADER_PATH = ROOT / "include" / "lling_llang.h"
 HPP_PATH = ROOT / "include" / "lling_llang.hpp"
 JS_ROOT = ROOT / "bindings" / "javascript"
@@ -66,6 +67,12 @@ SKIP_DIR_PARTS = {
     "obj",
     "target",
 }
+
+
+def read_ffi_surface() -> str:
+    """Read the root C facade and every deliberately split child module."""
+    children = sorted(FFI_MODULE_ROOT.glob("*.rs")) if FFI_MODULE_ROOT.is_dir() else []
+    return "\n".join(read(path) for path in [FFI_PATH, *children])
 SEMVER_IDENTIFIER = r"(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
 EXACT_SEMVER = re.compile(
     rf"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
@@ -246,7 +253,7 @@ def main() -> int:
                 )
         info["modeled_symbols"] = len(modeled)
 
-        ffi_source = read(FFI_PATH)
+        ffi_source = read_ffi_surface()
         exported = set(
             re.findall(
                 r'pub\s+(?:unsafe\s+)?extern\s+"C"\s+fn\s+(lling_[a-z0-9_]+)\s*\(',
@@ -256,7 +263,7 @@ def main() -> int:
         info["rust_exports"] = len(exported)
         if exported != modeled:
             failures.append(
-                "C symbol model / src/ffi.rs mismatch: "
+                "C symbol model / src/ffi surface mismatch: "
                 f"missing-from-ffi={sorted(modeled - exported)}, "
                 f"unmodeled={sorted(exported - modeled)}"
             )

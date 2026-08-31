@@ -11,10 +11,13 @@ use std::ffi::{c_char, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use vinary_tree_interop::VtResource;
 
+mod lattice;
+pub use lattice::*;
+
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_API_REVISION: u32 = 3;
+pub const LLING_API_REVISION: u32 = 4;
 
 /// Status returned by lling-llang C functions.
 #[repr(u32)]
@@ -121,6 +124,27 @@ fn required_mut<'a, T>(pointer: *mut T, name: &'static str) -> Result<&'a mut T,
     } else {
         Ok(unsafe { &mut *pointer })
     }
+}
+
+unsafe fn copy_bytes_to_c(
+    bytes: &[u8],
+    out_bytes: *mut u8,
+    capacity: usize,
+    out_written: *mut usize,
+    out_required: *mut usize,
+) -> Result<(), LlingStatus> {
+    let written = required_mut(out_written, "out_written")?;
+    let required = required_mut(out_required, "out_required")?;
+    if capacity != 0 && out_bytes.is_null() {
+        set_error("out_bytes is null with nonzero capacity");
+        return Err(LlingStatus::NullPointer);
+    }
+    *required = bytes.len();
+    *written = capacity.min(bytes.len());
+    if *written != 0 {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_bytes, *written);
+    }
+    Ok(())
 }
 
 fn graph(
@@ -551,20 +575,9 @@ pub unsafe extern "C" fn lling_semiring_stable_bytes(
     boundary(|| {
         let context = dynamic_semiring(semiring)?;
         let value = dynamic_weight(value)?;
-        let written = required_mut(out_written, "out_written")?;
-        let required = required_mut(out_required, "out_required")?;
-        if capacity != 0 && out_bytes.is_null() {
-            set_error("out_bytes is null with nonzero capacity");
-            return Err(LlingStatus::NullPointer);
-        }
         let bytes = context.stable_bytes(value).map_err(map_semiring_error)?;
-        *required = bytes.len();
-        *written = capacity.min(bytes.len());
-        if *written != 0 {
-            // SAFETY: the C caller promises `capacity` writable bytes.
-            unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_bytes, *written) };
-        }
-        Ok(())
+        // SAFETY: the C caller promises `capacity` writable bytes.
+        unsafe { copy_bytes_to_c(&bytes, out_bytes, capacity, out_written, out_required) }
     })
 }
 

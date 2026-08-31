@@ -125,6 +125,12 @@ Julia, Raku, or another runtime uses the separate
 explicit token ownership, negotiated algebra capabilities, lock-free callback
 admission, bounded folds, and pre-specialization law checks.
 
+Host-defined order-theoretic values use the corresponding
+[dynamic lattice adapter](docs/architecture/dynamic-lattices.md). It consumes
+LLattice resources without pretending that a fallible foreign callback
+implements Rust's infallible `llattice::Lattice` trait, while preserving
+retained ownership, domain checks, nonblocking admission, and bounded folds.
+
 ### Lattices — weighted DAGs of hypotheses
 
 A **lattice** is a weighted DAG whose nodes are positions in the input and whose arcs are scored

@@ -1,6 +1,6 @@
 # C ABI reference — `lling_llang.h`
 
-The complete reference for lling-llang's stable, project-owned C ABI: all 40
+The complete reference for lling-llang's stable, project-owned C ABI: all 52
 exported `lling_*` functions, their exact signatures, preconditions, returnable
 status sets, ownership and threading rules, and complexity — plus the
 weight-domain ↔ semiring dictionary shared with the whole vinary-tree family.
@@ -42,11 +42,11 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); authoring rules in
 
 ## The surface at a glance
 
-Forty functions in seven groups. Every fallible call returns a
+Fifty-two functions in seven groups. Every fallible call returns a
 `LlingStatus`; every non-`OK` return latches a thread-local, NUL-terminated
 diagnostic readable through `lling_last_error_message()`.
 
-![The 40-function lling-llang C ABI surface: versioning and diagnostics, 21 host-semiring consumer calls, nine builder-lifecycle calls, six immutable-WFST operations, the shared two-word resource, and their status contract.](../diagrams/api/c-abi-surface.svg)
+![The 52-function lling-llang C ABI surface: versioning and diagnostics, 21 host-semiring calls, 12 host-lattice calls, nine builder-lifecycle calls, six immutable-WFST operations, the shared two-word resource, and their status contract.](../diagrams/api/c-abi-surface.svg)
 
 *Yellow = lling-llang-owned surface; green = retained `VtResource` handles;
 red = foreign providers across the trust boundary; grey = status and
@@ -63,6 +63,9 @@ Dynamic semiring   lling_semiring_open, lling_semiring_free,
                    natural order, right/left division, star, numerical value,
                    quantization, probability, closure bound, stable bytes,
                    and representative-sample law validation
+Dynamic lattice    lling_lattice_open, lling_lattice_free, domain ID, flags,
+             (12)  join, meet, equality, stable bytes, diagnostic,
+                   bounded join/meet folds, and sample law validation
 Builder (9)        lling_wfst_builder_new ─┐  caller-owned, mutable,
                    lling_wfst_builder_free │  single-threaded
                    lling_wfst_builder_reserve_states
@@ -87,7 +90,7 @@ Resource (1)       lling_resource_release
 
 ```c
 #define LLING_ABI_VERSION 1u
-#define LLING_API_REVISION 3u
+#define LLING_API_REVISION 4u
 
 LLING_API uint32_t lling_abi_version(void);
 LLING_API uint32_t lling_api_revision(void);
@@ -275,6 +278,82 @@ rejects overlap or recursion; a parallel-reentrant provider may overlap, but
 the C handle itself is not promoted to an unconditional C thread-safety claim.
 See [Dynamic semirings](../architecture/dynamic-semirings.md) for the complete
 token, batching, validation, and concurrency design.
+
+## Host-defined dynamic lattices — 12 functions
+
+API revision 4 adds a checked consumer for immutable values exposing the
+project-neutral `vt.lattice.val.1` capability. `LlingLatticeValue` owns one
+retained value, not an operation context: join, meet, and folds each return a
+new independently owned resource.
+
+```c
+LlingLatticeValue *left = NULL;
+LlingLatticeValue *right = NULL;
+LlingLatticeValue *joined = NULL;
+
+if (lling_lattice_open(&left_resource, &left) != LLING_STATUS_OK ||
+    lling_lattice_open(&right_resource, &right) != LLING_STATUS_OK ||
+    lling_lattice_join(left, right, &joined) != LLING_STATUS_OK) {
+    /* Copy lling_last_error_message() before another failing call. */
+}
+
+lling_lattice_free(joined);
+lling_lattice_free(right);
+lling_lattice_free(left);
+```
+
+### Lifetime, domains, and algebra
+
+| Function | Contract |
+|---|---|
+| `lling_lattice_open(resource, out)` | Borrows the resource for the call, validates its base and lattice vtables, and returns one independently retained same-thread value. |
+| `lling_lattice_free(value)` | Releases exactly one owned value; null is a no-op. |
+| `lling_lattice_domain_id(value, out)` | Copies the 16-byte identifier naming the carrier representation and laws. |
+| `lling_lattice_flags(value, out)` | Reports validated provider capabilities such as batching and parallel reentrancy. |
+| `lling_lattice_join(left, right, out)` | Returns the least upper bound as a new owned value. |
+| `lling_lattice_meet(left, right, out)` | Returns the greatest lower bound as a new owned value. |
+| `lling_lattice_equal(left, right, out)` | Writes exactly `0` or `1` after checked provider equality. |
+
+Binary operands must have equal domain identifiers. A mismatch returns
+`INVALID_ARGUMENT` before invoking foreign code. A successful algebra callback
+must return one non-null retained resource in the same domain; a failed
+callback must leave its output null. The adapter validates the result's own
+vtable because a provider may legitimately change representation.
+
+### Bytes, batches, and law probes
+
+`lling_lattice_stable_bytes` and `lling_lattice_diagnostic` use the same
+two-call buffer protocol as semiring stable bytes. The adapter permits at most
+16 MiB, retries a changing required length at most three times, and rejects a
+short final write. Stable bytes are deterministic identity material;
+diagnostics are human-readable UTF-8 and need not be stable.
+
+```c
+LlingStatus lling_lattice_join_many(
+    const LlingLatticeValue *receiver,
+    const LlingLatticeValue *const *others, size_t count,
+    LlingLatticeValue **out_value);
+LlingStatus lling_lattice_meet_many(
+    const LlingLatticeValue *receiver,
+    const LlingLatticeValue *const *others, size_t count,
+    LlingLatticeValue **out_value);
+LlingStatus lling_lattice_validate_laws(
+    const LlingLatticeValue *const *values, size_t count);
+```
+
+The fold calls preserve associative left-fold order and pass no more than 256
+operands to one foreign batch callback. Each intermediate renegotiates its
+capabilities; if it does not expose batching, the remaining fold continues
+pairwise. `lling_lattice_validate_laws` accepts at most sixteen values and
+checks idempotence, commutativity, associativity, and absorption. It can
+falsify a provider over the supplied samples, not prove its universal laws.
+
+All lattice handles in the C facade are same-thread. Thread-bound providers
+reject a call from another thread. Serial providers use a nonblocking atomic
+admission gate, so overlap or recursive entry fails instead of deadlocking.
+No consumer mutex is held while foreign code executes. See
+[Host-defined lattice values](../architecture/dynamic-lattices.md) for the
+complete ownership, batching, validation, and concurrency design.
 
 ## Builder lifecycle — nine functions
 

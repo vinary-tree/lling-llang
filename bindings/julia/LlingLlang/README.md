@@ -21,6 +21,7 @@ The current release-candidate source layout uses local packages:
 ```julia
 using Pkg
 Pkg.develop(path="../vinary-tree-interop/bindings/julia/VinaryTreeInterop")
+Pkg.develop(path="../llattice/bindings/julia/LLattice") # custom lattice values
 Pkg.develop(path="bindings/julia/LlingLlang")
 ```
 
@@ -126,6 +127,35 @@ owns one token reference, `copy` invokes the provider's clone operation, and
 Use `validate_semiring_laws` with representative identities, boundaries, and
 workload values before enabling algorithms that trust declared properties.
 
+### Send an LLattice value through lling-llang
+
+LLattice.jl owns the provider implementation; `DynamicLatticeValue` is the
+checked lling-llang consumer. Import retains independently, so the original
+LLattice handle may close immediately:
+
+```julia
+import LLattice
+
+encode(value) = Vector{UInt8}(codeunits(string(value.value)))
+hosts = [LLattice.provider(LLattice.MaxMin(value);
+    domain_id="demo.maxmin.v1..", encode=encode) for value in (2, 7, 4)]
+values = [dynamic_lattice_value(host.resource) for host in hosts]
+close.(hosts)
+
+maximum = lattice_join_many(values[1], values[2:3])
+minimum = lattice_meet(values[1], values[2])
+@assert String(lattice_stable_bytes(maximum)) == "7"
+@assert String(lattice_stable_bytes(minimum)) == "2"
+validate_lattice_laws(values)
+
+close(maximum); close(minimum); close.(values)
+```
+
+The domain identifier names both the encoding and the lattice laws and must
+contain exactly 16 bytes. Join, meet, and batched folds return new owned
+handles. Law validation accepts at most sixteen representative values and can
+falsify—not prove—the universal lattice axioms.
+
 ## Ownership & memory model
 
 `WfstBuilder` owns one native builder and `build!` consumes it on success.
@@ -143,6 +173,10 @@ A `SemiringContext` independently retains its provider resource, so the
 original resource may close immediately after import. Weights keep their exact
 context rooted. Close weights before their context for deterministic error
 reporting; finalizers remain leak-safety fallbacks only.
+
+Each `DynamicLatticeValue` similarly owns one retained immutable resource.
+Every join, meet, or fold result owns another retain. `close` releases exactly
+that owner; copying the native pointer would not create another owner.
 
 ## Errors
 
@@ -165,6 +199,11 @@ attachment requirements. Their arena lock covers only token lookup,
 allocation, and publication; Julia algebra methods run outside it. Set
 `parallel=true, thread_bound=false` only when every method and stored value is
 concurrently callable and reentrant.
+
+Dynamic lattice handles in Julia are same-thread consumers. The Rust adapter
+uses a nonblocking atomic admission gate for serial providers and holds no
+consumer lock while Julia join or meet code executes. The C/Julia facade does
+not expose Rust's explicit parallel-wrapper promotion.
 
 ## Zero-copy paths
 
@@ -200,7 +239,7 @@ their work and do not expose secrets through callbacks.
 |---|---:|
 | LlingLlang.jl | `4.0.0-rc.5` |
 | lling-llang C ABI | `1` |
-| lling-llang API revision | at least `3` |
+| lling-llang API revision | at least `4` |
 | VinaryTreeInterop.jl | major version `4` |
 | Julia | `1.10` or newer |
 
@@ -213,7 +252,9 @@ builder, import, a Julia-defined lazy provider, tropical composition, snapshot
 lifetime, arc tapes, and final weights against the real native library. It
 also publishes a Julia-defined semiring and exercises base algebra, optional
 capabilities, law validation, stable bytes, cloning, and deterministic release
-through Rust.
+through Rust. The LLattice integration adds eight assertions over Julia-hosted
+join, meet, bounded folds, equality, domain negotiation, capability flags,
+law validation, and deterministic close.
 
 ```sh
 TMPDIR="$PWD/target/julia-tmp" \

@@ -157,6 +157,35 @@ sub lling-semiring-stable-bytes(
 sub lling-semiring-validate-laws(
     Pointer, Pointer, size_t, num64 --> uint32
 ) is native(&native-library) is symbol('lling_semiring_validate_laws') { * }
+sub lling-lattice-open(InteropAccess::RawResourceType, Pointer is rw --> uint32)
+    is native(&native-library) is symbol('lling_lattice_open') { * }
+sub lling-lattice-free(Pointer)
+    is native(&native-library) is symbol('lling_lattice_free') { * }
+sub lling-lattice-domain-id(
+    Pointer, InteropAccess::InterfaceIdType --> uint32
+) is native(&native-library) is symbol('lling_lattice_domain_id') { * }
+sub lling-lattice-flags(Pointer, uint64 is rw --> uint32)
+    is native(&native-library) is symbol('lling_lattice_flags') { * }
+sub lling-lattice-join(Pointer, Pointer, Pointer is rw --> uint32)
+    is native(&native-library) is symbol('lling_lattice_join') { * }
+sub lling-lattice-meet(Pointer, Pointer, Pointer is rw --> uint32)
+    is native(&native-library) is symbol('lling_lattice_meet') { * }
+sub lling-lattice-equal(Pointer, Pointer, uint8 is rw --> uint32)
+    is native(&native-library) is symbol('lling_lattice_equal') { * }
+sub lling-lattice-stable-bytes(
+    Pointer, Pointer, size_t, size_t is rw, size_t is rw --> uint32
+) is native(&native-library) is symbol('lling_lattice_stable_bytes') { * }
+sub lling-lattice-diagnostic(
+    Pointer, Pointer, size_t, size_t is rw, size_t is rw --> uint32
+) is native(&native-library) is symbol('lling_lattice_diagnostic') { * }
+sub lling-lattice-join-many(
+    Pointer, Pointer, size_t, Pointer is rw --> uint32
+) is native(&native-library) is symbol('lling_lattice_join_many') { * }
+sub lling-lattice-meet-many(
+    Pointer, Pointer, size_t, Pointer is rw --> uint32
+) is native(&native-library) is symbol('lling_lattice_meet_many') { * }
+sub lling-lattice-validate-laws(Pointer, size_t --> uint32)
+    is native(&native-library) is symbol('lling_lattice_validate_laws') { * }
 
 sub abi-version(--> UInt:D) is export { lling-abi-version() }
 sub api-revision(--> UInt:D) is export { lling-api-revision() }
@@ -313,6 +342,138 @@ sub compose(Mu:D $first, Mu:D $second --> InteropAccess::WfstType:D) is export {
 }
 
 # Dynamic-semiring consumer -------------------------------------------------
+
+class DynamicLatticeValue is export {
+    has Pointer $!handle is required;
+    has Bool $!closed = False;
+
+    submethod BUILD(Pointer:D :$handle!) { $!handle = $handle }
+
+    method native-handle(--> Pointer:D) {
+        X::Lling::Llang.new(
+            status => CLOSED,
+            operation => 'lattice-value',
+            detail => 'dynamic lattice value is closed',
+        ).throw if $!closed;
+        $!handle
+    }
+
+    method domain-id(--> InteropAccess::InterfaceIdType:D) {
+        my $domain = InteropAccess::InterfaceIdType.new;
+        check-status(lling-lattice-domain-id(self.native-handle, $domain),
+            'lattice-domain-id');
+        $domain
+    }
+
+    method flags(--> UInt:D) {
+        my uint64 $flags = 0;
+        check-status(lling-lattice-flags(self.native-handle, $flags),
+            'lattice-flags');
+        $flags
+    }
+
+    method !binary(
+        DynamicLatticeValue:D $other,
+        &operation,
+        Str:D $name,
+        --> DynamicLatticeValue:D
+    ) {
+        my Pointer $result .= new;
+        check-status(operation(self.native-handle, $other.native-handle, $result),
+            $name);
+        DynamicLatticeValue.new(handle => $result)
+    }
+
+    method join(DynamicLatticeValue:D $other --> DynamicLatticeValue:D) {
+        self!binary($other, &lling-lattice-join, 'lattice-join')
+    }
+
+    method meet(DynamicLatticeValue:D $other --> DynamicLatticeValue:D) {
+        self!binary($other, &lling-lattice-meet, 'lattice-meet')
+    }
+
+    method equivalent(DynamicLatticeValue:D $other --> Bool:D) {
+        my uint8 $equal = 0xff;
+        check-status(lling-lattice-equal(self.native-handle,
+            $other.native-handle, $equal), 'lattice-equal');
+        $equal == 1
+    }
+
+    method !bytes(&operation, Str:D $name --> Blob:D) {
+        my size_t $written = 0;
+        my size_t $required = 0;
+        check-status(operation(self.native-handle, Pointer, 0,
+            $written, $required), "{$name}-size");
+        my $storage = CArray[uint8].new;
+        $storage[$_] = 0 for ^$required;
+        check-status(operation(self.native-handle,
+            nativecast(Pointer, $storage), $required, $written, $required),
+            $name);
+        Blob.new((^$written).map({ $storage[$_] }))
+    }
+
+    method stable-bytes(--> Blob:D) {
+        self!bytes(&lling-lattice-stable-bytes, 'lattice-stable-bytes')
+    }
+
+    method diagnostic(--> Str:D) {
+        self!bytes(&lling-lattice-diagnostic, 'lattice-diagnostic').decode('utf8')
+    }
+
+    method !many(
+        Positional:D $others,
+        &operation,
+        Str:D $name,
+        --> DynamicLatticeValue:D
+    ) {
+        my $pointers = CArray[Pointer].new;
+        for $others.list.kv -> $index, $value {
+            die 'lattice operand is not a DynamicLatticeValue'
+                unless $value ~~ DynamicLatticeValue;
+            $pointers[$index] = $value.native-handle;
+        }
+        my Pointer $result .= new;
+        check-status(operation(self.native-handle,
+            nativecast(Pointer, $pointers), $others.elems, $result), $name);
+        DynamicLatticeValue.new(handle => $result)
+    }
+
+    method join-many(Positional:D $others --> DynamicLatticeValue:D) {
+        self!many($others, &lling-lattice-join-many, 'lattice-join-many')
+    }
+
+    method meet-many(Positional:D $others --> DynamicLatticeValue:D) {
+        self!many($others, &lling-lattice-meet-many, 'lattice-meet-many')
+    }
+
+    method close(--> Nil) {
+        return if $!closed;
+        lling-lattice-free($!handle);
+        $!handle = Pointer;
+        $!closed = True;
+    }
+
+    method opened(--> Bool:D) { !$!closed }
+    submethod DESTROY { try self.close }
+}
+
+sub dynamic-lattice-value(InteropAccess::ResourceType:D $resource
+    --> DynamicLatticeValue:D) is export {
+    my Pointer $handle .= new;
+    check-status(lling-lattice-open($resource.raw, $handle), 'lattice-open');
+    DynamicLatticeValue.new(:$handle)
+}
+
+sub validate-lattice-laws(Positional:D $values --> Nil) is export {
+    my $pointers = CArray[Pointer].new;
+    for $values.list.kv -> $index, $value {
+        die 'law sample is not a DynamicLatticeValue'
+            unless $value ~~ DynamicLatticeValue;
+        $pointers[$index] = $value.native-handle;
+    }
+    check-status(lling-lattice-validate-laws(nativecast(Pointer, $pointers),
+        $values.elems), 'lattice-validate-laws');
+}
 
 class SemiringWeight is export {
     has Mu:D $.context is required;

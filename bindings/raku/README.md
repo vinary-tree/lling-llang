@@ -16,11 +16,16 @@ engine and the small C17 callback shim locally:
 ```sh
 cargo build --no-default-features --features raku-bindings
 mkdir -p target/raku-provider
+mkdir -p target/llattice-raku-provider
 raku bindings/raku/build-provider.raku \
   --output="$PWD/target/raku-provider/liblling_llang_raku_provider.so" \
   --interop-include="$PWD/../vinary-tree-interop/include"
+raku ../llattice/bindings/raku/build-provider.raku \
+  --output="$PWD/target/llattice-raku-provider/libllattice_raku_provider.so" \
+  --interop-include="$PWD/../vinary-tree-interop/include"
 export LLING_LLANG_LIBRARY="$PWD/target/debug/liblling_llang.so"
 export LLING_LLANG_RAKU_PROVIDER_LIB="$PWD/target/raku-provider/liblling_llang_raku_provider.so"
+export LLATTICE_RAKU_PROVIDER_LIB="$PWD/target/llattice-raku-provider/libllattice_raku_provider.so"
 ```
 
 The Zef build hook performs the shim build during package installation and
@@ -104,6 +109,27 @@ undefined division and star return the `SemiringWeight` type object. Declared
 properties and `closure-bound` come from provider methods. Call
 `validate-laws` on representative weights before relying on those claims.
 
+### Send an LLattice value through lling-llang
+
+The standalone LLattice distribution implements the provider; lling-llang's
+`DynamicLatticeValue` validates and consumes its retained resource:
+
+```raku
+use Lling::Llang;
+
+# `$host` is a Vinary::Tree::Interop::LatticeValue returned by LLattice.
+my $value = dynamic-lattice-value($host.resource);
+$host.close; # `$value` owns an independent retain
+my $joined = $value.join($value);
+validate-lattice-laws([$value, $joined]);
+say $joined.stable-bytes.decode('utf8');
+.close for $joined, $value;
+```
+
+`.join`, `.meet`, `.join-many`, and `.meet-many` return new owned handles.
+`.equivalent`, `.domain-id`, `.flags`, `.stable-bytes`, and `.diagnostic`
+expose the validated query surface. Law probes accept at most sixteen values.
+
 ## Ownership & memory model
 
 `WfstBuilder.build` consumes its native builder on success. Every returned
@@ -121,6 +147,9 @@ Each semiring weight owns a generation-checked token in a recycling Raku
 arena. `.clone` asks the provider to retain the token; copying its two raw
 words is not ownership. The operation context retains the host resource
 independently, and deterministic `.close` releases every token exactly once.
+
+Each dynamic lattice handle owns one immutable resource retain. Derived join,
+meet, and fold values are independent owners and must also close exactly once.
 
 ## Errors
 
@@ -143,6 +172,10 @@ token lookup and publication; user algebra methods execute outside it. Use
 provider. The shim splits callback registration into bounded groups because
 large NativeCall signatures are not portable across supported Rakudo/libffi
 combinations.
+
+Dynamic lattice handles remain same-thread in Raku. The Rust consumer admits
+serial calls with one nonblocking atomic compare-and-exchange and never holds
+a mutex across a Raku callback.
 
 ## Zero-copy paths
 
@@ -180,7 +213,7 @@ weight domain, acyclicity, and threading behavior.
 |---|---:|
 | Lling-Llang | `4.0.0-rc.5` |
 | lling-llang C ABI | `1` |
-| lling-llang API revision | at least `3` |
+| lling-llang API revision | at least `4` |
 | Vinary-Tree-Interop | `4.0.0` compatible |
 | Raku | language version `6.d` |
 
@@ -192,11 +225,13 @@ Module initialization checks the native ABI and API revision.
 negotiation, the eager builder, resource import, a Raku-defined provider,
 snapshot survival, arc paging, and lazy tropical composition. It also sends a
 Raku-defined semiring through Rust and tests optional operations, law
-validation, stable bytes, token cloning, and deterministic release.
+validation, stable bytes, token cloning, and deterministic release. It also
+passes actual LLattice-hosted values through Rust and checks join, meet,
+bounded folds, equality, domain negotiation, law validation, and close.
 
 ```sh
 TMPDIR="$PWD/target/raku-tmp" \
-RAKULIB="$PWD/bindings/raku/lib,$PWD/../vinary-tree-interop/bindings/raku/lib" \
+RAKULIB="$PWD/bindings/raku/lib,$PWD/../llattice/bindings/raku/lib,$PWD/../vinary-tree-interop/bindings/raku/lib" \
 raku bindings/raku/t/01-conformance.rakutest
 ```
 

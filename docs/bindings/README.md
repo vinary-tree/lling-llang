@@ -18,6 +18,12 @@ project-neutral contract and its Rust consumer are documented in
 provider facades use the same capability split rather than pretending a
 foreign-owned weight satisfies Rust's `Copy` bound.
 
+Julia and Raku can also pass values implemented by their standalone LLattice
+packages through lling-llang's checked `vt.lattice.val.1` consumer. The
+consumer preserves domain identity, validates owned outputs, amortizes join
+and meet through bounded batches, and exposes finite law probes. See
+[Host-defined lattice values](../architecture/dynamic-lattices.md).
+
 | Guide | Languages | Package/boundary | Executable evidence |
 |---|---|---|---|
 | [C](../../bindings/c/README.md) | C17/C23 | CMake/pkg-config; direct `lling_*` | [`compose_demo.c`](../../bindings/c/examples/compose_demo.c) |

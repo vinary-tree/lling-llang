@@ -19,6 +19,7 @@ export ABI_VERSION,
     ProviderState,
     AbstractWfstProvider,
     AbstractSemiringProvider,
+    DynamicLatticeValue,
     SemiringContext,
     SemiringWeight,
     abi_version,
@@ -35,6 +36,17 @@ export ABI_VERSION,
     resource,
     provider,
     semiring_provider,
+    dynamic_lattice_value,
+    lattice_domain_id,
+    lattice_flags,
+    lattice_join,
+    lattice_meet,
+    lattice_equal,
+    lattice_stable_bytes,
+    lattice_diagnostic,
+    lattice_join_many,
+    lattice_meet_many,
+    validate_lattice_laws,
     semiring_context,
     semiring_properties,
     semiring_zero,
@@ -111,6 +123,16 @@ function semiring_native(name::Symbol)
     name === :lling_semiring_to_probability &&
         return native(:lling_semiring_to_probability)
     throw(ArgumentError("unknown semiring operation $name"))
+end
+function lattice_native(name::Symbol)
+    name === :lling_lattice_join && return native(:lling_lattice_join)
+    name === :lling_lattice_meet && return native(:lling_lattice_meet)
+    name === :lling_lattice_stable_bytes &&
+        return native(:lling_lattice_stable_bytes)
+    name === :lling_lattice_diagnostic && return native(:lling_lattice_diagnostic)
+    name === :lling_lattice_join_many && return native(:lling_lattice_join_many)
+    name === :lling_lattice_meet_many && return native(:lling_lattice_meet_many)
+    throw(ArgumentError("unknown lattice operation $name"))
 end
 """Return the ABI version exported by the loaded native library."""
 abi_version() = UInt32(ccall(native(:lling_abi_version), UInt32, ()))
@@ -297,6 +319,135 @@ function compose(first::Union{VTI.Resource,VTI.Wfst},
 end
 
 # Dynamic-semiring consumer -------------------------------------------------
+
+"""Owned native adapter for one immutable host-defined lattice value."""
+mutable struct DynamicLatticeValue
+    handle::Ptr{Cvoid}
+    closed::Bool
+end
+
+function open_handle(value::DynamicLatticeValue)
+    value.closed && throw(NativeError(STATUS_CLOSED, :lattice_value,
+        "dynamic lattice value is closed"))
+    value.handle
+end
+
+function adopt_dynamic_lattice(handle::Ptr{Cvoid})
+    handle == C_NULL && error("native lattice operation returned a null value")
+    value = DynamicLatticeValue(handle, false)
+    finalizer(finalize_close, value)
+    value
+end
+
+"""Retain and validate a `vt.lattice.val.1` resource through lling-llang."""
+function dynamic_lattice_value(resource::VTI.Resource)
+    raw = Ref(VTI.raw_resource(resource))
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    checked(ccall(native(:lling_lattice_open), UInt32,
+        (Ref{VTI.VtResourceRaw}, Ref{Ptr{Cvoid}}), raw, output), :lattice_open)
+    adopt_dynamic_lattice(output[])
+end
+
+function close!(value::DynamicLatticeValue)
+    value.closed && return nothing
+    ccall(native(:lling_lattice_free), Cvoid, (Ptr{Cvoid},), value.handle)
+    value.handle = C_NULL
+    value.closed = true
+    nothing
+end
+
+Base.close(value::DynamicLatticeValue) = close!(value)
+Base.isopen(value::DynamicLatticeValue) = !value.closed
+
+"""Return the stable provider-defined domain identifier."""
+function lattice_domain_id(value::DynamicLatticeValue)
+    output = Ref{VTI.VtInterfaceId}()
+    checked(ccall(native(:lling_lattice_domain_id), UInt32,
+        (Ptr{Cvoid}, Ref{VTI.VtInterfaceId}), open_handle(value), output),
+        :lattice_domain_id)
+    output[]
+end
+
+"""Return the provider's validated lattice capability flags."""
+function lattice_flags(value::DynamicLatticeValue)
+    output = Ref{UInt64}(0)
+    checked(ccall(native(:lling_lattice_flags), UInt32,
+        (Ptr{Cvoid}, Ref{UInt64}), open_handle(value), output), :lattice_flags)
+    output[]
+end
+
+function binary_lattice(left::DynamicLatticeValue, right::DynamicLatticeValue,
+    operation::Symbol)
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    checked(ccall(lattice_native(operation), UInt32,
+        (Ptr{Cvoid}, Ptr{Cvoid}, Ref{Ptr{Cvoid}}), open_handle(left),
+        open_handle(right), output), operation)
+    adopt_dynamic_lattice(output[])
+end
+
+"""Return the least upper bound of two same-domain dynamic values."""
+lattice_join(left::DynamicLatticeValue, right::DynamicLatticeValue) =
+    binary_lattice(left, right, :lling_lattice_join)
+"""Return the greatest lower bound of two same-domain dynamic values."""
+lattice_meet(left::DynamicLatticeValue, right::DynamicLatticeValue) =
+    binary_lattice(left, right, :lling_lattice_meet)
+
+"""Compare two same-domain dynamic values for exact semantic equality."""
+function lattice_equal(left::DynamicLatticeValue, right::DynamicLatticeValue)
+    output = Ref{UInt8}(0xff)
+    checked(ccall(native(:lling_lattice_equal), UInt32,
+        (Ptr{Cvoid}, Ptr{Cvoid}, Ref{UInt8}), open_handle(left),
+        open_handle(right), output), :lattice_equal)
+    output[] == 1
+end
+
+function read_lattice_bytes(value::DynamicLatticeValue, operation::Symbol)
+    written = Ref{Csize_t}(0)
+    required = Ref{Csize_t}(0)
+    checked(ccall(lattice_native(operation), UInt32,
+        (Ptr{Cvoid}, Ptr{UInt8}, Csize_t, Ref{Csize_t}, Ref{Csize_t}),
+        open_handle(value), C_NULL, 0, written, required), operation)
+    output = Vector{UInt8}(undef, Int(required[]))
+    checked(ccall(lattice_native(operation), UInt32,
+        (Ptr{Cvoid}, Ptr{UInt8}, Csize_t, Ref{Csize_t}, Ref{Csize_t}),
+        open_handle(value), output, length(output), written, required), operation)
+    resize!(output, Int(written[]))
+end
+
+"""Return the provider's canonical encoding for a dynamic lattice value."""
+lattice_stable_bytes(value::DynamicLatticeValue) =
+    read_lattice_bytes(value, :lling_lattice_stable_bytes)
+"""Return the provider's advisory diagnostic string."""
+lattice_diagnostic(value::DynamicLatticeValue) =
+    String(read_lattice_bytes(value, :lling_lattice_diagnostic))
+
+function lattice_many(receiver::DynamicLatticeValue,
+    others::AbstractVector{DynamicLatticeValue}, operation::Symbol)
+    pointers = Ptr{Cvoid}[open_handle(value) for value in others]
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    checked(ccall(lattice_native(operation), UInt32,
+        (Ptr{Cvoid}, Ptr{Ptr{Cvoid}}, Csize_t, Ref{Ptr{Cvoid}}),
+        open_handle(receiver), pointers, length(pointers), output), operation)
+    adopt_dynamic_lattice(output[])
+end
+
+"""Fold joins through the provider's bounded batch path when available."""
+lattice_join_many(receiver::DynamicLatticeValue,
+    others::AbstractVector{DynamicLatticeValue}) =
+    lattice_many(receiver, others, :lling_lattice_join_many)
+"""Fold meets through the provider's bounded batch path when available."""
+lattice_meet_many(receiver::DynamicLatticeValue,
+    others::AbstractVector{DynamicLatticeValue}) =
+    lattice_many(receiver, others, :lling_lattice_meet_many)
+
+"""Probe all lattice laws over at most sixteen representative values."""
+function validate_lattice_laws(values::AbstractVector{DynamicLatticeValue})
+    pointers = Ptr{Cvoid}[open_handle(value) for value in values]
+    checked(ccall(native(:lling_lattice_validate_laws), UInt32,
+        (Ptr{Ptr{Cvoid}}, Csize_t), pointers, length(pointers)),
+        :lattice_validate_laws)
+    nothing
+end
 
 """Owned native adapter for one host-defined semiring operation context."""
 mutable struct SemiringContext

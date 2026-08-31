@@ -2,7 +2,20 @@ use v6.d;
 use Test;
 use Lling::Llang;
 
-plan 36;
+module LatticeFixture {
+    use LLattice;
+
+    our sub make(Int:D $value) {
+        provider(
+            MaxMin.new(:$value),
+            domain-id => 'test.maxmin.v1..',
+            encode => -> $item { $item.value.Str.encode('utf8') },
+        )
+    }
+}
+
+plan 44;
+my constant LATTICE-BATCH-FLAG = 1 +< 3;
 
 is abi-version(), ABI-VERSION, 'native and Raku ABI versions agree';
 ok api-revision() >= API-REVISION, 'native API revision satisfies the facade';
@@ -22,6 +35,35 @@ is $graph.arcs(0).head.output, 'b'.ord, 'Unicode labels cross NativeCall';
 my $imported = import-wfst($graph);
 is $imported.start, 0, 'import produces an independent owned graph';
 $imported.close;
+
+my @lattice-providers = (2, 7, 4).map: -> $value {
+    LatticeFixture::make($value)
+};
+my @lattice-values = @lattice-providers.map({ dynamic-lattice-value($_.resource) });
+.close for @lattice-providers;
+my $lattice-join = @lattice-values[0].join(@lattice-values[1]);
+my $lattice-meet = @lattice-values[0].meet(@lattice-values[1]);
+my $lattice-join-many = @lattice-values[0].join-many(@lattice-values[1, 2]);
+my $lattice-meet-many = @lattice-values[1].meet-many(@lattice-values[0, 2]);
+is $lattice-join.stable-bytes.decode('utf8'), '7',
+    'Raku lattice join crosses the validated lling-llang adapter';
+is $lattice-meet.stable-bytes.decode('utf8'), '2',
+    'Raku lattice meet crosses the validated lling-llang adapter';
+is $lattice-join-many.stable-bytes.decode('utf8'), '7',
+    'Raku lattice batch join crosses the validated adapter';
+is $lattice-meet-many.stable-bytes.decode('utf8'), '2',
+    'Raku lattice batch meet crosses the validated adapter';
+ok $lattice-join.equivalent($lattice-join-many),
+    'Raku lattice semantic equality crosses Rust';
+is $lattice-join.domain-id.bytes.list.map(*.chr).join, 'test.maxmin.v1..',
+    'Raku lattice domain identity survives negotiation';
+ok $lattice-join.flags +& LATTICE-BATCH-FLAG,
+    'Raku observes the validated bounded-batch capability';
+validate-lattice-laws(@lattice-values);
+.close for $lattice-join, $lattice-meet, $lattice-join-many,
+    $lattice-meet-many, |@lattice-values;
+nok @lattice-values[0].opened,
+    'Raku dynamic lattice values close deterministically';
 
 class ExampleProvider does WfstProvider {
     method start-state(--> UInt:D) { 0 }

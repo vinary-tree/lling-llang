@@ -12,15 +12,13 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::mem::size_of;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::Arc;
-use std::thread::{self, ThreadId};
 
 use vinary_tree_interop::{
     semiring_flags, semiring_order, semiring_properties, VtInterfaceId, VtResource,
-    VtResourceVTable, VtSemiringDivisionVTable, VtSemiringNumericVTable,
-    VtSemiringPropertiesVTable, VtSemiringStarVTable, VtSemiringVTable, VtSemiringValue, VtStatus,
-    VT_ABI_VERSION, VT_RECOMMENDED_SEMIRING_BATCH, VT_SEMIRING_DIVISION_INTERFACE_ID,
+    VtSemiringDivisionVTable, VtSemiringNumericVTable, VtSemiringPropertiesVTable,
+    VtSemiringStarVTable, VtSemiringVTable, VtSemiringValue, VtStatus,
+    VT_RECOMMENDED_SEMIRING_BATCH, VT_SEMIRING_DIVISION_INTERFACE_ID,
     VT_SEMIRING_DIVISION_INTERFACE_VERSION, VT_SEMIRING_INTERFACE_ID,
     VT_SEMIRING_INTERFACE_VERSION, VT_SEMIRING_NUMERIC_INTERFACE_ID,
     VT_SEMIRING_NUMERIC_INTERFACE_VERSION, VT_SEMIRING_PROPERTIES_INTERFACE_ID,
@@ -28,8 +26,11 @@ use vinary_tree_interop::{
     VT_SEMIRING_STAR_INTERFACE_VERSION,
 };
 
-const MAX_PROVIDER_BYTES: usize = 16 * 1024 * 1024;
-const MAX_BUFFER_ATTEMPTS: usize = 3;
+use crate::dynamic_abi::{
+    copy_provider_bytes, decode_bool, decode_status, query_interface, status_ok, CallbackGate,
+    DynamicAbiError, OwnedResource,
+};
+
 const MAX_LAW_SAMPLES: usize = 16;
 const MAX_CLOSURE_PROBE: usize = 4096;
 
@@ -126,6 +127,22 @@ impl fmt::Display for DynamicSemiringError {
 
 impl std::error::Error for DynamicSemiringError {}
 
+impl From<DynamicAbiError> for DynamicSemiringError {
+    fn from(error: DynamicAbiError) -> Self {
+        match error {
+            DynamicAbiError::NullResource => Self::NullResource,
+            DynamicAbiError::IncompatibleResourceAbi => Self::IncompatibleResourceAbi,
+            DynamicAbiError::Provider { operation, status } => Self::Provider { operation, status },
+            DynamicAbiError::InvalidProviderOutput { operation, reason } => {
+                Self::InvalidProviderOutput { operation, reason }
+            }
+            DynamicAbiError::WrongThread => Self::WrongThread,
+            DynamicAbiError::ConcurrentCall => Self::ConcurrentCall,
+            DynamicAbiError::ResourceLimit => Self::ResourceLimit,
+        }
+    }
+}
+
 /// Validated result from a dynamic semiring's natural-order operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NaturalOrder {
@@ -175,25 +192,6 @@ pub struct ParallelSemiringAccess(());
 impl access_sealed::Sealed for ParallelSemiringAccess {}
 impl SemiringAccess for ParallelSemiringAccess {}
 
-struct OwnedResource(VtResource);
-
-impl Drop for OwnedResource {
-    fn drop(&mut self) {
-        if self.0.is_null() {
-            return;
-        }
-        // SAFETY: construction validates the base vtable and owns exactly one
-        // retain. The pointer remains valid until this matching release.
-        unsafe { ((*self.0.vtable).release.unwrap())(self.0.context) };
-    }
-}
-
-enum CallPolicy {
-    Parallel,
-    Serial,
-    ThreadBound(ThreadId),
-}
-
 struct DynamicSemiringInner {
     resource: OwnedResource,
     semiring: *const VtSemiringVTable,
@@ -201,8 +199,7 @@ struct DynamicSemiringInner {
     star: Option<*const VtSemiringStarVTable>,
     numeric: Option<*const VtSemiringNumericVTable>,
     properties: Option<*const VtSemiringPropertiesVTable>,
-    policy: CallPolicy,
-    in_call: AtomicBool,
+    gate: CallbackGate,
 }
 
 // Raw ABI pointers remain valid for the retained resource lifetime. They are
@@ -211,40 +208,7 @@ struct DynamicSemiringInner {
 unsafe impl Send for DynamicSemiringInner {}
 unsafe impl Sync for DynamicSemiringInner {}
 
-struct CallGuard<'a> {
-    active: Option<&'a AtomicBool>,
-}
-
-impl Drop for CallGuard<'_> {
-    fn drop(&mut self) {
-        if let Some(active) = self.active {
-            active.store(false, AtomicOrdering::Release);
-        }
-    }
-}
-
 impl DynamicSemiringInner {
-    fn enter(&self) -> Result<CallGuard<'_>, DynamicSemiringError> {
-        match &self.policy {
-            CallPolicy::Parallel => Ok(CallGuard { active: None }),
-            CallPolicy::ThreadBound(owner) if *owner != thread::current().id() => {
-                Err(DynamicSemiringError::WrongThread)
-            }
-            CallPolicy::Serial | CallPolicy::ThreadBound(_) => self
-                .in_call
-                .compare_exchange(
-                    false,
-                    true,
-                    AtomicOrdering::Acquire,
-                    AtomicOrdering::Relaxed,
-                )
-                .map(|_| CallGuard {
-                    active: Some(&self.in_call),
-                })
-                .map_err(|_| DynamicSemiringError::ConcurrentCall),
-        }
-    }
-
     fn table(&self) -> &VtSemiringVTable {
         // SAFETY: capture validates the pointer, and the retained resource
         // keeps the provider-owned immutable vtable alive.
@@ -252,15 +216,14 @@ impl DynamicSemiringInner {
     }
 
     fn context(&self) -> *mut c_void {
-        self.resource.0.context
+        self.resource.raw().context
     }
 
     fn invoke<T>(
         &self,
         callback: impl FnOnce() -> Result<T, DynamicSemiringError>,
     ) -> Result<T, DynamicSemiringError> {
-        let _guard = self.enter()?;
-        callback()
+        self.gate.invoke(callback)
     }
 
     fn output_value(
@@ -280,12 +243,12 @@ impl DynamicSemiringInner {
 
     fn release(&self, token: &mut VtSemiringValue) -> Result<(), DynamicSemiringError> {
         self.invoke(|| {
-            status_ok(
+            Ok(status_ok(
                 "release_values",
                 // SAFETY: the token is owned by this exact context and remains
                 // live until the callback reports successful consumption.
                 unsafe { (self.table().release_values.unwrap())(self.context(), token, 1) },
-            )
+            )?)
         })
     }
 }
@@ -336,11 +299,9 @@ impl DynamicSemiringContext {
     /// by `vinary-tree-interop`. The returned wrapper owns a fresh retain; the
     /// caller remains responsible for its original resource ownership.
     pub unsafe fn borrow_raw(resource: VtResource) -> Result<Self, DynamicSemiringError> {
-        let base = &*validate_base(resource)?;
-        (base.retain.unwrap())(resource.context);
-        let owned = OwnedResource(resource);
+        let owned = OwnedResource::retained(resource)?;
 
-        let semiring = query_required::<VtSemiringVTable>(
+        let semiring = query_interface::<VtSemiringVTable>(
             resource,
             &VT_SEMIRING_INTERFACE_ID,
             VT_SEMIRING_INTERFACE_VERSION,
@@ -358,7 +319,7 @@ impl DynamicSemiringContext {
             ));
         }
 
-        let division = query_required::<VtSemiringDivisionVTable>(
+        let division = query_interface::<VtSemiringDivisionVTable>(
             resource,
             &VT_SEMIRING_DIVISION_INTERFACE_ID,
             VT_SEMIRING_DIVISION_INTERFACE_VERSION,
@@ -376,7 +337,7 @@ impl DynamicSemiringContext {
             )?;
         }
 
-        let star = query_required::<VtSemiringStarVTable>(
+        let star = query_interface::<VtSemiringStarVTable>(
             resource,
             &VT_SEMIRING_STAR_INTERFACE_ID,
             VT_SEMIRING_STAR_INTERFACE_VERSION,
@@ -394,7 +355,7 @@ impl DynamicSemiringContext {
             )?;
         }
 
-        let numeric = query_required::<VtSemiringNumericVTable>(
+        let numeric = query_interface::<VtSemiringNumericVTable>(
             resource,
             &VT_SEMIRING_NUMERIC_INTERFACE_ID,
             VT_SEMIRING_NUMERIC_INTERFACE_VERSION,
@@ -412,7 +373,7 @@ impl DynamicSemiringContext {
             )?;
         }
 
-        let properties = query_required::<VtSemiringPropertiesVTable>(
+        let properties = query_interface::<VtSemiringPropertiesVTable>(
             resource,
             &VT_SEMIRING_PROPERTIES_INTERFACE_ID,
             VT_SEMIRING_PROPERTIES_INTERFACE_VERSION,
@@ -430,13 +391,11 @@ impl DynamicSemiringContext {
             )?;
         }
 
-        let policy = if flags & semiring_flags::PARALLEL_REENTRANT != 0 {
-            CallPolicy::Parallel
-        } else if flags & semiring_flags::THREAD_BOUND != 0 {
-            CallPolicy::ThreadBound(thread::current().id())
-        } else {
-            CallPolicy::Serial
-        };
+        let gate = CallbackGate::from_flags(
+            flags,
+            semiring_flags::THREAD_BOUND,
+            semiring_flags::PARALLEL_REENTRANT,
+        );
 
         Ok(Self {
             inner: Arc::new(DynamicSemiringInner {
@@ -446,8 +405,7 @@ impl DynamicSemiringContext {
                 star,
                 numeric,
                 properties,
-                policy,
-                in_call: AtomicBool::new(false),
+                gate,
             }),
             access: PhantomData,
         })
@@ -567,7 +525,7 @@ impl<M: SemiringAccess> SemiringContext<M> {
             status_ok("equal", unsafe {
                 (self.inner.table().equal.unwrap())(self.inner.context(), left, right, &mut output)
             })?;
-            decode_bool("equal", output)
+            Ok(decode_bool("equal", output)?)
         })
     }
 
@@ -595,7 +553,7 @@ impl<M: SemiringAccess> SemiringContext<M> {
                     &mut output,
                 )
             })?;
-            decode_bool("approx_equal", output)
+            Ok(decode_bool("approx_equal", output)?)
         })
     }
 
@@ -1110,52 +1068,7 @@ impl<M: SemiringAccess> SemiringContext<M> {
         operation: &'static str,
         callback: impl Fn(*mut u8, usize, *mut usize, *mut usize) -> u32,
     ) -> Result<Vec<u8>, DynamicSemiringError> {
-        self.inner.invoke(|| {
-            let mut required = 0;
-            let mut written = usize::MAX;
-            status_ok(
-                operation,
-                callback(std::ptr::null_mut(), 0, &mut written, &mut required),
-            )?;
-            if written != 0 {
-                return Err(DynamicSemiringError::InvalidProviderOutput {
-                    operation,
-                    reason: "size query reported bytes written",
-                });
-            }
-            for _ in 0..MAX_BUFFER_ATTEMPTS {
-                if required > MAX_PROVIDER_BYTES {
-                    return Err(DynamicSemiringError::ResourceLimit);
-                }
-                let mut output = vec![0_u8; required];
-                let mut next_written = usize::MAX;
-                let mut next_required = usize::MAX;
-                status_ok(
-                    operation,
-                    callback(
-                        output.as_mut_ptr(),
-                        output.len(),
-                        &mut next_written,
-                        &mut next_required,
-                    ),
-                )?;
-                if next_written > output.len() || next_written > next_required {
-                    return Err(DynamicSemiringError::InvalidProviderOutput {
-                        operation,
-                        reason: "buffer counts exceed the supplied or required size",
-                    });
-                }
-                if next_required <= output.len() {
-                    output.truncate(next_written);
-                    return Ok(output);
-                }
-                required = next_required;
-            }
-            Err(DynamicSemiringError::InvalidProviderOutput {
-                operation,
-                reason: "required byte count did not stabilize",
-            })
-        })
+        copy_provider_bytes(&self.inner.gate, operation, callback).map_err(Into::into)
     }
 
     fn fold_many(
@@ -1320,61 +1233,6 @@ impl<M: SemiringAccess> Drop for SemiringWeight<M> {
     }
 }
 
-unsafe fn validate_base(
-    resource: VtResource,
-) -> Result<*const VtResourceVTable, DynamicSemiringError> {
-    if resource.is_null() {
-        return Err(DynamicSemiringError::NullResource);
-    }
-    let base = &*resource.vtable;
-    if base.struct_size < size_of::<VtResourceVTable>()
-        || base.abi_version != VT_ABI_VERSION
-        || base.reserved != 0
-        || base.retain.is_none()
-        || base.release.is_none()
-        || base.query_interface.is_none()
-    {
-        return Err(DynamicSemiringError::IncompatibleResourceAbi);
-    }
-    Ok(resource.vtable)
-}
-
-unsafe fn query_required<T>(
-    resource: VtResource,
-    interface_id: &VtInterfaceId,
-    minimum_version: u32,
-    operation: &'static str,
-) -> Result<Option<*const T>, DynamicSemiringError> {
-    let base = &*resource.vtable;
-    let mut output: *const c_void = std::ptr::null();
-    let raw = (base.query_interface.unwrap())(
-        resource.context,
-        interface_id,
-        minimum_version,
-        &mut output,
-    );
-    let status = decode_status(operation, raw)?;
-    if status == VtStatus::Unsupported {
-        if !output.is_null() {
-            return Err(DynamicSemiringError::InvalidProviderOutput {
-                operation,
-                reason: "failed query_interface call wrote an output pointer",
-            });
-        }
-        return Ok(None);
-    }
-    if status != VtStatus::Ok {
-        return Err(DynamicSemiringError::Provider { operation, status });
-    }
-    if output.is_null() {
-        return Err(DynamicSemiringError::InvalidProviderOutput {
-            operation,
-            reason: "query_interface returned a null vtable",
-        });
-    }
-    Ok(Some(output.cast()))
-}
-
 fn validate_semiring(table: &VtSemiringVTable) -> Result<(), DynamicSemiringError> {
     validate_prefix(
         table,
@@ -1420,33 +1278,6 @@ fn validate_prefix<T>(
         Err(DynamicSemiringError::IncompatibleInterface(name))
     } else {
         Ok(())
-    }
-}
-
-fn decode_status(operation: &'static str, raw: u32) -> Result<VtStatus, DynamicSemiringError> {
-    VtStatus::from_raw(raw).ok_or(DynamicSemiringError::InvalidProviderOutput {
-        operation,
-        reason: "status is outside the published range",
-    })
-}
-
-fn status_ok(operation: &'static str, raw: u32) -> Result<(), DynamicSemiringError> {
-    let status = decode_status(operation, raw)?;
-    if status == VtStatus::Ok {
-        Ok(())
-    } else {
-        Err(DynamicSemiringError::Provider { operation, status })
-    }
-}
-
-fn decode_bool(operation: &'static str, raw: u8) -> Result<bool, DynamicSemiringError> {
-    match raw {
-        0 => Ok(false),
-        1 => Ok(true),
-        _ => Err(DynamicSemiringError::InvalidProviderOutput {
-            operation,
-            reason: "boolean is not zero or one",
-        }),
     }
 }
 

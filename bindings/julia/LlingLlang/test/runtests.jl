@@ -1,6 +1,7 @@
 using Test
 using LlingLlang
 import VinaryTreeInterop
+import LLattice
 
 const VTI = VinaryTreeInterop
 
@@ -26,6 +27,34 @@ const VTI = VinaryTreeInterop
     @test VTI.start(imported) == 0
     close(imported)
     close(graph)
+end
+
+@testset "host-defined lattice consumed through lling-llang" begin
+    encode(value) = Vector{UInt8}(codeunits(string(value.value)))
+    providers = [
+        LLattice.provider(LLattice.MaxMin(value);
+            domain_id="test.maxmin.v1..", encode=encode)
+        for value in (2, 7, 4)
+    ]
+    values = [dynamic_lattice_value(provider.resource) for provider in providers]
+    close.(providers)
+
+    joined = lattice_join(values[1], values[2])
+    met = lattice_meet(values[1], values[2])
+    joined_many = lattice_join_many(values[1], values[2:3])
+    met_many = lattice_meet_many(values[2], values[[1, 3]])
+    @test String(lattice_stable_bytes(joined)) == "7"
+    @test String(lattice_stable_bytes(met)) == "2"
+    @test String(lattice_stable_bytes(joined_many)) == "7"
+    @test String(lattice_stable_bytes(met_many)) == "2"
+    @test lattice_equal(joined, joined_many)
+    @test lattice_domain_id(joined) == VTI.interface_id("test.maxmin.v1..")
+    @test lattice_flags(joined) & VTI.LATTICE_FLAG_BATCH != 0
+    validate_lattice_laws(values)
+
+    close.([joined, met, joined_many, met_many])
+    close.(values)
+    @test all(!isopen(value) for value in values)
 end
 
 struct TropicalProvider <: AbstractSemiringProvider end

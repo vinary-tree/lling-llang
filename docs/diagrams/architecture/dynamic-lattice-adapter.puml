@@ -1,0 +1,54 @@
+@startuml
+title Host-defined lattice values: native and dynamic execution paths
+skinparam backgroundColor #FCFCFF
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam ArrowColor #37474F
+skinparam ArrowThickness 1.5
+skinparam defaultFontName DejaVu Sans
+
+package "Native Rust" #E3F2FD {
+  [Rust value] as NativeValue #90CAF9
+  [Monomorphized\nllattice::Lattice algorithm] as NativeAlgorithm #42A5F5
+  NativeValue -right-> NativeAlgorithm : infallible static calls
+}
+
+package "Customer runtime" #FFF3E0 {
+  [Julia LLattice /\nRaku LLattice value] as HostValue #FFCC80
+  [Contained join, meet,\nequal, bytes callbacks] as HostCallbacks #FFB74D
+  HostValue -right-> HostCallbacks
+}
+
+package "Project-neutral ABI" #F3E5F5 {
+  artifact "VtResource\n{ context, vtable }" as Resource #E1BEE7
+  [vt.lattice.val.1\ncapability vtable] as Capability #BA68C8
+  Resource -right-> Capability : query_interface
+}
+
+package "lling-llang validated adapter" #E8F5E9 {
+  [Base, prefix, domain,\nand output validation] as Validate #81C784
+  [Nonblocking atomic\ncallback admission] as Gate #66BB6A
+  [Same-thread\nDynamicLatticeValue] as Local #A5D6A7
+  [ParallelDynamicLatticeValue] as Parallel #4CAF50
+  [Bounded fold pages\nB = 256] as Batch #2E7D32
+  Local -right-> Gate
+  Gate -right-> Validate
+  Parallel -right-> Validate : only after\nPARALLEL_REENTRANT
+  Validate -down-> Batch
+}
+
+HostCallbacks -right-> Resource : retained immutable value
+Capability -right-> Validate : fallible status + owned result
+Batch -left-> Capability : join_many / meet_many
+
+note bottom of NativeAlgorithm
+The native total trait stays zero-cost.
+Foreign failures never become hidden panics.
+end note
+
+note bottom of Batch
+Each callback receives at most 256 operands.
+An intermediate may change implementation;
+the next page renegotiates its capabilities.
+end note
+@enduml

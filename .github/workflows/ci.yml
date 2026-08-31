@@ -126,7 +126,10 @@ jobs:
         run: |
           julia --project=bindings/julia/LlingLlang -e '
             using Pkg
-            Pkg.develop(path="../vinary-tree-interop/bindings/julia/VinaryTreeInterop")
+            Pkg.develop([
+              Pkg.PackageSpec(path="../vinary-tree-interop/bindings/julia/VinaryTreeInterop"),
+              Pkg.PackageSpec(path="../llattice/bindings/julia/LLattice"),
+            ])
             Pkg.instantiate()
           '
       - name: Test Julia facade and host provider
@@ -166,15 +169,21 @@ jobs:
         run: |
           cargo build --no-default-features --features raku-bindings
           mkdir -p target/raku-provider
+          mkdir -p target/llattice-raku-provider
           RAKULIB="$PWD/../vinary-tree-interop/bindings/raku/lib" \
             raku bindings/raku/build-provider.raku \
               --output="$PWD/target/raku-provider/liblling_llang_raku_provider.so" \
+              --interop-include="$PWD/../vinary-tree-interop/include"
+          RAKULIB="$PWD/../vinary-tree-interop/bindings/raku/lib" \
+            raku ../llattice/bindings/raku/build-provider.raku \
+              --output="$PWD/target/llattice-raku-provider/libllattice_raku_provider.so" \
               --interop-include="$PWD/../vinary-tree-interop/include"
       - name: Test Raku facade and host provider
         env:
           LLING_LLANG_LIBRARY: ${{ github.workspace }}/target/debug/liblling_llang.so
           LLING_LLANG_RAKU_PROVIDER_LIB: ${{ github.workspace }}/target/raku-provider/liblling_llang_raku_provider.so
-          RAKULIB: ${{ github.workspace }}/bindings/raku/lib,${{ github.workspace }}/../vinary-tree-interop/bindings/raku/lib
+          LLATTICE_RAKU_PROVIDER_LIB: ${{ github.workspace }}/target/llattice-raku-provider/libllattice_raku_provider.so
+          RAKULIB: ${{ github.workspace }}/bindings/raku/lib,${{ github.workspace }}/../llattice/bindings/raku/lib,${{ github.workspace }}/../vinary-tree-interop/bindings/raku/lib
         run: raku bindings/raku/t/01-conformance.rakutest
       - name: Render packaged Pod
         env:

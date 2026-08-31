@@ -49,6 +49,7 @@ Core concepts and design of the framework:
 | [Overview](architecture/overview.md) | High-level architecture and component relationships |
 | [Semirings](architecture/semirings.md) | Algebraic weight structures (Tropical, Log, Probability, String, Expectation, …) |
 | [Dynamic Semirings](architecture/dynamic-semirings.md) | Safe host-defined weight algebras: capability negotiation, token ownership, lock-free callback admission, batching, and law validation |
+| [Dynamic Lattices](architecture/dynamic-lattices.md) | Safe host-defined join/meet values: retained ownership, domain validation, nonblocking callback admission, bounded folds, and law probes |
 | [Arctic / max-plus](architecture/semirings.md#arcticweight) | Maximum-score paths with gains, penalties, and explicit positive-cycle behavior |
 | [Signed Tropical Semiring](architecture/signed-tropical-semiring.md) | Extended tropical semiring with negative weights (rewards) |
 | [Power Semiring](architecture/power-semiring.md) | $`\eta`$-power semiring for soft path selection and online learning |
@@ -194,7 +195,7 @@ Correction-layer implementations:
 
 | Document | Description |
 |----------|-------------|
-| [C ABI Reference](api/c-abi-reference.md) | The 40-function `lling_*` C ABI: dynamic semiring operation contexts, WFST construction/composition, statuses, ownership, threading, and complexity |
+| [C ABI Reference](api/c-abi-reference.md) | The 52-function `lling_*` C ABI: dynamic semiring and lattice consumers, WFST construction/composition, statuses, ownership, threading, and complexity |
 | [Semiring Reference](api/semiring-reference.md) | `Semiring`, `DivisibleSemiring`, `StarSemiring` |
 | [WFST Reference](api/wfst-reference.md) | `Wfst`, `MutableWfst`, `LazyWfst` |
 | [Lattice Reference](api/lattice-reference.md) | `Lattice`, `LatticeBuilder`, `EdgeMetadata` |

@@ -187,7 +187,7 @@ implicitly `noexcept`.
 
 - Requires C++20 (`std::exchange`, `[[nodiscard]]`; the package smoke test
   compiles with `cxx_std_20`).
-- ABI v1, API revision 3: call `lling_abi_version()` /
+- ABI v1, API revision 4: call `lling_abi_version()` /
   `lling_api_revision()` for a runtime handshake when loading the library
   dynamically; the revision only grows within an ABI version (see the
   [C ABI reference](https://github.com/vinary-tree/lling-llang/blob/master/docs/api/c-abi-reference.md#version-constants-and-the-handshake)).
