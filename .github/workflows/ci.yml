@@ -298,5 +298,5 @@ jobs:
           echo "eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a  $RUNNER_TEMP/tla2tools.jar" \
             | sha256sum --check --strict
           echo "TLA2TOOLS_JAR=$RUNNER_TEMP/tla2tools.jar" >> "$GITHUB_ENV"
-      - name: Verify invariant registry and finite models
+      - name: Verify portable invariant registries and finite models
         run: bash proofs/verify.sh --tla-only

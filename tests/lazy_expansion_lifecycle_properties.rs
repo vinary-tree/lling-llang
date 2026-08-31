@@ -165,6 +165,7 @@ property!(
     any::<u8>(),
     |revision| {
         let source = LifecycleSource::new(Outcome::Empty);
+        source.revision.store(revision, Ordering::Release);
         let mut lazy = LazyWfstWrapper::new(source.clone());
         let _ = must(lazy.expand(0));
         source

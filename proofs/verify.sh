@@ -2,6 +2,15 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MODE="${1:-all}"
+case "$MODE" in
+  all | --rocq-only | --tla-only) ;;
+  *)
+    echo "Usage: $0 [--rocq-only|--tla-only]" >&2
+    exit 2
+    ;;
+esac
+
 EVIDENCE="$ROOT/target/formal-verification"
 LOG_DIR="$EVIDENCE/logs"
 TMP_DIR="$EVIDENCE/tmp"
@@ -35,6 +44,21 @@ fi
 export TMPDIR="$TMP_DIR"
 export CARGO_BUILD_JOBS=1
 export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:--Djava.awt.headless=true -Xmx3g -XX:+UseParallelGC -Djava.io.tmpdir=$TMP_DIR}"
+
+run_rocq() {
+  make -C "$ROOT/proofs/coq" proof-check \
+    2>&1 | tee "$LOG_DIR/coq-proof-check.log"
+  make -C "$ROOT/proofs/coq" -j1 \
+    2>&1 | tee "$LOG_DIR/coq-build.log"
+}
+
+# Keep the dedicated Rocq job independent of Java/TLC and every non-Rocq
+# verifier. GitHub's pinned Rocq container intentionally contains neither.
+if [[ "$MODE" == "--rocq-only" ]]; then
+  run_rocq
+  echo "Rocq verification completed successfully. Evidence logs: $LOG_DIR"
+  exit 0
+fi
 
 if command -v tlc >/dev/null 2>&1; then
   TLC_COMMAND=(tlc)
@@ -96,8 +120,9 @@ run_tlc_expect_failure() {
   fi
 }
 
-make -C "$ROOT/proofs/coq" proof-check 2>&1 | tee "$LOG_DIR/coq-proof-check.log"
-make -C "$ROOT/proofs/coq" -j1 2>&1 | tee "$LOG_DIR/coq-build.log"
+if [[ "$MODE" == "all" ]]; then
+  run_rocq
+fi
 
 # ABI invariant registry: every row points at a live specification and, unless
 # formal-only, a live regression test.
@@ -109,17 +134,26 @@ python3 "$ROOT/scripts/check-domain-integration-invariants.py" \
   2>&1 | tee "$LOG_DIR/domain-integration-invariant-registry.log"
 python3 "$ROOT/scripts/check-libcpg-assurance-invariants.py" \
   2>&1 | tee "$LOG_DIR/libcpg-assurance-invariant-registry.log"
-python3 "$ROOT/scripts/check-libcpg-manifest-invariants.py" \
-  2>&1 | tee "$LOG_DIR/libcpg-manifest-invariant-registry.log"
 python3 "$ROOT/scripts/check-provider-boundary-invariants.py" \
   2>&1 | tee "$LOG_DIR/provider-boundary-invariant-registry.log"
-python3 "$ROOT/scripts/check-neutral-foundation-invariants.py" \
-  2>&1 | tee "$LOG_DIR/neutral-foundation-invariant-registry.log"
 python3 "$ROOT/scripts/check-strong-bisimulation-invariants.py" \
   2>&1 | tee "$LOG_DIR/strong-bisimulation-invariant-registry.log"
 python3 "$ROOT/scripts/check-dictionary-surface-invariants.py" \
   2>&1 | tee "$LOG_DIR/dictionary-surface-invariant-registry.log"
 "$ROOT/scripts/check-dictionary-surface-required-red.sh"
+
+# These two registries intentionally attest exact protected baselines in
+# independently owned sibling repositories. They belong to the complete local
+# gate, whose documented precondition is that those reviewed checkouts are
+# present; a standalone GitHub checkout cannot truthfully reproduce them.
+if [[ "$MODE" == "all" ]]; then
+  python3 "$ROOT/scripts/check-libcpg-manifest-invariants.py" \
+    2>&1 | tee "$LOG_DIR/libcpg-manifest-invariant-registry.log"
+  python3 "$ROOT/scripts/check-neutral-foundation-invariants.py" \
+    2>&1 | tee "$LOG_DIR/neutral-foundation-invariant-registry.log"
+else
+  echo "Skipping ownership-gated libcpg and neutral-foundation baseline registries in portable TLA mode."
+fi
 
 run_tlc rrwm "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWM.cfg"
 run_tlc rrwm-zero "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWMZeroExperts.cfg"
@@ -514,6 +548,17 @@ python3 "$ROOT/scripts/check-strong-bisimulation-exhaustive.py" \
 python3 "$ROOT/scripts/strong_bisimulation_mutants.py" \
   2>&1 | tee "$LOG_DIR/strong-bisimulation-mutants.log"
 
+rm -rf "$MUTANT_DIR"
+
+# The dedicated TLA job validates every finite model, negative model, portable
+# registry, and model-derived exhaustive/mutation control. SMT, bounded ABI,
+# and ownership-gated cross-repository checks remain in the complete local
+# gate rather than silently depending on tools or repositories absent in CI.
+if [[ "$MODE" == "--tla-only" ]]; then
+  echo "TLA+ verification completed successfully. Evidence logs: $LOG_DIR"
+  exit 0
+fi
+
 z3 "$ROOT/proofs/smt/vco-e4-contracts.smt2" \
   2>&1 | tee "$LOG_DIR/z3-vco-e4-contracts.log"
 diff -u \
@@ -606,5 +651,4 @@ else
   echo "Skipping vinary-doc-lint while its corruption-safety fix is pending."
 fi
 
-rm -rf "$MUTANT_DIR"
 echo "Formal verification completed successfully. Evidence logs: $LOG_DIR"

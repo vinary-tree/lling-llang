@@ -83,6 +83,21 @@ timeout per TLC model. Kani runs in its own 2 GiB/no-swap scope with one job.
 Tool temporary files, model metadata, and evidence logs stay under ignored
 `target/formal-verification/` on persistent repository storage.
 
+The hosted workflow splits that gate by toolchain:
+
+```bash
+bash proofs/verify.sh --rocq-only
+bash proofs/verify.sh --tla-only
+```
+
+`--rocq-only` needs only the pinned Rocq environment. `--tla-only` runs the
+portable invariant registries, every finite TLC model and negative model, and
+the model-derived exhaustive and mutation controls. The unqualified command
+also runs the SMT and bounded-ABI controls plus the exact protected-baseline
+registries and required-red checks that depend on independently owned sibling
+repositories. Those ownership-gated checks are deliberately not weakened or
+silently approximated in a standalone hosted checkout.
+
 ## Verification Goals
 
 ### Phase 1: Semiring Foundations
