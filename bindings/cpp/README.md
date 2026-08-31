@@ -2,8 +2,8 @@
 
 Header-only C++20 RAII facade over lling-llang's stable C ABI. One header —
 [`include/lling_llang.hpp`](../../include/lling_llang.hpp) — wraps WFST
-construction/resource exchange, the complete dynamic-lattice consumer, and
-typed cancellation in six move-aware types under
+construction/resource exchange, complete dynamic-semiring and dynamic-lattice
+consumers, and typed cancellation in eight ownership-aware types under
 `namespace vinary_tree::lling_llang`:
 
 | Type | Wraps | Discipline |
@@ -11,6 +11,8 @@ typed cancellation in six move-aware types under
 | `builder` | `LlingWfstBuilder*` | constructed ready; frees on scope exit; fluent edits |
 | `wfst` | `LlingWfst*` | move-only; frees on destruction; `import`/`compose` factories |
 | `resource` | `VtResource` | move-only owned retain; releases on destruction |
+| `semiring_context` | `LlingSemiring*` | copyable shared operation context; retains its host provider until the final context or weight dies |
+| `semiring_weight` | `LlingSemiringWeight*` | move-only owned provider token; explicit `clone()` is the only ownership duplication |
 | `lattice_value` | `LlingLatticeValue*` | move-only retained host value; checked join/meet/folds and law probes |
 | `cancellation` | `LlingCancellationV2*` | move-only; atomic first-reason-wins request; single release on destruction |
 | `error` | `LlingStatus` + message | thrown by `check()` on any non-OK status |
@@ -23,10 +25,15 @@ composition, lazy product states — documented in the
 [C ABI reference](https://github.com/vinary-tree/lling-llang/blob/master/docs/api/c-abi-reference.md)
 and the
 [resource ABI architecture](https://github.com/vinary-tree/lling-llang/blob/master/docs/architecture/resource-abi.md).
+Semiring capability negotiation, token ownership, optional refinements, and
+threading are specified in the
+[dynamic-semiring architecture](https://github.com/vinary-tree/lling-llang/blob/master/docs/architecture/dynamic-semirings.md).
 Host lattice ownership, algebra, batching, validation, and threading are
 specified in the
 [dynamic-lattice architecture](https://github.com/vinary-tree/lling-llang/blob/master/docs/architecture/dynamic-lattices.md).
-This facade adds zero overhead beyond a status check per call.
+The facade never copies opaque provider values: it adds checked status
+translation and RAII bookkeeping, allocating only where the API returns owned
+bytes or assembles a bounded law-validation batch.
 
 ## Install
 
@@ -119,6 +126,37 @@ Fluent builder notes: `final_state(q)` defaults the final weight to `0.0`
 `epsilon(from, to, w)` adds an $`\varepsilon`$:$`\varepsilon`$ arc; labels
 are `char32_t` Unicode scalar values (`U'🦀'` works).
 
+### Consume host-defined semiring values
+
+`semiring_context::open` negotiates `vt.semiring.val1` and retains an
+independent operation context. A weight keeps that context alive even after
+all user-visible context copies have gone out of scope:
+
+```cpp
+// `semiring_resource` remains owned by its provider.
+auto semiring = semiring_context::open(semiring_resource);
+auto zero = semiring.zero();
+auto one = semiring.one();
+auto sum = zero.plus(one);
+auto product = one.times(one);
+
+if (!sum.equivalent(one)) return 2;
+auto quotient = product.divide(one); // std::nullopt when undefined
+auto closure = zero.star();           // std::nullopt when divergent
+
+std::array<const semiring_weight*, 4> samples{&zero, &one, &sum, &product};
+semiring.validate_laws(samples, 1e-12);
+const auto canonical_identity = product.stable_bytes();
+```
+
+The facade covers equality and approximate equality, natural order, division
+and left division, Kleene star, numerical value, quantization, probability,
+declared properties, closure bounds, stable bytes, and bounded law probes.
+Partial provider operations map to `std::optional`; unavailable or malformed
+capabilities remain typed native errors. Weights from different operation
+contexts are rejected before a binary native call, even when their domain IDs
+happen to match.
+
 ### Consume host-defined lattice values
 
 `lattice_value::open` borrows a live `VtResource` for one call and retains an
@@ -161,6 +199,10 @@ Pure RAII — every wrapper releases exactly once, in its destructor:
   builder remains editable — set a start state and build again.
 - `wfst` and `resource` are move-only (copying a raw handle would double
   the release). Moved-from objects are empty and safe to destroy.
+- `semiring_context` copies share one native operation context. Every returned
+  `semiring_weight` holds that context alive and consumes exactly one provider
+  token on destruction. Weights are move-only; `clone()` invokes the provider's
+  ownership callback instead of copying opaque token words.
 - `lattice_value` is move-only for the same reason. `open`, `join`, `meet`,
   `join_many`, and `meet_many` each return one independent owner; every owner
   is released exactly once by its destructor.
@@ -207,6 +249,9 @@ implicitly `noexcept`.
   resource-wide lock).
 - Diagnostics are thread-local: an `error` thrown on one thread carries
   that thread's message, unaffected by failures elsewhere.
+- `semiring_context` and its weights follow the provider's advertised thread
+  discipline. The native adapter serializes a serial provider with a
+  nonblocking admission gate and never holds a C++ mutex across host code.
 - `lattice_value` is deliberately same-thread even when its provider advertises
   parallel reentrancy. The native adapter uses a nonblocking atomic admission
   gate for serial providers and holds no consumer mutex while host join/meet
@@ -224,6 +269,9 @@ implicitly `noexcept`.
 - `wfst::import(r)` is the one deliberate copy: it materializes a private
   eager graph from a foreign resource, touching each reachable state and
   arc exactly once.
+- Semiring context open, context copy, weight move, and destruction are
+  constant-time ownership operations. Algebraic cost is provider-defined;
+  stable bytes allocate exactly their returned size after bounded negotiation.
 - Lattice `open`, move, and destruction are constant-time retain/handle
   operations. Join/meet cost is provider-defined. Batch folds amortize the C
   boundary; stable bytes and diagnostics allocate exactly their returned size
@@ -239,6 +287,8 @@ implicitly `noexcept`.
 | Shared library not found at run time | Set an rpath to the package's `lib/` directory or use the static library from the staged package. |
 | `error: builder has already been consumed` | The builder was used after `build()`; construct a new one. |
 | `LLING_STATUS_INVALID_ARGUMENT` from join/meet | The two lattice values use different 16-byte domains. |
+| `LLING_STATUS_INVALID_ARGUMENT` from a semiring binary operation | The weights came from different operation contexts, or a provider returned a malformed token. |
+| Empty `std::optional` from division/star | The provider reported that the operation is undefined or divergent; this is not an error. |
 | `lattice byte length did not stabilize` | The provider violated immutable byte-length expectations across three bounded reads. |
 
 ## Version compatibility
@@ -259,7 +309,12 @@ implicitly `noexcept`.
 [`tests/package_smoke.cpp`](tests/package_smoke.cpp) is built as a consumer of
 the staged package, not against repository-private headers. It exercises the
 move-only builder/WFST/resource lifecycle and a complete C++ max/min lattice
-provider through the RAII consumer. The lattice checks cover retained
+provider plus a complete C++ Boolean-semiring provider through the RAII
+consumers. The semiring checks cover retained context lifetime, exact token
+release, identities, addition, multiplication, clone, equality, approximate
+equality, natural order, partial division, closure, numerical projections,
+properties, stable bytes, closure bounds, and law validation. The lattice
+checks cover retained
 ownership, move safety, join, meet, both batch folds, equality, domain/flag
 negotiation, stable bytes, diagnostics, law validation, and zero live values
 after scope exit. CI runs it against the source-built shared library, and the

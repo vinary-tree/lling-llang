@@ -186,6 +186,355 @@ const VtLatticeVTable& lattice_table() {
     return table;
 }
 
+struct boolean_semiring {
+    std::atomic<std::size_t> references{1};
+    std::atomic<std::size_t> live_tokens{0};
+};
+
+std::atomic<std::size_t> live_semirings{0};
+constexpr std::uint64_t boolean_token_tag = UINT64_C(0xb0015e11);
+
+const VtResourceVTable& boolean_resource_table();
+const VtSemiringVTable& boolean_semiring_table();
+const VtSemiringDivisionVTable& boolean_division_table();
+const VtSemiringStarVTable& boolean_star_table();
+const VtSemiringNumericVTable& boolean_numeric_table();
+const VtSemiringPropertiesVTable& boolean_properties_table();
+
+VtResource make_boolean_semiring() {
+    ++live_semirings;
+    return VtResource{new boolean_semiring, &boolean_resource_table()};
+}
+
+boolean_semiring* boolean_state(void* context) {
+    return static_cast<boolean_semiring*>(context);
+}
+
+void boolean_retain(void* context) {
+    boolean_state(context)->references.fetch_add(1, std::memory_order_relaxed);
+}
+
+void boolean_release(void* context) {
+    auto* state = boolean_state(context);
+    if (state->references.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        delete state;
+        --live_semirings;
+    }
+}
+
+VtStatus boolean_query_interface(
+    void*, const VtInterfaceId* interface_id, std::uint32_t minimum_version,
+    const void** output) {
+    if (interface_id == nullptr || output == nullptr) {
+        return VT_STATUS_NULL_POINTER;
+    }
+    *output = nullptr;
+    const auto matches = [interface_id](const VtInterfaceId& expected) {
+        return std::memcmp(interface_id->bytes, expected.bytes, 16) == 0;
+    };
+    if (matches(VT_SEMIRING_INTERFACE_ID) &&
+        minimum_version <= VT_SEMIRING_INTERFACE_VERSION) {
+        *output = &boolean_semiring_table();
+    } else if (matches(VT_SEMIRING_DIVISION_INTERFACE_ID) &&
+               minimum_version <= VT_SEMIRING_DIVISION_INTERFACE_VERSION) {
+        *output = &boolean_division_table();
+    } else if (matches(VT_SEMIRING_STAR_INTERFACE_ID) &&
+               minimum_version <= VT_SEMIRING_STAR_INTERFACE_VERSION) {
+        *output = &boolean_star_table();
+    } else if (matches(VT_SEMIRING_NUMERIC_INTERFACE_ID) &&
+               minimum_version <= VT_SEMIRING_NUMERIC_INTERFACE_VERSION) {
+        *output = &boolean_numeric_table();
+    } else if (matches(VT_SEMIRING_PROPERTIES_INTERFACE_ID) &&
+               minimum_version <= VT_SEMIRING_PROPERTIES_INTERFACE_VERSION) {
+        *output = &boolean_properties_table();
+    } else {
+        return VT_STATUS_UNSUPPORTED;
+    }
+    return VT_STATUS_OK;
+}
+
+bool decode_boolean(const VtSemiringValue* value, bool& output) {
+    if (value == nullptr || value->word1 != boolean_token_tag ||
+        value->word0 > 1) {
+        return false;
+    }
+    output = value->word0 != 0;
+    return true;
+}
+
+VtStatus write_boolean(
+    void* context, VtSemiringValue* output, bool value) {
+    if (context == nullptr || output == nullptr) {
+        return VT_STATUS_NULL_POINTER;
+    }
+    *output = VtSemiringValue{value ? UINT64_C(1) : UINT64_C(0),
+                             boolean_token_tag};
+    boolean_state(context)->live_tokens.fetch_add(1, std::memory_order_relaxed);
+    return VT_STATUS_OK;
+}
+
+VtStatus boolean_zero(void* context, VtSemiringValue* output) {
+    return write_boolean(context, output, false);
+}
+
+VtStatus boolean_one(void* context, VtSemiringValue* output) {
+    return write_boolean(context, output, true);
+}
+
+VtStatus boolean_clone(
+    void* context, const VtSemiringValue* value, VtSemiringValue* output) {
+    bool decoded = false;
+    return decode_boolean(value, decoded)
+        ? write_boolean(context, output, decoded)
+        : VT_STATUS_INVALID_ARGUMENT;
+}
+
+VtStatus boolean_release_values(
+    void* context, VtSemiringValue* values, std::size_t count) {
+    if (context == nullptr || (count != 0 && values == nullptr)) {
+        return VT_STATUS_NULL_POINTER;
+    }
+    for (std::size_t index = 0; index < count; ++index) {
+        bool decoded = false;
+        if (!decode_boolean(&values[index], decoded)) {
+            return VT_STATUS_INVALID_ARGUMENT;
+        }
+    }
+    for (std::size_t index = 0; index < count; ++index) {
+        values[index] = {};
+    }
+    const auto previous = boolean_state(context)->live_tokens.fetch_sub(
+        count, std::memory_order_acq_rel);
+    return previous >= count ? VT_STATUS_OK : VT_STATUS_PROVIDER_ERROR;
+}
+
+VtStatus boolean_binary(
+    void* context, const VtSemiringValue* left,
+    const VtSemiringValue* right, VtSemiringValue* output,
+    bool additive) {
+    bool left_value = false;
+    bool right_value = false;
+    if (!decode_boolean(left, left_value) ||
+        !decode_boolean(right, right_value)) {
+        return VT_STATUS_INVALID_ARGUMENT;
+    }
+    return write_boolean(
+        context, output,
+        additive ? left_value || right_value : left_value && right_value);
+}
+
+VtStatus boolean_plus(
+    void* context, const VtSemiringValue* left,
+    const VtSemiringValue* right, VtSemiringValue* output) {
+    return boolean_binary(context, left, right, output, true);
+}
+
+VtStatus boolean_times(
+    void* context, const VtSemiringValue* left,
+    const VtSemiringValue* right, VtSemiringValue* output) {
+    return boolean_binary(context, left, right, output, false);
+}
+
+VtStatus boolean_equal(
+    void*, const VtSemiringValue* left, const VtSemiringValue* right,
+    std::uint8_t* output) {
+    if (output == nullptr) return VT_STATUS_NULL_POINTER;
+    bool left_value = false;
+    bool right_value = false;
+    if (!decode_boolean(left, left_value) ||
+        !decode_boolean(right, right_value)) {
+        return VT_STATUS_INVALID_ARGUMENT;
+    }
+    *output = static_cast<std::uint8_t>(left_value == right_value);
+    return VT_STATUS_OK;
+}
+
+VtStatus boolean_approx_equal(
+    void* context, const VtSemiringValue* left,
+    const VtSemiringValue* right, double, std::uint8_t* output) {
+    return boolean_equal(context, left, right, output);
+}
+
+VtStatus boolean_natural_order(
+    void*, const VtSemiringValue* left, const VtSemiringValue* right,
+    std::int32_t* output) {
+    if (output == nullptr) return VT_STATUS_NULL_POINTER;
+    bool left_value = false;
+    bool right_value = false;
+    if (!decode_boolean(left, left_value) ||
+        !decode_boolean(right, right_value)) {
+        return VT_STATUS_INVALID_ARGUMENT;
+    }
+    *output = left_value == right_value
+        ? VT_SEMIRING_ORDER_EQUAL
+        : left_value ? VT_SEMIRING_ORDER_WORSE : VT_SEMIRING_ORDER_BETTER;
+    return VT_STATUS_OK;
+}
+
+VtStatus boolean_stable_bytes(
+    void*, const VtSemiringValue* value, std::uint8_t* output,
+    std::size_t capacity, std::size_t* written, std::size_t* required) {
+    bool decoded = false;
+    if (!decode_boolean(value, decoded)) return VT_STATUS_INVALID_ARGUMENT;
+    const char encoded = decoded ? '1' : '0';
+    return copy_bytes(
+        std::string_view(&encoded, 1), output, capacity, written, required);
+}
+
+VtStatus boolean_diagnostic(
+    void*, const VtSemiringValue*, std::uint8_t* output,
+    std::size_t capacity, std::size_t* written, std::size_t* required) {
+    return copy_bytes(
+        "C++ Boolean semiring", output, capacity, written, required);
+}
+
+VtStatus boolean_fold(
+    void* context, const VtSemiringValue* values, std::size_t count,
+    VtSemiringValue* output, bool additive) {
+    if (count != 0 && values == nullptr) return VT_STATUS_NULL_POINTER;
+    bool result = !additive;
+    for (std::size_t index = 0; index < count; ++index) {
+        bool value = false;
+        if (!decode_boolean(&values[index], value)) {
+            return VT_STATUS_INVALID_ARGUMENT;
+        }
+        result = additive ? result || value : result && value;
+    }
+    return write_boolean(context, output, result);
+}
+
+VtStatus boolean_plus_many(
+    void* context, const VtSemiringValue* values, std::size_t count,
+    VtSemiringValue* output) {
+    return boolean_fold(context, values, count, output, true);
+}
+
+VtStatus boolean_times_many(
+    void* context, const VtSemiringValue* values, std::size_t count,
+    VtSemiringValue* output) {
+    return boolean_fold(context, values, count, output, false);
+}
+
+VtStatus boolean_divide(
+    void* context, const VtSemiringValue* dividend,
+    const VtSemiringValue* divisor, VtSemiringValue* output) {
+    bool dividend_value = false;
+    bool divisor_value = false;
+    if (!decode_boolean(dividend, dividend_value) ||
+        !decode_boolean(divisor, divisor_value)) {
+        return VT_STATUS_INVALID_ARGUMENT;
+    }
+    return divisor_value
+        ? write_boolean(context, output, dividend_value)
+        : VT_STATUS_END;
+}
+
+VtStatus boolean_star(
+    void* context, const VtSemiringValue* value, VtSemiringValue* output) {
+    bool decoded = false;
+    return decode_boolean(value, decoded)
+        ? write_boolean(context, output, true)
+        : VT_STATUS_INVALID_ARGUMENT;
+}
+
+VtStatus boolean_numerical_value(
+    void*, const VtSemiringValue* value, double* output) {
+    if (output == nullptr) return VT_STATUS_NULL_POINTER;
+    bool decoded = false;
+    if (!decode_boolean(value, decoded)) return VT_STATUS_INVALID_ARGUMENT;
+    *output = decoded ? 1.0 : 0.0;
+    return VT_STATUS_OK;
+}
+
+VtStatus boolean_quantize(
+    void*, const VtSemiringValue* value, double, std::int64_t* output) {
+    if (output == nullptr) return VT_STATUS_NULL_POINTER;
+    bool decoded = false;
+    if (!decode_boolean(value, decoded)) return VT_STATUS_INVALID_ARGUMENT;
+    *output = decoded ? 1 : 0;
+    return VT_STATUS_OK;
+}
+
+VtStatus boolean_to_probability(
+    void* context, const VtSemiringValue* value, double* output) {
+    return boolean_numerical_value(context, value, output);
+}
+
+VtStatus boolean_closure_bound(void*, std::size_t* output, std::uint8_t* known) {
+    if (output == nullptr || known == nullptr) return VT_STATUS_NULL_POINTER;
+    *output = 1;
+    *known = 1;
+    return VT_STATUS_OK;
+}
+
+const VtResourceVTable& boolean_resource_table() {
+    static const VtResourceVTable table{
+        sizeof(VtResourceVTable), VT_ABI_VERSION, 0, boolean_retain,
+        boolean_release, boolean_query_interface};
+    return table;
+}
+
+const VtSemiringVTable& boolean_semiring_table() {
+    static const VtSemiringVTable table{
+        sizeof(VtSemiringVTable),
+        VT_SEMIRING_INTERFACE_VERSION,
+        0,
+        VT_SEMIRING_FLAG_STABLE_BYTES | VT_SEMIRING_FLAG_BATCH,
+        {{'d', 'e', 'm', 'o', '.', 'b', 'o', 'o',
+          'l', '.', 'v', '1', '.', '.', '.', '.'}},
+        boolean_zero,
+        boolean_one,
+        boolean_clone,
+        boolean_release_values,
+        boolean_plus,
+        boolean_times,
+        boolean_equal,
+        boolean_approx_equal,
+        boolean_natural_order,
+        boolean_stable_bytes,
+        boolean_diagnostic,
+        boolean_plus_many,
+        boolean_times_many};
+    return table;
+}
+
+const VtSemiringDivisionVTable& boolean_division_table() {
+    static const VtSemiringDivisionVTable table{
+        sizeof(VtSemiringDivisionVTable), VT_SEMIRING_DIVISION_INTERFACE_VERSION,
+        0, boolean_divide, boolean_divide};
+    return table;
+}
+
+const VtSemiringStarVTable& boolean_star_table() {
+    static const VtSemiringStarVTable table{
+        sizeof(VtSemiringStarVTable), VT_SEMIRING_STAR_INTERFACE_VERSION, 0,
+        boolean_star};
+    return table;
+}
+
+const VtSemiringNumericVTable& boolean_numeric_table() {
+    static const VtSemiringNumericVTable table{
+        sizeof(VtSemiringNumericVTable), VT_SEMIRING_NUMERIC_INTERFACE_VERSION,
+        0, boolean_numerical_value, boolean_quantize, boolean_to_probability};
+    return table;
+}
+
+const VtSemiringPropertiesVTable& boolean_properties_table() {
+    static const VtSemiringPropertiesVTable table{
+        sizeof(VtSemiringPropertiesVTable),
+        VT_SEMIRING_PROPERTIES_INTERFACE_VERSION,
+        0,
+        VT_SEMIRING_PROPERTY_HASHABLE |
+            VT_SEMIRING_PROPERTY_IDEMPOTENT_PLUS |
+            VT_SEMIRING_PROPERTY_K_CLOSED |
+            VT_SEMIRING_PROPERTY_ZERO_SUM_FREE |
+            VT_SEMIRING_PROPERTY_COMMUTATIVE_TIMES |
+            VT_SEMIRING_PROPERTY_TOTALLY_ORDERED |
+            VT_SEMIRING_PROPERTY_NONNEGATIVE,
+        boolean_closure_bound};
+    return table;
+}
+
 bool check_wfst() {
     using namespace vinary_tree::lling_llang;
     cancellation stop;
@@ -237,8 +586,41 @@ bool check_lattice() {
     return live_values.load() == 0;
 }
 
+bool check_semiring() {
+    using namespace vinary_tree::lling_llang;
+    {
+        resource host(make_boolean_semiring());
+        auto semiring = semiring_context::open(host.get());
+        auto zero = semiring.zero();
+        auto one = semiring.one();
+        auto sum = zero.plus(one);
+        auto product = one.times(one);
+        auto copied = product.clone();
+        auto quotient = one.divide(one);
+        auto undefined = one.divide(zero);
+        auto closure = zero.star();
+        const std::array<const semiring_weight*, 4> samples{
+            &zero, &one, &sum, &product};
+        semiring.validate_laws(samples, 0.0);
+
+        if (!sum.equivalent(one) || !product.equivalent(copied) ||
+            !one.approximately_equivalent(product, 0.0) ||
+            zero.compare(one) != natural_order::better ||
+            !quotient.has_value() || undefined.has_value() ||
+            !closure.has_value() || one.numerical_value() != 1.0 ||
+            one.quantize(0.25) != 1 || one.to_probability() != 1.0 ||
+            semiring.closure_bound() != std::optional<std::size_t>{1} ||
+            one.stable_bytes() != std::vector<std::uint8_t>{'1'} ||
+            !semiring.declares(VT_SEMIRING_PROPERTY_HASHABLE |
+                               VT_SEMIRING_PROPERTY_IDEMPOTENT_PLUS)) {
+            return false;
+        }
+    }
+    return live_semirings.load() == 0;
+}
+
 } // namespace
 
 int main() {
-    return check_wfst() && check_lattice() ? 0 : 1;
+    return check_wfst() && check_lattice() && check_semiring() ? 0 : 1;
 }
