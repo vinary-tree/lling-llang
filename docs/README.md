@@ -148,9 +148,14 @@ phase-by-phase implementation ledger are frozen historical records — see
 | [Lookahead Tables](optimization/lookahead.md) | Pushing reachable weight to a pruning frontier |
 | [N-gram Back-off](optimization/ngram-backoff.md) | Back-off $`P(w \mid h) = \lambda \cdot \hat{P}(w \mid h) + (1 - \lambda) \cdot P(w \mid h')`$ |
 | [Token Grouping](optimization/token-grouping.md) | LET-Decoder lazy-evaluation token grouping |
-| [Categorical Optimizer Contract](optimization/categorical-optimizer-contract.md) | Typed morphisms, exact rewrite witnesses, ownership boundaries, and performance consequences |
-| [Plan, Concurrency, and Provenance](optimization/plan-and-provenance.md) | Rank-certified DAG execution, budgets, cancellation, deterministic commit, and publication |
-| [Formal Verification](optimization/formal-verification.md) | Rocq, TLA+/TLC, Z3, and Kani evidence with bounded negative controls |
+| [Categorical Optimizer Contract](optimization/categorical-optimizer-contract.md) | Typed morphisms, exact rewrite witnesses, fibers, local monoids, ownership boundaries, and performance consequences |
+| [Plan, Concurrency, and Provenance](optimization/plan-and-provenance.md) | Rank-certified DAG syntax, stack-safe wavefront execution, budgets, cancellation, ordered commit, and publication |
+| [Formal Verification](optimization/formal-verification.md) | Rocq, TLA+/TLC, Z3, and Kani evidence with finite bounds, negative controls, and reproduction |
+| [Certified Strong Bisimulation](optimization/certified-strong-bisimulation-contract.md) | Validated labelled semantics, Valmari refinement, replay certificates, modal witnesses, canonical output, stack safety, resource bounds, and 83 traced obligations |
+| [libcpg Dataflow, Graph, and Assurance Contract](optimization/libcpg-assurance-contract.md) | Lawful llattice v2 migration, exact libvgraph quotient semantics, stack/work bounds, and independently bound assurance evidence |
+| [libcpg Manifest and Durable-Fact Contract](optimization/libcpg-manifest-fact-contract.md) | Exact extractor manifests, durable fact identities, dense-index correspondence, source evidence, deterministic exports, cache invalidation, and adapter ownership |
+| [Provider-Neutral Boundary Contract](optimization/provider-boundary-contract.md) | Canonical artifact identity, non-promoting provider results, limitation propagation, independent guarantees, native ownership, and the optional one-way libcpg-to-lling-llang public-API boundary |
+| [Neutral Vinary Foundation Contract](optimization/neutral-vinary-foundation-contract.md) | RegresSpec-driven ownership, canonical/schema/content identity, neutral graphs, runtime and assurance gates, stack-safe concurrency, and 77 formally traced pre-implementation obligations |
 
 ### Archive
 
@@ -182,13 +187,17 @@ Correction-layer implementations:
 | [libgrammstein: Phonetic Rescoring](integration/libgrammstein/phonetic-rescore.md) | Phonetic lattice rescoring with Zompist rules |
 | [F1R3FLY.io: Vision](integration/f1r3fly/vision.md) · [PathMap](integration/f1r3fly/pathmap-backend.md) · [MeTTaIL](integration/f1r3fly/mettail-layer.md) · [MORK](integration/f1r3fly/mork-layer.md) · [MeTTaTron](integration/f1r3fly/mettatron-layer.md) · [Rholang](integration/f1r3fly/rholang-layer.md) | Distributed correction over the F1R3FLY stack |
 | [External: Speech/NLP](integration/external/speech-nlp.md) · [Text Correction](integration/external/text-correction.md) · [Library Usage](integration/external/library-usage.md) | Integrating lling-llang into external systems |
+| [libcpg Integration and Migration](integration/external/libcpg.md) | Formal-first migration sequence, trait compatibility, graph adoption, assurance-ready reports, concurrency, and required-red properties |
 
 ### Security
 
 | Document | Description |
 |----------|-------------|
 | [ABI Trust Model](security/abi-trust-model.md) | Foreign scalar-WFST providers as untrusted input: validation duties, the F1 case study, panic containment, threading trust, residual assumptions |
-| [Optimizer and ABI Contracts](security/optimizer-abi-contracts.md) | Tape compatibility, exactness claims, plans, budgets, cancellation, retains, and opaque ABI-v1 layout |
+| [Optimizer and ABI Contracts](security/optimizer-abi-contracts.md) | Threat model for tape compatibility, exactness claims, plan cycles, deterministic commit, budgets, cancellation, retains, and opaque ABI v1 layout |
+| [libcpg Evidence Trust Model](security/libcpg-evidence-trust-model.md) | Five-coordinate freshness, result-digest framing, trust/independence, rejection semantics, resource safety, and audit evidence |
+| [libcpg Manifest and Fact-Identity Trust Model](security/libcpg-manifest-trust-model.md) | Identity substitution, tombstone and dense-index integrity, exact source evidence, cache non-promotion, deterministic publication, and bounded decoding controls |
+| [Provider Boundary Trust Model](security/provider-boundary-trust-model.md) | Provider-neutral exactness authority, control-domain independence, stale identity rejection, cache isolation, ownership, and dependency threats |
 
 ### Release engineering
 

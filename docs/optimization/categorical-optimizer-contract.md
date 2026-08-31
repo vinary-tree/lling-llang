@@ -4,6 +4,9 @@ The lling-llang optimizer uses category theory as a compile-time and
 proof-time discipline for composing domain operations; it does not place a
 generic category, monad, or fibration object on the runtime hot path.
 
+The [fuzzy-dictionary and typed H/C/L/G integration contract](domain-integration-contract.md)
+specializes this foundation for libdictenstein, liblevenshtein, and duallity.
+
 ## Terms and symbols
 
 | Term or symbol | Definition |
@@ -231,6 +234,9 @@ outside this contract.
 | Typed tapes and category laws | `proofs/coq/optimizer/TapeSignatures.v` |
 | Denotation, precision, completeness | `proofs/coq/optimizer/RewriteSemantics.v` |
 | Ranked DAG and ordered commit | `proofs/coq/optimizer/PlanDag.v` |
+| Exact indexed fuzzy reference | `proofs/coq/domain_integration/FuzzyReference.v` |
+| Typed weighted H/C/L/G category laws | `proofs/coq/domain_integration/TypedHclg.v` |
+| Fuzzy snapshot/confirmation lifecycle | `proofs/tla/FuzzyReferenceLifecycle.tla` |
 | Optimizer lifecycle and concurrency | `proofs/tla/OptimizerLifecycle.tla` |
 | Lazy WFST cache lifecycle | `proofs/tla/LazyWfstLifecycle.tla` |
 | ABI ownership and opacity | `proofs/coq/abi/OwnershipLifecycle.v`, `proofs/tla/AbiOwnershipLifecycle.tla` |

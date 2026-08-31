@@ -1,0 +1,17 @@
+[package]
+name = "requirements-required-red"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[[test]]
+name = "requirements"
+path = "../../neutral_foundations/tests/requirements.rs"
+
+[dependencies]
+vinary-requirements = { path = "../../../../../vinary-requirements" }
+
+[dev-dependencies]
+proptest = "1.9"

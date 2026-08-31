@@ -1,0 +1,64 @@
+@startuml
+title Neutral foundation release lifecycle
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultFontName Helvetica
+skinparam defaultFontColor #102027
+skinparam ArrowColor #455A64
+skinparam ArrowThickness 1.5
+skinparam state {
+  BorderColor #455A64
+  FontColor #102027
+  StartColor #1565C0
+  EndColor #455A64
+}
+
+[*] --> Initial
+state "Initial\nselect adversarial scenario" as Initial #ECEFF1
+state "Canonical wire\nprofile, outcome, identity domains" as Canonical #C8E6C9
+state "Analysis graph\nstrength, relation, atomic patch" as Graph #A5D6A7
+state "Runtime\nresult axes, locks, cache, spill, resume" as Runtime #81C784
+state "Requirements\nrevision, tombstone, source accounting" as Requirements #66BB6A
+state "Assurance\nauthority, freshness, controls, attestation" as Assurance #FFCC80
+state "Documentation\nmanifest, claim rules, check-only lint" as Documentation #CE93D8
+state "Released\nevery gate holds" as Released #4CAF50
+state "Rejected\nat least one gate fails" as Rejected #EF9A9A
+
+Initial --> Canonical : canonicalize
+Canonical --> Graph : build neutral graph
+Graph --> Runtime : execute under locked inputs
+Runtime --> Requirements : preserve requirement history
+Requirements --> Assurance : evaluate evidence
+Assurance --> Documentation : validate generated assets and claims
+Documentation --> Released : exact release predicate is true
+Documentation --> Rejected : exact release predicate is false
+Released --> [*]
+Rejected --> [*]
+
+note right of Runtime #FFF3E0
+  Incomplete results never enter complete-only caches.
+  Overflow uses repository-backed storage, never tmpfs.
+end note
+
+note right of Assurance #FFEBEE
+  Statistics and bounded models do not discharge
+  an unbounded theorem obligation.
+end note
+
+note bottom of Documentation #F3E5F5
+  Check-only lint is non-mutating.
+  A stale generated-asset manifest cannot pass.
+end note
+
+legend right
+  |= Color |= Contract family |
+  |<#ECEFF1> | lifecycle control |
+  |<#C8E6C9> | canonical and graph data |
+  |<#81C784> | runtime execution |
+  |<#FFCC80> | assurance authority |
+  |<#CE93D8> | documentation governance |
+  |<#4CAF50> | released |
+  |<#EF9A9A> | rejected |
+endlegend
+@enduml

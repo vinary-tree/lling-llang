@@ -1,0 +1,42 @@
+@startuml libcpg-manifest-invalidation
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #37474F
+skinparam ArrowThickness 1.7
+
+title <b>Manifest-bound cache admission</b>\n<size:11><i>every rejection uses exact recomputation or a typed incomplete outcome</i></size>
+
+start
+:Capture requested extraction manifest; <<#BBDEFB>>
+:Load candidate cache entry and full canonical key bytes; <<#D0EBFF>>
+
+if (Every typed manifest identity equal?) then (yes)
+  :Compatibility = Compatible; <<#C8E6C9>>
+else (no or unknown)
+  :Reject cache entry; <<#FFCDD2>>
+  :Run exact extraction under requested manifest; <<#FFE0B2>>
+  stop
+endif
+
+if (Feature history valid and\ntombstones remain absorbing?) then (yes)
+else (no)
+  :Reject revision and cache entry; <<#FFCDD2>>
+  stop
+endif
+
+if (Source identity, revision, and\nhalf-open ranges valid?) then (yes)
+else (no)
+  :Reject evidence and cache entry; <<#FFCDD2>>
+  stop
+endif
+
+if (Coverage complete?) then (yes)
+  :Reuse immutable artifact; <<#A5D6A7>>
+  :Publish canonical durable facts; <<#81C784>>
+else (no)
+  :Classify missing facts as Unknown; <<#FFF3BF>>
+  :Do not enter complete-only cache; <<#FFD8A8>>
+endif
+stop
+@enduml

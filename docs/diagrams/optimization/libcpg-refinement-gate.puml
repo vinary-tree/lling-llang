@@ -1,0 +1,32 @@
+@startuml libcpg-refinement-gate
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #37474F
+skinparam ArrowThickness 1.5
+
+title <b>E7 formal-first refinement gate</b>\n<size:11><i>no production migration begins before proofs and required-red properties</i></size>
+
+start
+:Inspect exact libcpg, llattice v2,\nlibvgraph, and libmorphism semantics; <<#E3F2FD>>
+:State dataflow, quotient, resource,\nand assurance invariants; <<#FFF9C4>>
+fork
+  :Compile unbounded Rocq proofs; <<#FFCDD2>>
+fork again
+  :Exhaust positive TLA+ lifecycle; <<#FFCDD2>>
+  :Require named mutant failure; <<#EF9A9A>>
+fork again
+  :Match finite Z3 transcript; <<#E1BEE7>>
+end fork
+:Map every declaration and check\nto one Rust property; <<#FFE0B2>>
+:Create properties and record\na genuine required-red baseline; <<#FFCCBC>>
+if (All formal and red gates pass?) then (yes)
+  :Implement stack-safe adapters\nand migrations; <<#BBDEFB>>
+  :Run refinement, differential,\ndeep-stack, and performance acceptance; <<#C8E6C9>>
+  :Independent trusted verification; <<#A5D6A7>>
+else (no)
+  :Keep production tasks blocked; <<#FFCDD2>>
+  stop
+endif
+stop
+@enduml

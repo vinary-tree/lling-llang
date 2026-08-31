@@ -171,4 +171,15 @@ diagrams are added.)
 | `optimization/categorical-optimizer-contract.svg` | PlantUML | `optimization/categorical-optimizer-contract.md` |
 | `optimization/optimizer-lifecycle-state.svg` | PlantUML | `optimization/plan-and-provenance.md` |
 | `optimization/formal-evidence-stack.svg` | PlantUML | `optimization/formal-verification.md` |
+| `optimization/fuzzy-reference-contract.svg` | PlantUML | `optimization/domain-integration-contract.md` |
+| `optimization/hclg-typed-composition.svg` | PlantUML | `optimization/domain-integration-contract.md` |
+| `optimization/libcpg-integration-boundaries.svg` | PlantUML | `optimization/libcpg-assurance-contract.md` |
+| `optimization/libcpg-evidence-lifecycle.svg` | PlantUML | `security/libcpg-evidence-trust-model.md` |
+| `optimization/libcpg-refinement-gate.svg` | PlantUML | `optimization/libcpg-assurance-contract.md`, `integration/external/libcpg.md` |
+| `optimization/provider-boundary-architecture.svg` | PlantUML | `optimization/provider-boundary-contract.md` |
+| `optimization/provider-result-lifecycle.svg` | PlantUML | `optimization/provider-boundary-contract.md` |
+| `optimization/neutral-foundation-architecture.svg` | PlantUML | `optimization/neutral-vinary-foundation-contract.md` |
+| `optimization/neutral-foundation-lifecycle.svg` | PlantUML | `optimization/neutral-vinary-foundation-contract.md` |
+| `optimization/strong-bisimulation-flow.svg` | PlantUML | `optimization/certified-strong-bisimulation-contract.md` |
+| `optimization/strong-bisimulation-evidence.svg` | PlantUML | `optimization/certified-strong-bisimulation-contract.md` |
 | `algorithms/*` · `asr/*` · `advanced/*` · `transducers/*` · `correction/*` | Graphviz / PlantUML / D2 / TikZ | the corresponding topic docs |

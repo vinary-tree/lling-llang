@@ -17,7 +17,7 @@ mkdir -p "$LOG_DIR" "$TMP_DIR" "$TLC_DIR"
 if [[ "${LLING_LLANG_FORMAL_SCOPED:-0}" != "1" ]]; then
   if command -v systemd-run >/dev/null 2>&1 \
      && systemd-run --user --scope -q true >/dev/null 2>&1; then
-    exec systemd-run --user --scope -q \
+    exec systemd-run --user --scope -q --expand-environment=no \
       -p MemoryMax=4G -p MemorySwapMax=0 -p CPUQuota=400% -p TasksMax=64 \
       --setenv=LLING_LLANG_FORMAL_SCOPED=1 \
       --setenv=TMPDIR="$TMP_DIR" \
@@ -105,6 +105,18 @@ python3 "$ROOT/scripts/check-abi-invariants.py" \
   2>&1 | tee "$LOG_DIR/abi-invariant-registry.log"
 python3 "$ROOT/scripts/check-lazy-expansion-invariants.py" \
   2>&1 | tee "$LOG_DIR/lazy-expansion-invariant-registry.log"
+python3 "$ROOT/scripts/check-domain-integration-invariants.py" \
+  2>&1 | tee "$LOG_DIR/domain-integration-invariant-registry.log"
+python3 "$ROOT/scripts/check-libcpg-assurance-invariants.py" \
+  2>&1 | tee "$LOG_DIR/libcpg-assurance-invariant-registry.log"
+python3 "$ROOT/scripts/check-libcpg-manifest-invariants.py" \
+  2>&1 | tee "$LOG_DIR/libcpg-manifest-invariant-registry.log"
+python3 "$ROOT/scripts/check-provider-boundary-invariants.py" \
+  2>&1 | tee "$LOG_DIR/provider-boundary-invariant-registry.log"
+python3 "$ROOT/scripts/check-neutral-foundation-invariants.py" \
+  2>&1 | tee "$LOG_DIR/neutral-foundation-invariant-registry.log"
+python3 "$ROOT/scripts/check-strong-bisimulation-invariants.py" \
+  2>&1 | tee "$LOG_DIR/strong-bisimulation-invariant-registry.log"
 
 run_tlc rrwm "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWM.cfg"
 run_tlc rrwm-zero "$ROOT/proofs/tla/RRWM.tla" "$ROOT/proofs/tla/MC/RRWMZeroExperts.cfg"
@@ -125,6 +137,18 @@ run_tlc cascade-overlap "$ROOT/proofs/tla/CascadeOrder.tla" "$ROOT/proofs/tla/MC
 run_tlc optimizer-lifecycle \
   "$ROOT/proofs/tla/OptimizerLifecycle.tla" \
   "$ROOT/proofs/tla/MC/OptimizerLifecycle.cfg"
+run_tlc fuzzy-reference-lifecycle \
+  "$ROOT/proofs/tla/FuzzyReferenceLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/FuzzyReferenceLifecycle.cfg"
+run_tlc libcpg-evidence-lifecycle \
+  "$ROOT/proofs/tla/LibcpgEvidenceLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/LibcpgEvidenceLifecycle.cfg"
+run_tlc libcpg-manifest-lifecycle \
+  "$ROOT/proofs/tla/LibcpgManifestLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/LibcpgManifestLifecycle.cfg"
+run_tlc provider-boundary-lifecycle \
+  "$ROOT/proofs/tla/ProviderBoundaryLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/ProviderBoundaryLifecycle.cfg"
 run_tlc lazy-wfst-lifecycle \
   "$ROOT/proofs/tla/LazyWfstLifecycle.tla" \
   "$ROOT/proofs/tla/MC/LazyWfstLifecycle.cfg"
@@ -137,6 +161,21 @@ run_tlc abi-ownership-lifecycle \
 run_tlc abi-v2-lifecycle \
   "$ROOT/proofs/tla/AbiV2Lifecycle.tla" \
   "$ROOT/proofs/tla/MC/AbiV2Lifecycle.cfg"
+run_tlc neutral-foundations \
+  "$ROOT/proofs/tla/NeutralFoundationLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/NeutralFoundationLifecycle.cfg"
+run_tlc strong-bisimulation-valid \
+  "$ROOT/proofs/tla/StrongBisimulationLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/StrongBisimulationValid.cfg"
+run_tlc strong-bisimulation-invalid-source \
+  "$ROOT/proofs/tla/StrongBisimulationLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/StrongBisimulationInvalidSource.cfg"
+run_tlc strong-bisimulation-invalid-target \
+  "$ROOT/proofs/tla/StrongBisimulationLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/StrongBisimulationInvalidTarget.cfg"
+run_tlc strong-bisimulation-invalid-label \
+  "$ROOT/proofs/tla/StrongBisimulationLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/StrongBisimulationInvalidLabel.cfg"
 
 rm -rf "$MUTANT_DIR"
 mkdir -p \
@@ -145,12 +184,18 @@ mkdir -p \
   "$MUTANT_DIR/rrwm" \
   "$MUTANT_DIR/cascade" \
   "$MUTANT_DIR/optimizer" \
+  "$MUTANT_DIR/domain-integration" \
+  "$MUTANT_DIR/libcpg-evidence" \
+  "$MUTANT_DIR/provider-status" \
+  "$MUTANT_DIR/provider-limitations" \
+  "$MUTANT_DIR/provider-independence" \
   "$MUTANT_DIR/lazy-wfst" \
   "$MUTANT_DIR/lazy-expansion-observation" \
   "$MUTANT_DIR/lazy-expansion-owner" \
   "$MUTANT_DIR/lazy-expansion-retry" \
   "$MUTANT_DIR/lazy-expansion-snapshot" \
-  "$MUTANT_DIR/abi-ownership"
+  "$MUTANT_DIR/abi-ownership" \
+  "$MUTANT_DIR/neutral-foundations"
 
 mkdir -p \
   "$MUTANT_DIR/abi-v2-cancellation" \
@@ -204,6 +249,61 @@ run_tlc_expect_failure optimizer-provenance-mutant \
   "$MUTANT_DIR/optimizer/OptimizerLifecycle.tla" \
   "$MUTANT_DIR/optimizer/OptimizerLifecycle.cfg" \
   "Invariant ProvenanceIsCanonicalPrefix is violated."
+
+cp "$ROOT/proofs/tla/FuzzyReferenceLifecycle.tla" \
+  "$MUTANT_DIR/domain-integration/FuzzyReferenceLifecycle.tla"
+cp "$ROOT/proofs/tla/MC/FuzzyReferenceLifecycle.cfg" \
+  "$MUTANT_DIR/domain-integration/FuzzyReferenceLifecycle.cfg"
+perl -0pi -e 's/ELSE accepted\n/ELSE accepted \\cup {term}\n/' \
+  "$MUTANT_DIR/domain-integration/FuzzyReferenceLifecycle.tla"
+run_tlc_expect_failure fuzzy-reference-confirmation-mutant \
+  "$MUTANT_DIR/domain-integration/FuzzyReferenceLifecycle.tla" \
+  "$MUTANT_DIR/domain-integration/FuzzyReferenceLifecycle.cfg" \
+  "Invariant AcceptedExactlyCheckedReference is violated."
+
+cp "$ROOT/proofs/tla/LibcpgEvidenceLifecycle.tla" \
+  "$MUTANT_DIR/libcpg-evidence/LibcpgEvidenceLifecycle.tla"
+cp "$ROOT/proofs/tla/MC/LibcpgEvidenceLifecycle.cfg" \
+  "$MUTANT_DIR/libcpg-evidence/LibcpgEvidenceLifecycle.cfg"
+perl -0pi -e 's/  \/\\ guaranteeIndependence = "Independent"/  \/\\ guaranteeVerifier # Producer/' \
+  "$MUTANT_DIR/libcpg-evidence/LibcpgEvidenceLifecycle.tla"
+run_tlc_expect_failure libcpg-dependent-evidence-mutant \
+  "$MUTANT_DIR/libcpg-evidence/LibcpgEvidenceLifecycle.tla" \
+  "$MUTANT_DIR/libcpg-evidence/LibcpgEvidenceLifecycle.cfg" \
+  "Invariant DependentGuaranteeBlocksExact is violated."
+
+cp "$ROOT/proofs/tla/ProviderBoundaryLifecycle.tla" \
+  "$MUTANT_DIR/provider-status/ProviderBoundaryLifecycle.tla"
+cp "$ROOT/proofs/tla/MC/ProviderBoundaryLifecycle.cfg" \
+  "$MUTANT_DIR/provider-status/ProviderBoundaryLifecycle.cfg"
+perl -0pi -e "s/adaptedStatus' = originalStatus/adaptedStatus' = IF originalStatus = \"Incomplete\" THEN \"CompleteExact\" ELSE originalStatus/" \
+  "$MUTANT_DIR/provider-status/ProviderBoundaryLifecycle.tla"
+run_tlc_expect_failure provider-status-promotion-mutant \
+  "$MUTANT_DIR/provider-status/ProviderBoundaryLifecycle.tla" \
+  "$MUTANT_DIR/provider-status/ProviderBoundaryLifecycle.cfg" \
+  "Invariant AdaptationPreservesStatus is violated."
+
+cp "$ROOT/proofs/tla/ProviderBoundaryLifecycle.tla" \
+  "$MUTANT_DIR/provider-limitations/ProviderBoundaryLifecycle.tla"
+cp "$ROOT/proofs/tla/MC/ProviderBoundaryLifecycle.cfg" \
+  "$MUTANT_DIR/provider-limitations/ProviderBoundaryLifecycle.cfg"
+perl -0pi -e "s/adaptedLimitations' = originalLimitations/adaptedLimitations' = \"None\"/" \
+  "$MUTANT_DIR/provider-limitations/ProviderBoundaryLifecycle.tla"
+run_tlc_expect_failure provider-limitation-loss-mutant \
+  "$MUTANT_DIR/provider-limitations/ProviderBoundaryLifecycle.tla" \
+  "$MUTANT_DIR/provider-limitations/ProviderBoundaryLifecycle.cfg" \
+  "Invariant AdaptationPreservesLimitations is violated."
+
+cp "$ROOT/proofs/tla/ProviderBoundaryLifecycle.tla" \
+  "$MUTANT_DIR/provider-independence/ProviderBoundaryLifecycle.tla"
+cp "$ROOT/proofs/tla/MC/ProviderBoundaryLifecycle.cfg" \
+  "$MUTANT_DIR/provider-independence/ProviderBoundaryLifecycle.cfg"
+perl -0pi -e 's|  /\\ guaranteeDomain # ProducerDomain|  /\\ guaranteeActor # ProducerActor|' \
+  "$MUTANT_DIR/provider-independence/ProviderBoundaryLifecycle.tla"
+run_tlc_expect_failure provider-dependent-guarantee-mutant \
+  "$MUTANT_DIR/provider-independence/ProviderBoundaryLifecycle.tla" \
+  "$MUTANT_DIR/provider-independence/ProviderBoundaryLifecycle.cfg" \
+  "Invariant DependentGuaranteeBlocksExact is violated."
 
 cp "$ROOT/proofs/tla/LazyWfstLifecycle.tla" \
   "$MUTANT_DIR/lazy-wfst/LazyWfstLifecycle.tla"
@@ -297,6 +397,59 @@ run_tlc_expect_failure abi-v2-authority-mutant \
   "$MUTANT_DIR/abi-v2-authority/AbiV2Lifecycle.cfg" \
   "Invariant AuthoritativeRequiresVerifiedEvidence is violated."
 
+run_neutral_mutant() {
+  local name="$1"
+  local target="$2"
+  local expected="Invariant $target is violated"
+  local output="$MUTANT_DIR/neutral-foundations/$name"
+  python3 "$ROOT/scripts/neutral_foundation_mutants.py" \
+    "$name" \
+    "$ROOT/proofs/tla/NeutralFoundationLifecycle.tla" \
+    "$ROOT/proofs/tla/MC/NeutralFoundationLifecycle.cfg" \
+    "$output"
+  run_tlc_expect_failure "neutral-$name-mutant" \
+    "$output/NeutralFoundationLifecycle.tla" \
+    "$output/NeutralFoundationLifecycle.cfg" \
+    "$expected"
+}
+
+run_neutral_mutant type-ok TypeOK
+run_neutral_mutant named-profile NamedProfileIsNotRfc8785
+run_neutral_mutant identity-domains WireAndContentIdentityDomainsAreSeparate
+run_neutral_mutant projection-strength ProjectionNeverStrengthens
+run_neutral_mutant patch-base PatchCommitRequiresMatchingBase
+run_neutral_mutant incomplete-cache IncompleteNeverEntersCache
+run_neutral_mutant release-locks RuntimeReleaseRequiresExactCompleteLockedInputs
+run_neutral_mutant repository-spill OverflowSpillsOnlyToRepositoryStorage
+run_neutral_mutant checkpoint-resume ResumeRequiresCompatibleCheckpoint
+run_neutral_mutant tombstone-active TombstonesAreNotActive
+run_neutral_mutant source-accounting SourceAccountingNeverDropsUnclassifiedText
+run_neutral_mutant statistics-theorem StatisticsNeverDischargeTheoremObligations
+run_neutral_mutant stale-evidence StaleEvidenceCannotVerify
+run_neutral_mutant negative-control VerifiedAssuranceRequiresNegativeControl
+run_neutral_mutant revision-attestation VerifiedAssuranceRequiresRevisionAttestation
+run_neutral_mutant check-only-mutation CheckOnlyLintNeverMutatesDocumentation
+run_neutral_mutant stale-manifest StaleManifestCannotPassLint
+run_neutral_mutant release-gates ReleaseRequiresEveryNeutralFoundationGate
+run_neutral_mutant native-stack NativeStackBoundIsInputIndependent
+
+eventually_output="$MUTANT_DIR/neutral-foundations/eventually-terminal"
+python3 "$ROOT/scripts/neutral_foundation_mutants.py" \
+  eventually-terminal \
+  "$ROOT/proofs/tla/NeutralFoundationLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/NeutralFoundationLifecycle.cfg" \
+  "$eventually_output"
+run_tlc_expect_failure neutral-eventually-terminal-mutant \
+  "$eventually_output/NeutralFoundationLifecycle.tla" \
+  "$eventually_output/NeutralFoundationLifecycle.cfg" \
+  "Temporal properties were violated."
+
+"$ROOT/scripts/check-libcpg-manifest-mutants.sh"
+python3 "$ROOT/scripts/check-strong-bisimulation-exhaustive.py" \
+  2>&1 | tee "$LOG_DIR/strong-bisimulation-exhaustive.log"
+python3 "$ROOT/scripts/strong_bisimulation_mutants.py" \
+  2>&1 | tee "$LOG_DIR/strong-bisimulation-mutants.log"
+
 z3 "$ROOT/proofs/smt/vco-e4-contracts.smt2" \
   2>&1 | tee "$LOG_DIR/z3-vco-e4-contracts.log"
 diff -u \
@@ -315,7 +468,73 @@ diff -u \
   "$ROOT/proofs/smt/vco-e4-abi-v2.expected" \
   "$LOG_DIR/z3-vco-e4-abi-v2.log"
 
+z3 "$ROOT/proofs/smt/vco-e4-strong-bisimulation.smt2" \
+  2>&1 | tee "$LOG_DIR/z3-vco-e4-strong-bisimulation.log"
+diff -u \
+  "$ROOT/proofs/smt/vco-e4-strong-bisimulation.expected" \
+  "$LOG_DIR/z3-vco-e4-strong-bisimulation.log"
+
+z3 "$ROOT/proofs/smt/vco-e6-domain-contracts.smt2" \
+  2>&1 | tee "$LOG_DIR/z3-vco-e6-domain-contracts.log"
+diff -u \
+  "$ROOT/proofs/smt/vco-e6-domain-contracts.expected" \
+  "$LOG_DIR/z3-vco-e6-domain-contracts.log"
+
+z3 "$ROOT/proofs/smt/vco-e7-libcpg-assurance.smt2" \
+  2>&1 | tee "$LOG_DIR/z3-vco-e7-libcpg-assurance.log"
+diff -u \
+  "$ROOT/proofs/smt/vco-e7-libcpg-assurance.expected" \
+  "$LOG_DIR/z3-vco-e7-libcpg-assurance.log"
+
+z3 "$ROOT/proofs/smt/vco-e7-manifest-facts.smt2" \
+  2>&1 | tee "$LOG_DIR/z3-vco-e7-manifest-facts.log"
+diff -u \
+  "$ROOT/proofs/smt/vco-e7-manifest-facts.expected" \
+  "$LOG_DIR/z3-vco-e7-manifest-facts.log"
+
+z3 "$ROOT/proofs/smt/vco-e9-provider-boundary.smt2" \
+  2>&1 | tee "$LOG_DIR/z3-vco-e9-provider-boundary.log"
+diff -u \
+  "$ROOT/proofs/smt/vco-e9-provider-boundary.expected" \
+  "$LOG_DIR/z3-vco-e9-provider-boundary.log"
+
+z3 "$ROOT/proofs/smt/vco-e9-neutral-foundations.smt2" \
+  2>&1 | tee "$LOG_DIR/z3-vco-e9-neutral-foundations.log"
+diff -u \
+  "$ROOT/proofs/smt/vco-e9-neutral-foundations.expected" \
+  "$LOG_DIR/z3-vco-e9-neutral-foundations.log"
+
 "$ROOT/proofs/verify-abi-bounded.sh"
+"$ROOT/scripts/check-neutral-foundation-required-red.sh"
+"$ROOT/scripts/check-libcpg-manifest-required-red.sh"
+"$ROOT/scripts/check-strong-bisimulation-required-red.sh"
+
+# The documentation linter is temporarily opt-in while its maintainer completes
+# the corruption-safety fix. Keep formal verification usable without invoking a
+# tool that is currently prohibited from touching this documentation tree.
+if [[ "${LLING_RUN_VINARY_DOC_LINT:-0}" == "1" ]]; then
+  if ! command -v vinary-doc-lint >/dev/null 2>&1; then
+    echo "ERROR: vinary-doc-lint was requested but is unavailable." >&2
+    exit 127
+  fi
+  vinary-doc-lint check \
+    "$ROOT/docs/optimization/certified-strong-bisimulation-contract.md" \
+    "$ROOT/docs/optimization/formal-verification.md" \
+    "$ROOT/proofs/doc/proof-status.md" \
+    "$ROOT/docs/BIBLIOGRAPHY.md" \
+    "$ROOT/docs/README.md" \
+    "$ROOT/docs/diagrams/README.md" \
+    2>&1 | tee "$LOG_DIR/strong-bisimulation-doc-lint.log"
+  vinary-doc-lint --diagram-tools check \
+    "$ROOT/docs/optimization/certified-strong-bisimulation-contract.md" \
+    "$ROOT/docs/diagrams/optimization/strong-bisimulation-flow.puml" \
+    "$ROOT/docs/diagrams/optimization/strong-bisimulation-evidence.puml" \
+    "$ROOT/docs/diagrams/optimization/strong-bisimulation-flow.svg" \
+    "$ROOT/docs/diagrams/optimization/strong-bisimulation-evidence.svg" \
+    2>&1 | tee "$LOG_DIR/strong-bisimulation-diagram-lint.log"
+else
+  echo "Skipping vinary-doc-lint while its corruption-safety fix is pending."
+fi
 
 rm -rf "$MUTANT_DIR"
 echo "Formal verification completed successfully. Evidence logs: $LOG_DIR"
