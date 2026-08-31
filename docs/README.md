@@ -56,6 +56,7 @@ Core concepts and design of the framework:
 | [WFST Operations](architecture/wfst-operations.md) | Rational (union, concat, closure) and unary (invert, project, reverse) operations |
 | [Lattices](architecture/lattices.md) | Weighted DAGs representing correction alternatives |
 | [WFST Traits](architecture/wfst-traits.md) | Trait hierarchy for finite-state transducers |
+| [Lazy WFST Lifecycle](architecture/lazy-wfst-lifecycle.md) | Exact expansion, retry, cancellation, snapshot, concurrency, and stack-safety semantics |
 | [Backends](architecture/backends.md) | Storage abstraction and implementations |
 | [Resource ABI](architecture/resource-abi.md) | The scalar-WFST binding layer: providers, capture-once snapshots, the lazy composition product, the registry, and the raw-u32 status wire |
 | [Foreign-language bindings](bindings/README.md) | C, C++, JavaScript, TypeScript, and ClojureScript package guides, executable evidence, ownership laws, and documentation governance |
@@ -147,6 +148,9 @@ phase-by-phase implementation ledger are frozen historical records — see
 | [Lookahead Tables](optimization/lookahead.md) | Pushing reachable weight to a pruning frontier |
 | [N-gram Back-off](optimization/ngram-backoff.md) | Back-off $`P(w \mid h) = \lambda \cdot \hat{P}(w \mid h) + (1 - \lambda) \cdot P(w \mid h')`$ |
 | [Token Grouping](optimization/token-grouping.md) | LET-Decoder lazy-evaluation token grouping |
+| [Categorical Optimizer Contract](optimization/categorical-optimizer-contract.md) | Typed morphisms, exact rewrite witnesses, ownership boundaries, and performance consequences |
+| [Plan, Concurrency, and Provenance](optimization/plan-and-provenance.md) | Rank-certified DAG execution, budgets, cancellation, deterministic commit, and publication |
+| [Formal Verification](optimization/formal-verification.md) | Rocq, TLA+/TLC, Z3, and Kani evidence with bounded negative controls |
 
 ### Archive
 
@@ -184,6 +188,7 @@ Correction-layer implementations:
 | Document | Description |
 |----------|-------------|
 | [ABI Trust Model](security/abi-trust-model.md) | Foreign scalar-WFST providers as untrusted input: validation duties, the F1 case study, panic containment, threading trust, residual assumptions |
+| [Optimizer and ABI Contracts](security/optimizer-abi-contracts.md) | Tape compatibility, exactness claims, plans, budgets, cancellation, retains, and opaque ABI-v1 layout |
 
 ### Release engineering
 
@@ -195,7 +200,7 @@ Correction-layer implementations:
 
 | Document | Description |
 |----------|-------------|
-| [C ABI Reference](api/c-abi-reference.md) | The 52-function `lling_*` C ABI: dynamic semiring and lattice consumers, WFST construction/composition, statuses, ownership, threading, and complexity |
+| [C ABI Reference](api/c-abi-reference.md) | The 61-function `lling_*` C ABI: dynamic algebra consumers, WFST/resource operations, typed metadata, cancellation, statuses, ownership, threading, and complexity |
 | [Semiring Reference](api/semiring-reference.md) | `Semiring`, `DivisibleSemiring`, `StarSemiring` |
 | [WFST Reference](api/wfst-reference.md) | `Wfst`, `MutableWfst`, `LazyWfst` |
 | [Lattice Reference](api/lattice-reference.md) | `Lattice`, `LatticeBuilder`, `EdgeMetadata` |

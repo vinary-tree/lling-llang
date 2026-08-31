@@ -1,0 +1,55 @@
+@startuml categorical-optimizer-contract
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam componentStyle rectangle
+skinparam ArrowColor #607D8B
+skinparam ArrowThickness 1.3
+
+title <b>Categorical optimizer contract</b>\n<size:11><i>semantic laws at the boundary; domain structures on the hot path</i></size>
+
+package "semantic leaf" #D6EAF8 {
+  component "libmorphism\nsignatures, witnesses,\nprecision, effects" as LM #D6EAF8
+}
+
+package "lling-llang coordinator" #FCF3CF {
+  component "typed plan builder\nfinite rank-certified DAG" as Plan #FCF3CF
+  component "law-gated rewrite planner\nexact by default" as Rewrite #C8E6C9
+  component "deterministic executor\nready queue + ordered commit" as Exec #C8E6C9
+  component "LazyWfst adapter\nCacheAll / LRU / NoCache" as Lazy #BBDEFB
+  component "opaque ABI v1 adapter\nretain / snapshot / release" as Abi #FFCDD2
+}
+
+package "domain engines" #ECEFF1 {
+  component "Replete\ne-graph saturation" as Replete #E1BEE7
+  component "Rigail\nsemiring/equation algebra" as Rigail #E1BEE7
+  component "libvgraph\nCSR/SCC/wavefront" as Graph #BBDEFB
+  component "schedlib\ninjected execution" as Sched #C8E6C9
+}
+
+LM --> Plan : typed endpoints\nvalidation witnesses
+Plan --> Rewrite : dependencies respect\n<latex>r(u) < r(v)</latex>
+Rewrite --> Exec : candidate + preservation\nwitness + claim axes
+Exec --> Lazy : demand-driven state access
+Exec --> Abi : stable public observation
+
+Rewrite ..> Replete : explicit adapter
+Rewrite ..> Rigail : explicit adapter
+Plan ..> Graph : explicit adapter
+Exec ..> Sched : injected adapter
+
+note bottom of Rewrite #FFF59D
+  Exactness, precision, and completeness
+  are distinct. Approximation cannot
+  promote itself to exact.
+end note
+
+legend right
+  |<#D6EAF8> semantic contracts |
+  |<#FCF3CF> lling-llang ownership |
+  |<#C8E6C9> optimizer/execution |
+  |<#BBDEFB> structural/data foundation |
+  |<#E1BEE7> domain engine adapter |
+  |<#FFCDD2> ABI trust boundary |
+endlegend
+@enduml

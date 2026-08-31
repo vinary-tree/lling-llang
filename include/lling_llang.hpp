@@ -191,6 +191,39 @@ private:
     LlingLatticeValue* value_ = nullptr;
 };
 
+class cancellation final {
+public:
+    cancellation() { check(lling_cancellation_v2_new(&value_)); }
+    cancellation(const cancellation&) = delete;
+    cancellation& operator=(const cancellation&) = delete;
+    cancellation(cancellation&& other) noexcept
+        : value_(std::exchange(other.value_, nullptr)) {}
+    cancellation& operator=(cancellation&& other) noexcept {
+        if (this != &other) {
+            release();
+            value_ = std::exchange(other.value_, nullptr);
+        }
+        return *this;
+    }
+    ~cancellation() { release(); }
+    void request(LlingCancellationReasonV2 reason) const {
+        check(lling_cancellation_v2_request(
+            value_, static_cast<std::uint32_t>(reason)));
+    }
+    [[nodiscard]] std::uint32_t reason() const {
+        std::uint32_t result = 0;
+        check(lling_cancellation_v2_reason(value_, &result));
+        return result;
+    }
+private:
+    void release() noexcept {
+        if (value_ != nullptr) {
+            (void)lling_cancellation_v2_free(&value_);
+        }
+    }
+    LlingCancellationV2* value_ = nullptr;
+};
+
 class wfst final {
 public:
     explicit wfst(LlingWfst* value) noexcept : value_(value) {}

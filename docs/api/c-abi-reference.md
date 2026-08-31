@@ -1,6 +1,6 @@
 # C ABI reference — `lling_llang.h`
 
-The complete reference for lling-llang's stable, project-owned C ABI: all 52
+The complete reference for lling-llang's stable, project-owned C ABI: all 61
 exported `lling_*` functions, their exact signatures, preconditions, returnable
 status sets, ownership and threading rules, and complexity — plus the
 weight-domain ↔ semiring dictionary shared with the whole vinary-tree family.
@@ -34,7 +34,7 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); authoring rules in
 | `LlingStatus` | The `uint32_t` status enum returned by every fallible `lling_*` call (values 0–7, [table below](#status-codes)). |
 | `VtResource` | The family's two-word retained handle `{context, vtable}`; a non-null value owns exactly one retain. |
 | `vt.scalar-wfst.1` | The 16-byte interface identity under which scalar WFSTs cross the family ABI. |
-| **handle** | An opaque caller-owned pointer (`LlingWfstBuilder*`, `LlingWfst*`) freed by exactly one matching `*_free`. |
+| **handle** | An opaque caller-owned pointer released according to its matching ownership rule. Handles include builders, WFSTs, semiring contexts/weights, lattice values, and cancellation. |
 | **snapshot** | The immutable revision a consumer captures once before traversal; state identifiers are scoped to it. |
 | $`\langle K, \oplus, \otimes, \bar{0}, \bar{1} \rangle`$ | A semiring: carrier $`K`$, path-alternation $`\oplus`$, path-extension $`\otimes`$, and their identities ($`\bar{0}`$ = no path, $`\bar{1}`$ = empty path). |
 | $`Q`$, $`E`$ | State set and arc set of a WFST; $`\lvert Q\rvert`$, $`\lvert E\rvert`$ are their sizes. |
@@ -42,11 +42,11 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); authoring rules in
 
 ## The surface at a glance
 
-Fifty-two functions in seven groups. Every fallible call returns a
+Sixty-one functions in nine groups. Every fallible call returns a
 `LlingStatus`; every non-`OK` return latches a thread-local, NUL-terminated
 diagnostic readable through `lling_last_error_message()`.
 
-![The 52-function lling-llang C ABI surface: versioning and diagnostics, 21 host-semiring calls, 12 host-lattice calls, nine builder-lifecycle calls, six immutable-WFST operations, the shared two-word resource, and their status contract.](../diagrams/api/c-abi-surface.svg)
+![The 61-function lling-llang C ABI surface: dynamic algebras, WFSTs, typed metadata, cancellation, retained resources, and their status contract.](../diagrams/api/c-abi-surface.svg)
 
 *Yellow = lling-llang-owned surface; green = retained `VtResource` handles;
 red = foreign providers across the trust boundary; grey = status and
@@ -82,6 +82,8 @@ Handle (6)         lling_wfst_free, lling_wfst_import,
 Resource (1)       lling_resource_release
                    (VtResource also flows IN to import/compose from any
                     compatible producer: libdictenstein, duallity, …)
+Typed metadata (5) header, descriptor, budget, outcome, identity validation
+Cancellation (4)   new, request, reason, single-release free
 ```
 
 </details>
@@ -90,7 +92,8 @@ Resource (1)       lling_resource_release
 
 ```c
 #define LLING_ABI_VERSION 1u
-#define LLING_API_REVISION 4u
+#define LLING_API_REVISION 5u
+#define LLING_ABI_V2 2u
 
 LLING_API uint32_t lling_abi_version(void);
 LLING_API uint32_t lling_api_revision(void);
@@ -105,6 +108,8 @@ Two counters, two different promises, following the family's
 - **`lling_api_revision()`** — the additive counter. It only grows; a runtime
   revision **at least** your compile-time `LLING_API_REVISION` guarantees that
   every symbol you compiled against exists.
+- **`LLING_ABI_V2`** — the version stored inside typed metadata structures,
+  independent from the project ABI counter.
 
 Both functions are infallible, never touch the error slot, are safe from any
 thread at any time, and cost $`O(1)`$. The canonical handshake:
@@ -165,6 +170,109 @@ Statuses arriving **from** foreign providers travel the wire as raw `uint32_t`
 and are decoded with a range check before any typed use — an out-of-range
 value is classified as `PROVIDER_ERROR`-class misbehavior, never undefined
 behavior. See [Resource ABI architecture](../architecture/resource-abi.md#the-raw-u32-status-wire).
+
+## Typed metadata ABI v2
+
+API revision 5 adds pointer-free metadata without changing project ABI v1 or
+the existing resource calls. A `VtResource` remains valid but is explicitly
+opaque: it cannot authorize typed evidence until a producer supplies a
+canonical `LlingWfstDescriptorV2`.
+
+### Common prefix and layouts
+
+Every typed structure begins with:
+
+```c
+typedef struct LlingAbiV2Header {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint64_t flags;
+    uint64_t reserved;
+} LlingAbiV2Header;
+```
+
+The validator accepts a larger `struct_size` for additive future tails. It
+rejects a short prefix, `abi_version != LLING_ABI_V2`, unknown flags, or
+nonzero reserved data. Zero-initialize structures before assigning fields.
+
+| Type | Size | Purpose |
+|---|---:|---|
+| `LlingAbiV2Header` | 24 bytes | Additive size, format, flags, and reserved prefix. |
+| `LlingId128` | 16 bytes | Semantic or snapshot identity; all-zero means absent. |
+| `LlingDigest256` | 32 bytes | Evidence-context digest; all-zero means absent. |
+| `LlingWfstDescriptorV2` | 120 bytes | Separate input/output tape, algebra, snapshot, and context identities. |
+| `LlingBudgetV2` | 72 bytes | Independently enabled state, arc, byte, and work limits. |
+| `LlingOutcomeV2` | 96 bytes | Orthogonal semantic, completion, applicability, termination, and evidence axes. |
+
+The C/C++ header, Rust properties, and Kani harnesses pin these layouts.
+
+### Descriptors, budgets, and outcomes
+
+Descriptor presence flags are canonical: `LLING_DESCRIPTOR_SIGNATURE_KNOWN`
+requires all three tape/algebra IDs, while snapshot and context flags must
+exactly match nonzero data. Identity comparison checks all five fields, not
+only the snapshot.
+
+Each active budget flag requires a positive value; every inactive limit and
+reserved word must be zero:
+
+```c
+LlingBudgetV2 budget = {0};
+budget.header.struct_size = (uint32_t)sizeof budget;
+budget.header.abi_version = LLING_ABI_V2;
+budget.header.flags = LLING_BUDGET_STATES | LLING_BUDGET_WORK;
+budget.max_states = 100000;
+budget.max_work = 5000000;
+if (lling_abi_v2_validate_budget(&budget) != LLING_STATUS_OK) {
+    /* Reject before starting work. */
+}
+```
+
+Outcome axes are raw `uint32_t` values and are range-checked before enum
+decoding. An authoritative exact result requires exact precision, complete
+work, applicability, successful termination, and live verified evidence.
+Cancelled, budget-exhausted, and failed results publish neither resource nor
+evidence; cancellation and exhaustion also require incomplete completion.
+
+The validation algorithm is fixed-work and stack-safe:
+
+```text
+Algorithm ValidateTypedPrefix(pointer, required_size, known_flags)
+  1. Reject null or misaligned input without dereferencing it.
+  2. Copy only the common header and validate size, format, flags, and reserve.
+  3. Copy the now-proven known prefix into fixed-width local storage.
+  4. Decode each raw discriminant through a total range check.
+  5. Check structure-specific presence and publication laws.
+  6. Publish output only after every check succeeds.
+```
+
+| Function | Successful result |
+|---|---|
+| `lling_abi_v2_validate_header` | The header is a canonical additive prefix. |
+| `lling_abi_v2_validate_descriptor` | Writes whether typed evidence is admissible. |
+| `lling_abi_v2_validate_budget` | The flag/value limit representation is canonical. |
+| `lling_abi_v2_validate_outcome` | Writes whether the result is authoritative and exact. |
+| `lling_abi_v2_identity_matches` | Writes whether all replay-critical fields match. |
+
+All outputs remain unchanged on failure. Each validator uses $`O(1)`$ time and
+auxiliary space and performs no callback.
+
+## Cooperative cancellation v2
+
+`LlingCancellationV2` stores one atomic raw reason. Zero means live; the first
+valid request records requested, deadline, budget, or source cancellation and
+later requests cannot overwrite it.
+
+| Function | Contract |
+|---|---|
+| `lling_cancellation_v2_new` | Requires an initially null output slot and allocates one owner. |
+| `lling_cancellation_v2_request` | Range-checks the reason and performs one first-writer-wins atomic transition. |
+| `lling_cancellation_v2_reason` | Writes zero while live or the sticky first reason. |
+| `lling_cancellation_v2_free` | Frees once and nulls the caller's slot; repeating through that slot returns `CLOSED`. |
+
+Request and reason calls may race. Freeing may not race them: synchronize all
+users first. Copying the raw pointer does not create another owner. Operations
+are $`O(1)`$, nonrecursive, and callback-free.
 
 ## Host-defined dynamic semirings — 21 functions
 

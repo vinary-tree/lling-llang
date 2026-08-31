@@ -170,6 +170,10 @@ name = "core_benchmarks"
 harness = false
 
 [[bench]]
+name = "lazy_lifecycle_benchmarks"
+harness = false
+
+[[bench]]
 name = "ffi_compose_benchmarks"
 harness = false
 required-features = ["ffi"]

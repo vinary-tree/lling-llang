@@ -1,5 +1,8 @@
 //! Stable project-owned C ABI for Unicode/tropical lling-llang WFSTs.
 
+mod v2;
+pub use v2::*;
+
 use crate::bindings::{BindingError, OwnedWfstResource};
 use crate::dynamic_semiring::{
     DynamicSemiringContext, DynamicSemiringError, DynamicSemiringWeight, NaturalOrder,
@@ -17,7 +20,7 @@ pub use lattice::*;
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_API_REVISION: u32 = 4;
+pub const LLING_API_REVISION: u32 = 5;
 
 /// Status returned by lling-llang C functions.
 #[repr(u32)]
@@ -936,6 +939,229 @@ pub extern "C" fn lling_resource_release(resource: VtResource) {
             release(resource.context);
         }
     }
+}
+
+fn checked_v2_pointer<T>(pointer: *const T, name: &'static str) -> Result<(), LlingStatus> {
+    if pointer.is_null() {
+        set_error(format!("{name} is null"));
+        return Err(LlingStatus::NullPointer);
+    }
+    if (pointer as usize) % std::mem::align_of::<T>() != 0 {
+        set_error(format!("{name} is misaligned"));
+        return Err(LlingStatus::InvalidArgument);
+    }
+    Ok(())
+}
+
+fn required_v2_ref<'a, T>(pointer: *const T, name: &'static str) -> Result<&'a T, LlingStatus> {
+    checked_v2_pointer(pointer, name)?;
+    Ok(unsafe { &*pointer })
+}
+
+fn required_v2_mut<'a, T>(pointer: *mut T, name: &'static str) -> Result<&'a mut T, LlingStatus> {
+    checked_v2_pointer(pointer.cast_const(), name)?;
+    Ok(unsafe { &mut *pointer })
+}
+
+fn read_v2_struct<T: Copy>(
+    pointer: *const T,
+    name: &'static str,
+    known_flags: u64,
+) -> Result<T, LlingStatus> {
+    checked_v2_pointer(pointer, name)?;
+    let header = unsafe { pointer.cast::<LlingAbiV2Header>().read() };
+    if !validate_abi_v2_header(&header, std::mem::size_of::<T>(), known_flags) {
+        set_error(format!("{name} has an invalid ABI-v2 header"));
+        return Err(LlingStatus::InvalidArgument);
+    }
+    Ok(unsafe { pointer.read() })
+}
+
+fn decode_v2_bool(raw: u8, name: &'static str) -> Result<bool, LlingStatus> {
+    match raw {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => {
+            set_error(format!("{name} must be zero or one"));
+            Err(LlingStatus::InvalidArgument)
+        }
+    }
+}
+
+/// Validate a typed ABI-v2 header and its additive known prefix.
+#[no_mangle]
+pub extern "C" fn lling_abi_v2_validate_header(
+    header: *const LlingAbiV2Header,
+    required_size: u32,
+    known_flags: u64,
+) -> LlingStatus {
+    boundary(|| {
+        let header = *required_v2_ref(header, "header")?;
+        if !validate_abi_v2_header(&header, required_size as usize, known_flags) {
+            set_error("header is not a canonical ABI-v2 prefix");
+            return Err(LlingStatus::InvalidArgument);
+        }
+        Ok(())
+    })
+}
+
+/// Validate a WFST descriptor and report whether typed evidence is admissible.
+#[no_mangle]
+pub extern "C" fn lling_abi_v2_validate_descriptor(
+    descriptor: *const LlingWfstDescriptorV2,
+    out_typed_evidence_allowed: *mut u8,
+) -> LlingStatus {
+    boundary(|| {
+        let descriptor = read_v2_struct(
+            descriptor,
+            "descriptor",
+            LLING_DESCRIPTOR_SIGNATURE_KNOWN
+                | LLING_DESCRIPTOR_SNAPSHOT_PRESENT
+                | LLING_DESCRIPTOR_CONTEXT_PRESENT,
+        )?;
+        let output = required_v2_mut(out_typed_evidence_allowed, "out_typed_evidence_allowed")?;
+        if !validate_descriptor_v2(&descriptor) {
+            set_error("descriptor fields and presence flags are not canonical");
+            return Err(LlingStatus::InvalidArgument);
+        }
+        *output = u8::from(abi_v2_typed_evidence_allowed(&descriptor));
+        Ok(())
+    })
+}
+
+/// Validate a canonical ABI-v2 resource budget.
+#[no_mangle]
+pub extern "C" fn lling_abi_v2_validate_budget(budget: *const LlingBudgetV2) -> LlingStatus {
+    boundary(|| {
+        let budget = read_v2_struct(
+            budget,
+            "budget",
+            LLING_BUDGET_STATES | LLING_BUDGET_ARCS | LLING_BUDGET_BYTES | LLING_BUDGET_WORK,
+        )?;
+        if !validate_budget_v2(&budget) {
+            set_error("budget flags, limits, or reserved fields are not canonical");
+            return Err(LlingStatus::InvalidArgument);
+        }
+        Ok(())
+    })
+}
+
+/// Validate an outcome and report whether it is authoritative and exact.
+#[no_mangle]
+pub extern "C" fn lling_abi_v2_validate_outcome(
+    outcome: *const LlingOutcomeV2,
+    resource_present: u8,
+    evidence_present: u8,
+    out_authoritative_exact: *mut u8,
+) -> LlingStatus {
+    boundary(|| {
+        let outcome = read_v2_struct(outcome, "outcome", 0)?;
+        let resource_present = decode_v2_bool(resource_present, "resource_present")?;
+        let evidence_present = decode_v2_bool(evidence_present, "evidence_present")?;
+        let output = required_v2_mut(out_authoritative_exact, "out_authoritative_exact")?;
+        if !validate_outcome_v2(&outcome, resource_present, evidence_present) {
+            set_error("outcome axes or publication state are not canonical");
+            return Err(LlingStatus::InvalidArgument);
+        }
+        *output = u8::from(abi_v2_authoritative_exact(&outcome, evidence_present));
+        Ok(())
+    })
+}
+
+/// Compare the replay-critical tape, algebra, snapshot, and context identities.
+#[no_mangle]
+pub extern "C" fn lling_abi_v2_identity_matches(
+    expected: *const LlingWfstDescriptorV2,
+    observed: *const LlingWfstDescriptorV2,
+    out_matches: *mut u8,
+) -> LlingStatus {
+    boundary(|| {
+        let known_flags = LLING_DESCRIPTOR_SIGNATURE_KNOWN
+            | LLING_DESCRIPTOR_SNAPSHOT_PRESENT
+            | LLING_DESCRIPTOR_CONTEXT_PRESENT;
+        let expected = read_v2_struct(expected, "expected", known_flags)?;
+        let observed = read_v2_struct(observed, "observed", known_flags)?;
+        let output = required_v2_mut(out_matches, "out_matches")?;
+        if !validate_descriptor_v2(&expected) || !validate_descriptor_v2(&observed) {
+            set_error("identity comparison requires canonical descriptors");
+            return Err(LlingStatus::InvalidArgument);
+        }
+        *output = u8::from(abi_v2_identity_matches(&expected, &observed));
+        Ok(())
+    })
+}
+
+/// Allocate a live cooperative-cancellation handle.
+#[no_mangle]
+pub extern "C" fn lling_cancellation_v2_new(
+    out_cancellation: *mut *mut LlingCancellationV2,
+) -> LlingStatus {
+    boundary(|| {
+        let output = required_v2_mut(out_cancellation, "out_cancellation")?;
+        if !output.is_null() {
+            set_error("out_cancellation must initially be null");
+            return Err(LlingStatus::InvalidArgument);
+        }
+        let layout = std::alloc::Layout::new::<LlingCancellationV2>();
+        let allocation = unsafe { std::alloc::alloc(layout) }.cast::<LlingCancellationV2>();
+        if allocation.is_null() {
+            set_error("unable to allocate cancellation handle");
+            return Err(LlingStatus::LimitExceeded);
+        }
+        unsafe { allocation.write(LlingCancellationV2::new()) };
+        *output = allocation;
+        Ok(())
+    })
+}
+
+/// Request cancellation; the first valid reason remains sticky.
+#[no_mangle]
+pub extern "C" fn lling_cancellation_v2_request(
+    cancellation: *const LlingCancellationV2,
+    reason: u32,
+) -> LlingStatus {
+    boundary(|| {
+        let cancellation = required_v2_ref(cancellation, "cancellation")?;
+        let reason = LlingCancellationReasonV2::from_raw(reason).ok_or_else(|| {
+            set_error("cancellation reason is not a known wire discriminant");
+            LlingStatus::InvalidArgument
+        })?;
+        cancellation.request(reason);
+        Ok(())
+    })
+}
+
+/// Read zero for a live handle or its first cancellation reason.
+#[no_mangle]
+pub extern "C" fn lling_cancellation_v2_reason(
+    cancellation: *const LlingCancellationV2,
+    out_reason: *mut u32,
+) -> LlingStatus {
+    boundary(|| {
+        let cancellation = required_v2_ref(cancellation, "cancellation")?;
+        let output = required_v2_mut(out_reason, "out_reason")?;
+        *output = cancellation.reason();
+        Ok(())
+    })
+}
+
+/// Release a cancellation handle exactly once and null the caller's slot.
+#[no_mangle]
+pub extern "C" fn lling_cancellation_v2_free(
+    cancellation: *mut *mut LlingCancellationV2,
+) -> LlingStatus {
+    boundary(|| {
+        let slot = required_v2_mut(cancellation, "cancellation")?;
+        if slot.is_null() {
+            set_error("cancellation handle has already been released");
+            return Err(LlingStatus::Closed);
+        }
+        checked_v2_pointer((*slot).cast_const(), "*cancellation")?;
+        let owned = *slot;
+        *slot = std::ptr::null_mut();
+        unsafe { drop(Box::from_raw(owned)) };
+        Ok(())
+    })
 }
 
 #[cfg(test)]

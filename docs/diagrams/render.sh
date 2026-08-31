@@ -25,6 +25,31 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # docs/diagrams
+REPO_ROOT="$(cd "$DIR/../.." && pwd)"
+TEMP_ROOT="$REPO_ROOT/target/docs-diagrams/tmp"
+mkdir -p "$TEMP_ROOT"
+export TMPDIR="$TEMP_ROOT"
+if [[ "${JAVA_TOOL_OPTIONS:-}" != *"-Djava.io.tmpdir="* ]]; then
+  export JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$TEMP_ROOT ${JAVA_TOOL_OPTIONS:-}"
+fi
+
+if [[ "${LLING_LLANG_DIAGRAMS_SCOPED:-0}" != "1" ]]; then
+  if command -v systemd-run >/dev/null 2>&1 \
+     && systemd-run --user --scope -q true >/dev/null 2>&1; then
+    exec systemd-run --user --scope -q \
+      -p MemoryMax=4G -p MemorySwapMax=0 -p CPUQuota=300% -p TasksMax=64 \
+      --setenv=LLING_LLANG_DIAGRAMS_SCOPED=1 \
+      --setenv=TMPDIR="$TEMP_ROOT" \
+      --setenv=JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$TEMP_ROOT" \
+      bash "$0" "$@"
+  fi
+
+  if [[ "${CI:-false}" != "true" ]]; then
+    echo "ERROR: a user systemd scope is required for diagram tooling." >&2
+    exit 1
+  fi
+fi
+
 FORCE=0
 CHECK=0
 declare -a TARGETS=()
@@ -53,11 +78,11 @@ render_one() {
     puml) need plantuml "$src" || return 0; local outdir; outdir="$(cd "$(dirname "$src")" && pwd)";
           # DISPLAY= forces AWT headless (no X11 needed); -o is absolute so the SVG
           # lands as a sibling regardless of whether $src is a relative or absolute arg.
-          DISPLAY= plantuml -checkonly "$src" && DISPLAY= plantuml -tsvg -o "$outdir" "$src" ;;
+          DISPLAY="" plantuml -checkonly "$src" && DISPLAY="" plantuml -tsvg -o "$outdir" "$src" ;;
     d2)   need d2 "$src"       || return 0; d2 --layout elk "$src" "$svg" ;;
     mmd)  need mmdc "$src"     || return 0; mmdc --quiet -i "$src" -o "$svg" -b transparent ;;
     tex)  need lualatex "$src" || return 0; need dvisvgm "$src" || return 0; (
-            tmp="$(mktemp -d)"; cp "$src" "$tmp/fig.tex"
+            tmp="$(mktemp -d "$TEMP_ROOT/render.XXXXXX")"; cp "$src" "$tmp/fig.tex"
             ( cd "$tmp" && lualatex --interaction=nonstopmode --halt-on-error --output-format=dvi fig.tex >/dev/null 2>&1 )
             dvisvgm --no-fonts --exact --output="$svg" "$tmp/fig.dvi" >/dev/null 2>&1
             rm -rf "$tmp"
@@ -71,11 +96,11 @@ render_one() {
 validate_one() {   # --check: parse/validate only, emit no SVG
   local src="$1" ext="${1##*.}"
   case "$ext" in
-    puml) need plantuml "$src" || return 0; DISPLAY= plantuml -checkonly "$src" ;;
+    puml) need plantuml "$src" || return 0; DISPLAY="" plantuml -checkonly "$src" ;;
     dot)  need dot "$src"      || return 0; dot -Tcanon "$src" >/dev/null ;;
     d2)   need d2 "$src"       || return 0; d2 fmt "$src" >/dev/null ;;
     mmd)  need mmdc "$src"     || return 0; mmdc --quiet -i "$src" -o /dev/null >/dev/null 2>&1 ;;
-    tex)  need lualatex "$src" || return 0; local t r; t="$(mktemp -d)"; cp "$src" "$t/fig.tex";
+    tex)  need lualatex "$src" || return 0; local t r; t="$(mktemp -d "$TEMP_ROOT/check.XXXXXX")"; cp "$src" "$t/fig.tex";
           ( cd "$t" && lualatex --interaction=nonstopmode --halt-on-error --output-format=dvi fig.tex >/dev/null 2>&1 ); r=$?;
           rm -rf "$t"; return $r ;;
     svg)  return 0 ;;

@@ -29,7 +29,8 @@ from a shared-library filename.
 
 [`compose_demo.c`](examples/compose_demo.c) is compiled and run by CI. It builds
 `a:x/0.5` and `x:z/0.25`, composes them, discovers the scalar-WFST interface,
-observes the product arc `a:z/0.75`, and balances every owner. The four-library
+observes the product arc `a:z/0.75`, validates typed metadata and cancellation,
+and balances every owner. The four-library
 family pipeline in duallity independently tests producer-to-adapter-to-composer
 handoff.
 
@@ -44,6 +45,8 @@ handoff.
 | `LlingSemiring` / `LlingSemiringWeight` | Retained host-defined algebra context and explicitly owned provider-scoped weight tokens. |
 | `LlingLatticeValue` | One retained immutable `vt.lattice.val.1` value with checked join, meet, equality, stable bytes, diagnostics, bounded folds, and finite law probes. |
 | `VtResource` | Two-word `{context, vtable}` handle. `lling_wfst_resource` returns one owned retain implementing `vt.scalar-wfst.1`. |
+| `LlingWfstDescriptorV2` / `LlingBudgetV2` / `LlingOutcomeV2` | Pointer-free, range-checked typed metadata with canonical identities, limits, and orthogonal outcome axes. |
+| `LlingCancellationV2` | Thread-safe first-reason-wins cancellation handle; release through the caller's pointer slot. |
 | label | Optional Unicode scalar. `has_label == 0` denotes epsilon; otherwise the scalar must be valid. |
 | weight | `double` interpreted under the advertised weight domain. The constructed/imported/composed C surface is tropical. |
 
@@ -62,6 +65,7 @@ pointers only for the synchronous call.
 
 - Free every builder and WFST exactly once.
 - Release every resource returned by `lling_wfst_resource` exactly once.
+- Release cancellation with `lling_cancellation_v2_free(&slot)`; it nulls the slot.
 - Builder build moves the graph in `$`\mathcal{O}(1)`$; the builder shell still
   requires `lling_wfst_builder_free`.
 - Composition captures one immutable snapshot per input at construction. Input
@@ -81,7 +85,8 @@ Every fallible function returns `LlingStatus`. Branch on the enum and copy
 replaced by the next call on that thread. Invalid arguments, null pointers,
 contained panics, incompatible resources, provider faults, representation
 limits, and consumed builders remain distinct. Rust panics never unwind through
-C.
+C. Typed ABI-v2 validation rejects malformed pointers, flags, discriminants,
+presence bytes, reserved fields, and publication states before writing output.
 
 ## Concurrency and reentrancy
 
@@ -92,7 +97,8 @@ parallel reentrancy. The serial callback gate is one nonblocking atomic
 admission check and never holds a mutex across provider code. C lattice
 handles remain same-thread even when a Rust caller could explicitly promote a
 validated parallel provider. Lazy product publication is shared without a
-resource-wide traversal lock.
+resource-wide traversal lock. Cancellation requests and reads may race; join
+all users before freeing the cancellation handle.
 
 ## Performance and marshalling
 
@@ -107,6 +113,7 @@ Dynamic lattice folds send at most 256 operands through each `join_many` or
 `meet_many` callback and fall back pairwise when batching is unavailable.
 Each intermediate is revalidated, allowing compatible providers to change
 representation without reusing a stale function pointer.
+Typed validation and cancellation are fixed-work $`O(1)`$ operations.
 
 ## Security and provider trust
 
@@ -126,6 +133,8 @@ resource lacks Unicode-scalar `vt.scalar-wfst.1` or advertises another weight
 domain. For dynamic lattices, it can also mean that the resource lacks
 `vt.lattice.val.1`, publishes contradictory thread flags, or omits a callback
 required by an advertised capability.
+Project ABI v1 remains current; API revision 5 adds typed metadata carrying its
+own `LLING_ABI_V2 == 2` format version.
 
 ## Maintainer workflow
 

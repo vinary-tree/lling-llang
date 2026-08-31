@@ -1,0 +1,52 @@
+@startuml lazy-wfst-lifecycle-state
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam ArrowColor #455A64
+skinparam ArrowThickness 1.3
+skinparam state {
+  BackgroundColor #ECEFF1
+  BorderColor #455A64
+  FontColor #102027
+}
+
+title <b>Lazy WFST expansion lifecycle</b>\n<size:11><i>absence is never represented as exact emptiness</i></size>
+
+state "Unexpanded" as Unexpanded #BBDEFB
+state "Expanding\n(unique owner)" as Expanding #FFF59D
+state "ExpandedEmpty" as ExpandedEmpty #C8E6C9
+state "ExpandedNonempty" as ExpandedNonempty #A5D6A7
+state "Failed" as Failed #FFCDD2
+state "Cancelled" as Cancelled #FFCDD2
+
+[*] --> Unexpanded
+Unexpanded --> Expanding : Normal begin\n[cancellation absent]
+Unexpanded --> Cancelled : pre-cancel\n(no attempt increment)
+Expanding --> ExpandedEmpty : source success\nzero outgoing arcs
+Expanding --> ExpandedNonempty : source success\none or more arcs
+Expanding --> Failed : classified source failure
+Expanding --> Cancelled : token or source cancellation
+Failed --> Expanding : ExplicitRetry\n[retryable and not cancelled]
+Failed --> Unexpanded : reset_failed
+Cancelled --> Unexpanded : reset_cancelled
+ExpandedEmpty --> ExpandedEmpty : repeat normal expansion\n(cache hit)
+ExpandedNonempty --> ExpandedNonempty : repeat normal expansion\n(cache hit)
+
+state "Snapshot rebind" as Rebind #E1BEE7
+ExpandedEmpty --> Rebind : source identity changed
+ExpandedNonempty --> Rebind : source identity changed
+Failed --> Rebind : source identity changed
+Cancelled --> Rebind : source identity changed
+Expanding --> Rebind : stale completion rejected
+Rebind --> Unexpanded : invalidate all entries\nreset attempt count
+
+note right of Expanding #FFFDE7
+  The wrapper is uniquely borrowed.
+  A panic removes this owner record
+  before unwinding resumes.
+end note
+
+note bottom of ExpandedEmpty #E8F5E9
+  An empty transition slice exists only here,
+  after a fresh source completion.
+end note
+@enduml

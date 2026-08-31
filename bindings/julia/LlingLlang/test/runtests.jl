@@ -5,6 +5,52 @@ import LLattice
 
 const VTI = VinaryTreeInterop
 
+@testset "typed ABI-v2 metadata and cancellation" begin
+    @test sizeof(AbiV2Header) == 24
+    @test sizeof(Id128) == 16
+    @test sizeof(Digest256) == 32
+    @test sizeof(WfstDescriptorV2) == 120
+    @test sizeof(BudgetV2) == 72
+    @test sizeof(OutcomeV2) == 96
+
+    header = AbiV2Header(sizeof(WfstDescriptorV2),
+        DESCRIPTOR_SIGNATURE_KNOWN |
+        DESCRIPTOR_SNAPSHOT_PRESENT |
+        DESCRIPTOR_CONTEXT_PRESENT)
+    @test validate_abi_v2_header(header, sizeof(WfstDescriptorV2),
+        DESCRIPTOR_SIGNATURE_KNOWN |
+        DESCRIPTOR_SNAPSHOT_PRESENT |
+        DESCRIPTOR_CONTEXT_PRESENT) === header
+
+    descriptor = WfstDescriptorV2(header, Id128(fill(0x11, 16)),
+        Id128(fill(0x22, 16)), Id128(fill(0x33, 16)),
+        Id128(fill(0x44, 16)), Digest256(fill(0x55, 32)))
+    @test typed_evidence_allowed(descriptor)
+    @test identity_matches(descriptor, descriptor)
+
+    budget = BudgetV2(max_states=100, max_work=1_000)
+    @test validate_budget_v2(budget) === budget
+    @test budget.header.flags == BUDGET_STATES | BUDGET_WORK
+
+    outcome = OutcomeV2(AbiV2Header(sizeof(OutcomeV2)),
+        UInt32(1), UInt32(1), UInt32(1), UInt32(1), UInt32(2), UInt32(0),
+        UInt64(2), UInt64(1), UInt64(64), UInt64(3), UInt64(0), UInt64(0))
+    @test authoritative_exact(outcome;
+        resource_present=true, evidence_present=true)
+
+    cancellation = CancellationV2()
+    @test isnothing(cancellation_reason(cancellation))
+    request!(cancellation, LlingLlang.CANCELLATION_REQUESTED_V2)
+    @test cancellation_reason(cancellation) ==
+        LlingLlang.CANCELLATION_REQUESTED_V2
+    request!(cancellation, LlingLlang.CANCELLATION_DEADLINE_V2)
+    @test cancellation_reason(cancellation) ==
+        LlingLlang.CANCELLATION_REQUESTED_V2
+    close(cancellation)
+    close(cancellation)
+    @test cancellation.closed
+end
+
 @testset "ABI and eager builder" begin
     @test abi_version() == ABI_VERSION
     @test api_revision() >= API_REVISION

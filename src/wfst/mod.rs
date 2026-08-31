@@ -26,7 +26,11 @@ mod types;
 pub mod unary;
 mod vector;
 
-pub use lazy::{LazyState, LazyWfstWrapper, StateSource};
+pub use lazy::{
+    CancellationReason, CancellationToken, ExpansionError, ExpansionFailure, ExpansionFailureKind,
+    ExpansionMode, ExpansionObservation, ExpansionRequest, ExpansionStatus, LazyState,
+    LazyWfstWrapper, RetryPolicy, SourceSnapshot, StateExpansion, StateSource,
+};
 pub use state::{WfstState, WfstStateError};
 pub use traits::{CachePolicy, LazyWfst, MutableWfst, Wfst};
 pub use transition::WeightedTransition;

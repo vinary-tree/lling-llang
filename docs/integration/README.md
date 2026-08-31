@@ -157,7 +157,7 @@ In this repository:
 
 | Doc | What it covers |
 |---|---|
-| [C ABI reference](../api/c-abi-reference.md) | The 52-function `lling_*` surface, including host semirings and lattices, statuses, ownership, threading, and complexity. |
+| [C ABI reference](../api/c-abi-reference.md) | The 61-function surface, including host algebras, typed metadata, cancellation, ownership, threading, and complexity. |
 | [Resource ABI architecture](../architecture/resource-abi.md) | Providers, capture-once snapshots, the lazy composition product, the registry, the raw-u32 status wire. |
 | [Dynamic lattice architecture](../architecture/dynamic-lattices.md) | Host-defined join/meet values, retained ownership, bounded folds, validation, and nonblocking callback admission. |
 | [ABI trust model](../security/abi-trust-model.md) | Foreign providers as untrusted input; validation duties; panic containment. |

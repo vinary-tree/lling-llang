@@ -10,9 +10,12 @@
 //! - [`StateSource`]: Trait for types that can produce states on demand
 //! - [`LazyWfstWrapper`]: Generic lazy WFST wrapper around a StateSource
 
-use std::collections::VecDeque;
+use std::fmt;
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Arc;
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
 use super::traits::{CachePolicy, LazyWfst, Wfst};
@@ -20,57 +23,488 @@ use super::transition::WeightedTransition;
 use super::types::StateId;
 use crate::semiring::Semiring;
 
-/// A state that may or may not have been computed yet.
-///
-/// Used in lazy WFSTs to track which states have been expanded.
-#[derive(Clone, Debug, Default)]
-pub enum LazyState<L, W: Semiring> {
-    /// State exists but transitions not yet computed.
-    #[default]
-    Pending,
+/// Stable identity of the source semantics used by one expansion attempt.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct SourceSnapshot([u8; 32]);
 
-    /// State fully computed with all information.
-    Computed {
-        /// Whether this is a final state.
-        is_final: bool,
-        /// Final weight (semiring zero if not final).
-        final_weight: W,
-        /// Outgoing transitions.
-        transitions: SmallVec<[WeightedTransition<L, W>; 4]>,
-    },
+impl SourceSnapshot {
+    /// Snapshot for immutable sources whose semantics never change.
+    pub const IMMUTABLE: Self = Self([0; 32]);
+
+    /// Construct a snapshot from an application-defined digest.
+    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    /// Return the digest bytes.
+    pub const fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
 }
 
-impl<L, W: Semiring> LazyState<L, W> {
-    /// Create a computed non-final state.
+/// Why an expansion was cancelled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CancellationReason {
+    /// A caller explicitly requested cancellation.
+    Requested,
+    /// A deadline expired.
+    Deadline,
+    /// A resource budget was exhausted.
+    Budget,
+    /// The state source cancelled its own work.
+    Source,
+}
+
+impl CancellationReason {
+    const fn code(self) -> u8 {
+        match self {
+            Self::Requested => 1,
+            Self::Deadline => 2,
+            Self::Budget => 3,
+            Self::Source => 4,
+        }
+    }
+
+    const fn from_code(code: u8) -> Option<Self> {
+        match code {
+            1 => Some(Self::Requested),
+            2 => Some(Self::Deadline),
+            3 => Some(Self::Budget),
+            4 => Some(Self::Source),
+            _ => None,
+        }
+    }
+}
+
+/// Cloneable, first-writer-wins cancellation signal.
+#[derive(Clone, Debug, Default)]
+pub struct CancellationToken {
+    reason: Arc<AtomicU8>,
+}
+
+impl CancellationToken {
+    /// Create an uncancelled token.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Request cancellation. Returns `true` only for the winning request.
+    pub fn cancel(&self, reason: CancellationReason) -> bool {
+        self.reason
+            .compare_exchange(0, reason.code(), Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    /// Return the first cancellation reason, if cancellation was requested.
+    pub fn reason(&self) -> Option<CancellationReason> {
+        CancellationReason::from_code(self.reason.load(Ordering::Acquire))
+    }
+
+    /// Whether cancellation has been requested.
+    pub fn is_cancelled(&self) -> bool {
+        self.reason.load(Ordering::Acquire) != 0
+    }
+}
+
+/// Whether a failed expansion may be retried.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum RetryPolicy {
+    /// The failure is terminal until explicitly reset.
+    Never,
+    /// An explicit retry operation is allowed.
+    Explicit,
+}
+
+impl RetryPolicy {
+    /// Whether this policy authorizes explicit retry.
+    pub const fn is_retryable(self) -> bool {
+        matches!(self, Self::Explicit)
+    }
+}
+
+/// Stable classification of expansion failures.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ExpansionFailureKind {
+    /// The source could not compute the requested state.
+    Source,
+    /// The state identifier is outside the source domain.
+    InvalidState,
+    /// A bounded identifier or memory resource was exhausted.
+    ResourceExhausted,
+}
+
+/// A source failure together with its retry contract.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExpansionFailure {
+    kind: ExpansionFailureKind,
+    retry: RetryPolicy,
+    message: Arc<str>,
+}
+
+impl ExpansionFailure {
+    /// Construct a classified failure.
+    pub fn new(
+        kind: ExpansionFailureKind,
+        retry: RetryPolicy,
+        message: impl Into<Arc<str>>,
+    ) -> Self {
+        Self {
+            kind,
+            retry,
+            message: message.into(),
+        }
+    }
+
+    /// Construct a permanent invalid-state failure.
+    pub fn invalid_state(state: StateId) -> Self {
+        Self::new(
+            ExpansionFailureKind::InvalidState,
+            RetryPolicy::Never,
+            format!("state {state} is outside the source domain"),
+        )
+    }
+
+    /// Construct a permanent resource-exhaustion failure.
+    pub fn resource_exhausted(message: impl Into<Arc<str>>) -> Self {
+        Self::new(
+            ExpansionFailureKind::ResourceExhausted,
+            RetryPolicy::Never,
+            message,
+        )
+    }
+
+    /// Failure classification.
+    pub const fn kind(&self) -> ExpansionFailureKind {
+        self.kind
+    }
+
+    /// Retry contract.
+    pub const fn retry_policy(&self) -> RetryPolicy {
+        self.retry
+    }
+
+    /// Human-readable source diagnostic.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// Whether explicit retry is permitted.
+    pub const fn is_retryable(&self) -> bool {
+        self.retry.is_retryable()
+    }
+}
+
+impl fmt::Display for ExpansionFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ExpansionFailure {}
+
+/// Exact externally visible phase of one lazy state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ExpansionStatus {
+    /// No source attempt has produced a result.
+    Unexpanded,
+    /// The unique owner is currently invoking the source.
+    Expanding,
+    /// Expansion completed with no outgoing transitions.
+    ExpandedEmpty,
+    /// Expansion completed with at least one outgoing transition.
+    ExpandedNonempty,
+    /// Expansion failed.
+    Failed,
+    /// Expansion was cancelled.
+    Cancelled,
+}
+
+impl ExpansionStatus {
+    /// Whether this phase has an observable terminal result.
+    pub const fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            Self::ExpandedEmpty | Self::ExpandedNonempty | Self::Failed | Self::Cancelled
+        )
+    }
+
+    /// Whether this phase contains a completed result eligible for caching.
+    pub const fn is_cacheable(self) -> bool {
+        matches!(self, Self::ExpandedEmpty | Self::ExpandedNonempty)
+    }
+
+    /// Exact observation associated with a terminal phase.
+    pub const fn observation(self) -> Option<ExpansionObservation> {
+        match self {
+            Self::ExpandedEmpty => Some(ExpansionObservation::Empty),
+            Self::ExpandedNonempty => Some(ExpansionObservation::Nonempty),
+            Self::Failed => Some(ExpansionObservation::Failure),
+            Self::Cancelled => Some(ExpansionObservation::Cancellation),
+            Self::Unexpanded | Self::Expanding => None,
+        }
+    }
+}
+
+/// Lossless classification of an observable terminal expansion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ExpansionObservation {
+    /// A fresh completed state has no outgoing transitions.
+    Empty,
+    /// A fresh completed state has outgoing transitions.
+    Nonempty,
+    /// A fresh attempt failed.
+    Failure,
+    /// A fresh attempt was cancelled.
+    Cancellation,
+}
+
+/// Operation used to claim an expansion attempt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ExpansionMode {
+    /// Begin only from `Unexpanded`.
+    Normal,
+    /// Begin only from an explicitly retryable failure.
+    ExplicitRetry,
+}
+
+impl ExpansionMode {
+    const fn authorizes_status(self, status: ExpansionStatus, retryable: bool) -> bool {
+        matches!((self, status), (Self::Normal, ExpansionStatus::Unexpanded))
+            || matches!(
+                (self, status),
+                (Self::ExplicitRetry, ExpansionStatus::Failed)
+            ) && retryable
+    }
+
+    /// Whether the modeled preconditions authorize a new owner.
+    pub const fn is_authorized(
+        self,
+        status: ExpansionStatus,
+        retryable: bool,
+        cancelled: bool,
+    ) -> bool {
+        !cancelled && self.authorizes_status(status, retryable)
+    }
+}
+
+/// Immutable request passed to a [`StateSource`].
+#[derive(Clone, Copy, Debug)]
+pub struct ExpansionRequest<'a> {
+    state: StateId,
+    snapshot: SourceSnapshot,
+    attempt: u64,
+    cancellation: &'a CancellationToken,
+}
+
+impl<'a> ExpansionRequest<'a> {
+    /// Requested state identifier.
+    pub const fn state(self) -> StateId {
+        self.state
+    }
+
+    /// Snapshot captured when this attempt acquired ownership.
+    pub const fn snapshot(self) -> SourceSnapshot {
+        self.snapshot
+    }
+
+    /// Monotonic, saturating attempt identifier.
+    pub const fn attempt(self) -> u64 {
+        self.attempt
+    }
+
+    /// Cooperative cancellation token.
+    pub const fn cancellation(self) -> &'a CancellationToken {
+        self.cancellation
+    }
+}
+
+/// Result returned by a [`StateSource`] without conflating absence and emptiness.
+#[derive(Clone, Debug)]
+pub enum StateExpansion<L, W: Semiring> {
+    /// Fully computed state information.
+    Expanded {
+        /// Whether the state accepts.
+        is_final: bool,
+        /// Final weight, or semiring zero for a non-final state.
+        final_weight: W,
+        /// Exact outgoing transition set.
+        transitions: SmallVec<[WeightedTransition<L, W>; 4]>,
+    },
+    /// Classified source failure.
+    Failed(ExpansionFailure),
+    /// Source-directed cancellation.
+    Cancelled(CancellationReason),
+}
+
+impl<L, W: Semiring> StateExpansion<L, W> {
+    /// Construct a completed non-final state.
     pub fn non_final(transitions: SmallVec<[WeightedTransition<L, W>; 4]>) -> Self {
-        LazyState::Computed {
+        Self::Expanded {
             is_final: false,
             final_weight: W::zero(),
             transitions,
         }
     }
 
+    /// Construct a completed final state.
+    pub fn final_state(
+        final_weight: W,
+        transitions: SmallVec<[WeightedTransition<L, W>; 4]>,
+    ) -> Self {
+        Self::Expanded {
+            is_final: true,
+            final_weight,
+            transitions,
+        }
+    }
+
+    /// Construct a failed expansion.
+    pub fn failed(failure: ExpansionFailure) -> Self {
+        Self::Failed(failure)
+    }
+
+    /// Construct a cancelled expansion.
+    pub const fn cancelled(reason: CancellationReason) -> Self {
+        Self::Cancelled(reason)
+    }
+}
+
+/// A state whose lifecycle phase is represented explicitly.
+#[derive(Clone, Debug, Default)]
+pub enum LazyState<L, W: Semiring> {
+    /// No attempt owns the state and no result is available.
+    #[default]
+    Unexpanded,
+    /// Exactly one synchronous caller owns the source invocation.
+    Expanding {
+        /// Attempt identifier of the owner.
+        attempt: u64,
+    },
+    /// State fully computed with exact transition information.
+    Expanded {
+        /// Whether this is a final state.
+        is_final: bool,
+        /// Final weight (semiring zero if not final).
+        final_weight: W,
+        /// Outgoing transitions.
+        transitions: SmallVec<[WeightedTransition<L, W>; 4]>,
+        /// Attempt that produced this result.
+        attempt: u64,
+    },
+    /// Source expansion failed.
+    Failed {
+        /// Classified failure and retry contract.
+        failure: ExpansionFailure,
+        /// Attempt that failed.
+        attempt: u64,
+    },
+    /// Expansion was cancelled.
+    Cancelled {
+        /// Winning cancellation reason.
+        reason: CancellationReason,
+        /// Attempt at cancellation, or the prior count for pre-cancellation.
+        attempt: u64,
+    },
+}
+
+impl<L, W: Semiring> LazyState<L, W> {
+    /// Construct the unique-owner phase.
+    pub const fn expanding(attempt: u64) -> Self {
+        Self::Expanding { attempt }
+    }
+
+    /// Construct an exactly classified completed state.
+    pub fn expanded(
+        is_final: bool,
+        final_weight: W,
+        transitions: SmallVec<[WeightedTransition<L, W>; 4]>,
+        attempt: u64,
+    ) -> Self {
+        Self::Expanded {
+            is_final,
+            final_weight: if is_final { final_weight } else { W::zero() },
+            transitions,
+            attempt,
+        }
+    }
+
+    /// Construct a failed state.
+    pub fn failed(failure: ExpansionFailure, attempt: u64) -> Self {
+        Self::Failed { failure, attempt }
+    }
+
+    /// Construct a cancelled state.
+    pub const fn cancelled(reason: CancellationReason, attempt: u64) -> Self {
+        Self::Cancelled { reason, attempt }
+    }
+
+    /// Create a computed non-final state.
+    pub fn non_final(transitions: SmallVec<[WeightedTransition<L, W>; 4]>) -> Self {
+        Self::expanded(false, W::zero(), transitions, 0)
+    }
+
     /// Create a computed final state.
     pub fn final_state(weight: W, transitions: SmallVec<[WeightedTransition<L, W>; 4]>) -> Self {
-        LazyState::Computed {
-            is_final: true,
-            final_weight: weight,
-            transitions,
+        Self::expanded(true, weight, transitions, 0)
+    }
+
+    /// Exact lifecycle status.
+    pub fn status(&self) -> ExpansionStatus {
+        match self {
+            Self::Unexpanded => ExpansionStatus::Unexpanded,
+            Self::Expanding { .. } => ExpansionStatus::Expanding,
+            Self::Expanded { transitions, .. } if transitions.is_empty() => {
+                ExpansionStatus::ExpandedEmpty
+            }
+            Self::Expanded { .. } => ExpansionStatus::ExpandedNonempty,
+            Self::Failed { .. } => ExpansionStatus::Failed,
+            Self::Cancelled { .. } => ExpansionStatus::Cancelled,
         }
     }
 
     /// Check if this state has been computed.
     #[inline]
     pub fn is_computed(&self) -> bool {
-        matches!(self, LazyState::Computed { .. })
+        matches!(self, Self::Expanded { .. })
     }
 
     /// Get transitions if computed.
     #[inline]
     pub fn transitions(&self) -> Option<&[WeightedTransition<L, W>]> {
         match self {
-            LazyState::Computed { transitions, .. } => Some(transitions.as_slice()),
-            LazyState::Pending => None,
+            Self::Expanded { transitions, .. } => Some(transitions.as_slice()),
+            _ => None,
+        }
+    }
+
+    /// Whether a failed state permits explicit retry.
+    pub fn is_retryable(&self) -> bool {
+        matches!(
+            self,
+            Self::Failed { failure, .. } if failure.is_retryable()
+        )
+    }
+
+    /// Verify the representation invariants extracted from the formal model.
+    pub fn is_well_formed(&self) -> bool {
+        match self {
+            Self::Expanded {
+                is_final: false,
+                final_weight,
+                ..
+            } => final_weight.is_zero(),
+            _ => true,
+        }
+    }
+
+    fn final_info(&self) -> Option<(bool, W)> {
+        match self {
+            Self::Expanded {
+                is_final,
+                final_weight,
+                ..
+            } => Some((*is_final, *final_weight)),
+            _ => None,
         }
     }
 }
@@ -81,8 +515,17 @@ impl<L, W: Semiring> LazyState<L, W> {
 pub trait StateSource<L, W: Semiring>: Clone + Send + Sync {
     /// Compute the state information for a given state ID.
     ///
-    /// This method should compute and return a fully populated [`LazyState`].
-    fn compute_state(&self, state: StateId) -> LazyState<L, W>;
+    /// This method must return one explicit completion, failure, or cancellation.
+    fn compute_state(&self, request: ExpansionRequest<'_>) -> StateExpansion<L, W>;
+
+    /// Identity of the source semantics observed by expansion requests.
+    ///
+    /// Immutable sources may use the default constant identity. A source with
+    /// externally mutable semantics must change this value whenever its
+    /// observable language or weights change.
+    fn snapshot(&self) -> SourceSnapshot {
+        SourceSnapshot::IMMUTABLE
+    }
 
     /// Get the start state ID.
     fn start(&self) -> StateId;
@@ -93,6 +536,69 @@ pub trait StateSource<L, W: Semiring>: Clone + Send + Sync {
     fn num_states_hint(&self) -> Option<usize> {
         None
     }
+}
+
+/// Failure of a lifecycle operation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExpansionError {
+    /// A source attempt failed.
+    Failure(ExpansionFailure),
+    /// Expansion was cancelled.
+    Cancelled(CancellationReason),
+    /// The source changed after the wrapper captured its snapshot.
+    StaleSnapshot {
+        /// Snapshot expected by the wrapper.
+        expected: SourceSnapshot,
+        /// Snapshot currently reported by the source.
+        observed: SourceSnapshot,
+    },
+    /// The requested mode is not valid for the state's current phase.
+    Unauthorized {
+        /// State identifier.
+        state: StateId,
+        /// Requested operation.
+        mode: ExpansionMode,
+        /// Current lifecycle phase.
+        status: ExpansionStatus,
+    },
+    /// A completed transition slice was unavailable after successful expansion.
+    MissingCompletedState(StateId),
+}
+
+impl fmt::Display for ExpansionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Failure(failure) => write!(formatter, "state expansion failed: {failure}"),
+            Self::Cancelled(reason) => write!(formatter, "state expansion cancelled: {reason:?}"),
+            Self::StaleSnapshot { expected, observed } => write!(
+                formatter,
+                "source snapshot changed from {expected:?} to {observed:?}"
+            ),
+            Self::Unauthorized {
+                state,
+                mode,
+                status,
+            } => write!(
+                formatter,
+                "{mode:?} expansion is unauthorized for state {state} in {status:?}"
+            ),
+            Self::MissingCompletedState(state) => {
+                write!(
+                    formatter,
+                    "completed state {state} has no transition record"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for ExpansionError {}
+
+#[derive(Clone, Debug)]
+struct CacheEntry<L, W: Semiring> {
+    state: LazyState<L, W>,
+    previous: Option<StateId>,
+    next: Option<StateId>,
 }
 
 /// Generic lazy WFST wrapper that computes states on demand.
@@ -115,19 +621,29 @@ where
     source: S,
 
     /// Cache of computed states.
-    cache: FxHashMap<StateId, LazyState<L, W>>,
+    cache: FxHashMap<StateId, CacheEntry<L, W>>,
+
+    /// Non-cacheable expanding, failed, and cancelled lifecycle records.
+    lifecycle: FxHashMap<StateId, LazyState<L, W>>,
 
     /// Most recently computed state when caching is disabled.
     transient_state: Option<(StateId, LazyState<L, W>)>,
 
-    /// Access order for LRU eviction.
-    access_order: VecDeque<StateId>,
+    /// Intrusive O(1) LRU endpoints; links are stored in cache entries.
+    lru_head: Option<StateId>,
+    lru_tail: Option<StateId>,
 
     /// Caching policy.
     policy: CachePolicy,
 
     /// Counter for computed states.
     computed_count: usize,
+
+    /// Saturating count of source attempts in the active snapshot.
+    total_attempts: u64,
+
+    /// Source snapshot to which every retained entry belongs.
+    current_snapshot: SourceSnapshot,
 
     /// Start state ID.
     start: StateId,
@@ -143,10 +659,14 @@ where
         Self {
             source: self.source.clone(),
             cache: self.cache.clone(),
+            lifecycle: self.lifecycle.clone(),
             transient_state: self.transient_state.clone(),
-            access_order: self.access_order.clone(),
+            lru_head: self.lru_head,
+            lru_tail: self.lru_tail,
             policy: self.policy,
             computed_count: self.computed_count,
+            total_attempts: self.total_attempts,
+            current_snapshot: self.current_snapshot,
             start: self.start,
         }
     }
@@ -162,14 +682,19 @@ where
     pub fn new(source: S) -> Self {
         let start = source.start();
         let initial_capacity = source.num_states_hint().unwrap_or(16);
+        let current_snapshot = source.snapshot();
 
         Self {
             source,
             cache: FxHashMap::with_capacity_and_hasher(initial_capacity, Default::default()),
+            lifecycle: FxHashMap::with_capacity_and_hasher(initial_capacity, Default::default()),
             transient_state: None,
-            access_order: VecDeque::with_capacity(initial_capacity),
+            lru_head: None,
+            lru_tail: None,
             policy: CachePolicy::default(),
             computed_count: 0,
+            total_attempts: 0,
+            current_snapshot,
             start,
         }
     }
@@ -181,68 +706,103 @@ where
         wrapper
     }
 
-    /// Ensure a state is computed and cached, returning a reference.
-    fn ensure_computed(&mut self, state: StateId) -> &LazyState<L, W> {
-        if self.uses_transient_storage() {
-            if self.state_entry(state).is_none() {
-                let computed = self.source.compute_state(state);
-                self.insert_cached(state, computed);
-            }
-            return self.state_entry(state).unwrap_or(&LazyState::Pending);
-        }
-
-        if !self.cache.contains_key(&state) {
-            let computed = self.source.compute_state(state);
-            self.insert_cached(state, computed);
-        } else if matches!(self.policy, CachePolicy::Lru { .. }) {
-            // Update access order for LRU
-            self.touch_lru(state);
-        }
-
-        self.state_entry(state).unwrap_or(&LazyState::Pending)
-    }
-
-    /// Return a computed state from the persistent cache or transient no-cache slot.
+    /// Return any retained lifecycle record.
     fn state_entry(&self, state: StateId) -> Option<&LazyState<L, W>> {
-        self.cache.get(&state).or_else(|| {
-            self.transient_state
-                .as_ref()
-                .filter(|(transient_state, _)| *transient_state == state)
-                .map(|(_, entry)| entry)
-        })
+        self.cache
+            .get(&state)
+            .map(|entry| &entry.state)
+            .or_else(|| {
+                self.transient_state
+                    .as_ref()
+                    .filter(|(transient_state, _)| *transient_state == state)
+                    .map(|(_, entry)| entry)
+            })
+            .or_else(|| self.lifecycle.get(&state))
     }
 
-    /// Insert a computed state into the cache.
-    fn insert_cached(&mut self, state: StateId, computed: LazyState<L, W>) {
+    fn state_status_unchecked(&self, state: StateId) -> ExpansionStatus {
+        self.state_entry(state)
+            .map(LazyState::status)
+            .unwrap_or(ExpansionStatus::Unexpanded)
+    }
+
+    fn check_snapshot(&self) -> Result<(), ExpansionError> {
+        let observed = self.source.snapshot();
+        if observed == self.current_snapshot {
+            Ok(())
+        } else {
+            Err(ExpansionError::StaleSnapshot {
+                expected: self.current_snapshot,
+                observed,
+            })
+        }
+    }
+
+    fn rebind_snapshot(&mut self, snapshot: SourceSnapshot) {
+        self.clear_all_states();
+        self.current_snapshot = snapshot;
+        self.start = self.source.start();
+        self.computed_count = 0;
+        self.total_attempts = 0;
+    }
+
+    fn store_lifecycle(&mut self, state: StateId, lifecycle_state: LazyState<L, W>) {
+        debug_assert!(!self.cache.contains_key(&state));
+        debug_assert!(!self
+            .transient_state
+            .as_ref()
+            .is_some_and(|(transient, _)| *transient == state));
+        self.lifecycle.insert(state, lifecycle_state);
+    }
+
+    /// Insert a completed state according to the cache policy.
+    fn insert_completed(&mut self, state: StateId, completed: LazyState<L, W>) {
+        debug_assert!(completed.status().is_cacheable());
+        self.lifecycle.remove(&state);
         match self.policy {
             CachePolicy::NoCache => {
-                self.transient_state = Some((state, computed));
-                self.record_computation();
+                self.transient_state = Some((state, completed));
             }
             CachePolicy::CacheAll => {
                 self.transient_state = None;
-                self.cache.insert(state, computed);
-                self.record_computation();
+                self.remove_cached(state);
+                self.cache.insert(
+                    state,
+                    CacheEntry {
+                        state: completed,
+                        previous: None,
+                        next: None,
+                    },
+                );
             }
             CachePolicy::Lru { max_states } => {
                 self.transient_state = None;
                 if max_states == 0 {
-                    self.transient_state = Some((state, computed));
-                    self.record_computation();
+                    self.transient_state = Some((state, completed));
                     return;
                 }
 
-                let replacing_cached_state = self.cache.contains_key(&state);
-                while !replacing_cached_state && self.cache.len() >= max_states {
+                self.remove_cached(state);
+                while self.cache.len() >= max_states {
                     self.evict_lru();
                 }
-
-                self.cache.insert(state, computed);
-                if let Some(pos) = self.access_order.iter().position(|&s| s == state) {
-                    self.access_order.remove(pos);
+                let previous = self.lru_tail;
+                self.cache.insert(
+                    state,
+                    CacheEntry {
+                        state: completed,
+                        previous,
+                        next: None,
+                    },
+                );
+                if let Some(tail) = previous {
+                    if let Some(entry) = self.cache.get_mut(&tail) {
+                        entry.next = Some(state);
+                    }
+                } else {
+                    self.lru_head = Some(state);
                 }
-                self.access_order.push_back(state);
-                self.record_computation();
+                self.lru_tail = Some(state);
             }
         }
     }
@@ -252,52 +812,87 @@ where
         self.computed_count = self.computed_count.saturating_add(1);
     }
 
-    /// Whether the active cache policy keeps only the current computed state.
-    fn uses_transient_storage(&self) -> bool {
-        matches!(
-            self.policy,
-            CachePolicy::NoCache | CachePolicy::Lru { max_states: 0 }
-        )
-    }
-
-    /// Update LRU access order.
+    /// Update LRU access order in constant time.
     fn touch_lru(&mut self, state: StateId) {
-        // Remove from current position and add to back
-        if let Some(pos) = self.access_order.iter().position(|&s| s == state) {
-            self.access_order.remove(pos);
-            self.access_order.push_back(state);
-        } else if self.cache.contains_key(&state) {
-            self.access_order.push_back(state);
+        if self.lru_tail == Some(state) {
+            return;
         }
+        let Some((previous, next)) = self
+            .cache
+            .get(&state)
+            .map(|entry| (entry.previous, entry.next))
+        else {
+            return;
+        };
+        if let Some(previous) = previous {
+            self.cache.get_mut(&previous).expect("valid LRU link").next = next;
+        } else {
+            self.lru_head = next;
+        }
+        if let Some(next) = next {
+            self.cache.get_mut(&next).expect("valid LRU link").previous = previous;
+        }
+        let old_tail = self.lru_tail;
+        {
+            let entry = self
+                .cache
+                .get_mut(&state)
+                .expect("cache membership checked");
+            entry.previous = old_tail;
+            entry.next = None;
+        }
+        if let Some(old_tail) = old_tail {
+            self.cache.get_mut(&old_tail).expect("valid LRU tail").next = Some(state);
+        } else {
+            self.lru_head = Some(state);
+        }
+        self.lru_tail = Some(state);
     }
 
-    /// Keep LRU bookkeeping aligned with the current persistent cache contents.
-    fn reconcile_lru_order(&mut self) {
-        let cache = &self.cache;
-        let mut seen = FxHashSet::with_capacity_and_hasher(cache.len(), Default::default());
-        self.access_order
-            .retain(|state| cache.contains_key(state) && seen.insert(*state));
-
-        let mut cached_states: Vec<_> = self.cache.keys().copied().collect();
-        cached_states.sort_unstable();
-        for state in cached_states {
-            if seen.insert(state) {
-                self.access_order.push_back(state);
+    fn remove_cached(&mut self, state: StateId) -> Option<CacheEntry<L, W>> {
+        let entry = self.cache.remove(&state)?;
+        if let Some(previous) = entry.previous {
+            if let Some(previous_entry) = self.cache.get_mut(&previous) {
+                previous_entry.next = entry.next;
             }
+        } else if self.lru_head == Some(state) {
+            self.lru_head = entry.next;
         }
+        if let Some(next) = entry.next {
+            if let Some(next_entry) = self.cache.get_mut(&next) {
+                next_entry.previous = entry.previous;
+            }
+        } else if self.lru_tail == Some(state) {
+            self.lru_tail = entry.previous;
+        }
+        Some(entry)
     }
 
-    /// Evict the least-recently used persistent cached state.
+    /// Evict the least-recently used persistent cached state in O(1).
     fn evict_lru(&mut self) {
-        while let Some(evict) = self.access_order.pop_front() {
-            if self.cache.remove(&evict).is_some() {
-                return;
-            }
+        if let Some(head) = self.lru_head {
+            self.remove_cached(head);
         }
+    }
 
-        if let Some(evict) = self.cache.keys().copied().min() {
-            self.cache.remove(&evict);
+    fn rebuild_lru(&mut self) {
+        let mut states: Vec<_> = self.cache.keys().copied().collect();
+        states.sort_unstable();
+        self.lru_head = states.first().copied();
+        self.lru_tail = states.last().copied();
+        for (index, state) in states.iter().copied().enumerate() {
+            let entry = self.cache.get_mut(&state).expect("state came from cache");
+            entry.previous = index.checked_sub(1).map(|previous| states[previous]);
+            entry.next = states.get(index + 1).copied();
         }
+    }
+
+    fn clear_all_states(&mut self) {
+        self.cache.clear();
+        self.lifecycle.clear();
+        self.transient_state = None;
+        self.lru_head = None;
+        self.lru_tail = None;
     }
 
     /// Get the underlying source.
@@ -305,14 +900,268 @@ where
         &self.source
     }
 
-    /// Get mutable access to the underlying source.
-    pub fn source_mut(&mut self) -> &mut S {
-        &mut self.source
+    /// Replace the source and invalidate every entry atomically with respect to
+    /// this uniquely borrowed wrapper.
+    pub fn replace_source(&mut self, source: S) -> S {
+        let previous = std::mem::replace(&mut self.source, source);
+        self.rebind_snapshot(self.source.snapshot());
+        previous
     }
 
     /// Take ownership of the source, discarding the cache.
     pub fn into_source(self) -> S {
         self.source
+    }
+
+    /// Snapshot to which the current lifecycle is bound.
+    pub const fn current_snapshot(&self) -> SourceSnapshot {
+        self.current_snapshot
+    }
+
+    /// Saturating attempt count for the active source snapshot.
+    pub const fn total_attempts(&self) -> u64 {
+        self.total_attempts
+    }
+
+    /// Refresh a changed source snapshot, invalidating all prior lifecycle data.
+    pub fn refresh_snapshot(&mut self) -> bool {
+        let snapshot = self.source.snapshot();
+        if snapshot == self.current_snapshot {
+            false
+        } else {
+            self.rebind_snapshot(snapshot);
+            true
+        }
+    }
+
+    /// Exact lifecycle status, rejecting stale observations.
+    pub fn expansion_status(&self, state: StateId) -> Result<ExpansionStatus, ExpansionError> {
+        self.check_snapshot()?;
+        Ok(self.state_status_unchecked(state))
+    }
+
+    /// Retained state record, if one exists.
+    pub fn lifecycle_state(
+        &self,
+        state: StateId,
+    ) -> Result<Option<&LazyState<L, W>>, ExpansionError> {
+        self.check_snapshot()?;
+        Ok(self.state_entry(state))
+    }
+
+    /// Observe a fresh terminal result without conflating unexpanded and empty.
+    pub fn observe(&self, state: StateId) -> Result<Option<ExpansionObservation>, ExpansionError> {
+        Ok(self.expansion_status(state)?.observation())
+    }
+
+    /// Return transitions only for a fresh completed state.
+    pub fn transitions_if_expanded(
+        &self,
+        state: StateId,
+    ) -> Result<Option<&[WeightedTransition<L, W>]>, ExpansionError> {
+        self.check_snapshot()?;
+        Ok(self.state_entry(state).and_then(LazyState::transitions))
+    }
+
+    /// Normal expansion from the unexpanded phase.
+    pub fn expand(&mut self, state: StateId) -> Result<ExpansionStatus, ExpansionError> {
+        let cancellation = CancellationToken::new();
+        self.expand_mode(state, ExpansionMode::Normal, &cancellation)
+    }
+
+    /// Normal expansion with cooperative cancellation.
+    pub fn expand_with(
+        &mut self,
+        state: StateId,
+        cancellation: &CancellationToken,
+    ) -> Result<ExpansionStatus, ExpansionError> {
+        self.expand_mode(state, ExpansionMode::Normal, cancellation)
+    }
+
+    /// Explicit retry from a retryable failure.
+    pub fn retry(&mut self, state: StateId) -> Result<ExpansionStatus, ExpansionError> {
+        let cancellation = CancellationToken::new();
+        self.expand_mode(state, ExpansionMode::ExplicitRetry, &cancellation)
+    }
+
+    /// Explicit retry with cooperative cancellation.
+    pub fn retry_with(
+        &mut self,
+        state: StateId,
+        cancellation: &CancellationToken,
+    ) -> Result<ExpansionStatus, ExpansionError> {
+        self.expand_mode(state, ExpansionMode::ExplicitRetry, cancellation)
+    }
+
+    fn expand_mode(
+        &mut self,
+        state: StateId,
+        mode: ExpansionMode,
+        cancellation: &CancellationToken,
+    ) -> Result<ExpansionStatus, ExpansionError> {
+        self.check_snapshot()?;
+        let entry = self.state_entry(state);
+        let status = entry
+            .map(LazyState::status)
+            .unwrap_or(ExpansionStatus::Unexpanded);
+        let retryable = entry.is_some_and(LazyState::is_retryable);
+        if status.is_cacheable() {
+            if matches!(self.policy, CachePolicy::Lru { .. }) {
+                self.touch_lru(state);
+            }
+            return Ok(status);
+        }
+        if let Some(reason) = cancellation.reason() {
+            if mode.authorizes_status(status, retryable) {
+                self.store_lifecycle(state, LazyState::cancelled(reason, self.total_attempts));
+                return Err(ExpansionError::Cancelled(reason));
+            }
+        }
+        if !mode.is_authorized(status, retryable, false) {
+            return Err(ExpansionError::Unauthorized {
+                state,
+                mode,
+                status,
+            });
+        }
+
+        self.total_attempts = self.total_attempts.saturating_add(1);
+        self.record_computation();
+        let attempt = self.total_attempts;
+        let entry_snapshot = self.current_snapshot;
+        self.store_lifecycle(state, LazyState::expanding(attempt));
+        let request = ExpansionRequest {
+            state,
+            snapshot: entry_snapshot,
+            attempt,
+            cancellation,
+        };
+        let outcome = catch_unwind(AssertUnwindSafe(|| self.source.compute_state(request)));
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            Err(payload) => {
+                let observed = self.source.snapshot();
+                if observed == entry_snapshot {
+                    self.clear_state(state);
+                } else {
+                    self.rebind_snapshot(observed);
+                }
+                resume_unwind(payload);
+            }
+        };
+
+        let observed = self.source.snapshot();
+        if observed != entry_snapshot {
+            self.rebind_snapshot(observed);
+            return Err(ExpansionError::StaleSnapshot {
+                expected: entry_snapshot,
+                observed,
+            });
+        }
+        if let Some(reason) = cancellation.reason() {
+            self.store_lifecycle(state, LazyState::cancelled(reason, attempt));
+            return Err(ExpansionError::Cancelled(reason));
+        }
+
+        match outcome {
+            StateExpansion::Expanded {
+                is_final,
+                final_weight,
+                transitions,
+            } => {
+                let completed = LazyState::expanded(is_final, final_weight, transitions, attempt);
+                let status = completed.status();
+                self.insert_completed(state, completed);
+                Ok(status)
+            }
+            StateExpansion::Failed(failure) => {
+                self.store_lifecycle(state, LazyState::failed(failure.clone(), attempt));
+                Err(ExpansionError::Failure(failure))
+            }
+            StateExpansion::Cancelled(reason) => {
+                self.store_lifecycle(state, LazyState::cancelled(reason, attempt));
+                Err(ExpansionError::Cancelled(reason))
+            }
+        }
+    }
+
+    /// Reset a cancelled state to unexpanded.
+    pub fn reset_cancelled(&mut self, state: StateId) -> Result<(), ExpansionError> {
+        self.check_snapshot()?;
+        let status = self.state_status_unchecked(state);
+        if status != ExpansionStatus::Cancelled {
+            return Err(ExpansionError::Unauthorized {
+                state,
+                mode: ExpansionMode::Normal,
+                status,
+            });
+        }
+        self.clear_state(state);
+        Ok(())
+    }
+
+    /// Reset a failed state to unexpanded, irrespective of retry policy.
+    pub fn reset_failed(&mut self, state: StateId) -> Result<(), ExpansionError> {
+        self.check_snapshot()?;
+        let status = self.state_status_unchecked(state);
+        if status != ExpansionStatus::Failed {
+            return Err(ExpansionError::Unauthorized {
+                state,
+                mode: ExpansionMode::Normal,
+                status,
+            });
+        }
+        self.clear_state(state);
+        Ok(())
+    }
+
+    /// Forget one state without changing attempt counters.
+    pub fn clear_state(&mut self, state: StateId) {
+        self.remove_cached(state);
+        self.lifecycle.remove(&state);
+        if self
+            .transient_state
+            .as_ref()
+            .is_some_and(|(transient, _)| *transient == state)
+        {
+            self.transient_state = None;
+        }
+    }
+
+    /// Fallibly get transitions, expanding exactly once when authorized.
+    pub fn try_transitions_lazy(
+        &mut self,
+        state: StateId,
+    ) -> Result<&[WeightedTransition<L, W>], ExpansionError> {
+        self.expand(state)?;
+        self.state_entry(state)
+            .and_then(LazyState::transitions)
+            .ok_or(ExpansionError::MissingCompletedState(state))
+    }
+
+    /// Get transitions, expanding exactly once or failing loudly.
+    ///
+    /// Use [`Self::try_transitions_lazy`] when failure or cancellation is an
+    /// expected control-flow outcome.
+    pub fn transitions_lazy(&mut self, state: StateId) -> &[WeightedTransition<L, W>] {
+        self.try_transitions_lazy(state)
+            .unwrap_or_else(|error| panic!("lazy transition expansion failed: {error}"))
+    }
+
+    fn require_expanded(&self, state: StateId) -> &LazyState<L, W> {
+        if let Err(error) = self.check_snapshot() {
+            panic!("stale lazy WFST observation: {error}");
+        }
+        match self.state_entry(state) {
+            Some(state @ LazyState::Expanded { .. }) => state,
+            Some(other) => panic!(
+                "lazy WFST state {state} is {:?}; use expansion_status/expand before Wfst access",
+                other.status()
+            ),
+            None => panic!(
+                "lazy WFST state {state} is unexpanded; use expand or transitions_lazy first"
+            ),
+        }
     }
 }
 
@@ -327,27 +1176,23 @@ where
     }
 
     fn is_final(&self, state: StateId) -> bool {
-        // Note: This requires mutable access in practice
-        // For immutable access, we check the cache
-        self.state_entry(state)
-            .map(|s| matches!(s, LazyState::Computed { is_final: true, .. }))
-            .unwrap_or(false)
+        self.require_expanded(state)
+            .final_info()
+            .expect("expanded state has final information")
+            .0
     }
 
     fn final_weight(&self, state: StateId) -> W {
-        self.state_entry(state)
-            .map(|s| match s {
-                LazyState::Computed { final_weight, .. } => *final_weight,
-                LazyState::Pending => W::zero(),
-            })
-            .unwrap_or_else(W::zero)
+        self.require_expanded(state)
+            .final_info()
+            .expect("expanded state has final information")
+            .1
     }
 
     fn transitions(&self, state: StateId) -> &[WeightedTransition<L, W>] {
-        // For immutable access, return empty if not computed
-        self.state_entry(state)
-            .and_then(|s| s.transitions())
-            .unwrap_or(&[])
+        self.require_expanded(state)
+            .transitions()
+            .expect("expanded state has transitions")
     }
 
     fn num_states(&self) -> usize {
@@ -362,21 +1207,17 @@ where
     W: Semiring,
 {
     fn is_expanded(&self, state: StateId) -> bool {
-        self.state_entry(state)
-            .map(|s| s.is_computed())
-            .unwrap_or(false)
+        self.expansion_status(state)
+            .unwrap_or_else(|error| panic!("stale lazy WFST status query: {error}"))
+            .is_cacheable()
     }
 
-    fn expand(&mut self, state: StateId) {
-        if !self.is_expanded(state) {
-            let computed = self.source.compute_state(state);
-            self.insert_cached(state, computed);
-        }
+    fn expand(&mut self, state: StateId) -> Result<ExpansionStatus, ExpansionError> {
+        LazyWfstWrapper::expand(self, state)
     }
 
     fn transitions_lazy(&mut self, state: StateId) -> &[WeightedTransition<L, W>] {
-        self.ensure_computed(state);
-        self.transitions(state)
+        LazyWfstWrapper::transitions_lazy(self, state)
     }
 
     fn cache_policy(&self) -> CachePolicy {
@@ -388,16 +1229,22 @@ where
         match policy {
             CachePolicy::NoCache | CachePolicy::Lru { max_states: 0 } => {
                 self.cache.clear();
-                self.access_order.clear();
+                self.lru_head = None;
+                self.lru_tail = None;
                 self.transient_state = None;
             }
             CachePolicy::CacheAll => {
                 self.transient_state = None;
-                self.access_order.clear();
+                self.lru_head = None;
+                self.lru_tail = None;
+                for entry in self.cache.values_mut() {
+                    entry.previous = None;
+                    entry.next = None;
+                }
             }
             CachePolicy::Lru { max_states } => {
                 self.transient_state = None;
-                self.reconcile_lru_order();
+                self.rebuild_lru();
                 while self.cache.len() > max_states {
                     self.evict_lru();
                 }
@@ -410,9 +1257,7 @@ where
     }
 
     fn clear_cache(&mut self) {
-        self.cache.clear();
-        self.transient_state = None;
-        self.access_order.clear();
+        self.clear_all_states();
         // Don't reset computed_count - it tracks total ever computed
     }
 }
@@ -421,6 +1266,9 @@ where
 mod tests {
     use super::*;
     use crate::semiring::TropicalWeight;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Barrier};
+    use std::thread;
 
     /// Simple test source that generates a linear chain.
     #[derive(Clone)]
@@ -428,12 +1276,73 @@ mod tests {
         num_states: usize,
     }
 
+    #[derive(Clone)]
+    struct PanicOnceSource {
+        should_panic: Arc<AtomicBool>,
+    }
+
+    impl StateSource<char, TropicalWeight> for PanicOnceSource {
+        fn compute_state(
+            &self,
+            request: ExpansionRequest<'_>,
+        ) -> StateExpansion<char, TropicalWeight> {
+            if request.state() != 0 {
+                return StateExpansion::failed(ExpansionFailure::invalid_state(request.state()));
+            }
+            if self.should_panic.swap(false, Ordering::AcqRel) {
+                panic!("deliberate source panic");
+            }
+            StateExpansion::non_final(SmallVec::new())
+        }
+
+        fn start(&self) -> StateId {
+            0
+        }
+
+        fn num_states_hint(&self) -> Option<usize> {
+            Some(1)
+        }
+    }
+
+    #[derive(Clone)]
+    struct BlockingSource {
+        entered: Arc<Barrier>,
+        release: Arc<Barrier>,
+    }
+
+    impl StateSource<char, TropicalWeight> for BlockingSource {
+        fn compute_state(
+            &self,
+            request: ExpansionRequest<'_>,
+        ) -> StateExpansion<char, TropicalWeight> {
+            self.entered.wait();
+            self.release.wait();
+            if let Some(reason) = request.cancellation().reason() {
+                StateExpansion::cancelled(reason)
+            } else {
+                StateExpansion::non_final(SmallVec::new())
+            }
+        }
+
+        fn start(&self) -> StateId {
+            0
+        }
+
+        fn num_states_hint(&self) -> Option<usize> {
+            Some(1)
+        }
+    }
+
     impl StateSource<char, TropicalWeight> for LinearChainSource {
-        fn compute_state(&self, state: StateId) -> LazyState<char, TropicalWeight> {
+        fn compute_state(
+            &self,
+            request: ExpansionRequest<'_>,
+        ) -> StateExpansion<char, TropicalWeight> {
+            let state = request.state();
             let state_idx = state as usize;
 
             if state_idx >= self.num_states {
-                return LazyState::Pending;
+                return StateExpansion::failed(ExpansionFailure::invalid_state(state));
             }
 
             let is_final = state_idx == self.num_states - 1;
@@ -450,9 +1359,9 @@ mod tests {
             }
 
             if is_final {
-                LazyState::final_state(TropicalWeight::one(), transitions)
+                StateExpansion::final_state(TropicalWeight::one(), transitions)
             } else {
-                LazyState::non_final(transitions)
+                StateExpansion::non_final(transitions)
             }
         }
 
@@ -484,7 +1393,7 @@ mod tests {
         assert_eq!(lazy.computed_states(), 2);
 
         // Final state
-        lazy.expand(4);
+        lazy.expand(4).unwrap();
         assert!(lazy.is_expanded(4));
         assert_eq!(lazy.computed_states(), 3);
     }
@@ -497,7 +1406,7 @@ mod tests {
 
         // Expand 5 states, should evict older ones
         for i in 0..5 {
-            lazy.expand(i);
+            lazy.expand(i).unwrap();
         }
 
         // Only 3 should be cached
@@ -518,55 +1427,61 @@ mod tests {
         let source = LinearChainSource { num_states: 10 };
         let mut lazy = LazyWfstWrapper::new(source);
 
-        lazy.expand(0);
-        lazy.expand(1);
-        lazy.expand(2);
+        lazy.expand(0).unwrap();
+        lazy.expand(1).unwrap();
+        lazy.expand(2).unwrap();
         assert_eq!(lazy.cache.len(), 3);
-        assert!(lazy.access_order.is_empty());
+        assert_eq!(lazy.lru_head, None);
+        assert_eq!(lazy.lru_tail, None);
 
         lazy.set_cache_policy(CachePolicy::Lru { max_states: 2 });
 
         assert_eq!(lazy.cache.len(), 2);
-        assert_eq!(lazy.access_order.len(), 2);
+        assert!(lazy.lru_head.is_some());
+        assert!(lazy.lru_tail.is_some());
 
-        lazy.expand(3);
+        lazy.expand(3).unwrap();
 
         assert_eq!(lazy.cache.len(), 2);
-        assert_eq!(lazy.access_order.len(), 2);
+        assert!(lazy.lru_head.is_some());
+        assert_eq!(lazy.lru_tail, Some(3));
         assert!(lazy.is_expanded(3));
     }
 
     #[test]
-    fn test_lru_hit_restores_missing_access_order_entry() {
+    fn test_lru_hit_moves_entry_to_tail_in_constant_time() {
         let source = LinearChainSource { num_states: 10 };
         let mut lazy =
             LazyWfstWrapper::with_cache_policy(source, CachePolicy::Lru { max_states: 2 });
 
-        lazy.expand(0);
-        lazy.expand(1);
-        lazy.access_order.clear();
+        lazy.expand(0).unwrap();
+        lazy.expand(1).unwrap();
+        assert_eq!(lazy.lru_head, Some(0));
+        assert_eq!(lazy.lru_tail, Some(1));
 
         let transitions = lazy.transitions_lazy(0);
 
         assert_eq!(transitions.len(), 1);
         assert_eq!(lazy.cache.len(), 2);
-        assert_eq!(lazy.access_order.back(), Some(&0));
+        assert_eq!(lazy.lru_head, Some(1));
+        assert_eq!(lazy.lru_tail, Some(0));
     }
 
     #[test]
-    fn test_lru_eviction_preserves_capacity_with_stale_order() {
+    fn test_lru_eviction_preserves_capacity_after_hits() {
         let source = LinearChainSource { num_states: 10 };
         let mut lazy =
             LazyWfstWrapper::with_cache_policy(source, CachePolicy::Lru { max_states: 2 });
 
-        lazy.expand(0);
-        lazy.expand(1);
-        lazy.access_order.clear();
-        lazy.access_order.push_back(99);
+        lazy.expand(0).unwrap();
+        lazy.expand(1).unwrap();
+        lazy.expand(0).unwrap();
 
-        lazy.expand(2);
+        lazy.expand(2).unwrap();
 
         assert_eq!(lazy.cache.len(), 2);
+        assert!(lazy.is_expanded(0));
+        assert!(!lazy.is_expanded(1));
         assert!(lazy.is_expanded(2));
     }
 
@@ -642,9 +1557,9 @@ mod tests {
         let source = LinearChainSource { num_states: 5 };
         let mut lazy = LazyWfstWrapper::new(source);
 
-        lazy.expand(0);
-        lazy.expand(1);
-        lazy.expand(2);
+        lazy.expand(0).unwrap();
+        lazy.expand(1).unwrap();
+        lazy.expand(2).unwrap();
 
         assert_eq!(lazy.cache.len(), 3);
         assert_eq!(lazy.computed_states(), 3);
@@ -654,5 +1569,117 @@ mod tests {
         assert_eq!(lazy.cache.len(), 0);
         // computed_states tracks total ever computed
         assert_eq!(lazy.computed_states(), 3);
+    }
+
+    #[test]
+    fn test_source_panic_rolls_back_unique_owner() {
+        let source = PanicOnceSource {
+            should_panic: Arc::new(AtomicBool::new(true)),
+        };
+        let mut lazy = LazyWfstWrapper::new(source);
+
+        let panic = catch_unwind(AssertUnwindSafe(|| lazy.expand(0)));
+        assert!(panic.is_err());
+        assert_eq!(
+            lazy.expansion_status(0).unwrap(),
+            ExpansionStatus::Unexpanded
+        );
+        assert_eq!(lazy.total_attempts(), 1);
+
+        assert_eq!(lazy.expand(0).unwrap(), ExpansionStatus::ExpandedEmpty);
+        assert_eq!(lazy.total_attempts(), 2);
+    }
+
+    #[test]
+    fn test_cancellation_token_has_one_concurrent_winner() {
+        let token = CancellationToken::new();
+        let start = Arc::new(Barrier::new(9));
+        let reasons = [
+            CancellationReason::Requested,
+            CancellationReason::Deadline,
+            CancellationReason::Budget,
+            CancellationReason::Source,
+        ];
+        let mut workers = Vec::with_capacity(8);
+        for index in 0..8 {
+            let token = token.clone();
+            let start = start.clone();
+            workers.push(thread::spawn(move || {
+                start.wait();
+                token.cancel(reasons[index % reasons.len()])
+            }));
+        }
+        start.wait();
+        let winners = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .filter(|won| *won)
+            .count();
+
+        assert_eq!(winners, 1);
+        assert!(token.reason().is_some());
+    }
+
+    #[test]
+    fn test_concurrent_cancellation_during_source_call_is_terminal() {
+        let entered = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let source = BlockingSource {
+            entered: entered.clone(),
+            release: release.clone(),
+        };
+        let token = CancellationToken::new();
+        let worker_token = token.clone();
+        let worker = thread::spawn(move || {
+            let mut lazy = LazyWfstWrapper::new(source);
+            let result = lazy.expand_with(0, &worker_token);
+            (lazy, result)
+        });
+
+        entered.wait();
+        assert!(token.cancel(CancellationReason::Requested));
+        release.wait();
+        let (lazy, result) = worker.join().unwrap();
+
+        assert_eq!(
+            result,
+            Err(ExpansionError::Cancelled(CancellationReason::Requested))
+        );
+        assert_eq!(
+            lazy.expansion_status(0).unwrap(),
+            ExpansionStatus::Cancelled
+        );
+        assert_eq!(lazy.total_attempts(), 1);
+    }
+
+    #[test]
+    fn test_independent_wrappers_expand_in_parallel() {
+        let mut workers = Vec::with_capacity(8);
+        for _ in 0..8 {
+            workers.push(thread::spawn(|| {
+                let mut lazy = LazyWfstWrapper::new(LinearChainSource { num_states: 2 });
+                assert_eq!(lazy.expand(0).unwrap(), ExpansionStatus::ExpandedNonempty);
+                lazy.transitions_lazy(0)[0].to
+            }));
+        }
+        for worker in workers {
+            assert_eq!(worker.join().unwrap(), 1);
+        }
+    }
+
+    #[test]
+    fn test_attempt_counter_saturates_without_wrapping() {
+        let mut lazy = LazyWfstWrapper::new(LinearChainSource { num_states: 1 });
+        lazy.total_attempts = u64::MAX;
+
+        assert_eq!(lazy.expand(0).unwrap(), ExpansionStatus::ExpandedEmpty);
+        assert_eq!(lazy.total_attempts(), u64::MAX);
+        assert!(matches!(
+            lazy.lifecycle_state(0).unwrap(),
+            Some(LazyState::Expanded {
+                attempt: u64::MAX,
+                ..
+            })
+        ));
     }
 }

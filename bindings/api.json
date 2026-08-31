@@ -152,7 +152,7 @@
   },
   "packageVersion": "4.0.0-rc.5",
   "abiVersion": 1,
-  "apiRevision": 4,
+  "apiRevision": 5,
   "cPrefix": "lling_",
   "headers": {
     "c": "include/lling_llang.h",
@@ -281,7 +281,36 @@
         "bounded-batch-folds"
       ],
       "validation": "base and capability ABI checks, exact output ownership, domain preservation, bounded buffers, and representative lattice-law probes"
+    },
+    "LlingCancellationV2": {
+      "ownership": "caller-owned-single-release-pointer-slot",
+      "threadSafety": "atomic-first-reason-wins",
+      "methods": ["new", "request", "reason", "free"]
     }
+  },
+  "typedAbiV2": {
+    "metadataVersion": 2,
+    "migration": "additive-to-opaque-v1",
+    "layouts": {
+      "header": 24,
+      "id128": 16,
+      "digest256": 32,
+      "wfstDescriptor": 120,
+      "budget": 72,
+      "outcome": 96
+    },
+    "signatureAxes": ["inputTape", "outputTape", "algebra"],
+    "identityAxes": ["snapshot", "context"],
+    "outcomeAxes": [
+      "precision", "completeness", "applicability", "termination", "evidence"
+    ],
+    "wireRules": [
+      "raw-discriminants-validated-before-enum-decoding",
+      "unknown-flags-and-nonzero-reserved-fields-rejected",
+      "inactive-optional-fields-and-limits-are-zero",
+      "larger-struct-size-is-an-additive-tail",
+      "cancelled-or-budget-exhausted-results-do-not-publish-handles"
+    ]
   },
   "forbiddenFacadeSymbols": [
     "ldict_",
@@ -494,6 +523,42 @@
     },
     {
       "name": "lling_resource_release",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_abi_v2_validate_header",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_abi_v2_validate_descriptor",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_abi_v2_validate_budget",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_abi_v2_validate_outcome",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_abi_v2_identity_matches",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_cancellation_v2_new",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_cancellation_v2_request",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_cancellation_v2_reason",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_cancellation_v2_free",
       "rustModule": "ffi"
     }
   ],

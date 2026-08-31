@@ -33,6 +33,7 @@ diagrams: committed SVGs make its inline-preview advantage moot, and avoiding a
 fifth toolchain keeps the visual style consistent. **Kroki** (the pgmcp HTTP
 gateway) is an optional fallback; the local engines above are the required path.
 
+<!-- vdl-disable MATH006 -->
 **Math in diagram labels.** PlantUML (`.puml`) and TikZ (`.tex`) typeset
 mathematics with LaTeX — `<latex>\oplus</latex>` via JLaTeXMath in PlantUML, math
 macros in TikZ — rather than Unicode literals, per the pgmcp
@@ -40,6 +41,7 @@ macros in TikZ — rather than Unicode literals, per the pgmcp
 (`.dot`) and D2 (`.d2`) have no LaTeX facility, so their automaton and dataflow
 labels keep the readable Unicode forms (`a:ε/0.5`, `q₀`) — which render
 identically in the SVG.
+<!-- vdl-enable MATH006 -->
 
 ## 2. Color palette — one intuitive color per concept
 
@@ -99,6 +101,7 @@ edge [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, p
 ```
 
 PlantUML sources reuse the `skinparam` blocks from the existing `.puml` files;
+<!-- vdl-disable-next-line MATH006 -->
 TikZ sources `\definecolor{found}{HTML}{BBDEFB}` … one per palette row.
 
 ## 3. Directory & naming
@@ -112,7 +115,7 @@ whitelists `docs/diagrams/**/*.svg`.
 
 ## 4. Embedding in docs
 
-```markdown
+````markdown
 ![<descriptive alt text>](../diagrams/<section>/<name>.svg)
 
 *<one-line color legend>.*
@@ -124,7 +127,7 @@ whitelists `docs/diagrams/**/*.svg`.
 ```
 
 </details>
-```
+````
 
 Relative prefix = one `../` per directory level below `docs/`. Always keep the
 `<details>` fallback.
@@ -157,10 +160,15 @@ diagrams are added.)
 | `architecture/semiring-traits.svg` | PlantUML | `architecture/semirings.md`, `architecture/wfst-traits.md` |
 | `architecture/semiring-hasse.svg` | TikZ | `architecture/semirings.md` |
 | `architecture/wfst-traits.svg` | PlantUML | `architecture/wfst-traits.md` |
+| `architecture/lazy-wfst-lifecycle-state.svg` | PlantUML | `architecture/lazy-wfst-lifecycle.md` |
+| `architecture/lazy-wfst-expansion-sequence.svg` | PlantUML | `architecture/lazy-wfst-lifecycle.md` |
 | `architecture/lattice-worked.svg` | Graphviz | `architecture/overview.md`, `architecture/lattices.md` |
-| `api/c-abi-surface.svg` | PlantUML | `api/c-abi-reference.md` |
+| [`api/c-abi-surface.puml`](api/c-abi-surface.puml) · [`api/c-abi-surface.svg`](api/c-abi-surface.svg) | PlantUML | `api/c-abi-reference.md` |
 | `architecture/builder-lifecycle-state.svg` | PlantUML | `api/c-abi-reference.md` |
 | `architecture/dynamic-lattice-adapter.svg` | PlantUML | `architecture/dynamic-lattices.md` |
 | `architecture/wfst-import-compose-sequence.svg` | PlantUML | `architecture/resource-abi.md`, `security/abi-trust-model.md` |
 | `architecture/composition-product-component.svg` | PlantUML | `architecture/resource-abi.md` |
+| `optimization/categorical-optimizer-contract.svg` | PlantUML | `optimization/categorical-optimizer-contract.md` |
+| `optimization/optimizer-lifecycle-state.svg` | PlantUML | `optimization/plan-and-provenance.md` |
+| `optimization/formal-evidence-stack.svg` | PlantUML | `optimization/formal-verification.md` |
 | `algorithms/*` · `asr/*` · `advanced/*` · `transducers/*` · `correction/*` | Graphviz / PlantUML / D2 / TikZ | the corresponding topic docs |

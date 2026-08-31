@@ -13,6 +13,22 @@ include("GeneratedAbi.jl")
 export ABI_VERSION,
     API_REVISION,
     Status,
+    TYPED_ABI_VERSION,
+    DESCRIPTOR_SIGNATURE_KNOWN,
+    DESCRIPTOR_SNAPSHOT_PRESENT,
+    DESCRIPTOR_CONTEXT_PRESENT,
+    BUDGET_STATES,
+    BUDGET_ARCS,
+    BUDGET_BYTES,
+    BUDGET_WORK,
+    CancellationReasonV2,
+    AbiV2Header,
+    Id128,
+    Digest256,
+    WfstDescriptorV2,
+    BudgetV2,
+    OutcomeV2,
+    CancellationV2,
     NativeError,
     WfstBuilder,
     ProviderArc,
@@ -24,6 +40,13 @@ export ABI_VERSION,
     SemiringWeight,
     abi_version,
     api_revision,
+    validate_abi_v2_header,
+    typed_evidence_allowed,
+    validate_budget_v2,
+    authoritative_exact,
+    identity_matches,
+    request!,
+    cancellation_reason,
     reserve_states!,
     add_state!,
     set_start!,
@@ -157,6 +180,160 @@ function finalize_close(value)
     end
     nothing
 end
+
+"""Common fixed-layout prefix carried by every typed ABI-v2 structure."""
+struct AbiV2Header
+    struct_size::UInt32
+    abi_version::UInt32
+    flags::UInt64
+    reserved::UInt64
+end
+AbiV2Header(struct_size::Integer, flags::Integer=0) = AbiV2Header(
+    UInt32(struct_size), TYPED_ABI_VERSION, UInt64(flags), UInt64(0))
+
+"""A fixed-width semantic identifier; all-zero bytes mean absent."""
+struct Id128
+    bytes::NTuple{16,UInt8}
+end
+Id128(bytes::AbstractVector{<:Integer}) =
+    Id128(ntuple(index -> UInt8(bytes[index]), 16))
+Id128() = Id128(ntuple(_ -> UInt8(0), 16))
+
+"""A fixed-width evidence-context digest; all-zero bytes mean absent."""
+struct Digest256
+    bytes::NTuple{32,UInt8}
+end
+Digest256(bytes::AbstractVector{<:Integer}) =
+    Digest256(ntuple(index -> UInt8(bytes[index]), 32))
+Digest256() = Digest256(ntuple(_ -> UInt8(0), 32))
+
+"""Replay-critical tape, algebra, snapshot, and evidence-context identity."""
+struct WfstDescriptorV2
+    header::AbiV2Header
+    input_tape::Id128
+    output_tape::Id128
+    algebra::Id128
+    snapshot::Id128
+    context::Digest256
+end
+
+"""Canonical state, arc, byte, and abstract-work limits."""
+struct BudgetV2
+    header::AbiV2Header
+    max_states::UInt64
+    max_arcs::UInt64
+    max_bytes::UInt64
+    max_work::UInt64
+    reserved::NTuple{2,UInt64}
+end
+function BudgetV2(; max_states::Integer=0, max_arcs::Integer=0,
+    max_bytes::Integer=0, max_work::Integer=0)
+    values = (max_states, max_arcs, max_bytes, max_work)
+    all(value -> value >= 0, values) ||
+        throw(ArgumentError("ABI-v2 budgets cannot be negative"))
+    flags = (max_states == 0 ? UInt64(0) : BUDGET_STATES) |
+        (max_arcs == 0 ? UInt64(0) : BUDGET_ARCS) |
+        (max_bytes == 0 ? UInt64(0) : BUDGET_BYTES) |
+        (max_work == 0 ? UInt64(0) : BUDGET_WORK)
+    BudgetV2(AbiV2Header(sizeof(BudgetV2), flags), UInt64(max_states),
+        UInt64(max_arcs), UInt64(max_bytes), UInt64(max_work),
+        (UInt64(0), UInt64(0)))
+end
+
+"""Orthogonal semantic, completion, publication, and evidence outcome axes."""
+struct OutcomeV2
+    header::AbiV2Header
+    precision::UInt32
+    completeness::UInt32
+    applicability::UInt32
+    termination::UInt32
+    evidence::UInt32
+    reserved0::UInt32
+    states::UInt64
+    arcs::UInt64
+    bytes::UInt64
+    work::UInt64
+    limitations::UInt64
+    reserved1::UInt64
+end
+
+function validate_abi_v2_header(
+    header::AbiV2Header, required_size::Integer, known_flags::Integer)
+    checked(ccall(native(:lling_abi_v2_validate_header), UInt32,
+        (Ref{AbiV2Header}, UInt32, UInt64), Ref(header), required_size,
+        known_flags), :abi_v2_validate_header)
+    header
+end
+function typed_evidence_allowed(descriptor::WfstDescriptorV2)
+    output = Ref{UInt8}(0)
+    checked(ccall(native(:lling_abi_v2_validate_descriptor), UInt32,
+        (Ref{WfstDescriptorV2}, Ref{UInt8}), Ref(descriptor), output),
+        :abi_v2_validate_descriptor)
+    output[] != 0
+end
+function validate_budget_v2(budget::BudgetV2)
+    checked(ccall(native(:lling_abi_v2_validate_budget), UInt32,
+        (Ref{BudgetV2},), Ref(budget)), :abi_v2_validate_budget)
+    budget
+end
+function authoritative_exact(
+    outcome::OutcomeV2; resource_present::Bool, evidence_present::Bool)
+    output = Ref{UInt8}(0)
+    checked(ccall(native(:lling_abi_v2_validate_outcome), UInt32,
+        (Ref{OutcomeV2}, UInt8, UInt8, Ref{UInt8}), Ref(outcome),
+        UInt8(resource_present), UInt8(evidence_present), output),
+        :abi_v2_validate_outcome)
+    output[] != 0
+end
+function identity_matches(expected::WfstDescriptorV2, observed::WfstDescriptorV2)
+    output = Ref{UInt8}(0)
+    checked(ccall(native(:lling_abi_v2_identity_matches), UInt32,
+        (Ref{WfstDescriptorV2}, Ref{WfstDescriptorV2}, Ref{UInt8}),
+        Ref(expected), Ref(observed), output), :abi_v2_identity_matches)
+    output[] != 0
+end
+
+"""Thread-safe, first-reason-wins cooperative-cancellation owner."""
+mutable struct CancellationV2
+    handle::Ptr{Cvoid}
+    closed::Bool
+end
+function CancellationV2()
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    checked(ccall(native(:lling_cancellation_v2_new), UInt32,
+        (Ref{Ptr{Cvoid}},), output), :cancellation_v2_new)
+    value = CancellationV2(output[], false)
+    finalizer(finalize_close, value)
+    value
+end
+function open_handle(value::CancellationV2)
+    value.closed && throw(NativeError(
+        STATUS_CLOSED, :cancellation, "cancellation handle is closed"))
+    value.handle
+end
+function request!(value::CancellationV2, reason::CancellationReasonV2)
+    checked(ccall(native(:lling_cancellation_v2_request), UInt32,
+        (Ptr{Cvoid}, UInt32), open_handle(value), UInt32(reason)),
+        :cancellation_v2_request)
+    value
+end
+function cancellation_reason(value::CancellationV2)
+    output = Ref{UInt32}(0)
+    checked(ccall(native(:lling_cancellation_v2_reason), UInt32,
+        (Ptr{Cvoid}, Ref{UInt32}), open_handle(value), output),
+        :cancellation_v2_reason)
+    output[] == 0 ? nothing : CancellationReasonV2(output[])
+end
+function close!(value::CancellationV2)
+    value.closed && return nothing
+    slot = Ref(value.handle)
+    checked(ccall(native(:lling_cancellation_v2_free), UInt32,
+        (Ref{Ptr{Cvoid}},), slot), :cancellation_v2_free)
+    value.handle = slot[]
+    value.closed = true
+    nothing
+end
+Base.close(value::CancellationV2) = close!(value)
 
 """Mutable Unicode/tropical WFST builder. `build!` consumes it on success."""
 mutable struct WfstBuilder

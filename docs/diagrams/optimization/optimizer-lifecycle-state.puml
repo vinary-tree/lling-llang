@@ -1,0 +1,54 @@
+@startuml optimizer-lifecycle-state
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam ArrowColor #607D8B
+skinparam ArrowThickness 1.3
+skinparam state {
+  BackgroundColor #ECEFF1
+  BorderColor #455A64
+  FontColor #102027
+}
+
+title <b>Optimizer lifecycle and publication gate</b>\n<size:11><i>terminal outcomes cannot cross the publication boundary</i></size>
+
+[*] --> Validated : validate typed signatures\nand rank-certified plan
+
+state "Validated" as Validated #BBDEFB
+state "Running" as Running #C8E6C9
+state "Completed" as Completed #C8E6C9
+state "Published" as Published #DCEDC8
+state "Cancelled" as Cancelled #FFCDD2
+state "BudgetExceeded" as BudgetExceeded #FFCDD2
+state "Failed" as Failed #FFCDD2
+
+Validated --> Running : start ready node
+Running --> Running : start/finish workers\ncommit next canonical provenance
+Running --> Completed : all nodes finished\nprovenance complete\nwitness present
+Completed --> Completed : independent exact confirmation
+Completed --> Published : witness present and\n(non-exact or exact-confirmed)
+
+Validated --> Cancelled : cancellation
+Running --> Cancelled : cancellation
+Completed --> Cancelled : cancellation
+Running --> BudgetExceeded : budget exhausted\nplan unfinished
+Validated --> Failed : validation/runtime failure
+Running --> Failed : validation/runtime failure
+Completed --> Failed : validation/runtime failure
+
+Published --> [*]
+Cancelled --> [*]
+BudgetExceeded --> [*]
+Failed --> [*]
+
+note right of Running #FFF59D
+  Worker completion order may differ.
+  Provenance commit order is canonical,
+  so exact outputs are worker-count invariant.
+end note
+
+note bottom of Published #DCEDC8
+  If precision is <b>Exact</b>, publication
+  additionally requires an independent
+  denotational confirmation.
+end note
+@enduml

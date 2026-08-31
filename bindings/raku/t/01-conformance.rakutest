@@ -1,5 +1,6 @@
 use v6.d;
 use Test;
+use NativeCall;
 use Lling::Llang;
 
 module LatticeFixture {
@@ -14,11 +15,41 @@ module LatticeFixture {
     }
 }
 
-plan 44;
+plan 54;
 my constant LATTICE-BATCH-FLAG = 1 +< 3;
 
 is abi-version(), ABI-VERSION, 'native and Raku ABI versions agree';
 ok api-revision() >= API-REVISION, 'native API revision satisfies the facade';
+is nativesizeof(AbiV2Header), 24, 'typed ABI-v2 header layout is stable';
+is nativesizeof(BudgetV2), 72, 'typed ABI-v2 budget layout is stable';
+is nativesizeof(OutcomeV2), 96, 'typed ABI-v2 outcome layout is stable';
+my $abi-v2-header = AbiV2Header.new(struct-size => nativesizeof(BudgetV2));
+lives-ok { validate-abi-v2-header($abi-v2-header, nativesizeof(BudgetV2)) },
+    'Raku validates a canonical typed ABI-v2 header';
+my $budget-v2 = BudgetV2.new(max-states => 100, max-work => 1_000);
+is $budget-v2.header.flags, BUDGET-STATES +| BUDGET-WORK,
+    'budget constructor derives canonical presence flags';
+lives-ok { validate-budget-v2($budget-v2) },
+    'Raku validates a canonical typed ABI-v2 budget';
+my $outcome-v2 = OutcomeV2.new(
+    precision => 1, completeness => 1, applicability => 1,
+    termination => 1, evidence => 2,
+    states => 2, arcs => 1, bytes => 64, work => 3,
+    limitations => 0,
+);
+ok authoritative-exact($outcome-v2,
+        resource-present => True, evidence-present => True),
+    'Raku recognizes an exact complete verified result as authoritative';
+my $cancellation-v2 = CancellationV2.new;
+nok $cancellation-v2.reason.defined,
+    'new cancellation resources have no requested reason';
+$cancellation-v2.request(REQUESTED);
+is $cancellation-v2.reason, REQUESTED,
+    'Raku publishes the first cancellation reason';
+$cancellation-v2.request(DEADLINE);
+is $cancellation-v2.reason, REQUESTED,
+    'cancellation remains first-reason-wins';
+$cancellation-v2.close;
 
 my $builder = WfstBuilder.new(size-hint => 2);
 my $first = $builder.add-state;

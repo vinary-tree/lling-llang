@@ -188,6 +188,10 @@ const VtLatticeVTable& lattice_table() {
 
 bool check_wfst() {
     using namespace vinary_tree::lling_llang;
+    cancellation stop;
+    if (stop.reason() != 0) return 2;
+    stop.request(LLING_CANCELLATION_REQUESTED_V2);
+    if (stop.reason() != LLING_CANCELLATION_REQUESTED_V2) return 3;
     builder value;
     const auto first = value.add_state();
     const auto second = value.add_state();

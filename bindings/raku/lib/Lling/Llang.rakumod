@@ -6,6 +6,24 @@ need Vinary::Tree::Interop;
 
 our constant ABI-VERSION is export = Lling::Llang::GeneratedAbi::ABI-VERSION;
 our constant API-REVISION is export = Lling::Llang::GeneratedAbi::API-REVISION;
+our constant TYPED-ABI-VERSION is export =
+    Lling::Llang::GeneratedAbi::TYPED-ABI-VERSION;
+our constant DESCRIPTOR-SIGNATURE-KNOWN is export =
+    Lling::Llang::GeneratedAbi::DESCRIPTOR-SIGNATURE-KNOWN;
+our constant DESCRIPTOR-SNAPSHOT-PRESENT is export =
+    Lling::Llang::GeneratedAbi::DESCRIPTOR-SNAPSHOT-PRESENT;
+our constant DESCRIPTOR-CONTEXT-PRESENT is export =
+    Lling::Llang::GeneratedAbi::DESCRIPTOR-CONTEXT-PRESENT;
+our constant BUDGET-STATES is export = Lling::Llang::GeneratedAbi::BUDGET-STATES;
+our constant BUDGET-ARCS is export = Lling::Llang::GeneratedAbi::BUDGET-ARCS;
+our constant BUDGET-BYTES is export = Lling::Llang::GeneratedAbi::BUDGET-BYTES;
+our constant BUDGET-WORK is export = Lling::Llang::GeneratedAbi::BUDGET-WORK;
+our enum CancellationReasonV2 is export (
+    REQUESTED => 1,
+    DEADLINE => 2,
+    BUDGET => 3,
+    SOURCE => 4,
+);
 our constant Status is export = Lling::Llang::GeneratedAbi::Status;
 our constant OK is export = Lling::Llang::GeneratedAbi::OK;
 our constant INVALID-ARGUMENT is export = Lling::Llang::GeneratedAbi::INVALID-ARGUMENT;
@@ -77,6 +95,24 @@ sub lling-api-revision(--> uint32)
     is native(&native-library) is symbol('lling_api_revision') { * }
 sub lling-last-error-message(--> Str)
     is native(&native-library) is symbol('lling_last_error_message') { * }
+sub lling-abi-v2-validate-header(Pointer, uint32, uint64 --> uint32)
+    is native(&native-library) is symbol('lling_abi_v2_validate_header') { * }
+sub lling-abi-v2-validate-descriptor(Pointer, uint8 is rw --> uint32)
+    is native(&native-library) is symbol('lling_abi_v2_validate_descriptor') { * }
+sub lling-abi-v2-validate-budget(Pointer --> uint32)
+    is native(&native-library) is symbol('lling_abi_v2_validate_budget') { * }
+sub lling-abi-v2-validate-outcome(Pointer, uint8, uint8, uint8 is rw --> uint32)
+    is native(&native-library) is symbol('lling_abi_v2_validate_outcome') { * }
+sub lling-abi-v2-identity-matches(Pointer, Pointer, uint8 is rw --> uint32)
+    is native(&native-library) is symbol('lling_abi_v2_identity_matches') { * }
+sub lling-cancellation-v2-new(Pointer is rw --> uint32)
+    is native(&native-library) is symbol('lling_cancellation_v2_new') { * }
+sub lling-cancellation-v2-request(Pointer, uint32 --> uint32)
+    is native(&native-library) is symbol('lling_cancellation_v2_request') { * }
+sub lling-cancellation-v2-reason(Pointer, uint32 is rw --> uint32)
+    is native(&native-library) is symbol('lling_cancellation_v2_reason') { * }
+sub lling-cancellation-v2-free(Pointer is rw --> uint32)
+    is native(&native-library) is symbol('lling_cancellation_v2_free') { * }
 sub lling-wfst-builder-new(Pointer is rw --> uint32)
     is native(&native-library) is symbol('lling_wfst_builder_new') { * }
 sub lling-wfst-builder-free(Pointer)
@@ -198,6 +234,164 @@ sub check-status(Int:D $code, Str:D $operation --> Nil) {
         :$operation,
         detail => (try lling-last-error-message()) // '',
     ).throw;
+}
+
+class AbiV2Header is repr('CStruct') is export {
+    has uint32 $.struct-size is rw;
+    has uint32 $.abi-version is rw;
+    has uint64 $.flags is rw;
+    has uint64 $.reserved is rw;
+    multi method new(UInt:D :$struct-size!, UInt:D :$flags = 0 --> AbiV2Header:D) {
+        self.bless(:$struct-size, abi-version => TYPED-ABI-VERSION,
+            :$flags, reserved => 0)
+    }
+}
+
+class BudgetV2 is repr('CStruct') is export {
+    HAS AbiV2Header $.header is rw;
+    has uint64 $.max-states is rw;
+    has uint64 $.max-arcs is rw;
+    has uint64 $.max-bytes is rw;
+    has uint64 $.max-work is rw;
+    has uint64 $.reserved0 is rw;
+    has uint64 $.reserved1 is rw;
+    multi method new(
+        UInt:D :$max-states = 0, UInt:D :$max-arcs = 0,
+        UInt:D :$max-bytes = 0, UInt:D :$max-work = 0,
+        --> BudgetV2:D
+    ) {
+        my $flags = ($max-states ?? BUDGET-STATES !! 0) +|
+            ($max-arcs ?? BUDGET-ARCS !! 0) +|
+            ($max-bytes ?? BUDGET-BYTES !! 0) +|
+            ($max-work ?? BUDGET-WORK !! 0);
+        my $value = self.bless;
+        $value.header.struct-size = nativesizeof(BudgetV2);
+        $value.header.abi-version = TYPED-ABI-VERSION;
+        $value.header.flags = $flags;
+        $value.header.reserved = 0;
+        $value.max-states = $max-states;
+        $value.max-arcs = $max-arcs;
+        $value.max-bytes = $max-bytes;
+        $value.max-work = $max-work;
+        $value.reserved0 = 0;
+        $value.reserved1 = 0;
+        $value
+    }
+}
+
+class OutcomeV2 is repr('CStruct') is export {
+    HAS AbiV2Header $.header is rw;
+    has uint32 $.precision is rw;
+    has uint32 $.completeness is rw;
+    has uint32 $.applicability is rw;
+    has uint32 $.termination is rw;
+    has uint32 $.evidence is rw;
+    has uint32 $.reserved0 is rw;
+    has uint64 $.states is rw;
+    has uint64 $.arcs is rw;
+    has uint64 $.bytes is rw;
+    has uint64 $.work is rw;
+    has uint64 $.limitations is rw;
+    has uint64 $.reserved1 is rw;
+    multi method new(
+        UInt:D :$precision!, UInt:D :$completeness!,
+        UInt:D :$applicability!, UInt:D :$termination!,
+        UInt:D :$evidence!, UInt:D :$states = 0, UInt:D :$arcs = 0,
+        UInt:D :$bytes = 0, UInt:D :$work = 0,
+        UInt:D :$limitations = 0, --> OutcomeV2:D
+    ) {
+        my $value = self.bless;
+        $value.header.struct-size = nativesizeof(OutcomeV2);
+        $value.header.abi-version = TYPED-ABI-VERSION;
+        $value.header.flags = 0;
+        $value.header.reserved = 0;
+        $value.precision = $precision;
+        $value.completeness = $completeness;
+        $value.applicability = $applicability;
+        $value.termination = $termination;
+        $value.evidence = $evidence;
+        $value.reserved0 = 0;
+        $value.states = $states;
+        $value.arcs = $arcs;
+        $value.bytes = $bytes;
+        $value.work = $work;
+        $value.limitations = $limitations;
+        $value.reserved1 = 0;
+        $value
+    }
+}
+
+sub validate-abi-v2-header(
+    AbiV2Header:D $header, UInt:D $required-size, UInt:D $known-flags = 0,
+    --> AbiV2Header:D
+) is export {
+    check-status(lling-abi-v2-validate-header(
+        nativecast(Pointer, $header), $required-size, $known-flags),
+        'abi-v2-validate-header');
+    $header
+}
+sub validate-budget-v2(BudgetV2:D $budget --> BudgetV2:D) is export {
+    check-status(lling-abi-v2-validate-budget(nativecast(Pointer, $budget)),
+        'abi-v2-validate-budget');
+    $budget
+}
+sub authoritative-exact(
+    OutcomeV2:D $outcome, Bool:D :$resource-present!,
+    Bool:D :$evidence-present!, --> Bool:D
+) is export {
+    my uint8 $result = 0;
+    check-status(lling-abi-v2-validate-outcome(
+        nativecast(Pointer, $outcome), $resource-present ?? 1 !! 0,
+        $evidence-present ?? 1 !! 0, $result), 'abi-v2-validate-outcome');
+    $result.so
+}
+sub typed-evidence-allowed(Pointer:D $descriptor --> Bool:D) is export {
+    my uint8 $result = 0;
+    check-status(lling-abi-v2-validate-descriptor($descriptor, $result),
+        'abi-v2-validate-descriptor');
+    $result.so
+}
+sub identity-matches(
+    Pointer:D $expected, Pointer:D $observed --> Bool:D
+) is export {
+    my uint8 $result = 0;
+    check-status(lling-abi-v2-identity-matches($expected, $observed, $result),
+        'abi-v2-identity-matches');
+    $result.so
+}
+
+class CancellationV2 is export {
+    has Pointer $!handle is required;
+    has Bool $!closed = False;
+    submethod BUILD(Pointer:D :$handle!) { $!handle = $handle }
+    multi method new(--> CancellationV2:D) {
+        my Pointer $handle .= new;
+        check-status(lling-cancellation-v2-new($handle), 'cancellation-v2-new');
+        self.bless(:$handle)
+    }
+    method !handle(--> Pointer) {
+        X::Lling::Llang.new(status => CLOSED, operation => 'cancellation',
+            detail => 'cancellation handle is closed').throw if $!closed;
+        $!handle
+    }
+    method request(CancellationReasonV2:D $reason --> CancellationV2:D) {
+        check-status(lling-cancellation-v2-request(self!handle, $reason.Int),
+            'cancellation-v2-request');
+        self
+    }
+    method reason(--> CancellationReasonV2) {
+        my uint32 $reason = 0;
+        check-status(lling-cancellation-v2-reason(self!handle, $reason),
+            'cancellation-v2-reason');
+        $reason ?? CancellationReasonV2($reason) !! CancellationReasonV2
+    }
+    method close(--> Nil) {
+        return if $!closed;
+        check-status(lling-cancellation-v2-free($!handle),
+            'cancellation-v2-free');
+        $!closed = True;
+    }
+    submethod DESTROY { try self.close }
 }
 
 sub valid-weight(Real:D $weight --> Num:D) {
