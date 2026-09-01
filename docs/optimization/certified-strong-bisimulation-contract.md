@@ -21,7 +21,7 @@ No existing production Rust file is changed by this formal-verification task.
 | **splitter** | An action and target block whose predecessor set divides a current block. |
 | **smaller-half rule** | Queue the smaller result of a split so each charged element moves at most logarithmically many times. |
 | **compressed sparse row (CSR)** | Dense offsets plus contiguous edges for one traversal direction. |
-| **certificate** | A safe split trace plus a stable canonical final partition that an independent checker can replay. |
+| **certificate** | A modal-safe split trace plus a stable canonical final partition that an independent checker can replay. |
 | **distinguishing witness** | An oriented modal formula that is true at one queried state and false at the other. |
 | **formula DAG** | A hash-consed directed acyclic graph that shares repeated modal-formula subexpressions. |
 | **canonical relation** | The state-pair equivalence relation, independent of incidental block identifiers or transition insertion order. |
@@ -56,6 +56,14 @@ Duplicate transitions have set semantics. Transition order, duplicate removal,
 and injective action relabeling cannot change the relation. Initial colors are
 observations: differently colored states never merge, even when both are
 deadlocked.
+
+Valmari's nondeterministic driver distinguishes three source categories for a
+transition cluster: every transition with the selected action reaches the
+target block, some do, or none do. The physical two-split sequence is justified
+by modal predicates rather than being misreported as a single predecessor
+split. `StrongBisimulation.v` proves that satisfaction of every formula in the
+certificate language is invariant under strong bisimilarity. It follows that
+both implementation-shaped splits preserve every bisimilar pair.
 
 ## Validated representation
 
@@ -164,9 +172,14 @@ container.
     splitter <- worklist.pop()
     touched_states <- reverse_csr predecessors selected by splitter
     touched_blocks <- count touched_states by current state block
+    target_formula <- characteristic formula of splitter.target_block
+    reaches <- Diamond(splitter.action, target_formula)
+    confined <- And(reaches,
+                    Not(Diamond(splitter.action, Not(target_formula))))
     for each touched block:
-        split touched members from untouched members in place
-        append the exact safe split to certificate
+        split confined members from the remaining members in place
+        split reaches members from non-reaching remaining members in place
+        append both exact modal-safe splits to certificate
         append shared modal nodes that characterize the new blocks
         queue the smaller resulting subblock
     update only transition blocks incident to changed state blocks
@@ -188,10 +201,12 @@ indices. Partition refinement is an iterative worklist machine.
 
 ## Certificates and witnesses
 
-A safe splitter is the preimage of a current block under one action. Splitting
-an equivalence relation by a saturated predicate cannot separate a bisimilar
-pair. Replaying only safe splits proves the “contains bisimilarity” direction;
-checking final stability proves the converse.
+A predecessor of a current block under one action is a safe splitter. More
+generally, every modal predicate used by the nondeterministic Valmari driver is
+saturated under strong bisimilarity. Splitting an equivalence relation by such
+a predicate cannot separate a bisimilar pair. Replaying only modal-safe splits
+proves the “contains bisimilarity” direction; checking final stability proves
+the converse.
 
 | Certificate field | Obligation |
 |---|---|
@@ -317,12 +332,12 @@ normative contract
 
 | Evidence | Scope | Acceptance |
 |---|---|---|
-| `StrongBisimulation.v` | Unbounded semantics, certificate exactness, labelled modal witnesses, validation, canonical relation, termination, and resource inequalities | Kernel compilation and zero proof escapes |
+| `StrongBisimulation.v` | Unbounded semantics, plain and modal-safe replay, certificate exactness, labelled modal witnesses, validation, canonical relation, termination, and resource inequalities | Kernel compilation and zero proof escapes |
 | `StrongBisimulationLifecycle.tla` | Selected finite edge sets and color maps; valid and three malformed dense-input modes | 14,916 valid distinct states plus 128 per malformed mode; safety and liveness hold |
 | `vco-e4-strong-bisimulation.smt2` | Validation, refinement, witness, canonicality, work, heap, and stack boundaries | Exact 15-result transcript |
 | executable oracle | Independent greatest fixed point versus partition refinement and stack-safe characteristic formulas | All 5,124 complete cases pass |
 | mutation campaign | Endpoint, color, transfer, termination, duplicate, modal, certificate, and canonical-ID defects | All 10 fail for their named invariant |
-| invariant ledger | Every Rocq theorem/lemma, configured TLC check, and named SMT control | 83 rows map to 13 Rust properties |
+| invariant ledger | Every Rocq theorem/lemma, configured TLC check, and named SMT control | 93 rows map to 13 Rust properties |
 | required-red package | Future validation, equivalence, evidence, resource, empty-input, and deep-stack behavior | Cargo status 101 solely because `CertifiedBisimulation` is absent |
 
 The required-red package is isolated under `proofs/required_red`; it does not

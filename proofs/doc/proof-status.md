@@ -12,7 +12,7 @@ This document tracks the current formal verification surface for lling-llang.
 | Campaign Rocq Contracts | 14 | 14 | 0 | 0 |
 | TLA+ Specifications | 13 specs / 22 configs + 32 expected-failure mutants | 22 finite TLC configs | 32 expected failures | 0 |
 | SMT Dual Checks | 7 transcripts / 101 queries | 101 expected results | 13 satisfiable witnesses/countermodels | 0 |
-| Strong-Bisimulation Extraction | 5,124 exhaustive cases / 10 mutants / 13 required-red properties | 5,124 cases and 10 expected failures | 83-row invariant ledger | 0 |
+| Strong-Bisimulation Extraction | 5,124 exhaustive cases / 10 mutants / 13 required-red properties | 5,124 cases and 10 expected failures | 93-row invariant ledger | 0 |
 | Kani ABI Models | 3 harnesses | 3 | 0 | 0 |
 
 ## Detailed Status

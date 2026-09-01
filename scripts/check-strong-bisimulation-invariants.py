@@ -98,6 +98,7 @@ def rocq_property(symbol: str) -> str:
             "formula",
             "witness",
             "saturation",
+            "saturated",
             "preimage",
             "class_cert",
         )
