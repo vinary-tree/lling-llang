@@ -1,5 +1,5 @@
-import { llingLlang } from "@vinary-tree/vinary-tree/wasi";
-import { assertSameRuntime, assertWfstResource } from "@vinary-tree/interop";
+import { llingLlang } from "@vinary-tree/javascript-runtime/wasi";
+import { assertSameRuntime, assertWfstResource } from "@vinary-tree/vinary-tree-interop";
 
 export const runtimeIdentity = llingLlang.runtimeIdentity;
 export const vectorWfst = llingLlang.vectorWfst.bind(llingLlang);

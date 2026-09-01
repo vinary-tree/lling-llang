@@ -13,11 +13,11 @@
     - 1̄ = 0 : Represents zero cost (free transitions)
 *)
 
-Require Import Coq.Reals.Reals.
-Require Import Coq.micromega.Lra.
-Require Import Coq.Classes.Morphisms.
-Require Import Coq.Classes.RelationClasses.
-Require Import Coq.Setoids.Setoid.
+From Stdlib Require Import Reals.Reals.
+From Stdlib Require Import micromega.Lra.
+From Stdlib Require Import Classes.Morphisms.
+From Stdlib Require Import Classes.RelationClasses.
+From Stdlib Require Import Setoids.Setoid.
 Require Import LlingLlang.foundations.Semiring.
 
 Open Scope R_scope.

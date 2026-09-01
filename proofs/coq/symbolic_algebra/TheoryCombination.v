@@ -45,7 +45,7 @@
 From Stdlib Require Import Bool.
 From Stdlib Require Import List.
 Import ListNotations.
-From SymbolicAlgebra Require Import EffectiveBooleanAlgebra.
+From LlingLlang.symbolic_algebra Require Import EffectiveBooleanAlgebra.
 
 (* ===================================================================== *)
 (*  Generic helper                                                       *)

@@ -1,12 +1,24 @@
 name: Release lling-llang bindings
 
 on:
-  push:
-    tags: ["v*.*.*"]
   workflow_dispatch:
+    inputs:
+      registry:
+        description: Publish one registry from an immutable release tag
+        required: true
+        type: choice
+        default: validate-only
+        options:
+          - validate-only
+          - npm
+          - crates-io
 
 permissions:
   contents: read
+
+concurrency:
+  group: lling-llang-release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   contract:
@@ -14,12 +26,23 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with: { persist-credentials: false }
-      - name: Checkout exact ABI header dependency
+      - name: Checkout exact release dependencies
         shell: bash
         run: |
           parent=$(dirname "$GITHUB_WORKSPACE")
-          git clone --depth 1 --branch v4.0.0-rc.5 https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
+          git clone --depth 1 --branch v0.1.0 https://github.com/vinary-tree/llattice.git "$parent/llattice"
+          git clone --depth 1 --branch v4.0.0-rc.6 https://github.com/vinary-tree/libdictenstein.git "$parent/libdictenstein"
+          git clone --depth 1 --branch v4.0.0-rc.6 https://github.com/vinary-tree/liblevenshtein-rust.git "$parent/liblevenshtein-rust"
+          git clone --depth 1 --branch v4.0.0-rc.6 https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
       - uses: dtolnay/rust-toolchain@1.95
+        with: { components: clippy }
+      - name: Verify immutable tag matches the package version
+        run: >-
+          python3 scripts/check-release-ref.py
+          --ref "$GITHUB_REF"
+          --ref-name "$GITHUB_REF_NAME"
+          --registry "${{ inputs.registry }}"
+      - run: python3 scripts/check-release-ref.py --self-test
       - run: cargo test --no-default-features --features ffi
       # The full ABI contract battery also needs the test-utils strategies
       # (round trip + lazy-composition correspondence proptests).
@@ -45,11 +68,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with: { persist-credentials: false }
-      - name: Checkout exact ABI header dependency
+      - name: Checkout exact release dependencies
         shell: bash
         run: |
           parent=$(dirname "$GITHUB_WORKSPACE")
-          git clone --depth 1 --branch v4.0.0-rc.5 https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
+          git clone --depth 1 --branch v0.1.0 https://github.com/vinary-tree/llattice.git "$parent/llattice"
+          git clone --depth 1 --branch v4.0.0-rc.6 https://github.com/vinary-tree/libdictenstein.git "$parent/libdictenstein"
+          git clone --depth 1 --branch v4.0.0-rc.6 https://github.com/vinary-tree/liblevenshtein-rust.git "$parent/liblevenshtein-rust"
+          git clone --depth 1 --branch v4.0.0-rc.6 https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
       - uses: dtolnay/rust-toolchain@1.95
       - run: cargo build --release --no-default-features --features ffi
       - run: scripts/stage-native-package.sh "${{ matrix.target }}" target/release dist
@@ -59,8 +85,16 @@ jobs:
         run: |
           version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)
           prefix="$PWD/dist/lling-llang-${version}-${{ matrix.target }}"
+          parent=$(dirname "$GITHUB_WORKSPACE")
+          (cd "$parent/vinary-tree-interop" && scripts/stage-native-package.sh "$GITHUB_WORKSPACE/dist/interop")
+          interop_prefix="$GITHUB_WORKSPACE/dist/interop/vinary-tree-interop-4.0.0-rc.6"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            cmake_prefix="$(cygpath -m "$interop_prefix");$(cygpath -m "$prefix")"
+          else
+            cmake_prefix="$interop_prefix;$prefix"
+          fi
           cmake -S bindings/cpp/tests/package -B target/cmake-shared \
-            -DCMAKE_PREFIX_PATH="$prefix"
+            -DCMAKE_PREFIX_PATH="$cmake_prefix"
           cmake --build target/cmake-shared --config Release
           case "$RUNNER_OS" in
             Linux) LD_LIBRARY_PATH="$prefix/lib" target/cmake-shared/lling_llang_package_smoke ;;
@@ -68,7 +102,7 @@ jobs:
             Windows) PATH="$prefix/bin:$PATH" target/cmake-shared/Release/lling_llang_package_smoke.exe ;;
           esac
           cmake -S bindings/cpp/tests/package -B target/cmake-static \
-            -DCMAKE_PREFIX_PATH="$prefix" -DLLING_LLANG_LINKAGE=STATIC
+            -DCMAKE_PREFIX_PATH="$cmake_prefix" -DLLING_LLANG_LINKAGE=STATIC
           cmake --build target/cmake-static --config Release
           if [[ "$RUNNER_OS" == Windows ]]; then
             target/cmake-static/Release/lling_llang_package_smoke.exe
@@ -94,8 +128,12 @@ jobs:
           package-manager-cache: false
       - run: npm test
         working-directory: bindings/javascript
-      - run: npm pack --pack-destination ../../../dist
+      - name: Pack the JavaScript facade artifact
         working-directory: bindings/javascript
+        shell: bash
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          npm pack --pack-destination "$GITHUB_WORKSPACE/dist"
       - uses: actions/upload-artifact@v7
         with:
           name: npm-package
@@ -104,7 +142,7 @@ jobs:
 
   npm:
     needs: npm-package
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'workflow_dispatch' && github.ref_type == 'tag' && inputs.registry == 'npm'
     runs-on: ubuntu-24.04
     environment: npm
     permissions: { id-token: write }
@@ -116,25 +154,41 @@ jobs:
           package-manager-cache: false
       - uses: actions/download-artifact@v7
         with: { name: npm-package, path: dist }
-      - run: npm publish --access public --provenance dist/*.tgz
+      - run: npm publish --access public --provenance --tag next ./dist/*.tgz
 
   crates-io:
     needs: contract
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'workflow_dispatch' && github.ref_type == 'tag' && inputs.registry == 'crates-io'
     runs-on: ubuntu-24.04
     environment: crates-io
+    permissions: { contents: read, id-token: write }
     steps:
       - uses: actions/checkout@v6
         with: { persist-credentials: false }
+      - name: Checkout exact related releases
+        shell: bash
+        run: |
+          parent=$(dirname "$GITHUB_WORKSPACE")
+          git clone --depth 1 --branch v0.1.0 https://github.com/vinary-tree/llattice.git "$parent/llattice"
+          git clone --depth 1 --branch v4.0.0-rc.6 https://github.com/vinary-tree/libdictenstein.git "$parent/libdictenstein"
+          git clone --depth 1 --branch v4.0.0-rc.6 https://github.com/vinary-tree/liblevenshtein-rust.git "$parent/liblevenshtein-rust"
+          git clone --depth 1 --branch v4.0.0-rc.6 https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
       - uses: dtolnay/rust-toolchain@1.95
       - run: sudo apt-get update && sudo apt-get install -y libz3-dev clang
-      - run: cargo publish
-        env: { CARGO_REGISTRY_TOKEN: "${{ secrets.CARGO_REGISTRY_TOKEN }}" }
+      - name: Authenticate with crates.io
+        id: crates-io-auth
+        uses: rust-lang/crates-io-auth-action@v1
+      - run: cargo publish --locked
+        env: { CARGO_REGISTRY_TOKEN: "${{ steps.crates-io-auth.outputs.token }}" }
 
   github-release:
     needs: [native, npm-package]
-    if: startsWith(github.ref, 'refs/tags/')
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref_type == 'tag' &&
+      inputs.registry == 'validate-only'
     runs-on: ubuntu-24.04
+    environment: github-release
     permissions: { contents: write }
     steps:
       - uses: actions/download-artifact@v7
@@ -143,4 +197,7 @@ jobs:
         with: { name: npm-package, path: assets }
       - run: cd assets && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > ../SHA256SUMS && mv ../SHA256SUMS SHA256SUMS
       - uses: softprops/action-gh-release@v2
-        with: { files: "assets/*", generate_release_notes: true }
+        with:
+          files: "assets/*"
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true

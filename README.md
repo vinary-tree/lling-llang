@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org)
 [![Verified](https://img.shields.io/badge/proofs-Coq%20%2B%20TLA%E2%81%BA-crimson.svg)](proofs/)
-[![Status](https://img.shields.io/badge/status-0.2.0%20early%20development-yellow.svg)](#project-status)
+[![Status](https://img.shields.io/badge/status-4.0.0-rc.6%20early%20development-yellow.svg)](#project-status)
 
 > A pure-Rust, **semiring-generic** Weighted Finite-State Transducer (WFST) toolkit — spanning
 > classical weighted-automata algorithms, automatic speech recognition, differentiable decoding,
@@ -118,6 +118,18 @@ let in_sequence  = a.times(&b);  //     2 + 3 = 5   ← pay both costs
 > deductive computation over different semirings. Mohri's *Weighted Automata Algorithms*
 > [[3]](#references) extends this to the full suite of transducer operations. `lling-llang` is a
 > direct, statically-typed embodiment of that insight.
+
+Native Rust semirings keep this monomorphized `Copy` path. A semiring owned by
+Julia, Raku, or another runtime uses the separate
+[dynamic operation-context adapter](docs/architecture/dynamic-semirings.md):
+explicit token ownership, negotiated algebra capabilities, lock-free callback
+admission, bounded folds, and pre-specialization law checks.
+
+Host-defined order-theoretic values use the corresponding
+[dynamic lattice adapter](docs/architecture/dynamic-lattices.md). It consumes
+LLattice resources without pretending that a fallible foreign callback
+implements Rust's infallible `llattice::Lattice` trait, while preserving
+retained ownership, domain checks, nonblocking admission, and bounded folds.
 
 ### Lattices — weighted DAGs of hypotheses
 
@@ -403,7 +415,7 @@ cargo bench
 
 ## Project status
 
-**Version 0.2.0 — early development.** The core (`semiring`, `wfst`, `lattice`, `algorithms`,
+**Version 4.0.0-rc.6 — early development.** The core (`semiring`, `wfst`, `lattice`, `algorithms`,
 `path`, `cfg`, `composition`, `layers`) is stable and exercised by property tests and the formal
 proofs. Several higher tiers are best understood as **library scaffolding** that you wire into your
 own models rather than turnkey systems — notably `gpu` (GPU-ready data structures, no kernels yet),

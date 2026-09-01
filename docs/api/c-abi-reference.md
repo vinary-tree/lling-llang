@@ -1,6 +1,6 @@
 # C ABI reference — `lling_llang.h`
 
-The complete reference for lling-llang's stable, project-owned C ABI: all 17
+The complete reference for lling-llang's stable, project-owned C ABI: all 61
 exported `lling_*` functions, their exact signatures, preconditions, returnable
 status sets, ownership and threading rules, and complexity — plus the
 weight-domain ↔ semiring dictionary shared with the whole vinary-tree family.
@@ -34,7 +34,7 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); authoring rules in
 | `LlingStatus` | The `uint32_t` status enum returned by every fallible `lling_*` call (values 0–7, [table below](#status-codes)). |
 | `VtResource` | The family's two-word retained handle `{context, vtable}`; a non-null value owns exactly one retain. |
 | `vt.scalar-wfst.1` | The 16-byte interface identity under which scalar WFSTs cross the family ABI. |
-| **handle** | An opaque caller-owned pointer (`LlingWfstBuilder*`, `LlingWfst*`) freed by exactly one matching `*_free`. |
+| **handle** | An opaque caller-owned pointer released according to its matching ownership rule. Handles include builders, WFSTs, semiring contexts/weights, lattice values, and cancellation. |
 | **snapshot** | The immutable revision a consumer captures once before traversal; state identifiers are scoped to it. |
 | $`\langle K, \oplus, \otimes, \bar{0}, \bar{1} \rangle`$ | A semiring: carrier $`K`$, path-alternation $`\oplus`$, path-extension $`\otimes`$, and their identities ($`\bar{0}`$ = no path, $`\bar{1}`$ = empty path). |
 | $`Q`$, $`E`$ | State set and arc set of a WFST; $`\lvert Q\rvert`$, $`\lvert E\rvert`$ are their sizes. |
@@ -42,11 +42,11 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); authoring rules in
 
 ## The surface at a glance
 
-Seventeen functions in five groups. Every fallible call returns a
+Sixty-one functions in nine groups. Every fallible call returns a
 `LlingStatus`; every non-`OK` return latches a thread-local, NUL-terminated
 diagnostic readable through `lling_last_error_message()`.
 
-![The 17-function lling-llang C ABI surface: versioning and diagnostics functions, the nine builder-lifecycle calls on the caller-owned LlingWfstBuilder, the four immutable-handle operations on LlingWfst, the two-word VtResource exchanged with foreign providers, and the LlingStatus enum they all return.](../diagrams/api/c-abi-surface.svg)
+![The 61-function lling-llang C ABI surface: dynamic algebras, WFSTs, typed metadata, cancellation, retained resources, and their status contract.](../diagrams/api/c-abi-surface.svg)
 
 *Yellow = lling-llang-owned surface; green = retained `VtResource` handles;
 red = foreign providers across the trust boundary; grey = status and
@@ -57,6 +57,15 @@ diagnostics.*
 ```art
 Versioning (2)     lling_abi_version, lling_api_revision
 Diagnostics (1)    lling_last_error_message
+Dynamic semiring   lling_semiring_open, lling_semiring_free,
+             (21)  lling_semiring_weight_free, lling_semiring_properties,
+                   zero, one, clone, plus, times, exact/approx equality,
+                   natural order, right/left division, star, numerical value,
+                   quantization, probability, closure bound, stable bytes,
+                   and representative-sample law validation
+Dynamic lattice    lling_lattice_open, lling_lattice_free, domain ID, flags,
+             (12)  join, meet, equality, stable bytes, diagnostic,
+                   bounded join/meet folds, and sample law validation
 Builder (9)        lling_wfst_builder_new ─┐  caller-owned, mutable,
                    lling_wfst_builder_free │  single-threaded
                    lling_wfst_builder_reserve_states
@@ -66,11 +75,15 @@ Builder (9)        lling_wfst_builder_new ─┐  caller-owned, mutable,
                    lling_wfst_builder_clear_final
                    lling_wfst_builder_add_arc
                    lling_wfst_builder_build ──▶ LlingWfst (immutable)
-Handle (4)         lling_wfst_free, lling_wfst_import,
-                   lling_wfst_compose, lling_wfst_resource ──▶ VtResource
+Handle (6)         lling_wfst_free, lling_wfst_import,
+                   lling_wfst_import_ref, lling_wfst_compose,
+                   lling_wfst_compose_refs,
+                   lling_wfst_resource ──▶ VtResource
 Resource (1)       lling_resource_release
                    (VtResource also flows IN to import/compose from any
                     compatible producer: libdictenstein, duallity, …)
+Typed metadata (5) header, descriptor, budget, outcome, identity validation
+Cancellation (4)   new, request, reason, single-release free
 ```
 
 </details>
@@ -79,7 +92,8 @@ Resource (1)       lling_resource_release
 
 ```c
 #define LLING_ABI_VERSION 1u
-#define LLING_API_REVISION 1u
+#define LLING_API_REVISION 5u
+#define LLING_ABI_V2 2u
 
 LLING_API uint32_t lling_abi_version(void);
 LLING_API uint32_t lling_api_revision(void);
@@ -94,6 +108,8 @@ Two counters, two different promises, following the family's
 - **`lling_api_revision()`** — the additive counter. It only grows; a runtime
   revision **at least** your compile-time `LLING_API_REVISION` guarantees that
   every symbol you compiled against exists.
+- **`LLING_ABI_V2`** — the version stored inside typed metadata structures,
+  independent from the project ABI counter.
 
 Both functions are infallible, never touch the error slot, are safe from any
 thread at any time, and cost $`O(1)`$. The canonical handshake:
@@ -154,6 +170,298 @@ Statuses arriving **from** foreign providers travel the wire as raw `uint32_t`
 and are decoded with a range check before any typed use — an out-of-range
 value is classified as `PROVIDER_ERROR`-class misbehavior, never undefined
 behavior. See [Resource ABI architecture](../architecture/resource-abi.md#the-raw-u32-status-wire).
+
+## Typed metadata ABI v2
+
+API revision 5 adds pointer-free metadata without changing project ABI v1 or
+the existing resource calls. A `VtResource` remains valid but is explicitly
+opaque: it cannot authorize typed evidence until a producer supplies a
+canonical `LlingWfstDescriptorV2`.
+
+### Common prefix and layouts
+
+Every typed structure begins with:
+
+```c
+typedef struct LlingAbiV2Header {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint64_t flags;
+    uint64_t reserved;
+} LlingAbiV2Header;
+```
+
+The validator accepts a larger `struct_size` for additive future tails. It
+rejects a short prefix, `abi_version != LLING_ABI_V2`, unknown flags, or
+nonzero reserved data. Zero-initialize structures before assigning fields.
+
+| Type | Size | Purpose |
+|---|---:|---|
+| `LlingAbiV2Header` | 24 bytes | Additive size, format, flags, and reserved prefix. |
+| `LlingId128` | 16 bytes | Semantic or snapshot identity; all-zero means absent. |
+| `LlingDigest256` | 32 bytes | Evidence-context digest; all-zero means absent. |
+| `LlingWfstDescriptorV2` | 120 bytes | Separate input/output tape, algebra, snapshot, and context identities. |
+| `LlingBudgetV2` | 72 bytes | Independently enabled state, arc, byte, and work limits. |
+| `LlingOutcomeV2` | 96 bytes | Orthogonal semantic, completion, applicability, termination, and evidence axes. |
+
+The C/C++ header, Rust properties, and Kani harnesses pin these layouts.
+
+### Descriptors, budgets, and outcomes
+
+Descriptor presence flags are canonical: `LLING_DESCRIPTOR_SIGNATURE_KNOWN`
+requires all three tape/algebra IDs, while snapshot and context flags must
+exactly match nonzero data. Identity comparison checks all five fields, not
+only the snapshot.
+
+Each active budget flag requires a positive value; every inactive limit and
+reserved word must be zero:
+
+```c
+LlingBudgetV2 budget = {0};
+budget.header.struct_size = (uint32_t)sizeof budget;
+budget.header.abi_version = LLING_ABI_V2;
+budget.header.flags = LLING_BUDGET_STATES | LLING_BUDGET_WORK;
+budget.max_states = 100000;
+budget.max_work = 5000000;
+if (lling_abi_v2_validate_budget(&budget) != LLING_STATUS_OK) {
+    /* Reject before starting work. */
+}
+```
+
+Outcome axes are raw `uint32_t` values and are range-checked before enum
+decoding. An authoritative exact result requires exact precision, complete
+work, applicability, successful termination, and live verified evidence.
+Cancelled, budget-exhausted, and failed results publish neither resource nor
+evidence; cancellation and exhaustion also require incomplete completion.
+
+The validation algorithm is fixed-work and stack-safe:
+
+```text
+Algorithm ValidateTypedPrefix(pointer, required_size, known_flags)
+  1. Reject null or misaligned input without dereferencing it.
+  2. Copy only the common header and validate size, format, flags, and reserve.
+  3. Copy the now-proven known prefix into fixed-width local storage.
+  4. Decode each raw discriminant through a total range check.
+  5. Check structure-specific presence and publication laws.
+  6. Publish output only after every check succeeds.
+```
+
+| Function | Successful result |
+|---|---|
+| `lling_abi_v2_validate_header` | The header is a canonical additive prefix. |
+| `lling_abi_v2_validate_descriptor` | Writes whether typed evidence is admissible. |
+| `lling_abi_v2_validate_budget` | The flag/value limit representation is canonical. |
+| `lling_abi_v2_validate_outcome` | Writes whether the result is authoritative and exact. |
+| `lling_abi_v2_identity_matches` | Writes whether all replay-critical fields match. |
+
+All outputs remain unchanged on failure. Each validator uses $`O(1)`$ time and
+auxiliary space and performs no callback.
+
+## Cooperative cancellation v2
+
+`LlingCancellationV2` stores one atomic raw reason. Zero means live; the first
+valid request records requested, deadline, budget, or source cancellation and
+later requests cannot overwrite it.
+
+| Function | Contract |
+|---|---|
+| `lling_cancellation_v2_new` | Requires an initially null output slot and allocates one owner. |
+| `lling_cancellation_v2_request` | Range-checks the reason and performs one first-writer-wins atomic transition. |
+| `lling_cancellation_v2_reason` | Writes zero while live or the sticky first reason. |
+| `lling_cancellation_v2_free` | Frees once and nulls the caller's slot; repeating through that slot returns `CLOSED`. |
+
+Request and reason calls may race. Freeing may not race them: synchronize all
+users first. Copying the raw pointer does not create another owner. Operations
+are $`O(1)`$, nonrecursive, and callback-free.
+
+## Host-defined dynamic semirings — 21 functions
+
+API revision 3 adds an operation-context surface for semirings implemented by
+another runtime. It is deliberately separate from `LlingWfst`: a semiring
+resource owns callbacks and storage, `LlingSemiring` owns one validated retain
+of that resource, and each `LlingSemiringWeight` owns exactly one provider
+token. The normative raw vtables and token layout are defined by
+`vinary_tree_interop.h`; the functions below are lling-llang's checked facade.
+
+```c
+LlingSemiring *algebra = NULL;
+LlingSemiringWeight *zero = NULL;
+LlingSemiringWeight *one = NULL;
+LlingSemiringWeight *sum = NULL;
+
+if (lling_semiring_open(&provider_resource, &algebra) != LLING_STATUS_OK ||
+    lling_semiring_zero(algebra, &zero) != LLING_STATUS_OK ||
+    lling_semiring_one(algebra, &one) != LLING_STATUS_OK ||
+    lling_semiring_plus(algebra, one, zero, &sum) != LLING_STATUS_OK) {
+    /* Copy lling_last_error_message() before another failing call. */
+}
+
+lling_semiring_weight_free(sum);
+lling_semiring_weight_free(one);
+lling_semiring_weight_free(zero);
+lling_semiring_free(algebra);
+```
+
+### Context and weight ownership
+
+| Function | Contract |
+|---|---|
+| `lling_semiring_open(resource, out)` | Validates the resource ABI and mandatory `vt.semiring.val1` prefix, discovers optional capabilities, retains the resource independently, and writes a same-thread operation context. The input resource needs to remain live only for this call. |
+| `lling_semiring_free(context)` | Releases the context retain. Null is a no-op. All weight handles from this context must already be freed. |
+| `lling_semiring_weight_free(weight)` | Releases one owned provider token and its context reference. Null is a no-op. |
+| `lling_semiring_weight_clone(weight, out)` | Calls `clone_value`; this is the only valid ownership duplication. Copying an opaque pointer or raw token words is not a clone. |
+
+Opaque handles are context-scoped. Passing weights issued by another
+`LlingSemiring`, even one with the same 16-byte domain identifier, returns
+`INVALID_ARGUMENT`. A non-null handle must be freed exactly once. Destruction
+order is weights first, context last.
+
+### Base algebra and comparisons
+
+```c
+LlingStatus lling_semiring_properties(const LlingSemiring*, uint64_t*);
+LlingStatus lling_semiring_zero(const LlingSemiring*, LlingSemiringWeight**);
+LlingStatus lling_semiring_one(const LlingSemiring*, LlingSemiringWeight**);
+LlingStatus lling_semiring_plus(const LlingSemiring*,
+    const LlingSemiringWeight*, const LlingSemiringWeight*,
+    LlingSemiringWeight**);
+LlingStatus lling_semiring_times(const LlingSemiring*,
+    const LlingSemiringWeight*, const LlingSemiringWeight*,
+    LlingSemiringWeight**);
+LlingStatus lling_semiring_equal(const LlingSemiring*,
+    const LlingSemiringWeight*, const LlingSemiringWeight*, uint8_t*);
+LlingStatus lling_semiring_approx_equal(const LlingSemiring*,
+    const LlingSemiringWeight*, const LlingSemiringWeight*, double, uint8_t*);
+LlingStatus lling_semiring_natural_order(const LlingSemiring*,
+    const LlingSemiringWeight*, const LlingSemiringWeight*, int32_t*);
+```
+
+`zero`, `one`, `plus`, and `times` return new owned weights. Boolean outputs
+are normalized to 0 or 1. Natural order is `-1` (better), `0` (equal), `1`
+(worse), or `2` (incomparable). The adapter rejects every other provider
+value. Approximation epsilon must be finite and nonnegative. Properties are
+the provider's declared `VT_SEMIRING_PROPERTY_*` bits; a declaration is a
+claim, not proof, until checked against representative values.
+
+### Optional refinements
+
+| Function | Capability | Result |
+|---|---|---|
+| `lling_semiring_divide` | `vt.semiring.div1` | Right quotient; `out_defined=0` and a null output represent an undefined quotient. |
+| `lling_semiring_left_divide` | `vt.semiring.div1` | Weak left quotient with the same explicit-partial convention. |
+| `lling_semiring_star` | `vt.semiring.str1` | Kleene closure; undefined denotes divergence. |
+| `lling_semiring_numerical_value` | `vt.semiring.num1` | Finite provider-defined scalar projection. |
+| `lling_semiring_quantize` | `vt.semiring.num1` | Provider-defined integer bucket at a finite, nonnegative epsilon. |
+| `lling_semiring_to_probability` | `vt.semiring.num1` | Finite nonnegative sampling probability. |
+| `lling_semiring_closure_bound` | `vt.semiring.prp1` | `out_known=1` carries a uniform finite bound; otherwise the bound output is zero. |
+
+Calling an absent optional capability returns `INCOMPATIBLE_RESOURCE`.
+Undefined division or star is a successful `OK` result with `out_defined=0`;
+it is not a provider failure.
+
+### Stable bytes and law validation
+
+`lling_semiring_stable_bytes` uses the standard two-call buffer protocol.
+Call with `out_bytes=NULL, capacity=0` to obtain `out_required`, allocate that
+many bytes, then call again. `out_written` is never greater than capacity;
+the safe adapter rejects unstable lengths and values larger than 16 MiB.
+
+`lling_semiring_validate_laws(context, weights, count, epsilon)` borrows an
+array of live weight handles, clones them for validation, and checks the base
+semiring axioms plus every declared property over at most 16 samples. It is a
+falsification gate, not a mathematical proof. Supply both identities, boundary
+values, and workload-representative values. A violation returns
+`PROVIDER_ERROR` with a diagnostic naming the failed law.
+
+All 19 fallible semiring calls may return `OK`, `NULL_POINTER`, `PANIC`, and a
+more specific mapped status: `INCOMPATIBLE_RESOURCE` for missing or malformed
+capabilities, `INVALID_ARGUMENT` for context mismatch or invalid epsilon,
+`LIMIT_EXCEEDED` for bounded allocations, and `PROVIDER_ERROR` for callback,
+threading, output-validation, concurrency, or law failures. The two free
+functions are null-tolerant and return `void`.
+
+The C facade remains same-thread. A thread-bound provider rejects calls from
+another thread; an unflagged provider uses nonblocking serial admission and
+rejects overlap or recursion; a parallel-reentrant provider may overlap, but
+the C handle itself is not promoted to an unconditional C thread-safety claim.
+See [Dynamic semirings](../architecture/dynamic-semirings.md) for the complete
+token, batching, validation, and concurrency design.
+
+## Host-defined dynamic lattices — 12 functions
+
+API revision 4 adds a checked consumer for immutable values exposing the
+project-neutral `vt.lattice.val.1` capability. `LlingLatticeValue` owns one
+retained value, not an operation context: join, meet, and folds each return a
+new independently owned resource.
+
+```c
+LlingLatticeValue *left = NULL;
+LlingLatticeValue *right = NULL;
+LlingLatticeValue *joined = NULL;
+
+if (lling_lattice_open(&left_resource, &left) != LLING_STATUS_OK ||
+    lling_lattice_open(&right_resource, &right) != LLING_STATUS_OK ||
+    lling_lattice_join(left, right, &joined) != LLING_STATUS_OK) {
+    /* Copy lling_last_error_message() before another failing call. */
+}
+
+lling_lattice_free(joined);
+lling_lattice_free(right);
+lling_lattice_free(left);
+```
+
+### Lifetime, domains, and algebra
+
+| Function | Contract |
+|---|---|
+| `lling_lattice_open(resource, out)` | Borrows the resource for the call, validates its base and lattice vtables, and returns one independently retained same-thread value. |
+| `lling_lattice_free(value)` | Releases exactly one owned value; null is a no-op. |
+| `lling_lattice_domain_id(value, out)` | Copies the 16-byte identifier naming the carrier representation and laws. |
+| `lling_lattice_flags(value, out)` | Reports validated provider capabilities such as batching and parallel reentrancy. |
+| `lling_lattice_join(left, right, out)` | Returns the least upper bound as a new owned value. |
+| `lling_lattice_meet(left, right, out)` | Returns the greatest lower bound as a new owned value. |
+| `lling_lattice_equal(left, right, out)` | Writes exactly `0` or `1` after checked provider equality. |
+
+Binary operands must have equal domain identifiers. A mismatch returns
+`INVALID_ARGUMENT` before invoking foreign code. A successful algebra callback
+must return one non-null retained resource in the same domain; a failed
+callback must leave its output null. The adapter validates the result's own
+vtable because a provider may legitimately change representation.
+
+### Bytes, batches, and law probes
+
+`lling_lattice_stable_bytes` and `lling_lattice_diagnostic` use the same
+two-call buffer protocol as semiring stable bytes. The adapter permits at most
+16 MiB, retries a changing required length at most three times, and rejects a
+short final write. Stable bytes are deterministic identity material;
+diagnostics are human-readable UTF-8 and need not be stable.
+
+```c
+LlingStatus lling_lattice_join_many(
+    const LlingLatticeValue *receiver,
+    const LlingLatticeValue *const *others, size_t count,
+    LlingLatticeValue **out_value);
+LlingStatus lling_lattice_meet_many(
+    const LlingLatticeValue *receiver,
+    const LlingLatticeValue *const *others, size_t count,
+    LlingLatticeValue **out_value);
+LlingStatus lling_lattice_validate_laws(
+    const LlingLatticeValue *const *values, size_t count);
+```
+
+The fold calls preserve associative left-fold order and pass no more than 256
+operands to one foreign batch callback. Each intermediate renegotiates its
+capabilities; if it does not expose batching, the remaining fold continues
+pairwise. `lling_lattice_validate_laws` accepts at most sixteen values and
+checks idempotence, commutativity, associativity, and absorption. It can
+falsify a provider over the supplied samples, not prove its universal laws.
+
+All lattice handles in the C facade are same-thread. Thread-bound providers
+reject a call from another thread. Serial providers use a nonblocking atomic
+admission gate, so overlap or recursive entry fails instead of deadlocking.
+No consumer mutex is held while foreign code executes. See
+[Host-defined lattice values](../architecture/dynamic-lattices.md) for the
+complete ownership, batching, validation, and concurrency design.
 
 ## Builder lifecycle — nine functions
 
@@ -359,7 +667,7 @@ LLING_API LlingStatus lling_wfst_builder_build(
 > leave the builder exactly as it was — set a start state and call `build`
 > again.
 
-## Immutable handles and resources — five functions
+## Immutable handles and resources — six functions
 
 `LlingWfst` is an opaque, caller-owned, **immutable** scalar WFST: safe to
 share across threads, usable concurrently, and exportable as a family
@@ -400,10 +708,20 @@ LLING_API LlingStatus lling_wfst_import(
 Every weight crossing this boundary is validated with
 `TropicalWeight::is_valid_raw` — finite or $`+\infty`$; NaN **and**
 $`-\infty`$ are rejected as provider misbehavior (the LLING-B2/F1 hardening).
+The output pointer is validated before snapshot capture or materialization, so
+a `NULL_POINTER` result cannot leak a private graph or provider retain.
 
-> **Caution.** `out_wfst` is validated *after* the copy: passing null
-> returns `NULL_POINTER`, but the fully materialized private graph is then
-> unrecoverable (leaked). Always pass a valid out pointer.
+### `lling_wfst_import_ref`
+
+```c
+LLING_API LlingStatus lling_wfst_import_ref(
+    const VtResource* resource, LlingWfst** out_wfst);
+```
+
+API revision 2 adds this pointer-form twin for foreign-function interfaces
+that cannot pass a C aggregate by value. Its semantics, statuses, ownership,
+threading, and complexity are identical to `lling_wfst_import`; a null
+`resource` pointer returns `NULL_POINTER` before dereference.
 
 ### `lling_wfst_compose`
 
@@ -426,10 +744,22 @@ lazy expansion surface as `VT_STATUS_PROVIDER_ERROR` on the exported vtable
 calls — not as an `LlingStatus`, because traversal happens through the family
 interface. See [Resource ABI architecture](../architecture/resource-abi.md).
 
-> **Caution.** `out_wfst` is validated *after* capture: passing null returns
-> `NULL_POINTER`, but the constructed composition — holding one snapshot
-> retain per input — is then unrecoverable (those snapshot retains leak with
-> it). Always pass a valid out pointer.
+The output pointer is validated before either snapshot is captured, so failure
+cannot strand a composition or either input retain.
+
+### `lling_wfst_compose_refs`
+
+```c
+LLING_API LlingStatus lling_wfst_compose_refs(
+    const VtResource* first, const VtResource* second,
+    LlingWfst** out_wfst);
+```
+
+This API-revision-2 pointer form preserves the exact lazy composition contract
+while accommodating foreign runtimes such as Raku NativeCall that represent a
+`repr(C)` structure argument as a pointer. A null input pointer returns
+`NULL_POINTER`; non-null pointed resources undergo the same capability and
+domain validation as the aggregate-by-value entry point.
 
 ### `lling_wfst_resource`
 
@@ -459,7 +789,7 @@ LLING_API void lling_resource_release(VtResource resource);
 | Semantics | Releases one owned retain of **any** family resource — whether produced by lling-llang or by a sibling library — by invoking the resource's own `release` through its vtable. A resource with a null word (or a null `release` slot) is ignored. |
 | Preconditions | The value must represent one owned retain not yet released. |
 | Returns | *(void — infallible)* |
-| Ownership | Consumes one retain. Releasing more times than retained is undefined behavior (a refcount underflow in the provider), per section 5.3 of the family [ABI reference](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md). |
+| Ownership | Consumes one retain. Releasing more times than retained is undefined behavior (a refcount underflow in the provider), per the family [refcount laws](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md#53-the-refcount-laws). |
 | Thread safety | Any thread. |
 | Complexity | $`O(1)`$ (atomic decrement; the last release tears down the resource). |
 
@@ -473,7 +803,7 @@ lling-llang can **produce** resources in all seven domains (via the Rust
 and `lling_wfst_compose` — accept **`TROPICAL_F64` only** and answer
 `INCOMPATIBLE_RESOURCE` for the other six. The definitions below match the
 normative family table in the
-[interop ABI reference](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md)
+[interop ABI reference](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md#71-vtweightdomain--seven-semirings-in-one-double)
 and lling-llang's own semiring documentation.
 
 | Value | Domain | Carrier $`K`$ | $`\oplus`$ | $`\otimes`$ | $`\bar{0}`$ | $`\bar{1}`$ | Valid raw `f64` |
@@ -499,7 +829,7 @@ $`+\infty`$ final weight in composition and yield NaN downstream; this was
 the confirmed finding LLING-B2/F1, fixed at every ingestion site and
 regression-pinned. The exact-laws caveat for `f64` (rounding breaks
 associativity where arithmetic occurs) is stated bindingly in the
-[family canon](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md).
+[family canon](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md#71-vtweightdomain--seven-semirings-in-one-double).
 
 ## Complete example
 

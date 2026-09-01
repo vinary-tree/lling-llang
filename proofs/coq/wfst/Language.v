@@ -7,9 +7,9 @@
     accepting path weights.
 *)
 
-Require Import Coq.Lists.List.
-Require Import Coq.Arith.Arith.
-Require Import Coq.micromega.Lia.
+From Stdlib Require Import Lists.List.
+From Stdlib Require Import Arith.Arith.
+From Stdlib Require Import micromega.Lia.
 Require Import LlingLlang.foundations.Semiring.
 Require Import LlingLlang.wfst.Definitions.
 Require Import LlingLlang.wfst.Paths.
@@ -267,7 +267,7 @@ Section Language.
         (rewrite <- app_assoc; reflexivity).
       rewrite nth_error_app_singleton_length.
       rewrite Nat.eqb_refl.
-      rewrite length_app. simpl. f_equal. lia.
+      rewrite List.length_app. simpl. f_equal. lia.
     - unfold append_consumed_label, consume_label.
       reflexivity.
   Qed.

@@ -1,0 +1,90 @@
+@startuml
+title Neutral Vinary foundation ownership and dependency direction
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Helvetica
+skinparam defaultFontColor #102027
+skinparam ArrowColor #455A64
+skinparam ArrowThickness 1.4
+skinparam packageBorderColor #455A64
+skinparam packageFontColor #102027
+
+package "Independent products" #E3F2FD {
+  component "lling-llang\noptimization system" as Lling #FCF3CF
+  component "libcpg\nanalysis system" as Libcpg #BBDEFB
+  component "RegresSpec\napplication policy" as Regresspec #F8BBD0
+}
+
+package "Consumer-owned adapters" #FFF3E0 {
+  component "vinary-libcpg-adapter" as CpgAdapter #FFE0B2
+  component "provider and dialect adapters" as Adapters #FFE0B2
+}
+
+package "Neutral Vinary foundations" #E8F5E9 {
+  component "vinary-canonical-json\nnamed canonical profile" as Canonical #C8E6C9
+  component "vinary-wire-schema\nschema fingerprints" as Schema #A5D6A7
+  component "vinary-content-identity\ndomain-separated digests" as Identity #81C784
+  component "vinary-analysis-graph\nneutral artifact graph" as Graph #66BB6A
+  component "vinary-runtime\nresults, locks, supervision" as Runtime #4CAF50
+  component "vinary-requirements\nrevision and source history" as Requirements #43A047
+  component "vinary-assurance\nevidence authority" as Assurance #388E3C
+  component "vinary-doc-lint\nclaim and asset validation" as DocLint #2E7D32
+}
+
+package "Formal evidence before implementation" #FFEBEE {
+  component "Rocq\nunbounded laws" as Rocq #FFCDD2
+  component "TLA+ and TLC\nlifecycle plus mutants" as Tla #EF9A9A
+  component "Z3\nboundary contradictions" as Z3 #E57373
+  component "required-red properties\nowner-specific API contracts" as Red #EF5350
+}
+
+CpgAdapter ..> Libcpg : public API
+CpgAdapter ..> Lling : public API
+Regresspec ..> CpgAdapter : application binding
+Regresspec ..> Adapters : policy and dialects
+
+Adapters ..> Canonical
+Adapters ..> Graph
+Adapters ..> Runtime
+Adapters ..> Requirements
+Adapters ..> Assurance
+Adapters ..> DocLint
+
+Runtime ..> Canonical : canonical artifacts
+Runtime ..> Identity : locked identities
+Schema ..> Identity : WireSchema domain
+Canonical ..> Identity : CanonicalContent domain
+Assurance ..> Identity : evidence subjects
+Graph ..> Identity : snapshots and patches
+DocLint ..> Assurance : claim authority
+
+Rocq ..> Red : invariant extraction
+Tla ..> Red : lifecycle properties
+Z3 ..> Red : finite boundary properties
+Red ..> Canonical : implementation gate
+Red ..> Graph : implementation gate
+Red ..> Runtime : implementation gate
+Red ..> Requirements : implementation gate
+Red ..> Assurance : implementation gate
+Red ..> DocLint : implementation gate
+
+note right of Lling #FFCDD2
+  lling-llang is not part of libcpg.
+  No reverse dependency is permitted.
+end note
+
+note right of Identity #E8F5E9
+  Content identity is a neutral leaf.
+  Canonical JSON does not own global identity.
+end note
+
+legend right
+  |= Color |= Meaning |
+  |<#E3F2FD> | independent products |
+  |<#FFF3E0> | consumer-owned adapters |
+  |<#E8F5E9> | neutral foundations |
+  |<#FFEBEE> | pre-implementation evidence |
+endlegend
+@enduml

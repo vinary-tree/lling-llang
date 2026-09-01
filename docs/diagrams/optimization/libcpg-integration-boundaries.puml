@@ -1,0 +1,53 @@
+@startuml libcpg-integration-boundaries
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #37474F
+skinparam ArrowThickness 1.5
+skinparam componentStyle rectangle
+
+title <b>libcpg integration boundaries</b>\n<size:11><i>dependency arrows point from consumers to providers; evidence crosses a separate boundary</i></size>
+
+package "Semantic leaves" #E8F5E9 {
+  component "llattice v2\njoin/meet/lattice laws" as Lattice #C8E6C9
+  component "libvgraph\nCSR · iterative SCC · quotient DAG" as Graph #A5D6A7
+  component "libmorphism\nsemantic descriptors and law evidence" as Morphism #81C784
+}
+
+component "libcpg\nanalysis producer and selective consumer" as Libcpg #BBDEFB
+component "vinary-libcpg-adapter\nfreshness · digest · trust · independence" as Adapter #FFE0B2
+component "Vinary assurance boundary\ncandidate report + independent guarantee" as Assurance #F8BBD0
+component "lling-llang\nindependent optimization library" as LlingLlang #FFF9C4
+component "optional libcpg integration\none-way use of public lling-llang APIs" as OptionalIntegration #D1C4E9
+
+Libcpg ..> Lattice : depends on lawful dataflow vocabulary
+Libcpg ..> Graph : depends on structural graph substrate
+Adapter ..> Morphism : depends on evidence vocabulary
+Adapter ..> Libcpg : consumes immutable candidate reports
+Adapter --> Assurance : bound assurance artifact
+OptionalIntegration ..> Libcpg : consumes public analysis API
+OptionalIntegration ..> LlingLlang : consumes public optimizer API
+
+note bottom of Libcpg
+  libcpg core remains independently
+  usable and owns analysis semantics.
+end note
+
+note bottom of OptionalIntegration
+  This boundary may live behind an
+  optional libcpg feature or adapter.
+  lling-llang is not part of libcpg,
+  and lling-llang never depends on libcpg.
+end note
+
+legend right
+  |<#C8E6C9> algebraic semantic leaf |
+  |<#A5D6A7> structural graph leaf |
+  |<#81C784> evidence semantic leaf |
+  |<#BBDEFB> analysis producer |
+  |<#FFE0B2> validation adapter |
+  |<#F8BBD0> assurance boundary |
+  |<#FFF9C4> independent optimizer |
+  |<#D1C4E9> optional one-way integration |
+endlegend
+@enduml

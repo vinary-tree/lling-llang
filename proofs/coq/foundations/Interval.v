@@ -6,8 +6,8 @@
     interval.
 *)
 
-Require Import Coq.micromega.Lra.
-Require Import Coq.Reals.Reals.
+From Stdlib Require Import micromega.Lra.
+From Stdlib Require Import Reals.Reals.
 
 Open Scope R_scope.
 

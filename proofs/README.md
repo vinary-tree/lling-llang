@@ -4,7 +4,8 @@ This directory contains formal proofs and specifications for the lling-llang WFS
 
 ## Structure
 
-```
+<!-- vdl-disable-next-line ASCII001 -->
+```text
 proofs/
 ├── README.md           # This file
 ├── coq/                # Rocq/Coq proofs
@@ -29,41 +30,73 @@ proofs/
 │       ├── ShortestDistance.v  # Initialization and relaxation lemmas
 │       ├── Determinize.v       # Weighted-subset and normalization lemmas
 │       └── Minimize.v          # Equivalence and partition lemmas
+│   ├── optimizer/      # Categorical optimizer contracts
+│   │   ├── TapeSignatures.v    # Typed input/output composition
+│   │   ├── RewriteSemantics.v  # Exactness, precision, completeness
+│   │   └── PlanDag.v           # Ranked DAG and ordered provenance
+│   ├── domain_integration/
+│   │   ├── FuzzyReference.v    # Indexed fuzzy-reference denotation
+│   │   ├── TypedHclg.v         # Typed H/C/L/G composition
+│   │   ├── DataflowMigration.v # llattice v2 adapter and convergence laws
+│   │   ├── GraphQuotient.v     # SCC quotient, renaming, and work bounds
+│   │   ├── EvidenceAssurance.v # Fresh, bound, independent exact evidence
+│   │   ├── ProviderResult.v    # Non-promoting provider-result algebra
+│   │   ├── CanonicalArtifact.v # Canonical manifests and evidence identity
+│   │   ├── ProviderBoundary.v  # Independence, dependency, and ownership laws
+│   │   └── NeutralFoundationContracts.v # RegresSpec-driven neutral foundation laws
+│   └── abi/
+│       └── OwnershipLifecycle.v # Retain/release and opaque ABI v1
 ├── tla/                # TLA+ specifications
 │   ├── RRWM.tla            # RRWM bounded accounting invariants
 │   ├── LazyComposition.tla # Lazy composition memory bounds
 │   ├── CascadeOrder.tla    # ASR cascade ordering invariants
+│   ├── OptimizerLifecycle.tla # Concurrent plan lifecycle
+│   ├── LazyWfstLifecycle.tla  # Cache policy transitions
+│   ├── AbiOwnershipLifecycle.tla # Opaque-handle ownership
+│   ├── LibcpgEvidenceLifecycle.tla # Candidate/guarantee publication
+│   ├── ProviderBoundaryLifecycle.tla # Generic result/evidence/handle lifecycle
+│   ├── NeutralFoundationLifecycle.tla # Neutral release safety and liveness
 │   └── MC/                 # TLC model checking configurations
+├── smt/                # Z3 dual consistency/countermodel queries
+├── kani/               # Bit-precise bounded ABI ownership model
 └── doc/                # Documentation
+    ├── libcpg-assurance-invariants.tsv # 122 E7 formal/property mappings
+    ├── provider-boundary-invariants.tsv # 132 E9 formal/property mappings
+    ├── neutral-foundation-invariants.tsv # 77 E9 formal/property/mutant mappings
+    ├── neutral-foundation-api-baselines.tsv # Protected owner hashes and gates
     ├── proof-status.md     # Current verification status
     └── failed-strategies.md # Documentation of failed approaches
 ```
 
-## Building Coq Proofs
+## Running the formal gate
 
-The proofs use Coq 8.18 or later. To build:
-
-```bash
-# With resource limiting (recommended for memory-intensive proofs)
-systemd-run --user --scope -p MemoryMax=126G -p CPUQuota=1800% \
-  -p IOWeight=30 -p TasksMax=200 make -C proofs/coq -j1
-
-# Without resource limiting
-make -C proofs/coq
-```
-
-## Running TLA+ Model Checking
-
-TLA+ specifications use TLC for model checking:
+The proofs use Rocq 9.1 or later. Run every theorem, model, negative control,
+SMT query, and bounded ABI harness through the self-scoping gate:
 
 ```bash
-# Run all Rocq and TLA+ proof/model checks from the repository root
 make verify-proofs
-
-# Or run one TLC model directly
-tlc -metadir /tmp/lling-llang-tlc-rrwm \
-  -config proofs/tla/MC/RRWM.cfg proofs/tla/RRWM.tla
 ```
+
+Local execution requires user systemd. The gate enforces a 4 GiB RSS ceiling,
+disables swap, uses one Rocq job and one TLC worker, and imposes a 120-second
+timeout per TLC model. Kani runs in its own 2 GiB/no-swap scope with one job.
+Tool temporary files, model metadata, and evidence logs stay under ignored
+`target/formal-verification/` on persistent repository storage.
+
+The hosted workflow splits that gate by toolchain:
+
+```bash
+bash proofs/verify.sh --rocq-only
+bash proofs/verify.sh --tla-only
+```
+
+`--rocq-only` needs only the pinned Rocq environment. `--tla-only` runs the
+portable invariant registries, every finite TLC model and negative model, and
+the model-derived exhaustive and mutation controls. The unqualified command
+also runs the SMT and bounded-ABI controls plus the exact protected-baseline
+registries and required-red checks that depend on independently owned sibling
+repositories. Those ownership-gated checks are deliberately not weakened or
+silently approximated in a standalone hosted checkout.
 
 ## Verification Goals
 
@@ -104,6 +137,28 @@ tlc -metadir /tmp/lling-llang-tlc-rrwm \
 - [x] RRWM bounded accounting invariants over finite TLC configs, plus an accounting mutant expected-failure check
 - [x] Lazy composition cache/worklist/LRU-order invariants over finite TLC configs, plus a no-cache mutant expected-failure check
 - [x] ASR cascade ordering invariants over finite TLC configs, including overlapping alphabets and an order mutant expected-failure check
+
+### Phase 5: Optimizer and ABI Contracts
+
+- [x] Separate input/output tape compatibility and typed morphism category laws
+- [x] Exact rewrite witnesses with independent precision and completeness axes
+- [x] Rank-certified finite plan DAG and ordered provenance commit
+- [x] Optimizer cancellation, budget, failure, completion, and publication lifecycle
+- [x] LazyWfst cache-policy transitions for CacheAll, LRU, zero-LRU, and NoCache
+- [x] Retain/clone/transfer/release ownership and opaque ABI v1 observation
+- [x] Z3 dual consistency/countermodel transcript and Kani/CBMC bounded ABI harnesses
+
+### Phase 6: Domain and libcpg Integration Contracts
+
+- [x] Indexed fuzzy-reference and typed H/C/L/G denotations
+- [x] llattice v2 join/order/subsumption migration and explicit bottom bridge
+- [x] deterministic fixed-point completion and resource-cap monotonicity
+- [x] exact SCC quotient fibers, condensation acyclicity, and renaming equivariance
+- [x] strict linear CSR import charge and finite heap-owned control
+- [x] five-coordinate evidence freshness, digest binding, trust, and independence
+- [x] positive libcpg evidence lifecycle plus required dependent-evidence mutant
+- [x] 13-query E7 Z3 transcript with a nonvacuous valid witness
+- [x] exhaustive 122-obligation required-red Rust property registry
 
 ## Verification Boundary
 
@@ -157,6 +212,18 @@ tlc -metadir /tmp/lling-llang-tlc-rrwm \
 - TLA+ files are finite model checks. They are useful for catching state-machine
   mistakes; asymptotic mathematical claims must be stated and checked as
   separate theorems.
+- The E7 formal baseline proves contracts, not the concrete libcpg/libvgraph/
+  llattice v2 adapter refinement. The 122 registered Rust properties must
+  record a genuine red baseline before production migration and pass afterward.
+- The E9 formal baseline is provider-neutral. It does not place lling-llang
+  inside libcpg or create a reverse dependency. Its 132 properties must record
+  a genuine red baseline before provider-adapter production work and pass
+  afterward.
+- The RegresSpec-driven E9 neutral-foundation baseline adds 77 exhaustive
+  obligations and 20 causal TLA+ mutants. Five executable owner surfaces are
+  causally red; the independent content-identity crate is absent by design;
+  requirements and documentation remain explicitly blocked by protected
+  pre-API build baselines.
 
 ## Floating-Point Strategy
 

@@ -33,6 +33,7 @@ diagrams: committed SVGs make its inline-preview advantage moot, and avoiding a
 fifth toolchain keeps the visual style consistent. **Kroki** (the pgmcp HTTP
 gateway) is an optional fallback; the local engines above are the required path.
 
+<!-- vdl-disable MATH006 -->
 **Math in diagram labels.** PlantUML (`.puml`) and TikZ (`.tex`) typeset
 mathematics with LaTeX — a PlantUML `latex` element containing $`\oplus`$ is
 rendered via JLaTeXMath, while math
@@ -41,6 +42,7 @@ macros in TikZ — rather than Unicode literals, per the pgmcp
 (`.dot`) and D2 (`.d2`) have no LaTeX facility, so their automaton and dataflow
 labels keep the readable Unicode forms (`a:ε/0.5`, `q₀`) — which render
 identically in the SVG.
+<!-- vdl-enable MATH006 -->
 
 ## 2. Color palette — one intuitive color per concept
 
@@ -162,11 +164,31 @@ diagrams are added.)
 | `architecture/semiring-traits.svg` | PlantUML | `architecture/semirings.md`, `architecture/wfst-traits.md` |
 | `architecture/semiring-hasse.svg` | TikZ | `architecture/semirings.md` |
 | `architecture/wfst-traits.svg` | PlantUML | `architecture/wfst-traits.md` |
+| `architecture/lazy-wfst-lifecycle-state.svg` | PlantUML | `architecture/lazy-wfst-lifecycle.md` |
+| `architecture/lazy-wfst-expansion-sequence.svg` | PlantUML | `architecture/lazy-wfst-lifecycle.md` |
 | `architecture/lattice-worked.svg` | Graphviz | `architecture/overview.md`, `architecture/lattices.md` |
-| `api/c-abi-surface.svg` | PlantUML | `api/c-abi-reference.md` |
+| [`api/c-abi-surface.puml`](api/c-abi-surface.puml) · [`api/c-abi-surface.svg`](api/c-abi-surface.svg) | PlantUML | `api/c-abi-reference.md` |
 | `architecture/builder-lifecycle-state.svg` | PlantUML | `api/c-abi-reference.md` |
+| `architecture/dynamic-lattice-adapter.svg` | PlantUML | `architecture/dynamic-lattices.md` |
 | `architecture/wfst-import-compose-sequence.svg` | PlantUML | `architecture/resource-abi.md`, `security/abi-trust-model.md` |
 | `architecture/composition-product-component.svg` | PlantUML | `architecture/resource-abi.md` |
+| `architecture/stack-safety-runtime.svg` | PlantUML | `architecture/stack-safety.md` |
+| `architecture/stack-safety-evidence-flow.svg` | PlantUML | `architecture/stack-safety.md` |
+| `optimization/categorical-optimizer-contract.svg` | PlantUML | `optimization/categorical-optimizer-contract.md` |
+| `optimization/optimizer-lifecycle-state.svg` | PlantUML | `optimization/plan-and-provenance.md` |
+| `optimization/formal-evidence-stack.svg` | PlantUML | `optimization/formal-verification.md` |
+| `optimization/fuzzy-reference-contract.svg` | PlantUML | `optimization/domain-integration-contract.md` |
+| `optimization/hclg-typed-composition.svg` | PlantUML | `optimization/domain-integration-contract.md` |
+| `optimization/libcpg-integration-boundaries.svg` | PlantUML | `optimization/libcpg-assurance-contract.md` |
+| `optimization/libcpg-evidence-lifecycle.svg` | PlantUML | `security/libcpg-evidence-trust-model.md` |
+| `optimization/libcpg-refinement-gate.svg` | PlantUML | `optimization/libcpg-assurance-contract.md`, `integration/external/libcpg.md` |
+| `optimization/provider-boundary-architecture.svg` | PlantUML | `optimization/provider-boundary-contract.md` |
+| `optimization/provider-result-lifecycle.svg` | PlantUML | `optimization/provider-boundary-contract.md` |
+| `optimization/neutral-foundation-architecture.svg` | PlantUML | `optimization/neutral-vinary-foundation-contract.md` |
+| `optimization/neutral-foundation-lifecycle.svg` | PlantUML | `optimization/neutral-vinary-foundation-contract.md` |
+| `optimization/strong-bisimulation-flow.svg` | PlantUML | `optimization/certified-strong-bisimulation-contract.md` |
+| `optimization/strong-bisimulation-evidence.svg` | PlantUML | `optimization/certified-strong-bisimulation-contract.md` |
+| `optimization/dictionary-surface-architecture.svg` | PlantUML | `optimization/dictionary-surface-contract.md` |
 | `architecture/stack-safety-runtime.svg` | PlantUML | `architecture/stack-safety.md` |
 | `architecture/stack-safety-evidence-flow.svg` | PlantUML | `architecture/stack-safety.md` |
 | `algorithms/*` · `asr/*` · `advanced/*` · `transducers/*` · `correction/*` | Graphviz / PlantUML / D2 / TikZ | the corresponding topic docs |

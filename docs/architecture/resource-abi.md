@@ -17,6 +17,11 @@ protocol is normative in the
 the adversarial analysis lives in the
 [ABI trust model](../security/abi-trust-model.md).
 
+Host-defined weight algebras use the sibling
+[dynamic-semiring architecture](dynamic-semirings.md): compact provider-scoped
+tokens and separately negotiated algebra capabilities, not the scalar `double`
+weight domain described here.
+
 ---
 
 ## Terms & symbols
@@ -195,6 +200,38 @@ First traversal (through the exported vtable)
 
 </details>
 
+## Typed metadata beside opaque resources
+
+API revision 5 adds a typed metadata plane beside the unchanged two-word
+resource plane. The separation is intentional:
+
+- `VtResource` owns executable behavior and a retained immutable snapshot;
+- `LlingWfstDescriptorV2` states the input-tape, output-tape, algebra,
+  snapshot, and domain-neutral context identities;
+- `LlingBudgetV2` bounds states, arcs, bytes, and abstract work independently;
+- `LlingOutcomeV2` reports precision, completeness, applicability,
+  termination, and evidence without collapsing them into one status; and
+- `LlingCancellationV2` carries the first cooperative-cancellation reason in
+  one atomic word.
+
+![The complete lling-llang C ABI: the original builder, immutable WFST, and VtResource plane is joined by pointer-free typed ABI-v2 metadata validators and the atomic cooperative-cancellation handle, with every fallible edge returning LlingStatus.](../diagrams/api/c-abi-surface.svg)
+
+*Yellow = project-owned WFST surface; green = family resources; purple =
+typed metadata; teal = cancellation; grey = status and diagnostics.*
+
+An ABI-v1 resource is still a valid operand but has no typed signature. It is
+therefore represented by an all-zero descriptor with no presence flags and
+cannot authorize typed evidence. An adapter may attach a canonical typed
+descriptor only when it owns the mapping from the external subject to the
+resource snapshot. lling-llang core never embeds CPG, libcpg, or another
+application's identity vocabulary.
+
+Replay compares all five descriptor identities byte-for-byte. Checking only a
+snapshot and context would allow evidence for one tape/algebra signature to be
+reused for another, so the formal `TypedAbiV2` model and property suite require
+the signature match as well. The C validators perform fixed work over fixed
+prefixes; they allocate nothing and have no input-shaped recursion.
+
 ## Architecture & API
 
 ### `ScalarWfstProvider` — the project-owned lazy producer trait
@@ -355,8 +392,9 @@ harmonization review):
   `RepresentationLimit` (`LIMIT_EXCEEDED`) rather than
   `InvalidProviderOutput`, and caps the copy at $`2^{32}-1`$ states — the
   native `StateId` width.
-- The import page loop omits the bound $`\mathit{start} + \mathit{written} \le \mathit{total}`$;
-  an overshooting final page is still rejected,
+- The import page loop omits the
+  $`\mathit{start} + \mathit{written} \le \mathit{total}`$ conjunct; an
+  overshooting final page is still rejected,
   one iteration later, by the $`\mathit{start} \le \mathit{total}`$ check.
 
 ## Concurrency: deliberately no resource-wide gate

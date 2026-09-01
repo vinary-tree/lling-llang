@@ -28,7 +28,7 @@
  *)
 
 From Stdlib Require Import Bool.
-From SymbolicAlgebra Require Import EffectiveBooleanAlgebra.
+From LlingLlang.symbolic_algebra Require Import EffectiveBooleanAlgebra.
 
 Section Sum.
   Variables A B : EBA.

@@ -16,10 +16,10 @@
     Registry: proofs/doc/abi-invariants.tsv, LLING-SEMI-3.
 *)
 
-Require Import Coq.Arith.Arith.
-Require Import Coq.Classes.Morphisms.
-Require Import Coq.Classes.RelationClasses.
-Require Import Coq.Setoids.Setoid.
+From Stdlib Require Import Arith.Arith.
+From Stdlib Require Import Classes.Morphisms.
+From Stdlib Require Import Classes.RelationClasses.
+From Stdlib Require Import Setoids.Setoid.
 Require Import LlingLlang.foundations.Semiring.
 
 (** The exact counting weight: a natural number. Equality is Leibniz. *)

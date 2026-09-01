@@ -7,7 +7,7 @@
     for specific semirings.
 *)
 
-Require Import Coq.Classes.Morphisms.
+From Stdlib Require Import Classes.Morphisms.
 Require Import LlingLlang.foundations.Semiring.
 
 (** ** Power Function *)

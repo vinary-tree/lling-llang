@@ -1,0 +1,60 @@
+@startuml fuzzy-reference-contract
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam componentStyle rectangle
+skinparam ArrowColor #607D8B
+skinparam ArrowThickness 1.3
+
+title <b>Exact fuzzy-reference contract</b>\n<size:11><i>one immutable index; candidate generation and confirmation remain independent</i></size>
+
+package "query index" #FCF3CF {
+  component "snapshot identity\n<latex>\sigma</latex>" as Snapshot #FCF3CF
+  component "query + edit configuration\n<latex>(q,\kappa,k)</latex>" as Query #FCF3CF
+}
+
+package "libdictenstein" #D5F5E3 {
+  component "captured immutable\ndictionary revision" as Dictionary #D5F5E3
+  component "bounded candidate\ngenerator" as Generator #C8E6C9
+}
+
+package "liblevenshtein" #FADBD8 {
+  component "independent exact\ndistance confirmer" as Confirmer #FFCDD2
+}
+
+package "lling-llang coordination" #FCF3CF {
+  component "candidate fiber\n<latex>C_{(\sigma,q,\kappa,k)}</latex>" as Fiber #D6EAF8
+  component "accepted set\n<latex>A = C \cap R</latex>" as Accepted #C8E6C9
+  component "explicit outcome\ncomplete exact /\ncomplete approximate / incomplete" as Outcome #FFF59D
+}
+
+Snapshot --> Dictionary : capture once
+Snapshot --> Generator : same index
+Query --> Generator : same index
+Generator --> Fiber : may overgenerate
+Fiber --> Confirmer : candidate term
+Snapshot --> Confirmer : same captured revision
+Query --> Confirmer : same query/config/budget
+Dictionary --> Confirmer : membership
+Confirmer --> Accepted : exact accept/reject
+Accepted --> Outcome : publish only with evidence
+
+note bottom of Fiber #FFF59D
+  A fiber is an indexed collection.
+  No fibration is claimed without
+  lawful identity/composition lifts.
+end note
+
+note bottom of Confirmer #FFCDD2
+  Candidate membership cannot
+  confirm itself.
+end note
+
+legend right
+  |<#D5F5E3> libdictenstein snapshot |
+  |<#FADBD8> liblevenshtein confirmer |
+  |<#FCF3CF> lling-llang index/coordinator |
+  |<#C8E6C9> accepted exact path |
+  |<#FFCDD2> verification boundary |
+endlegend
+@enduml

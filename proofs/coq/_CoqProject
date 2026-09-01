@@ -23,12 +23,14 @@ wfst/Definitions.v
 wfst/Paths.v
 wfst/MatrixSemantics.v
 wfst/Language.v
+wfst/LazyExpansion.v
 
 # Algorithm correctness proofs
 algorithms/Viterbi.v
 algorithms/ShortestDistance.v
 algorithms/Determinize.v
 algorithms/Minimize.v
+algorithms/StrongBisimulation.v
 
 # Resource ABI: the f64 weight bridge over the seven VtWeightDomains
 abi/WeightBridge.v
@@ -40,19 +42,33 @@ abi/ProductRegistry.v
 abi/CompositionSemantics.v
 # Resource ABI: the sequencing epsilon-filter soundness
 abi/EpsilonFilterSoundness.v
+abi/OwnershipLifecycle.v
+abi/TypedAbiV2.v
+
+# Categorical optimizer contracts
+optimizer/TapeSignatures.v
+optimizer/RewriteSemantics.v
+optimizer/PlanDag.v
+domain_integration/FuzzyReference.v
+domain_integration/DictionarySurface.v
+domain_integration/TypedHclg.v
+domain_integration/DataflowMigration.v
+domain_integration/GraphQuotient.v
+domain_integration/EvidenceAssurance.v
+domain_integration/ManifestFactContracts.v
+domain_integration/ProviderResult.v
+domain_integration/CanonicalArtifact.v
+domain_integration/ProviderBoundary.v
+domain_integration/NeutralFoundationContracts.v
+optimizer/Assumptions.v
 
 # ============================================================================
 # Hoisted symbolic-core proofs (Task #21 / ADR-018): the zero-admission Rocq
 # theories proving the algebra laws of the symbolic core, migrated from
 # mettail-rust/formal/rocq with the code they verify (lling-llang::symbolic).
-# Each keeps its own logical root (self-contained; no cross-theory deps except
-# within symbolic_algebra).
+# They share the project-wide LlingLlang logical root above, preventing
+# overlapping physical-directory mappings while preserving module isolation.
 # ============================================================================
--Q logict LogicTProofs
--Q presburger PresburgerProofs
--Q sft Sft
--Q symbolic_algebra SymbolicAlgebra
--Q stack_safety StackSafety
 
 logict/LogicTFairness.v
 presburger/PresburgerBooleanAlgebra.v

@@ -4,6 +4,7 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -13,11 +14,13 @@ jobs:
     name: Rust
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      # All Rust dependencies in the vinary-tree release family are exact
-      # crates.io dependencies, so a clean checkout has one coherent source
-      # identity for every shared trait crate.
+      # --all-features resolves the four independently owned path dependencies
+      # beside this checkout. Release workflows pin immutable tags instead.
+      - uses: ./.github/actions/checkout-dev-siblings
+        with:
+          coordinated-ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -47,23 +50,18 @@ jobs:
   # metrics, round trip + arc paging law, lazy-composition correspondence,
   # concurrent composition stress) plus the binding-surface drift gate.
   #
-  # vinary-tree-interop is compiled from the exact crates.io release. The C guide
-  # also compiles against its standalone header, so CI checks out that repository
-  # next to the workspace. Release workflows pin the exact tag.
+  # Development CI resolves the coordinated sibling worktrees while release
+  # workflows pin immutable tags for the same dependency family.
   # ---------------------------------------------------------------------
   ffi:
     name: FFI and bindings
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - name: Checkout dev sibling crates
-        shell: bash
-        run: |
-          set -euo pipefail
-          parent="$(dirname "$GITHUB_WORKSPACE")"
-          git clone --depth 1 --branch master \
-            https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
+      - uses: ./.github/actions/checkout-dev-siblings
+        with:
+          coordinated-ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -91,6 +89,17 @@ jobs:
             -o target/lling-c-compose
           target/lling-c-compose
 
+      - name: C++ RAII and host-lattice smoke test
+        shell: bash
+        run: |
+          c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+            -Iinclude -I../vinary-tree-interop/include \
+            bindings/cpp/tests/package_smoke.cpp \
+            -Ltarget/debug -llling_llang \
+            -Wl,-rpath,"$PWD/target/debug" \
+            -o target/lling-cpp-package-smoke
+          target/lling-cpp-package-smoke
+
       # Use --no-deps for the same reason as the main Rust job: warnings in
       # sibling path dependencies must not gate this crate's CI.
       - name: Clippy (ffi + test-utils, all test targets)
@@ -100,6 +109,94 @@ jobs:
 
       - name: Test (ffi + test-utils)
         run: cargo test --no-default-features --features "ffi test-utils"
+
+  julia:
+    name: Julia ${{ matrix.julia-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        julia-version: ['1.10', '1.12']
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/checkout-dev-siblings
+        with:
+          coordinated-ref: ${{ github.head_ref || github.ref_name }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.julia-version }}
+      - name: Build native binding library
+        run: cargo build --no-default-features --features julia-bindings
+      - name: Instantiate local package graph
+        env:
+          JULIA_DEPOT_PATH: ${{ github.workspace }}/target/julia-depot
+        run: |
+          julia --project=bindings/julia/LlingLlang -e '
+            using Pkg
+            Pkg.develop([
+              Pkg.PackageSpec(path="../vinary-tree-interop/bindings/julia/VinaryTreeInterop"),
+              Pkg.PackageSpec(path="../llattice/bindings/julia/LLattice"),
+            ])
+            Pkg.instantiate()
+          '
+      - name: Test Julia facade and host provider
+        env:
+          JULIA_DEPOT_PATH: ${{ github.workspace }}/target/julia-depot
+          LLING_LLANG_LIBRARY: ${{ github.workspace }}/target/debug/liblling_llang.so
+        run: julia --project=bindings/julia/LlingLlang bindings/julia/LlingLlang/test/runtests.jl
+      - name: Build Documenter API reference
+        env:
+          JULIA_DEPOT_PATH: ${{ github.workspace }}/target/julia-depot
+          LLING_LLANG_LIBRARY: ${{ github.workspace }}/target/debug/liblling_llang.so
+          LLING_LLANG_DOCS_BUILD: ${{ github.workspace }}/target/julia-docs
+        run: |
+          julia --project=bindings/julia/LlingLlang/docs -e '
+            using Pkg
+            Pkg.develop([
+              Pkg.PackageSpec(path="../vinary-tree-interop/bindings/julia/VinaryTreeInterop"),
+              Pkg.PackageSpec(path="bindings/julia/LlingLlang"),
+            ])
+            Pkg.instantiate()
+          '
+          julia --project=bindings/julia/LlingLlang/docs bindings/julia/LlingLlang/docs/make.jl
+
+  raku:
+    name: Raku NativeCall and host provider
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/checkout-dev-siblings
+        with:
+          coordinated-ref: ${{ github.head_ref || github.ref_name }}
+      - uses: dtolnay/rust-toolchain@stable
+      # Raku/setup-raku v1, pinned for a current, reproducible Rakudo rather
+      # than Ubuntu's 2022.12 package.
+      - uses: Raku/setup-raku@b8b1a4ebe85ef112edfc65e9edc8c57735367e3f
+      - name: Build native library and callback shim
+        run: |
+          cargo build --no-default-features --features raku-bindings
+          mkdir -p target/raku-provider
+          mkdir -p target/llattice-raku-provider
+          RAKULIB="$PWD/../vinary-tree-interop/bindings/raku/lib" \
+            raku bindings/raku/build-provider.raku \
+              --output="$PWD/target/raku-provider/liblling_llang_raku_provider.so" \
+              --interop-include="$PWD/../vinary-tree-interop/include"
+          RAKULIB="$PWD/../vinary-tree-interop/bindings/raku/lib" \
+            raku ../llattice/bindings/raku/build-provider.raku \
+              --output="$PWD/target/llattice-raku-provider/libllattice_raku_provider.so" \
+              --interop-include="$PWD/../vinary-tree-interop/include"
+      - name: Test Raku facade and host provider
+        env:
+          LLING_LLANG_LIBRARY: ${{ github.workspace }}/target/debug/liblling_llang.so
+          LLING_LLANG_RAKU_PROVIDER_LIB: ${{ github.workspace }}/target/raku-provider/liblling_llang_raku_provider.so
+          LLATTICE_RAKU_PROVIDER_LIB: ${{ github.workspace }}/target/llattice-raku-provider/libllattice_raku_provider.so
+          RAKULIB: ${{ github.workspace }}/bindings/raku/lib,${{ github.workspace }}/../llattice/bindings/raku/lib,${{ github.workspace }}/../vinary-tree-interop/bindings/raku/lib
+        run: raku bindings/raku/t/01-conformance.rakutest
+      - name: Render packaged Pod
+        env:
+          RAKULIB: ${{ github.workspace }}/bindings/raku/lib,${{ github.workspace }}/../vinary-tree-interop/bindings/raku/lib
+        run: raku --doc=Text bindings/raku/doc/Lling-Llang.rakudoc > target/Lling-Llang.txt
 
   # ---------------------------------------------------------------------
   # Dynamic-analysis gate (wave W8): the ffi + test-utils integration
@@ -119,7 +216,11 @@ jobs:
     name: Sanitizers (ASan/TSan)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/checkout-dev-siblings
+        with:
+          coordinated-ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Install nightly toolchain with rust-src
         uses: dtolnay/rust-toolchain@nightly
@@ -142,25 +243,55 @@ jobs:
     name: Supply chain (cargo-deny)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/checkout-dev-siblings
         with:
-          command: check advisories bans sources licenses
+          coordinated-ref: ${{ github.head_ref || github.ref_name }}
+      # A Docker action can only mount this repository and therefore cannot
+      # resolve the sibling path dependencies. Install the same cargo-deny
+      # executable directly into the complete runner filesystem instead.
+      - uses: taiki-e/install-action@cargo-deny
+      - run: cargo deny check advisories bans sources licenses
 
-  proofs:
-    name: Rocq and TLA+
+  rocq-proofs:
+    name: Rocq proofs
+    runs-on: ubuntu-latest
+    # Match llattice's canonical proof environment. The digest prevents a
+    # moved container tag from changing proof semantics underneath a commit.
+    container:
+      image: rocq/rocq-prover:9.1.1@sha256:b85a80a11bb65c7c843f91c7cbcce282f22ee397c9ca42f123d568ab6cef68b0
+      # GitHub owns the workspace and runner-command mounts as UID 1001. Keep
+      # that UID while using the Rocq image's group 1000, whose opam tree is
+      # deliberately group-accessible. This satisfies both mount and toolchain
+      # permissions without granting the proof process root privileges.
+      options: --user 1001:1000
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify Rocq proofs
+        env:
+          # GitHub replaces the image entrypoint (`opam exec --`) when it
+          # starts a job container. Restore the image's pinned opam switch
+          # explicitly while running as the mount-compatible user above.
+          OPAMROOT: /home/rocq/.opam
+        run: |
+          opam exec -- rocq --version | grep -F "version 9.1.1"
+          opam exec -- bash proofs/verify.sh --rocq-only
+
+  tla-models:
+    name: TLA+ finite models
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install proof tools
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with: { distribution: temurin, java-version: "21" }
+      - name: Install the checksum-pinned TLA+ tools
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y coq default-jre-headless curl
           curl -fsSL \
             -o "$RUNNER_TEMP/tla2tools.jar" \
-            https://downloads.sourceforge.net/project/tlaplus.mirror/v1.7.4/tla2tools.jar
+            https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+          echo "eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a  $RUNNER_TEMP/tla2tools.jar" \
+            | sha256sum --check --strict
           echo "TLA2TOOLS_JAR=$RUNNER_TEMP/tla2tools.jar" >> "$GITHUB_ENV"
-
-      - name: Verify proofs and finite models
-        run: make verify-proofs
+      - name: Verify portable invariant registries and finite models
+        run: bash proofs/verify.sh --tla-only

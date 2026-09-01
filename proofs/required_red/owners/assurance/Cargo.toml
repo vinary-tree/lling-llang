@@ -1,0 +1,17 @@
+[package]
+name = "assurance-required-red"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[[test]]
+name = "assurance"
+path = "../../neutral_foundations/tests/assurance.rs"
+
+[dependencies]
+vinary-assurance = { path = "../../../../../vinary-assurance" }
+
+[dev-dependencies]
+proptest = "1.9"

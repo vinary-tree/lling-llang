@@ -15,7 +15,8 @@ prefix="${output_dir}/${package_name}"
 
 mkdir -p "${prefix}/bin" "${prefix}/include" \
   "${prefix}/lib/cmake/lling-llang" \
-  "${prefix}/lib/cmake/vinary-tree-interop" "${prefix}/lib/pkgconfig"
+  "${prefix}/lib/cmake/vinary-tree-interop" \
+  "${prefix}/lib/pkgconfig"
 cp include/lling_llang.h include/lling_llang.hpp "${prefix}/include/"
 cp ../vinary-tree-interop/include/vinary_tree_interop.h "${prefix}/include/"
 cp cmake/lling-llangConfig.cmake cmake/lling-llangConfigVersion.cmake \

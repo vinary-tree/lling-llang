@@ -1,4 +1,4 @@
-import type { RuntimeIdentity, WeightDomain, WfstResource } from "@vinary-tree/interop";
+import type { RuntimeIdentity, WeightDomain, WfstResource } from "@vinary-tree/vinary-tree-interop";
 
 export interface WfstArc {
   readonly input: string | null;

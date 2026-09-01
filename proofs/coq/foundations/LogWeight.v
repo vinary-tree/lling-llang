@@ -15,10 +15,10 @@
     logarithm identities as unproved assumptions.
 *)
 
-Require Import Coq.Reals.Reals.
-Require Import Coq.Classes.Morphisms.
-Require Import Coq.Classes.RelationClasses.
-Require Import Coq.setoid_ring.Ring.
+From Stdlib Require Import Reals.Reals.
+From Stdlib Require Import Classes.Morphisms.
+From Stdlib Require Import Classes.RelationClasses.
+From Stdlib Require Import setoid_ring.Ring.
 Require Import LlingLlang.foundations.Semiring.
 
 Open Scope R_scope.

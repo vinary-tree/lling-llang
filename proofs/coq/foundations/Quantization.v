@@ -5,11 +5,11 @@
     grid and error contract; it does not model IEEE-754 rounding.
 *)
 
-Require Import Coq.Arith.Arith.
-Require Import Coq.micromega.Lia.
-Require Import Coq.micromega.Lra.
-Require Import Coq.micromega.Psatz.
-Require Import Coq.Reals.Reals.
+From Stdlib Require Import Arith.Arith.
+From Stdlib Require Import micromega.Lia.
+From Stdlib Require Import micromega.Lra.
+From Stdlib Require Import micromega.Psatz.
+From Stdlib Require Import Reals.Reals.
 
 Open Scope R_scope.
 

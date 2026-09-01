@@ -695,6 +695,12 @@ Need weights?
 
 ## Implementing Custom Semirings
 
+Rust implementations use the native trait below. Implementations owned by
+Julia, Raku, or another runtime use the separate
+[dynamic-semiring operation-context architecture](dynamic-semirings.md), which
+preserves explicit foreign ownership without weakening this trait's `Copy`
+fast path.
+
 To create a custom semiring:
 
 ```rust
@@ -751,6 +757,8 @@ fn test_my_semiring() {
 
 - [Signed Tropical Semiring](signed-tropical-semiring.md): Extended tropical semiring with negative weights (rewards)
 - [Power Semiring](power-semiring.md): $`\eta`$-power semiring for soft path selection and RRWM algorithm
+- [Dynamic Semirings](dynamic-semirings.md): Host-defined weights through the
+  versioned capability ABI
 - [Lattices](lattices.md): How semirings are used in lattice weights
 - [WFST Operations](wfst-operations.md): Rational and unary operations on WFSTs
 - [Path Extraction](../algorithms/path-extraction.md): Algorithms that use semiring operations

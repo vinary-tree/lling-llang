@@ -7,7 +7,7 @@ compose them lazily with WFSTs produced by sibling packages — in process,
 in $`O(1)`$, without serialization.
 
 The facade owns no native code. It delegates to the single
-`@vinary-tree/vinary-tree` umbrella runtime, so a WFST produced by the
+`@vinary-tree/javascript-runtime` shared runtime, so a WFST produced by the
 `duallity` facade and a WFST built here live in the *same* runtime instance
 and compose by handle passing. State expansion crosses the runtime boundary
 once per state and returns one batched arc array.
@@ -30,9 +30,9 @@ Requirements and pins (enforced by `scripts/check-bindings.py`):
 | Constraint | Value |
 |---|---|
 | Node.js | `>= 22.14` |
-| `@vinary-tree/interop` | exact `0.1.0` (guards + shared types) |
-| `@vinary-tree/vinary-tree` | exact `0.10.0` (the umbrella runtime that hosts the native code) |
-| Package version | `0.2.0` — always equal to the Rust crate version |
+| `@vinary-tree/vinary-tree-interop` | exact `4.0.0-rc.6` (guards + shared types) |
+| `@vinary-tree/javascript-runtime` | exact `4.0.0-rc.6` (the shared runtime that hosts the native code) |
+| Package version | `4.0.0-rc.6` — always equal to the Rust crate version |
 
 Pick your entry point per environment:
 
@@ -178,11 +178,11 @@ their own runtime instance — handles must not be passed between instances
 | `Error: WFST has no start state` | Call `setStart` before `build()` — the builder remains usable after this failure. |
 | Native module fails to load on Node | Check `node -p process.versions.node` is `>= 22.14`; reinstall so the platform-specific runtime binary matches your OS/arch. |
 | Browser bundling | Import the `/wasm` subpath; ensure your bundler serves the runtime's `.wasm` asset. |
-| Node WASI | Import the `/wasi` subpath and follow the umbrella runtime's WASI notes in the [family bindings guide](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/docs/language-bindings.md). |
+| Node WASI | Import the `/wasi` subpath and follow the shared runtime's WASI notes in the [family bindings guide](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/docs/language-bindings.md). |
 
 ## Version compatibility
 
-- Package `0.2.0` = crate `0.2.0`; native ABI v1, API revision 1 — the same
+- Package `4.0.0-rc.6` = crate `4.0.0-rc.6`; native ABI v1, API revision 5 — the same
   contract the [C ABI reference](https://github.com/vinary-tree/lling-llang/blob/master/docs/api/c-abi-reference.md)
   documents (the API revision only grows within an ABI version).
 - `@vinary-tree/*` dependencies are exact pins; the drift gate

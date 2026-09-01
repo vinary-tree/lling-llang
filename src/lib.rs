@@ -181,6 +181,12 @@ pub mod cfg;
 pub mod composition;
 pub mod ctc;
 pub mod differentiable;
+#[cfg(feature = "bindings-core")]
+mod dynamic_abi;
+#[cfg(feature = "bindings-core")]
+pub mod dynamic_lattice;
+#[cfg(feature = "bindings-core")]
+pub mod dynamic_semiring;
 pub mod error_models;
 pub mod gpu;
 pub mod lattice;
@@ -518,10 +524,19 @@ pub mod prelude {
         synchronize_bounded,
         union,
         CachePolicy,
+        CancellationReason,
+        CancellationToken,
         ClosureSource,
         ClosureWfst,
         ConcatSource,
         ConcatWfst,
+        ExpansionError,
+        ExpansionFailure,
+        ExpansionFailureKind,
+        ExpansionMode,
+        ExpansionObservation,
+        ExpansionRequest,
+        ExpansionStatus,
         // Unary operations
         InvertSource,
         InvertWfst,
@@ -533,6 +548,9 @@ pub mod prelude {
         ProjectInputWfst,
         ProjectOutputWfst,
         ProjectSource,
+        RetryPolicy,
+        SourceSnapshot,
+        StateExpansion,
         StateId,
         StateSource,
         // Synchronization

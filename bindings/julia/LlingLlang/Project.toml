@@ -1,0 +1,20 @@
+name = "LlingLlang"
+uuid = "c0d6310b-ae37-4a72-96a5-37e0f0aef4be"
+version = "4.0.0-rc.6"
+authors = ["Dylon Edwards <dylon.devo@gmail.com>"]
+
+[deps]
+Libdl = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
+VinaryTreeInterop = "8d6503e5-4d65-4bd8-a8ee-293a0149584e"
+
+[compat]
+LLattice = "0.1"
+VinaryTreeInterop = "4"
+julia = "1.10"
+
+[extras]
+LLattice = "5d6d4c0b-8673-4dd4-8eed-bddf0b213e50"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test", "LLattice"]

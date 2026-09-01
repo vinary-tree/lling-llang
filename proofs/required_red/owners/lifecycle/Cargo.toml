@@ -1,0 +1,17 @@
+[package]
+name = "lifecycle-required-red"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[[test]]
+name = "lifecycle"
+path = "../../neutral_foundations/tests/lifecycle.rs"
+
+[dependencies]
+vinary-runtime = { path = "../../../../../vinary-runtime" }
+
+[dev-dependencies]
+proptest = "1.9"

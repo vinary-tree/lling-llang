@@ -1,0 +1,62 @@
+@startuml
+title Dynamic semiring: zero-cost native path and safe foreign path
+skinparam backgroundColor #FCFCFF
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam ArrowColor #37474F
+skinparam ArrowThickness 1.5
+skinparam defaultFontName DejaVu Sans
+
+package "Native Rust" #E3F2FD {
+  [Built-in or custom\nCopy weight] as NativeWeight #90CAF9
+  [Monomorphized\nSemiring algorithm] as NativeAlgorithm #42A5F5
+  NativeWeight -right-> NativeAlgorithm : static calls\n(no ABI crossing)
+}
+
+package "Foreign runtime" #FFF3E0 {
+  [Julia / Raku / other\nsemiring object] as Host #FFCC80
+  database "Recycling arena\n(slot, generation)" as Arena #FFE0B2
+  [Contained callbacks] as Callbacks #FFB74D
+  Host -down-> Arena : owns values
+  Host -right-> Callbacks : implements algebra
+}
+
+package "Stable capability ABI" #F3E5F5 {
+  [Retained operation\ncontext] as Context #CE93D8
+  [Base vtable] as Base #BA68C8
+  [division | star |\nnumeric | properties] as Optional #AB47BC
+  artifact "VtSemiringValue\n{ word0, word1 }" as Token #E1BEE7
+  Context -right-> Base
+  Context -right-> Optional
+  Context -down-> Token : scopes every token
+}
+
+package "lling-llang safe adapter" #E8F5E9 {
+  [Prefix and output\nvalidation] as Validate #81C784
+  [Atomic admission gate\n(no callback mutex)] as Gate #66BB6A
+  [Local context] as Local #A5D6A7
+  [Validated parallel\ncontext] as Parallel #4CAF50
+  [Bounded fold\nB = 256] as Batch #2E7D32
+  Local -right-> Gate
+  Gate -right-> Validate
+  Parallel -right-> Validate : PARALLEL_REENTRANT
+  Validate -down-> Batch
+}
+
+Callbacks -right-> Context : query_interface
+Token -right-> Validate : owned output /\nborrowed input
+Validate -left-> Base : synchronous call
+Validate -left-> Optional : when required
+Token -left-> Arena : inline value or\ngenerational ID
+
+note bottom of NativeAlgorithm
+Native Semiring: Copy stays unchanged.
+Dynamic values never claim Copy.
+end note
+
+note bottom of Batch
+First page: <= 256 operands
+Later pages: accumulator + <= 255
+Every intermediate is released.
+end note
+@enduml

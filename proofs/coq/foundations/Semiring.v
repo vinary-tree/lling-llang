@@ -14,10 +14,10 @@
     [src/semiring/traits.rs].
 *)
 
-Require Import Coq.Arith.Arith.
-Require Import Coq.Classes.Morphisms.
-Require Import Coq.Classes.RelationClasses.
-Require Import Coq.Setoids.Setoid.
+From Stdlib Require Import Arith.Arith.
+From Stdlib Require Import Classes.Morphisms.
+From Stdlib Require Import Classes.RelationClasses.
+From Stdlib Require Import Setoids.Setoid.
 
 (** ** Semiring Type Class *)
 

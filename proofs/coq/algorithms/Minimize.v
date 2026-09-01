@@ -5,8 +5,8 @@
     baseline for deterministic WFSTs.
 *)
 
-Require Import Coq.Lists.List.
-Require Import Coq.Arith.Arith.
+From Stdlib Require Import Lists.List.
+From Stdlib Require Import Arith.Arith.
 Require Import LlingLlang.foundations.Semiring.
 Require Import LlingLlang.wfst.Definitions.
 Require Import LlingLlang.wfst.Paths.

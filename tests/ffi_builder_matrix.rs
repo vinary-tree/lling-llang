@@ -1,4 +1,4 @@
-//! Validation matrix for the 17-function `lling_*` C ABI builder surface.
+//! Validation matrix for the 19-function `lling_*` C ABI builder surface.
 //!
 //! Exercises every builder-lifecycle function against its full argument-error
 //! matrix: absent states, non-tropical weights (the builder-surface twin of
@@ -24,8 +24,9 @@ use lling_llang::ffi::{
     lling_wfst_builder_add_arc, lling_wfst_builder_add_state, lling_wfst_builder_build,
     lling_wfst_builder_clear_final, lling_wfst_builder_free, lling_wfst_builder_new,
     lling_wfst_builder_reserve_states, lling_wfst_builder_set_final, lling_wfst_builder_set_start,
-    lling_wfst_compose, lling_wfst_free, lling_wfst_import, lling_wfst_resource, LlingStatus,
-    LlingWfst, LlingWfstBuilder, LLING_ABI_VERSION, LLING_API_REVISION,
+    lling_wfst_compose, lling_wfst_compose_refs, lling_wfst_free, lling_wfst_import,
+    lling_wfst_import_ref, lling_wfst_resource, LlingStatus, LlingWfst, LlingWfstBuilder,
+    LLING_ABI_VERSION, LLING_API_REVISION,
 };
 use std::ffi::CStr;
 use std::ptr;
@@ -133,9 +134,9 @@ unsafe fn state_info(resource: VtResource, state: u64) -> (u8, u8, f64) {
 #[test]
 fn abi_version_and_api_revision_are_pinned() {
     assert_eq!(lling_abi_version(), 1);
-    assert_eq!(lling_api_revision(), 1);
+    assert_eq!(lling_api_revision(), 5);
     assert_eq!(LLING_ABI_VERSION, 1);
-    assert_eq!(LLING_API_REVISION, 1);
+    assert_eq!(LLING_API_REVISION, 5);
 }
 
 #[test]
@@ -531,6 +532,22 @@ fn null_out_params_report_null_pointer() {
     );
     assert_eq!(
         lling_wfst_compose(resource, resource, ptr::null_mut()),
+        LlingStatus::NullPointer
+    );
+    assert_eq!(
+        unsafe { lling_wfst_import_ref(ptr::null(), ptr::null_mut()) },
+        LlingStatus::NullPointer
+    );
+    assert_eq!(
+        unsafe { lling_wfst_import_ref(&resource, ptr::null_mut()) },
+        LlingStatus::NullPointer
+    );
+    assert_eq!(
+        unsafe { lling_wfst_compose_refs(ptr::null(), &resource, ptr::null_mut()) },
+        LlingStatus::NullPointer
+    );
+    assert_eq!(
+        unsafe { lling_wfst_compose_refs(&resource, ptr::null(), ptr::null_mut()) },
         LlingStatus::NullPointer
     );
 

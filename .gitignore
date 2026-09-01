@@ -1,5 +1,6 @@
 # Rust build artifacts
 /target/
+/bindings/raku/**/.precomp/
 **/*.rs.bk
 Cargo.lock.bak
 

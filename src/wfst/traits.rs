@@ -2,6 +2,7 @@
 
 use std::fmt::Debug;
 
+use super::lazy::{ExpansionError, ExpansionStatus};
 use super::state::WfstState;
 use super::transition::WeightedTransition;
 use super::types::{StateId, NO_STATE};
@@ -213,7 +214,7 @@ pub trait LazyWfst<L, W: Semiring>: Wfst<L, W> {
     /// Force expansion of a state.
     ///
     /// Useful for prefetching or ensuring a state is computed.
-    fn expand(&mut self, state: StateId);
+    fn expand(&mut self, state: StateId) -> Result<ExpansionStatus, ExpansionError>;
 
     /// Get transitions, computing them lazily if needed.
     ///

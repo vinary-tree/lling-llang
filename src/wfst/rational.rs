@@ -45,14 +45,16 @@
 
 use smallvec::SmallVec;
 
-use super::lazy::{LazyState, LazyWfstWrapper, StateSource};
+use super::lazy::{
+    ExpansionFailure, ExpansionRequest, LazyWfstWrapper, StateExpansion, StateSource,
+};
 use super::traits::Wfst;
 use super::transition::WeightedTransition;
 use super::types::{StateId, NO_STATE};
 use crate::semiring::Semiring;
 
 #[cfg(test)]
-use super::traits::{LazyWfst, MutableWfst};
+use super::traits::MutableWfst;
 #[cfg(test)]
 use super::vector::{VectorWfst, VectorWfstBuilder};
 
@@ -190,9 +192,10 @@ where
     T1: Wfst<L, W>,
     T2: Wfst<L, W>,
 {
-    fn compute_state(&self, state: StateId) -> LazyState<L, W> {
+    fn compute_state(&self, request: ExpansionRequest<'_>) -> StateExpansion<L, W> {
+        let state = request.state();
         let Some((fst_idx, original)) = self.decode_state(state) else {
-            return LazyState::Pending;
+            return StateExpansion::failed(ExpansionFailure::invalid_state(state));
         };
 
         match fst_idx {
@@ -213,7 +216,7 @@ where
                     transitions.push(WeightedTransition::epsilon(state, encoded_start, W::one()));
                 }
 
-                LazyState::non_final(transitions)
+                StateExpansion::non_final(transitions)
             }
             1 => {
                 // State from fst1
@@ -236,9 +239,9 @@ where
                     .collect();
 
                 if is_final {
-                    LazyState::final_state(final_weight, transitions)
+                    StateExpansion::final_state(final_weight, transitions)
                 } else {
-                    LazyState::non_final(transitions)
+                    StateExpansion::non_final(transitions)
                 }
             }
             2 => {
@@ -262,12 +265,12 @@ where
                     .collect();
 
                 if is_final {
-                    LazyState::final_state(final_weight, transitions)
+                    StateExpansion::final_state(final_weight, transitions)
                 } else {
-                    LazyState::non_final(transitions)
+                    StateExpansion::non_final(transitions)
                 }
             }
-            _ => LazyState::Pending,
+            _ => StateExpansion::failed(ExpansionFailure::invalid_state(state)),
         }
     }
 
@@ -412,9 +415,10 @@ where
     T1: Wfst<L, W>,
     T2: Wfst<L, W>,
 {
-    fn compute_state(&self, state: StateId) -> LazyState<L, W> {
+    fn compute_state(&self, request: ExpansionRequest<'_>) -> StateExpansion<L, W> {
+        let state = request.state();
         let Some((is_fst1, original)) = self.decode_state(state) else {
-            return LazyState::Pending;
+            return StateExpansion::failed(ExpansionFailure::invalid_state(state));
         };
 
         if is_fst1 {
@@ -455,7 +459,7 @@ where
 
             // fst1 states are NOT final in the concatenation
             // (unless fst2 is empty with an accepting start state)
-            LazyState::non_final(transitions)
+            StateExpansion::non_final(transitions)
         } else {
             // State from fst2
             let is_final = self.fst2.is_final(original);
@@ -477,9 +481,9 @@ where
                 .collect();
 
             if is_final {
-                LazyState::final_state(final_weight, transitions)
+                StateExpansion::final_state(final_weight, transitions)
             } else {
-                LazyState::non_final(transitions)
+                StateExpansion::non_final(transitions)
             }
         }
     }
@@ -602,7 +606,8 @@ where
     L: Clone + Send + Sync,
     T: Wfst<L, W>,
 {
-    fn compute_state(&self, state: StateId) -> LazyState<L, W> {
+    fn compute_state(&self, request: ExpansionRequest<'_>) -> StateExpansion<L, W> {
+        let state = request.state();
         if self.is_super_start(state) {
             // Super-start state: final with weight 1̄, ε-transition to FST start
             let mut transitions = SmallVec::new();
@@ -613,12 +618,12 @@ where
             }
 
             // Super-start is final with weight one (accepts empty string)
-            LazyState::final_state(W::one(), transitions)
+            StateExpansion::final_state(W::one(), transitions)
         } else {
             // State from original FST
             let original = self.decode_state(state);
             if (original as usize) >= self.n {
-                return LazyState::Pending;
+                return StateExpansion::failed(ExpansionFailure::invalid_state(state));
             }
 
             let is_final = self.fst.is_final(original);
@@ -654,9 +659,9 @@ where
 
             // Final states in closure are still final (can exit after any repetition)
             if is_final {
-                LazyState::final_state(final_weight, transitions)
+                StateExpansion::final_state(final_weight, transitions)
             } else {
-                LazyState::non_final(transitions)
+                StateExpansion::non_final(transitions)
             }
         }
     }
@@ -809,7 +814,7 @@ mod tests {
 
         // Expand all states
         for i in 0..5 {
-            u.expand(i);
+            u.expand(i).unwrap();
         }
 
         // State 2 (fst1's final state, offset by 1) should be final
@@ -849,7 +854,7 @@ mod tests {
 
         // Expand all states
         for i in 0..4 {
-            c.expand(i);
+            c.expand(i).unwrap();
         }
 
         // Only fst2's final state should be final in the concatenation
@@ -869,7 +874,7 @@ mod tests {
         assert_eq!(k.start(), 0);
 
         // Super-start should be final (accepts empty string)
-        k.expand(0);
+        k.expand(0).unwrap();
         assert!(k.is_final(0));
 
         // Super-start should have ε-transition to FST start
@@ -901,7 +906,7 @@ mod tests {
         assert_eq!(kp.start(), 0);
 
         // Expand start
-        kp.expand(0);
+        kp.expand(0).unwrap();
 
         // Start should NOT be final (closure_plus doesn't accept empty)
         assert!(!kp.is_final(0));
@@ -981,9 +986,8 @@ mod tests {
 
         assert_eq!(c.start(), NO_STATE);
         assert_eq!(c.num_states(), 0);
-        c.expand(0);
-        assert!(!c.is_final(0));
-        assert!(c.transitions_lazy(0).is_empty());
+        assert!(c.expand(0).is_err());
+        assert!(c.transitions_if_expanded(0).unwrap().is_none());
     }
 
     #[test]
@@ -994,9 +998,8 @@ mod tests {
 
         assert_eq!(c.start(), NO_STATE);
         assert_eq!(c.num_states(), 0);
-        c.expand(0);
-        assert!(!c.is_final(0));
-        assert!(c.transitions_lazy(0).is_empty());
+        assert!(c.expand(0).is_err());
+        assert!(c.transitions_if_expanded(0).unwrap().is_none());
     }
 
     #[test]
@@ -1057,13 +1060,13 @@ mod tests {
         // Both should have same number of final states
         let u1_finals: Vec<_> = (0..u1.num_states() as StateId)
             .filter(|&s| {
-                u1.expand(s);
+                u1.expand(s).unwrap();
                 u1.is_final(s)
             })
             .collect();
         let u2_finals: Vec<_> = (0..u2.num_states() as StateId)
             .filter(|&s| {
-                u2.expand(s);
+                u2.expand(s).unwrap();
                 u2.is_final(s)
             })
             .collect();
@@ -1085,7 +1088,7 @@ mod tests {
             let n = fst.num_states();
             (0..n as StateId)
                 .filter(|&s| {
-                    fst.expand(s);
+                    fst.expand(s).unwrap();
                     fst.is_final(s)
                 })
                 .count()
@@ -1095,14 +1098,14 @@ mod tests {
         let mut u12 = union(&fst_a, &fst_b);
         // Expand u12 so we can use it in another union
         for s in 0..u12.num_states() as StateId {
-            u12.expand(s);
+            u12.expand(s).unwrap();
         }
         let mut u12_3 = union(&u12, &fst_c);
 
         // T₁ ⊕ (T₂ ⊕ T₃)
         let mut u23 = union(&fst_b, &fst_c);
         for s in 0..u23.num_states() as StateId {
-            u23.expand(s);
+            u23.expand(s).unwrap();
         }
         let mut u1_23 = union(&fst_a, &u23);
 
@@ -1134,7 +1137,7 @@ mod tests {
         let mut c12 = concat(&fst_a, &fst_b);
         // Expand c12 so it can be read by the outer concat
         for s in 0..c12.num_states() as StateId {
-            c12.expand(s);
+            c12.expand(s).unwrap();
         }
         let mut c12_3 = concat(&c12, &fst_c);
 
@@ -1142,7 +1145,7 @@ mod tests {
         let mut c23 = concat(&fst_b, &fst_c);
         // Expand c23 so it can be read by the outer concat
         for s in 0..c23.num_states() as StateId {
-            c23.expand(s);
+            c23.expand(s).unwrap();
         }
         let mut c1_23 = concat(&fst_a, &c23);
 
@@ -1159,13 +1162,13 @@ mod tests {
         let mut k = closure(&fst_a);
         // Expand all states of k so we can use it in another closure
         for s in 0..k.num_states() as StateId {
-            k.expand(s);
+            k.expand(s).unwrap();
         }
         let mut kk = closure(&k);
 
         // Both should accept empty string (final at start)
-        k.expand(0);
-        kk.expand(0);
+        k.expand(0).unwrap();
+        kk.expand(0).unwrap();
         assert!(k.is_final(0));
         assert!(kk.is_final(0));
     }
@@ -1184,7 +1187,7 @@ mod tests {
         assert_eq!(start_trans.len(), 1); // Only to fst_a
 
         // Should have same final state behavior
-        u.expand(2); // State 2 = fst_a's final state (offset by 1)
+        u.expand(2).unwrap(); // State 2 = fst_a's final state (offset by 1)
         assert!(u.is_final(2));
     }
 
@@ -1196,12 +1199,12 @@ mod tests {
         let mut k = closure(&fst_a);
         // Expand closure so concat can read from it
         for s in 0..k.num_states() as StateId {
-            k.expand(s);
+            k.expand(s).unwrap();
         }
         let mut c = concat(&fst_a, &k);
 
         // Start should NOT be final (first 'a' is required)
-        c.expand(0);
+        c.expand(0).unwrap();
         assert!(!c.is_final(0));
 
         // But there should be a path to a final state
@@ -1210,7 +1213,7 @@ mod tests {
         // which connects via epsilon to closure start (also final)
         let n = c.num_states();
         let has_final = (0..n as StateId).any(|s| {
-            c.expand(s);
+            c.expand(s).unwrap();
             c.is_final(s)
         });
         assert!(has_final);
@@ -1278,7 +1281,7 @@ mod tests {
                 fst in arb_tropical_wfst(5, 2)
             ) {
                 let mut k = closure(&fst);
-                k.expand(0);
+                k.expand(0).unwrap();
                 prop_assert!(k.is_final(0), "Closure super-start should be final");
             }
 
@@ -1293,7 +1296,7 @@ mod tests {
                 }
 
                 let mut kp = closure_plus(&fst);
-                kp.expand(0);
+                kp.expand(0).unwrap();
 
                 // closure_plus = concat(fst, closure(fst))
                 // In concat, fst1 states are NEVER final (they have epsilon to fst2)
@@ -1322,7 +1325,7 @@ mod tests {
                 // Count finals in union (excluding super-start which is not final)
                 let union_finals: usize = (0..u.num_states() as StateId)
                     .filter(|&s| {
-                        u.expand(s);
+                        u.expand(s).unwrap();
                         u.is_final(s)
                     })
                     .count();

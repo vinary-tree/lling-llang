@@ -1,8 +1,9 @@
 # lling-llang C++ bindings
 
 Header-only C++20 RAII facade over lling-llang's stable C ABI. One header —
-[`include/lling_llang.hpp`](../../include/lling_llang.hpp) — wraps the 17
-`lling_*` functions in four move-aware types under
+[`include/lling_llang.hpp`](../../include/lling_llang.hpp) — wraps WFST
+construction/resource exchange, complete dynamic-semiring and dynamic-lattice
+consumers, and typed cancellation in eight ownership-aware types under
 `namespace vinary_tree::lling_llang`:
 
 | Type | Wraps | Discipline |
@@ -10,31 +11,51 @@ Header-only C++20 RAII facade over lling-llang's stable C ABI. One header —
 | `builder` | `LlingWfstBuilder*` | constructed ready; frees on scope exit; fluent edits |
 | `wfst` | `LlingWfst*` | move-only; frees on destruction; `import`/`compose` factories |
 | `resource` | `VtResource` | move-only owned retain; releases on destruction |
+| `semiring_context` | `LlingSemiring*` | copyable shared operation context; retains its host provider until the final context or weight dies |
+| `semiring_weight` | `LlingSemiringWeight*` | move-only owned provider token; explicit `clone()` is the only ownership duplication |
+| `lattice_value` | `LlingLatticeValue*` | move-only retained host value; checked join/meet/folds and law probes |
+| `cancellation` | `LlingCancellationV2*` | move-only; atomic first-reason-wins request; single release on destruction |
 | `error` | `LlingStatus` + message | thrown by `check()` on any non-OK status |
+
+The pointer-free descriptor, budget, and outcome structures and their five
+validators remain directly available from the included C header.
 
 The semantics are exactly the C ABI's — statuses, ownership, capture-once
 composition, lazy product states — documented in the
 [C ABI reference](https://github.com/vinary-tree/lling-llang/blob/master/docs/api/c-abi-reference.md)
 and the
 [resource ABI architecture](https://github.com/vinary-tree/lling-llang/blob/master/docs/architecture/resource-abi.md).
-This facade adds zero overhead beyond a status check per call.
+Semiring capability negotiation, token ownership, optional refinements, and
+threading are specified in the
+[dynamic-semiring architecture](https://github.com/vinary-tree/lling-llang/blob/master/docs/architecture/dynamic-semirings.md).
+Host lattice ownership, algebra, batching, validation, and threading are
+specified in the
+[dynamic-lattice architecture](https://github.com/vinary-tree/lling-llang/blob/master/docs/architecture/dynamic-lattices.md).
+The facade never copies opaque provider values: it adds checked status
+translation and RAII bookkeeping, allocating only where the API returns owned
+bytes or assembles a bounded law-validation batch.
 
 ## Install
 
 ### CMake package (recommended)
 
 Staged release packages (and `scripts/stage-native-package.sh` builds) ship
-the library, both headers, the bundled `vinary_tree_interop.h`, and CMake
-config files:
+the library, both lling-llang headers, and CMake config files. The stable family
+ABI header is supplied by the separately versioned `vinary-tree-interop`
+package, which lets every installed consumer share exactly one ABI definition:
 
 ```cmake
-find_package(lling-llang 0.2 CONFIG REQUIRED)
+find_package(lling-llang 4.0 CONFIG REQUIRED)
 target_link_libraries(your_target PRIVATE lling-llang::lling-llang)
 target_compile_features(your_target PRIVATE cxx_std_20)
 ```
 
-Point `CMAKE_PREFIX_PATH` at the package root if it is not installed
-system-wide. This is precisely what the CI package smoke test does
+The config performs `find_dependency(vinary-tree-interop 4.0 CONFIG)`.
+Point `CMAKE_PREFIX_PATH` at both package roots when they are not installed
+system-wide. The imported target propagates the interop include directory for
+shared and static linkage; select the latter by setting
+`LLING_LLANG_LINKAGE=STATIC` before `find_package`. This is precisely what
+the CI installed-package smoke test verifies
 ([`tests/package/CMakeLists.txt`](tests/package/CMakeLists.txt)).
 
 ### pkg-config
@@ -70,6 +91,10 @@ resource (mirrors the CI smoke test
 int main() {
     using namespace vinary_tree::lling_llang;
 
+    cancellation stop;
+    stop.request(LLING_CANCELLATION_REQUESTED_V2);
+    if (stop.reason() != LLING_CANCELLATION_REQUESTED_V2) return 2;
+
     auto make = [](char32_t in, char32_t out, double w) {
         builder b;
         const auto q0 = b.add_state();
@@ -101,6 +126,67 @@ Fluent builder notes: `final_state(q)` defaults the final weight to `0.0`
 `epsilon(from, to, w)` adds an $`\varepsilon`$:$`\varepsilon`$ arc; labels
 are `char32_t` Unicode scalar values (`U'🦀'` works).
 
+### Consume host-defined semiring values
+
+`semiring_context::open` negotiates `vt.semiring.val1` and retains an
+independent operation context. A weight keeps that context alive even after
+all user-visible context copies have gone out of scope:
+
+```cpp
+// `semiring_resource` remains owned by its provider.
+auto semiring = semiring_context::open(semiring_resource);
+auto zero = semiring.zero();
+auto one = semiring.one();
+auto sum = zero.plus(one);
+auto product = one.times(one);
+
+if (!sum.equivalent(one)) return 2;
+auto quotient = product.divide(one); // std::nullopt when undefined
+auto closure = zero.star();           // std::nullopt when divergent
+
+std::array<const semiring_weight*, 4> samples{&zero, &one, &sum, &product};
+semiring.validate_laws(samples, 1e-12);
+const auto canonical_identity = product.stable_bytes();
+```
+
+The facade covers equality and approximate equality, natural order, division
+and left division, Kleene star, numerical value, quantization, probability,
+declared properties, closure bounds, stable bytes, and bounded law probes.
+Partial provider operations map to `std::optional`; unavailable or malformed
+capabilities remain typed native errors. Weights from different operation
+contexts are rejected before a binary native call, even when their domain IDs
+happen to match.
+
+### Consume host-defined lattice values
+
+`lattice_value::open` borrows a live `VtResource` for one call and retains an
+independent owner. The resource may come from LLattice, Julia, Raku, C++, or
+any provider implementing `vt.lattice.val.1`:
+
+```cpp
+// `left_resource` and `right_resource` remain owned by their producer.
+auto left = lattice_value::open(left_resource);
+auto right = lattice_value::open(right_resource);
+auto upper = left.join(right);
+auto lower = left.meet(right);
+
+std::array<const lattice_value*, 2> remainder{&right, &lower};
+auto folded = left.join_many(remainder);
+std::array<const lattice_value*, 3> samples{&left, &right, &folded};
+lattice_value::validate_laws(samples);
+
+const auto identity = folded.stable_bytes();
+const auto explanation = folded.diagnostic();
+```
+
+`domain_id()` returns the exact 16-byte carrier/law identifier; `flags()`
+returns the validated provider capabilities; and `equivalent()` performs
+semantic equality. Binary operations reject a domain mismatch before invoking
+foreign code. Batches preserve associative left-fold order and the native
+adapter caps each foreign callback at 256 operands. Law validation accepts at
+most sixteen representative values and can falsify—but cannot prove—the
+universal lattice laws.
+
 ## Ownership & memory model
 
 Pure RAII — every wrapper releases exactly once, in its destructor:
@@ -113,6 +199,14 @@ Pure RAII — every wrapper releases exactly once, in its destructor:
   builder remains editable — set a start state and build again.
 - `wfst` and `resource` are move-only (copying a raw handle would double
   the release). Moved-from objects are empty and safe to destroy.
+- `semiring_context` copies share one native operation context. Every returned
+  `semiring_weight` holds that context alive and consumes exactly one provider
+  token on destruction. Weights are move-only; `clone()` invokes the provider's
+  ownership callback instead of copying opaque token words.
+- `lattice_value` is move-only for the same reason. `open`, `join`, `meet`,
+  `join_many`, and `meet_many` each return one independent owner; every owner
+  is released exactly once by its destructor.
+- `cancellation` is move-only; its destructor nulls and releases its C slot.
 - `retained_resource()` mints an **independent** retain each call: the
   resource keeps the graph alive even after the `wfst` is destroyed, and
   vice versa. Teardown order is free.
@@ -140,7 +234,7 @@ diagnostic and whose `status()` is the exact `LlingStatus`:
 | `LLING_STATUS_INCOMPATIBLE_RESOURCE` | `import`/`compose` on a resource without Unicode/tropical `vt.scalar-wfst.1` |
 | `LLING_STATUS_PROVIDER_ERROR` | a foreign provider failed or returned invalid output during capture |
 | `LLING_STATUS_LIMIT_EXCEEDED` | graph exceeds native representation on `import` |
-| `LLING_STATUS_CLOSED` | builder used after a successful `build()` |
+| `LLING_STATUS_CLOSED` | builder used after `build()`, or a raw cancellation slot released twice |
 
 Catch `const error&`; `status()` is `noexcept`. The void C calls wrapped by
 destructors (`free`/`release`) have no failure mode, so destructors are
@@ -155,6 +249,14 @@ implicitly `noexcept`.
   resource-wide lock).
 - Diagnostics are thread-local: an `error` thrown on one thread carries
   that thread's message, unaffected by failures elsewhere.
+- `semiring_context` and its weights follow the provider's advertised thread
+  discipline. The native adapter serializes a serial provider with a
+  nonblocking admission gate and never holds a C++ mutex across host code.
+- `lattice_value` is deliberately same-thread even when its provider advertises
+  parallel reentrancy. The native adapter uses a nonblocking atomic admission
+  gate for serial providers and holds no consumer mutex while host join/meet
+  code executes.
+- Cancellation request/reason calls may race; destruction may not race them.
 
 ## Zero-copy paths
 
@@ -167,25 +269,37 @@ implicitly `noexcept`.
 - `wfst::import(r)` is the one deliberate copy: it materializes a private
   eager graph from a foreign resource, touching each reachable state and
   arc exactly once.
+- Semiring context open, context copy, weight move, and destruction are
+  constant-time ownership operations. Algebraic cost is provider-defined;
+  stable bytes allocate exactly their returned size after bounded negotiation.
+- Lattice `open`, move, and destruction are constant-time retain/handle
+  operations. Join/meet cost is provider-defined. Batch folds amortize the C
+  boundary; stable bytes and diagnostics allocate exactly their returned size
+  after a bounded two-call length negotiation.
 
 ## Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
 | `find_package(lling-llang ...)` fails | Add the staged/installed package root to `CMAKE_PREFIX_PATH` (the smoke test uses the `dist/lling-llang-<version>-<target>` prefix). |
-| `vinary_tree_interop.h: No such file or directory` | Add the interop include directory (`-I .../vinary-tree-interop/include`) or define `VT_INTEROP_HEADER` to its location. Packaged installs bundle it. |
+| `vinary_tree_interop.h: No such file or directory` | With CMake, install `vinary-tree-interop` and place its prefix on `CMAKE_PREFIX_PATH`; the imported target propagates its include directory. For a manual compiler invocation, add `-I .../vinary-tree-interop/include` or define `VT_INTEROP_HEADER` to its location. |
 | Undefined references to `lling_*` | Link `-llling_llang` (note the double `l`: lib + lling); with CMake, link the `lling-llang::lling-llang` target. |
 | Shared library not found at run time | Set an rpath to the package's `lib/` directory or use the static library from the staged package. |
 | `error: builder has already been consumed` | The builder was used after `build()`; construct a new one. |
+| `LLING_STATUS_INVALID_ARGUMENT` from join/meet | The two lattice values use different 16-byte domains. |
+| `LLING_STATUS_INVALID_ARGUMENT` from a semiring binary operation | The weights came from different operation contexts, or a provider returned a malformed token. |
+| Empty `std::optional` from division/star | The provider reported that the operation is undefined or divergent; this is not an error. |
+| `lattice byte length did not stabilize` | The provider violated immutable byte-length expectations across three bounded reads. |
 
 ## Version compatibility
 
 - Requires C++20 (`std::exchange`, `[[nodiscard]]`; the package smoke test
   compiles with `cxx_std_20`).
-- ABI v1, API revision 1: call `lling_abi_version()` /
+- ABI v1, API revision 5: call `lling_abi_version()` /
   `lling_api_revision()` for a runtime handshake when loading the library
   dynamically; the revision only grows within an ABI version (see the
   [C ABI reference](../../docs/api/c-abi-reference.md#version-constants-and-the-handshake)).
+- Typed metadata carries the independent `LLING_ABI_V2 == 2` format version.
 - The header pair (`lling_llang.h`, `lling_llang.hpp`) is drift-gated
   against `src/ffi.rs` and `bindings/api.json` by
   `python3 scripts/check-bindings.py`.
@@ -194,8 +308,18 @@ implicitly `noexcept`.
 
 [`tests/package_smoke.cpp`](tests/package_smoke.cpp) is built as a consumer of
 the staged package, not against repository-private headers. It exercises the
-move-only builder/WFST/resource lifecycle and is run by the native-package
-release gate:
+move-only builder/WFST/resource lifecycle and a complete C++ max/min lattice
+provider plus a complete C++ Boolean-semiring provider through the RAII
+consumers. The semiring checks cover retained context lifetime, exact token
+release, identities, addition, multiplication, clone, equality, approximate
+equality, natural order, partial division, closure, numerical projections,
+properties, stable bytes, closure bounds, and law validation. The lattice
+checks cover retained
+ownership, move safety, join, meet, both batch folds, equality, domain/flag
+negotiation, stable bytes, diagnostics, law validation, and zero live values
+after scope exit. CI runs it against the source-built shared library, and the
+native-package release gate repeats it against staged shared and static
+packages:
 
 ```sh
 cmake -S bindings/cpp/tests/package -B target/lling-cpp-package
@@ -208,7 +332,10 @@ ctest --test-dir target/lling-cpp-package --output-on-failure
 RAII prevents local leaks but does not make an arbitrary `VtResource`
 trustworthy. Import and composition validate the base vtable, interface ID and
 version, unit/weight domains, state IDs, labels, weights, page totals, and
-provider statuses before publishing native state. Never construct `resource`
+provider statuses before publishing native state. The lattice consumer also
+validates its capability prefix, flags, domain preservation, status/Boolean
+encodings, success/failure output ownership, byte bounds, and law samples.
+Never construct `resource`
 from manually copied raw words unless the corresponding retain has succeeded.
 The complete boundary analysis is the
 [ABI trust model](../../docs/security/abi-trust-model.md).

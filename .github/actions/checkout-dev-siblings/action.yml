@@ -1,0 +1,62 @@
+name: Checkout development sibling crates
+description: Clone every path dependency beside the lling-llang checkout.
+
+inputs:
+  ref:
+    description: >
+      Baseline development ref. A release/* pull-request head selects the same
+      coordinated branch for every non-llattice sibling.
+    required: false
+    default: master
+  coordinated-ref:
+    description: >
+      Optional development branch selected for each sibling where that exact
+      remote branch exists. Repositories without it use their configured
+      fallback. Release workflows do not set this input.
+    required: false
+    default: ""
+  llattice-ref:
+    description: Immutable llattice release ref.
+    required: false
+    default: v0.1.0
+
+runs:
+  using: composite
+  steps:
+    - name: Clone development siblings
+      shell: bash
+      env:
+        BASELINE_REF: ${{ inputs.ref }}
+        COORDINATED_REF: ${{ inputs.coordinated-ref }}
+        LLATTICE_REF: ${{ inputs.llattice-ref }}
+      run: |
+        set -euo pipefail
+        parent="$(dirname "$GITHUB_WORKSPACE")"
+        event_ref="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"
+        if [[ "$event_ref" == release/* ]]; then
+          development_ref="$event_ref"
+        else
+          development_ref="$BASELINE_REF"
+        fi
+        git check-ref-format --branch "$development_ref" >/dev/null
+        for repo in vinary-tree-interop llattice libdictenstein liblevenshtein-rust; do
+          destination="$parent/$repo"
+          if [[ -e "$destination" ]]; then
+            echo "Refusing to replace existing sibling checkout: $destination" >&2
+            exit 1
+          fi
+          if [[ "$repo" == llattice ]]; then
+            selected_ref="$LLATTICE_REF"
+          else
+            selected_ref="$development_ref"
+          fi
+          if [ -n "$COORDINATED_REF" ] &&
+             git ls-remote --exit-code --heads \
+               "https://github.com/vinary-tree/$repo.git" \
+               "$COORDINATED_REF" >/dev/null 2>&1; then
+            selected_ref="$COORDINATED_REF"
+          fi
+          git check-ref-format --branch "$selected_ref" >/dev/null
+          git clone --depth 1 --branch "$selected_ref" \
+            "https://github.com/vinary-tree/$repo.git" "$destination"
+        done

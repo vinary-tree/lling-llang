@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "component": "lling-llang",
+  "canonical": "4.0.0-rc.6",
+  "coordinates": {
+    "npmPackage": "@vinary-tree/lling-llang"
+  },
+  "registries": {
+    "cargo": "4.0.0-rc.6",
+    "cmake": "4.0.0-rc.6",
+    "npm": "4.0.0-rc.6",
+    "pkgConfig": "4.0.0-rc.6"
+  },
+  "dependencies": {
+    "libdictenstein": "4.0.0-rc.6",
+    "llattice": "0.1.0",
+    "liblevenshtein": "4.0.0-rc.6",
+    "vinary-tree-interop": "4.0.0-rc.6",
+    "@vinary-tree/vinary-tree-interop": "4.0.0-rc.6",
+    "@vinary-tree/javascript-runtime": "4.0.0-rc.6"
+  },
+  "publication": {
+    "distTag": "next",
+    "sourceTag": "v4.0.0-rc.6"
+  }
+}

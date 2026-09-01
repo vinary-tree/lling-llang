@@ -5,9 +5,9 @@ import test from "node:test";
 const root = new URL("../", import.meta.url);
 const packageJson = JSON.parse(await readFile(new URL("package.json", root)));
 
-test("all lling-llang facades select the shared umbrella runtime", () => {
+test("all lling-llang facades select the shared JavaScript runtime", () => {
   assert.equal(packageJson.name, "@vinary-tree/lling-llang");
-  assert.equal(packageJson.dependencies["@vinary-tree/vinary-tree"], "0.10.0");
+  assert.equal(packageJson.dependencies["@vinary-tree/javascript-runtime"], "4.0.0-rc.6");
   for (const entry of [".", "./typescript", "./clojurescript", "./wasm", "./wasi"]) {
     assert.ok(packageJson.exports[entry]);
   }
@@ -15,11 +15,11 @@ test("all lling-llang facades select the shared umbrella runtime", () => {
 
 // C1 (identity/version): the facade version and its pinned runtime/interop
 // dependency versions are internally consistent — a consumer resolving this
-// package gets exactly the umbrella runtime and interop the facade was cut for.
+// package gets exactly the shared runtime and interop the facade was cut for.
 test("C1 — the facade pins a coherent version and dependency set", () => {
-  assert.match(packageJson.version, /^\d+\.\d+\.\d+$/);
-  assert.equal(packageJson.dependencies["@vinary-tree/interop"], "0.1.0");
-  assert.equal(packageJson.dependencies["@vinary-tree/vinary-tree"], "0.10.0");
+  assert.match(packageJson.version, /^\d+\.\d+\.\d+-rc\.\d+$/);
+  assert.equal(packageJson.dependencies["@vinary-tree/vinary-tree-interop"], "4.0.0-rc.6");
+  assert.equal(packageJson.dependencies["@vinary-tree/javascript-runtime"], "4.0.0-rc.6");
 });
 
 // Every path referenced by the exports map must resolve to a real file — no

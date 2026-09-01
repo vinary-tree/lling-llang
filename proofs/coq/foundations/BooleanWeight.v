@@ -13,10 +13,10 @@
     Registry: proofs/doc/abi-invariants.tsv, LLING-SEMI-4.
 *)
 
-Require Import Coq.Bool.Bool.
-Require Import Coq.Classes.Morphisms.
-Require Import Coq.Classes.RelationClasses.
-Require Import Coq.Setoids.Setoid.
+From Stdlib Require Import Bool.Bool.
+From Stdlib Require Import Classes.Morphisms.
+From Stdlib Require Import Classes.RelationClasses.
+From Stdlib Require Import Setoids.Setoid.
 Require Import LlingLlang.foundations.Semiring.
 
 (** The exact boolean weight. Equality is Leibniz on [bool]. *)

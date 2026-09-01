@@ -1,0 +1,44 @@
+@startuml libcpg-manifest-ownership
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #37474F
+skinparam ArrowThickness 1.7
+skinparam componentStyle rectangle
+
+title <b>libcpg manifest ownership and dependency direction</b>\n<size:11><i>dependency arrows point from consumers to providers</i></size>
+
+component "libcpg" as Libcpg #BBDEFB {
+  component "Extraction manifest\nrepository · parser · grammar\nextractor · query · feature history\nschema · source · revision · configuration" as Manifest #90CAF9
+  component "Durable facts\nsource evidence · canonical export\ndurable key ↔ dense index" as Facts #64B5F6
+}
+
+component "vinary-runtime\nexecutable · host · environment\ninvocation · resource envelope" as Runtime #C8E6C9
+component "vinary-libcpg-adapter\nmany-to-many fact/rule relation\nlowering revision · replay evidence" as Adapter #FFE0B2
+component "lling-llang\ngeneric rule keys · WPDS\nwitnesses · checkpoints" as Lling #FFF9C4
+component "Application / provider\ncomposed evidence index" as Application #E1BEE7
+
+Facts --> Manifest : bound to extraction semantics
+Adapter ..> Libcpg : consumes facts and manifest
+Adapter ..> Lling : consumes generic rule API
+Application ..> Adapter : requests lowering
+Application ..> Runtime : binds actual execution
+Application ..> Manifest : binds extraction identity
+
+note bottom of Libcpg
+  No lling-llang dependency.
+  Dense identifiers remain local.
+end note
+
+note bottom of Lling
+  No libcpg or CPG dependency.
+end note
+
+legend right
+  |<#BBDEFB> analysis owner |
+  |<#C8E6C9> runtime owner |
+  |<#FFE0B2> cross-domain adapter |
+  |<#FFF9C4> independent optimizer |
+  |<#E1BEE7> composition owner |
+endlegend
+@enduml

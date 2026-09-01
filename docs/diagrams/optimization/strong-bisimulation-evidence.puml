@@ -1,0 +1,40 @@
+@startuml strong-bisimulation-evidence
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #607D8B
+skinparam ArrowThickness 1.4
+skinparam rectangle {
+  RoundCorner 12
+  FontColor #102027
+}
+
+title <b>Strong-bisimulation pre-implementation evidence</b>\n<size:11>every executable path is bounded, headless, repository-backed, and zero-swap</size>
+
+rectangle "<b>Normative contract</b>\nlabelled transfer in both directions\nvalidated input · canonical relation\ncertificate · witness · resource envelope" as CONTRACT #FFF59D
+
+rectangle "<b>Rocq</b>\nunbounded equivalence\ncertificate exactness\nmodal witness soundness/completeness\ntermination and resource inequalities" as ROCQ #FFCDD2
+rectangle "<b>TLA+ / TLC</b>\n14,916 valid lifecycle states\n3 malformed dense-input modes\nsafety and eventual termination" as TLA #FFCDD2
+rectangle "<b>Z3</b>\n15 exact SAT/UNSAT controls\nvalidation · refinement · canonicality\nwork · heap · native stack" as SMT #E1BEE7
+rectangle "<b>Executable oracle</b>\n5,124 complete small LTS/color cases\nindependent greatest fixed point\nstack-safe characteristic formulas" as ORACLE #C8E6C9
+rectangle "<b>Mutation controls</b>\n10 injected semantic defects\nall killed for their named reason" as MUTANTS #FFCDD2
+rectangle "<b>Required-red Rust</b>\n13 future-API properties\nred only on missing CertifiedBisimulation" as RED #FFE0B2
+rectangle "<b>Production implementation gate</b>\nno Rust algorithm change in this milestone\nfuture code must turn red properties green\nand preserve every ledger row" as GATE #BBDEFB
+
+CONTRACT -down-> ROCQ
+CONTRACT -down-> TLA
+CONTRACT -down-> SMT
+ROCQ -down-> ORACLE
+TLA -down-> ORACLE
+SMT -down-> ORACLE
+ORACLE -down-> MUTANTS
+MUTANTS -down-> RED
+RED -down-> GATE
+
+note right of GATE
+  No unchecked proof escapes.
+  No malformed endpoint is skipped.
+  No recursive production traversal.
+  No whole-partition rescans.
+end note
+@enduml

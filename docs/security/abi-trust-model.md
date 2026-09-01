@@ -1,10 +1,11 @@
-# ABI trust model — foreign WFSTs as untrusted input
+# ABI trust model — foreign WFSTs and semirings as untrusted input
 
 What lling-llang trusts, validates, and contains at its C ABI. The library
 plays **both roles** of the family resource protocol: it *consumes* foreign
 scalar-WFST providers (`lling_wfst_import`, `lling_wfst_compose`) and it
 *produces* resources for foreign consumers (`lling_wfst_resource`). Each
-role has its own boundary discipline. This document is the lling-llang
+role has its own boundary discipline. It also consumes host-defined semiring
+operation contexts through the Rust `dynamic_semiring` module. This document is the lling-llang
 instantiation of the family-wide trust model, which is normative here:
 [family security model](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/security-model.md)
 (assets, trust zones, the containment law, the parallelism-by-claim
@@ -12,7 +13,8 @@ analysis, exhaustion vectors, and stated non-goals).
 
 Mechanics of the layer under discussion:
 [C ABI reference](../api/c-abi-reference.md) ·
-[Resource ABI architecture](../architecture/resource-abi.md).
+[Resource ABI architecture](../architecture/resource-abi.md) ·
+[Dynamic semirings](../architecture/dynamic-semirings.md).
 
 ---
 
@@ -22,7 +24,8 @@ Symbols link to [`NOTATION.md`](../NOTATION.md).
 
 | Term | Meaning |
 |---|---|
-| **provider** | The implementation behind a `VtResource`: any library, in any language, honoring `vt.scalar-wfst.1`. |
+| **provider** | The implementation behind a `VtResource`: any library, in any language, honoring a negotiated interface such as `vt.scalar-wfst.1` or `vt.semiring.val1`. |
+| **semiring operation context** | A retained `vt.semiring.*1` resource that owns algebra callbacks and every compact token it issues. |
 | **trust boundary** | The vtable edge: every provider callback's *data* replies (statuses, counts, flags, labels, weights) are untrusted input. |
 | **containment** | Faults become status codes; no unwinding crosses `extern "C"` in either direction. |
 | $`\bar{0}`$, $`+\infty`$, $`-\infty`$ | The tropical additive identity is $`+\infty`$; $`-\infty`$ is *outside* the tropical carrier and is treated as hostile input. |
@@ -84,6 +87,10 @@ explicit acceptance predicates (stated as display math in the
 | arc pages | $`\mathit{written} \le \mathit{capacity}`$, offsets never exceed `total`, no empty page before completion, `total` stable | `PROVIDER_ERROR` |
 | arc fields | presence flags $`\le 1`$, reserved bytes zero, labels are Unicode scalars, weight in the tropical carrier | `PROVIDER_ERROR` |
 | sizes | states beyond native limits, label overflow on import | `LIMIT_EXCEEDED` |
+| semiring token | exact-context identity, live ownership, explicit clone/release | `ContextMismatch` or `InvalidArgument` before a callback |
+| semiring scalar output | booleans in $`\{0,1\}`$; order in the four published values; epsilon in range; probability finite and nonnegative | `InvalidProviderOutput` |
+| semiring byte buffer | counts fit capacity and required size; at most three growth retries; at most 16 MiB | `InvalidProviderOutput` or `ResourceLimit` |
+| semiring law claim | bounded representative probes of identities, associativity, distributivity, order, hash coherence, and every advertised refinement | `LawViolation` before specialized algorithm selection |
 
 Residual capabilities an adversarial provider keeps, deliberately, because
 no consumer-side check can remove them (they are bounded and availability-
@@ -140,7 +147,7 @@ LLING-B2, family pre-registered finding F1):
 
 The family law — **no unwinding crosses `extern "C"`, in either
 direction** — is implemented here exactly as the
-[canon records](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/security-model.md):
+[canon records](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/security-model.md#3-the-panic-and-exception-containment-law):
 
 - **Every `lling_*` entry point** runs its body inside `boundary()`
   (`src/ffi.rs`): `catch_unwind(AssertUnwindSafe(..))` converts any Rust
@@ -179,6 +186,14 @@ wrong memory. lling-llang's own exported claim of `PARALLEL_REENTRANT` is
 kept by immutable payloads and lock-scoped caches, with no foreign callback
 ever executed under a write lock
 ([design details](../architecture/resource-abi.md#concurrency-deliberately-no-resource-wide-gate)).
+
+Dynamic semirings use a stricter type-and-runtime split. The initial local
+wrapper is neither `Send` nor `Sync`. Only `PARALLEL_REENTRANT` can produce a
+cross-thread wrapper. A `THREAD_BOUND` context checks its importing thread;
+an unflagged context uses one nonblocking atomic admission bit and rejects
+overlap or recursion with `ConcurrentCall`. No mutex is held across an algebra
+callback. Token release failure intentionally leaks one bounded context retain
+instead of destroying a foreign arena with live storage.
 
 ## Residual assumptions (explicit)
 

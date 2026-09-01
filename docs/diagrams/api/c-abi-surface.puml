@@ -1,7 +1,7 @@
 @startuml c-abi-surface
-' The complete lling-llang C ABI surface: all 17 exported lling_* functions,
-' grouped by role, with the two opaque handle types and the family two-word
-' VtResource they exchange. Palette: docs/diagrams/README.md family extension —
+' The complete lling-llang C ABI surface: all 61 exported lling_* functions,
+' grouped by role, with algebra/WFST/cancellation handles, typed metadata,
+' and the family two-word VtResource. Palette: docs/diagrams/README.md —
 ' lling #FCF3CF, VtResource handle #DCEDC8, foreign trust boundary #FFCDD2.
 skinparam backgroundColor #FFFFFF
 skinparam shadowing false
@@ -24,7 +24,7 @@ skinparam note {
 hide empty members
 hide circle
 
-title <b>lling-llang C ABI surface — 17 exported functions</b>\n<size:11><i>ABI v1, API revision 1 · every fallible call returns LlingStatus and latches a thread-local message</i></size>
+title <b>lling-llang C ABI surface — 61 exported functions</b>\n<size:11><i>Project ABI v1, API revision 5 · typed metadata headers carry format version 2</i></size>
 
 package "Versioning (2)" {
   class "lling_abi_version() : uint32_t\nlling_api_revision() : uint32_t" as VERS #FCF3CF
@@ -32,6 +32,45 @@ package "Versioning (2)" {
 
 package "Diagnostics (1)" {
   class "lling_last_error_message() : const char*" as ERR #FCF3CF
+}
+
+package "Host-defined semiring (21)" {
+  class "LlingSemiring" as SEMIRING #FCF3CF {
+    validated retained operation context
+    same-thread checked facade
+    --
+    +open(resource) / free(context)
+    +properties(context)
+    +zero(context) / one(context)
+    +plus(context, left, right)
+    +times(context, left, right)
+    +equal / approx_equal / natural_order
+    +divide / left_divide / star
+    +numerical_value / quantize / to_probability
+    +closure_bound / stable_bytes / validate_laws
+  }
+  class "LlingSemiringWeight" as WEIGHT #FCF3CF {
+    one owned provider token
+    exact operation-context identity
+    --
+    +weight_clone(weight)
+    +weight_free(weight)
+  }
+}
+
+package "Host-defined lattice (12)" {
+  class "LlingLatticeValue" as LATTICE #FCF3CF {
+    one retained immutable value
+    same-thread checked facade
+    --
+    +open(resource) / free(value)
+    +domain_id(value) / flags(value)
+    +join(left, right) / meet(left, right)
+    +equal(left, right)
+    +stable_bytes(value) / diagnostic(value)
+    +join_many / meet_many
+    +validate_laws(samples)
+  }
 }
 
 package "Builder lifecycle (9)" {
@@ -50,13 +89,15 @@ package "Builder lifecycle (9)" {
   }
 }
 
-package "Immutable handle (4)" {
+package "Immutable handle (6)" {
   class "LlingWfst" as WFST #FCF3CF {
     caller-owned, immutable, thread-safe
     --
     +lling_wfst_free(wfst)
     +lling_wfst_import(resource, out_wfst)
+    +lling_wfst_import_ref(resource_ptr, out_wfst)
     +lling_wfst_compose(first, second, out_wfst)
+    +lling_wfst_compose_refs(first_ptr, second_ptr, out_wfst)
     +lling_wfst_resource(wfst, out_resource)
   }
 }
@@ -64,9 +105,27 @@ package "Immutable handle (4)" {
 package "Family resource (1)" {
   class "VtResource\n{context, vtable}" as RES #DCEDC8 {
     two-word retained handle
-    interface: vt.scalar-wfst.1
+    capability-negotiated interface
     --
     +lling_resource_release(resource)
+  }
+}
+
+package "Typed metadata validation (5)" {
+  class "ABI-v2 pointer-free prefixes" as TYPED #D1C4E9 {
+    descriptor · budget · outcome
+    --
+    +validate_header / validate_descriptor
+    +validate_budget / validate_outcome
+    +identity_matches
+  }
+}
+
+package "Cooperative cancellation (4)" {
+  class "LlingCancellationV2" as CANCEL #B2DFDB {
+    atomic · first reason wins
+    --
+    +new / request / reason / free
   }
 }
 
@@ -82,14 +141,26 @@ class "LlingStatus : uint32_t" as STATUS #ECEFF1 {
 }
 
 class "foreign scalar-WFST resource\n(libdictenstein · duallity · any provider)" as FOREIGN #FFCDD2
+class "foreign semiring provider\n(Julia · Raku · any runtime)" as SEMIRING_PROVIDER #FFCDD2
+class "foreign lattice value\n(LLattice · Julia · Raku · any runtime)" as LATTICE_PROVIDER #FFCDD2
 
 BUILDER --> WFST : lling_wfst_builder_build\n<latex>O(1)</latex> freeze, builder consumed
 WFST --> RES : lling_wfst_resource\n+1 owned retain, <latex>O(1)</latex>
 FOREIGN --> WFST : lling_wfst_import\n<latex>O(|Q| + |E|)</latex> copy of the snapshot
 FOREIGN --> WFST : lling_wfst_compose\ncapture-once, lazy product
 RES ..> FOREIGN : same two-word ABI\n(any compatible producer)
+SEMIRING_PROVIDER --> RES : vt.semiring.*1\nbase + optional refinements
+RES --> SEMIRING : open retains + validates
+SEMIRING --> WEIGHT : operations produce\nowned tokens
+LATTICE_PROVIDER --> RES : vt.lattice.val.1
+RES --> LATTICE : open retains + validates
 BUILDER ..> STATUS : returns
 WFST ..> STATUS : returns
+SEMIRING ..> STATUS : returns
+LATTICE ..> STATUS : returns
+TYPED ..> STATUS : reject before publication
+CANCEL ..> STATUS : allocation · reason · release
+TYPED --> CANCEL : bounded operations poll\nsticky cancellation
 ERR ..> STATUS : explains last non-OK status\n(thread-local)
 
 legend right
@@ -97,5 +168,7 @@ legend right
   |<#DCEDC8> VtResource retained handle |
   |<#FFCDD2> foreign provider (trust boundary) |
   |<#ECEFF1> status / diagnostics |
+  |<#D1C4E9> typed ABI-v2 metadata |
+  |<#B2DFDB> cooperative cancellation |
 endlegend
 @enduml

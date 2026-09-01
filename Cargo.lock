@@ -584,9 +584,7 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "libdictenstein"
-version = "4.0.0-rc.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96f84a40b2f5f51f54ad1e67eca41a287bb12313775d37ccb61e56287bb968ed"
+version = "4.0.0-rc.6"
 dependencies = [
  "arc-swap",
  "bincode-next",
@@ -608,9 +606,7 @@ dependencies = [
 
 [[package]]
 name = "liblevenshtein"
-version = "4.0.0-rc.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "812ea203676a76e2d902c6bfbab48d99cbdb6a8c347205cbdb9f533186c9e29e"
+version = "4.0.0-rc.6"
 dependencies = [
  "ahash",
  "arc-swap",
@@ -654,12 +650,10 @@ checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 [[package]]
 name = "llattice"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11b2da71811803fafc6a1f2aff2fb8d8f25be26ee38678a89cf4008e7374f567"
 
 [[package]]
 name = "lling-llang"
-version = "0.2.0"
+version = "4.0.0-rc.6"
 dependencies = [
  "ahash",
  "blake3",
@@ -1496,9 +1490,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vinary-tree-interop"
-version = "4.0.0-rc.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4eb2a8c3ce464ce30d2e209645a1f5c368d9b50117ae01b2411e9c2149fd8f7"
+version = "4.0.0-rc.6"
 
 [[package]]
 name = "virtue-next"

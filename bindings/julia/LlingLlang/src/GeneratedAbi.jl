@@ -1,0 +1,29 @@
+# Generated from bindings/api.json. Do not edit by hand.
+const ABI_VERSION = UInt32(1)
+const API_REVISION = UInt32(5)
+const TYPED_ABI_VERSION = UInt32(2)
+const DESCRIPTOR_SIGNATURE_KNOWN = UInt64(1) << 0
+const DESCRIPTOR_SNAPSHOT_PRESENT = UInt64(1) << 1
+const DESCRIPTOR_CONTEXT_PRESENT = UInt64(1) << 2
+const BUDGET_STATES = UInt64(1) << 0
+const BUDGET_ARCS = UInt64(1) << 1
+const BUDGET_BYTES = UInt64(1) << 2
+const BUDGET_WORK = UInt64(1) << 3
+
+@enum Status::UInt32 begin
+    STATUS_OK = 0
+    STATUS_INVALID_ARGUMENT = 1
+    STATUS_NULL_POINTER = 2
+    STATUS_PANIC = 3
+    STATUS_INCOMPATIBLE_RESOURCE = 4
+    STATUS_PROVIDER_ERROR = 5
+    STATUS_LIMIT_EXCEEDED = 6
+    STATUS_CLOSED = 7
+end
+
+@enum CancellationReasonV2::UInt32 begin
+    CANCELLATION_REQUESTED_V2 = 1
+    CANCELLATION_DEADLINE_V2 = 2
+    CANCELLATION_BUDGET_V2 = 3
+    CANCELLATION_SOURCE_V2 = 4
+end
