@@ -29,7 +29,8 @@ proofs/
 │       ├── Viterbi.v           # Finite-candidate and Bellman-update lemmas
 │       ├── ShortestDistance.v  # Initialization and relaxation lemmas
 │       ├── Determinize.v       # Weighted-subset and normalization lemmas
-│       └── Minimize.v          # Equivalence and partition lemmas
+│       ├── Minimize.v          # Equivalence and partition lemmas
+│       └── StrongBisimulation.v # Certified labelled refinement contract
 │   ├── optimizer/      # Categorical optimizer contracts
 │   │   ├── TapeSignatures.v    # Typed input/output composition
 │   │   ├── RewriteSemantics.v  # Exactness, precision, completeness
@@ -56,14 +57,18 @@ proofs/
 │   ├── LibcpgEvidenceLifecycle.tla # Candidate/guarantee publication
 │   ├── ProviderBoundaryLifecycle.tla # Generic result/evidence/handle lifecycle
 │   ├── NeutralFoundationLifecycle.tla # Neutral release safety and liveness
+│   ├── StrongBisimulationLifecycle.tla # Certified-refinement lifecycle
 │   └── MC/                 # TLC model checking configurations
 ├── smt/                # Z3 dual consistency/countermodel queries
 ├── kani/               # Bit-precise bounded ABI ownership model
+├── properties/
+│   └── strong_bisimulation/ # Required-green extracted Rust properties
 └── doc/                # Documentation
     ├── libcpg-assurance-invariants.tsv # 122 E7 formal/property mappings
     ├── provider-boundary-invariants.tsv # 132 E9 formal/property mappings
     ├── neutral-foundation-invariants.tsv # 77 E9 formal/property/mutant mappings
     ├── neutral-foundation-api-baselines.tsv # Protected owner hashes and gates
+    ├── strong-bisimulation-invariants.tsv # 97 formal/property mappings
     ├── proof-status.md     # Current verification status
     └── failed-strategies.md # Documentation of failed approaches
 ```
@@ -116,6 +121,11 @@ Tool temporary files, model metadata, and evidence logs stay under ignored
 - [x] Determinization weighted-subset aggregation, normalization, and well-formed already-deterministic correctness lemmas
 - [x] Functional/sequential precondition lemmas
 - [x] Minimization residual-equivalence, partition, and non-vacuous identity-correctness lemmas
+- [x] Certified strong-bisimulation semantics, guarded modal split safety,
+  exact replay, oriented witnesses, canonicality, termination, work, heap, and
+  native-stack bounds
+- [x] 5,124-case independent oracle, ten causal mutants, and all 13
+  required-green implementation properties
 
 ### Phase 4: TLA+ Specifications
 

@@ -425,7 +425,7 @@ z3 "$ROOT/proofs/smt/stack-safety-ranks.smt2" \
 "$ROOT/proofs/verify-abi-bounded.sh"
 "$ROOT/scripts/check-neutral-foundation-required-red.sh"
 "$ROOT/scripts/check-libcpg-manifest-required-red.sh"
-"$ROOT/scripts/check-strong-bisimulation-required-red.sh"
+"$ROOT/scripts/check-strong-bisimulation-properties.sh"
 
 if ! command -v vinary-doc-lint >/dev/null 2>&1; then
   echo "ERROR: vinary-doc-lint is required for formal documentation acceptance." >&2

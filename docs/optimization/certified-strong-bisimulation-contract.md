@@ -1,15 +1,17 @@
 # Certified Strong-Bisimulation Contract
 
-This document is the normative pre-implementation contract for replacing the
-current signature-rescan routine in `src/symbolic/bisimulation.rs`. The
-replacement computes strong bisimilarity for a finite labelled transition
-system (LTS), rejects malformed inputs before indexing them, emits replayable
-evidence, supplies a modal witness for non-equivalence, and uses a constant
-native call stack.
+This document is the normative contract and acceptance record for the
+`CertifiedBisimulation` implementation in
+`src/symbolic/bisimulation.rs`. It computes strong bisimilarity for a finite
+labelled transition system (LTS), rejects malformed inputs before indexing
+them, emits independently replayable evidence, supplies a modal witness for
+non-equivalence, and uses a constant native call stack.
 
-The production replacement is intentionally absent in this milestone. Its 13
-Rust properties are required-red on the missing `CertifiedBisimulation` API.
-No existing production Rust file is changed by this formal-verification task.
+The implementation replaces the repeated whole-signature rescan with a
+specialized Valmari refinement machine. Ninety-seven formal obligations map
+exhaustively to 13 required-green Rust properties. The implementation,
+independent replay checker, property package, scale tests, benchmark matrix,
+and headless allocation profile are all part of the acceptance boundary.
 
 ## Terms
 
@@ -116,7 +118,7 @@ contract.
 
 ## Algorithm decision
 
-The production core will specialize Valmari's refinable state-and-transition
+The production core specializes Valmari's refinable state-and-transition
 partition algorithm for labelled nondeterministic systems
 ([Valmari 2010](../BIBLIOGRAPHY.md)). It meets the required
 $`O(m\log n)`$ refinement target with linear partition storage, handles
@@ -126,10 +128,11 @@ witnesses. Paige and Tarjan provide the partition-refinement discipline
 documents an efficient bisimulation implementation
 ([Fernandez 1990](../BIBLIOGRAPHY.md)).
 
-This is a design decision, not a claim that the current implementation already
-uses those algorithms. The current routine repeatedly constructs and sorts
-whole-state signatures. Its comments name Paige–Tarjan, but its data
-structures implement neither Paige–Tarjan nor Valmari refinement.
+The replaced routine repeatedly constructed and sorted whole-state signatures.
+The production data structures now implement refinable state and transition
+partitions, reverse-CSR predecessor discovery, idempotent marking, smaller-half
+charging, and deterministic canonicalization. The legacy routine remains only
+as a benchmark-local comparator so the measured crossover is reproducible.
 
 The maintained AutomataLib implementation was reviewed as an engineering
 cross-check at commit
@@ -307,6 +310,49 @@ acceptance record includes Criterion samples, actual work/allocation counters,
 plus `heaptrack_print` output. Every executable remains inside the 4 GiB,
 zero-swap systemd scope and uses repository-backed scratch storage.
 
+### Measured acceptance record
+
+The preregistered Criterion quick run completed in 236.86 seconds, including
+the release build, with a maximum RSS of 854,756 KiB and zero swaps. It found
+the expected deep-chain crossover between 32 and 64 states:
+
+| Shape and size | Legacy median | Certified median | Interpretation |
+|---|---:|---:|---|
+| chain, 32 states | 27.106 µs | 48.549 µs | fixed certificate and replay cost dominates |
+| chain, 64 states | 117.21 µs | 87.102 µs | certified refinement has crossed over |
+| chain, 128 states | 514.83 µs | 161.60 µs | repeated rescans are already dominant |
+| chain, 256 states | 2.1852 ms | 316.12 µs | certified path is approximately 6.9 times faster |
+| wide fan-out, 8,192 states | 256.58 µs | 3.4241 ms | one-round legacy case exposes evidence overhead |
+| sparse carrier, 65,536 states | 3.7312 ms | 12.550 ms | validation, certificate, and replay remain included |
+| dense, 64 states | 76.187 µs | 3.9864 ms | benchmark compares partition-only legacy work with full certification |
+
+Certified-only medians were 11.605 ms and 134.06 ms for chains of 4,096 and
+32,768 states, 26.760 ms for a 65,536-state fan-out, 23.040 ms for a
+131,072-state sparse carrier, and 16.283 ms and 103.20 ms for dense systems of
+128 and 256 states. These measurements establish scale without asking the
+quadratic legacy chain to exhaust the resource envelope.
+
+A headless `heaptrack --record-only` run followed by `heaptrack_print`
+measured the 32,768-state chain independently. The computation processed
+32,767 canonical transitions, emitted 32,767 physical splits, charged 65,534
+state/transition events, used one input-shaped native frame, and completed in
+223.36 ms. The analyzer reported 81.73 MiB peak heap, 89.03 MiB peak RSS,
+32,887 allocation calls, and nine temporary allocations. Its sole retained
+544-byte allocation belongs to Rust runtime stack-overflow thread metadata,
+not this implementation. The dominant retained structures are the production
+and replay formula interners, which are required to return and independently
+verify the proof-carrying result.
+
+The final Rust acceptance matrix also passed formatting, locked
+all-feature/all-target compilation, warnings-as-errors Clippy for both
+all-feature and no-default configurations, the complete all-feature test
+suite, and no-default certified property and scale suites. The all-feature
+suite's largest process used 3,203,404 KiB RSS with zero swaps.
+AddressSanitizer with LeakSanitizer and stack-use-after-return instrumentation
+then passed the generated certificate/replay/witness property and all four
+scale shapes. The instrumented run used 1,091,104 KiB peak RSS with zero swaps
+and reported no memory error or leak.
+
 ## Parallelism and concurrency
 
 Parallel execution is useful only when it preserves work efficiency,
@@ -328,28 +374,52 @@ proves race freedom, deterministic commit, bounded queues, cancellation, and
 equivalence to the scalar result. A work-efficient scalar implementation is
 the acceptance baseline.
 
-## Proposed API obligations
+## Public API obligations
 
 | Surface | Required behavior |
 |---|---|
-| `CertifiedBisimulation::compute` | Returns a result; never skips malformed endpoints and never panics during input validation. |
+| `CertifiedBisimulation::compute` | Returns a typed result; never skips malformed endpoints and never panics during input validation. |
 | `blocks` | Returns one canonical block ID per state. |
-| `relation_matrix` | Explicitly materializes the optional quadratic view. |
+| `try_relation_matrix` | Fallibly materializes the optional quadratic view after checked dimension arithmetic. |
 | `certificate().replay` | Reconstructs the exact partition or rejects the first invalid split. |
-| `witness(left, right)` | Returns no witness for equivalent states and a sound oriented modal DAG for every separated pair. |
+| `try_witness(left, right)` | Returns no witness for equivalent states, a typed query error for an invalid state, and a sound oriented modal DAG for every separated pair. |
 | `resources` | Exposes work, heap-cell, rescan, witness-cell, and native-frame measurements. |
 
 Out-of-range queries, certificates bound to a different input, overflowed
-allocation sizes, and malformed witness references return typed errors.
-Deserializers apply the same validation as in-memory construction.
+allocation sizes, failed reservations, and malformed internal evidence return
+typed errors. Compatibility methods retain the historical infallible return
+types for callers that already guarantee valid inputs; untrusted inputs use
+the `try_*` methods.
+
+```rust
+use lling_llang::symbolic::bisimulation::{CertifiedBisimulation, Lts};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let lts = Lts::new(3, vec![(0, 7, 1), (0, 7, 2), (1, 7, 1)]);
+    let result = CertifiedBisimulation::compute(&lts, &[0, 0, 0])?;
+
+    let witness = result
+        .try_witness(1, 2)?
+        .expect("the states occupy different certified blocks");
+    assert_ne!(
+        witness.evaluate(&lts, &[0, 0, 0], 1)?,
+        witness.evaluate(&lts, &[0, 0, 0], 2)?,
+    );
+    assert_eq!(
+        result.certificate().replay(&lts, &[0, 0, 0])?,
+        result.blocks(),
+    );
+    Ok(())
+}
+```
 
 ## Formal evidence and acceptance
 
-![Evidence graph from the normative strong-bisimulation contract through Rocq, TLC, Z3, the exhaustive oracle, mutations, required-red properties, and the future production gate](../diagrams/optimization/strong-bisimulation-evidence.svg)
+![Evidence graph from the normative strong-bisimulation contract through Rocq, TLC, Z3, the exhaustive oracle, mutations, required-green properties, production refinement, independent replay, and measured resource acceptance](../diagrams/optimization/strong-bisimulation-evidence.svg)
 
-*Yellow is design, red is proof and mutation evidence, purple is solver
-evidence, green is the oracle, orange is required-red, and blue is the future
-implementation gate.*
+*Yellow is the normative contract, red is proof and checking evidence, purple
+is solver evidence, green is executable behavior, blue is the production core,
+and orange is measured resource evidence.*
 
 [PlantUML source](../diagrams/optimization/strong-bisimulation-evidence.puml)
 
@@ -357,13 +427,15 @@ implementation gate.*
 
 ```text
 normative contract
-  -> Rocq universal proofs
-  -> TLA+/TLC finite lifecycle
-  -> Z3 boundary controls
-  -> 5,124-case independent executable oracle
-  -> 10 killed semantic mutants
-  -> 13 causally required-red Rust properties
-  -> future production implementation and profiling
+  -> Rocq universal proofs + TLA+/TLC lifecycle + Z3 boundary controls
+  -> exhaustive 97-row invariant ledger
+  -> 13 required-green Rust properties
+production Valmari core
+  -> 13 required-green Rust properties
+  -> independent replay and stability checker
+5,124-case oracle -> 10 killed semantic mutants -> required-green properties
+required-green properties + independent replay
+  -> scale, Criterion, small-stack, and headless heap acceptance
 ```
 
 </details>
@@ -377,11 +449,15 @@ normative contract
 | mutation campaign | Endpoint, color, transfer, termination, duplicate, modal, certificate, and canonical-ID defects | All 10 fail for their named invariant |
 | invariant ledger | Every Rocq theorem/lemma, configured TLC check, and named SMT control | 97 rows map to 13 Rust properties |
 | implementation property package | Validation, equivalence, evidence, resource, empty-input, and deep-stack behavior | All 13 properties pass against `CertifiedBisimulation` |
+| independent production replay | Rebuilds guarded formulas and physical splits without calling the producer; checks the final canonical partition and both transfer directions | Producer self-replay and mutation rejection pass |
+| scale and stack tests | Deep chains, fan-out, sparse, dense, duplicate-heavy, and malformed systems | 100,000-state chain passes on a 64 KiB native stack with one input-shaped frame |
+| benchmark and allocation profile | Preregistered legacy crossover matrix plus headless heap ownership | 4 GiB/no-swap cap respected; 89.03 MiB profiled peak RSS for the 32,768-state chain |
+| Rust and sanitizer matrix | All-feature and no-default builds/tests plus AddressSanitizer and LeakSanitizer | Warnings denied, zero test failures, no sanitizer finding, and zero swaps |
 
-The historical required-red package remains isolated under
-`proofs/required_red`; after production implementation, the same package is a
-required-green acceptance suite and does not make ordinary repository tests
-intentionally fail.
+The executable package lives under
+`proofs/properties/strong_bisimulation`. Its gate requires all 13 tests to
+run and pass; the historical missing-API red state remains available in Git
+history rather than being mislabeled in the current tree.
 
 ## Security and failure behavior
 
@@ -389,41 +465,48 @@ A valid implementation:
 
 - validates untrusted graph data before indexing;
 - checks multiplication and prefix-sum overflow;
-- limits optional quadratic output and evidence retention;
+- makes optional quadratic output explicit and fallible;
 - replays the input-bound certificate rather than trusting its digest;
-- rejects witness DAG cycles and invalid child, action, or state references;
+- rejects invalid or cyclic witness references during evaluation;
 - avoids randomized-output nondeterminism; and
 - leaves caller input unchanged after every error.
 
-Cancellation or resource exhaustion returns an explicit incomplete outcome and
-cannot publish a partition as certified. Any future spill uses
-repository-backed storage, never a memory-backed temporary filesystem.
+Arithmetic overflow and allocation failure return an error and cannot publish
+a partition as certified. The implementation does not spill analysis state;
+verification and profiling scratch data use repository-backed storage, never a
+memory-backed temporary filesystem.
 
 ## Implementation acceptance order
 
-1. Keep every formal artifact green and all 13 implementation properties red.
-2. Implement total validation, label compression, and forward/reverse CSR.
-3. Implement refinable state and transition partitions and smaller-half work.
-4. Compare exhaustively with the independent fixed-point oracle.
-5. Add canonical numbering and independent certificate replay.
-6. Add shared labelled modal witnesses and the stack-safe evaluator.
-7. Connect resource counters to real operations and allocations.
+1. Prove the semantic, lifecycle, validation, evidence, and resource contracts.
+2. Extract every formal invariant into a causally failing property baseline.
+3. Implement total validation, radix label compression, and both CSR views.
+4. Implement dual refinable partitions and smaller-half charging.
+5. Compare exhaustively with the independent fixed-point oracle.
+6. Add canonical numbering, independent certificate replay, guarded modal
+   witnesses, and the stack-safe evaluator.
+7. Turn all extracted properties green without weakening the ledger.
 8. Run deep-chain, adversarial, sanitizer, profiler, and benchmark acceptance
    under the repository-backed 4 GiB/zero-swap envelope.
-9. Add parallel execution only after its separate concurrency proof is green.
+9. Preserve the scalar commit order because each refinement mutates shared
+   partitions; parallel callers instead analyze independent immutable LTS
+   values concurrently.
 
 No step may weaken an already green invariant.
 
 ## Verification boundary
 
-This milestone does not prove Rust memory safety, cache locality, wall-clock
-constants, race freedom, or that current `src/symbolic/bisimulation.rs`
-satisfies the new contract. Resource theorems prove inequalities from explicit
-accounting premises; production must establish those premises.
+The Rocq, TLA+, and SMT artifacts specify and prove the abstract contract; they
+are not a mechanical extraction of the Rust implementation. The refinement
+argument is connected to production by the exhaustive oracle, 13 generated
+properties, independent replay, mutation controls, and actual resource
+counters. The module contains no `unsafe` block. Sanitizers and headless
+profiling test memory behavior and constants, but do not turn those empirical
+observations into universal theorems.
 
 The contract is local to lling-llang's generic symbolic LTS. It introduces no
 libcpg dependency and makes no CPG-specific claim. An independent adapter may
-consume the eventual result without coupling lling-llang to libcpg.
+consume the result without coupling lling-llang to libcpg.
 
 ## References
 

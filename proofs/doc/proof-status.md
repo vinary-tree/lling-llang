@@ -12,7 +12,7 @@ This document tracks the current formal verification surface for lling-llang.
 | Campaign Rocq Contracts | 14 | 14 | 0 | 0 |
 | TLA+ Specifications | 13 specs / 22 configs + 32 expected-failure mutants | 22 finite TLC configs | 32 expected failures | 0 |
 | SMT Dual Checks | 7 transcripts / 101 queries | 101 expected results | 13 satisfiable witnesses/countermodels | 0 |
-| Strong-Bisimulation Extraction | 5,124 exhaustive cases / 10 mutants / 13 required-red properties | 5,124 cases and 10 expected failures | 93-row invariant ledger | 0 |
+| Strong-Bisimulation Extraction | 5,124 exhaustive cases / 10 mutants / 13 required-green properties | 5,124 cases, 10 expected failures, and 13 passing properties | 97-row invariant ledger | 0 |
 | Kani ABI Models | 3 harnesses | 3 | 0 | 0 |
 
 ## Detailed Status
@@ -54,7 +54,7 @@ the finite real grid modeled in `Quantization.v`.
 | `ShortestDistance.v` | Checked partial correctness | Initialization, relaxation, well-formed empty-WFST solution theorem, and `shortest_distance_solution` fixed-point spec predicate |
 | `Determinize.v` | Checked partial correctness | Weighted-subset operations aggregate duplicate target states before normalization, explicit normalization pass with soundness theorem, nonempty-step fact, quotient soundness under nonzero-divisor precondition, non-vacuous `determinize_correct` spec predicate, already-deterministic identity correctness, and functional/sequential precondition facts |
 | `Minimize.v` | Checked partial correctness | Residual right-language state equivalence, partition helpers, non-vacuous `minimize_correct` and `push_weights_spec` predicates requiring defined source/target language surfaces, identity-minimize correctness, and language-preservation sanity lemmas |
-| `StrongBisimulation.v` | Checked pre-implementation contract | Unbounded labelled semantics, exact replay certificates, complete modal witnesses, dense validation, canonical relation, termination, smaller-half charging, quasilinear work/evidence, linear core heap, zero whole-partition rescans, and constant native stack |
+| `StrongBisimulation.v` | Checked production contract | Unbounded labelled semantics, guarded exact replay certificates, complete oriented modal witnesses, dense validation, canonical relation, termination, smaller-half charging, quasilinear work/evidence, linear core heap, zero whole-partition rescans, and constant native stack |
 
 ### Phase 4: TLA+ Specifications
 
@@ -83,7 +83,8 @@ the finite real grid modeled in `Quantization.v`.
 | `OwnershipLifecycle.v` | Checked | Partial release, retain/clone/drop/transfer laws, opaque ABI v1 observation |
 | `vco-e4-contracts.smt2` | Checked | Required result sequence `unsat`, `unsat`, `sat`, `unsat`, `unsat`, `unsat` |
 | `vco-e4-strong-bisimulation.smt2` | Checked | Fifteen exact validation, relation, certificate, witness, canonicality, progress, work, heap, stack, and nonvacuity verdicts |
-| `strong-bisimulation-invariants.tsv` | Checked | 83 exhaustive formal-to-property rows mapped to 13 causally required-red Rust properties |
+| `strong-bisimulation-invariants.tsv` | Checked | 97 exhaustive formal-to-property rows mapped to 13 required-green Rust properties |
+| `proofs/properties/strong_bisimulation` | Checked | All 13 extracted validation, relation, certificate, witness, canonicality, resource, empty-input, and 100,000-state/64-KiB-stack properties pass |
 | `check-strong-bisimulation-exhaustive.py` | Checked | 5,124 complete small-system cases against an independent relational fixed point with stack-safe characteristic formulas |
 | `strong_bisimulation_mutants.py` | Checked | All ten injected endpoint, color, transfer, termination, duplicate, modal, certificate, and canonical-ID defects fail causally |
 | `abi_ownership_model.rs` | Checked | Kani 0.67.0 / CBMC 6.8.0: 3 of 3 bounded harnesses successful |
@@ -114,7 +115,7 @@ the finite real grid modeled in `Quantization.v`.
 
 ## Last Updated
 
-2026-08-30
+2026-09-01
 
 ## Notes
 
@@ -125,7 +126,8 @@ the finite real grid modeled in `Quantization.v`.
 - TLA+ specs include TLC config files under `proofs/tla/MC`.
 - Algorithm files contain checked specification predicates and partial-correctness theorems over the current finite, stable-closed, matrix-backed epsilon-closure, or product-matrix WFST language surface.
 - `make verify-proofs` runs Rocq, every TLC config and expected-failure mutant,
-  all seven Z3 transcripts, the exhaustive executable contracts, required-red
-  gates, and Kani/CBMC under mandatory local systemd
+  all seven Z3 transcripts, the exhaustive executable contracts, implemented
+  required-green gates, remaining pre-implementation required-red gates, and
+  Kani/CBMC under mandatory local systemd
   resource caps. Java runs headlessly. Persistent evidence lives under ignored
   `target/formal-verification/`.

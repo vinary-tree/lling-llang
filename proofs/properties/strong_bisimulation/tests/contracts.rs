@@ -1,3 +1,5 @@
+//! Properties extracted from the formally verified strong-bisimulation model.
+
 use lling_llang::symbolic::bisimulation::{CertifiedBisimulation, Lts};
 use proptest::prelude::*;
 

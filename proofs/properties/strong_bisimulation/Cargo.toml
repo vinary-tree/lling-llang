@@ -1,5 +1,5 @@
 [package]
-name = "strong-bisimulation-required-red"
+name = "strong-bisimulation-properties"
 version = "0.0.0"
 edition = "2021"
 publish = false
