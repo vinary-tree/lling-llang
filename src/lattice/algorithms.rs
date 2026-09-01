@@ -133,32 +133,31 @@ pub fn is_acyclic(nodes: &[Node], edges: &[Edge<impl Semiring>]) -> bool {
     // DFS with coloring: 0 = white (unvisited), 1 = gray (in progress), 2 = black (done)
     let mut color: Vec<u8> = vec![0; nodes.len()];
 
-    fn dfs(node: usize, adj: &[Vec<NodeId>], color: &mut [u8]) -> bool {
-        color[node] = 1; // Gray - currently being processed
-
-        for &neighbor in &adj[node] {
-            let Some(idx) = node_index(neighbor, color.len()) else {
-                return false;
-            };
-            match color[idx] {
-                1 => return false, // Back edge - cycle detected
-                0 => {
-                    if !dfs(idx, adj, color) {
-                        return false;
-                    }
-                }
-                _ => {} // Already processed (black)
-            }
-        }
-
-        color[node] = 2; // Black - done
-        true
-    }
-
     // Check all nodes (in case graph is disconnected)
-    for i in 0..nodes.len() {
-        if color[i] == 0 && !dfs(i, &adj, &mut color) {
-            return false;
+    for start in 0..nodes.len() {
+        if color[start] != 0 {
+            continue;
+        }
+        color[start] = 1;
+        let mut frames = vec![(start, 0usize)];
+        while let Some((node, next_neighbor)) = frames.last_mut() {
+            if let Some(&neighbor) = adj[*node].get(*next_neighbor) {
+                *next_neighbor += 1;
+                let Some(index) = node_index(neighbor, color.len()) else {
+                    return false;
+                };
+                match color[index] {
+                    1 => return false,
+                    0 => {
+                        color[index] = 1;
+                        frames.push((index, 0));
+                    }
+                    _ => {}
+                }
+            } else {
+                color[*node] = 2;
+                frames.pop();
+            }
         }
     }
 
@@ -261,6 +260,10 @@ mod tests {
     use super::*;
     use crate::backend::HashMapBackend;
     use crate::semiring::TropicalWeight;
+    use proptest::prelude::*;
+
+    const DEEP_GRAPH_EDGES: usize = 100_000;
+    const SMALL_NATIVE_STACK: usize = 256 * 1024;
 
     fn linear_lattice(n: usize) -> Lattice<TropicalWeight, HashMapBackend> {
         let backend = HashMapBackend::new();
@@ -362,6 +365,49 @@ mod tests {
         let nodes = vec![Node::with_position(NodeId::new(0), 0)];
 
         Lattice::new(nodes, Vec::new(), NodeId::new(99), NodeId::new(0), backend)
+    }
+
+    fn valid_graph_strategy() -> BoxedStrategy<(usize, Vec<(usize, usize)>)> {
+        (1usize..24)
+            .prop_flat_map(|node_count| {
+                (
+                    Just(node_count),
+                    prop::collection::vec((0usize..node_count, 0usize..node_count), 0..96),
+                )
+            })
+            .boxed()
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(512))]
+
+        #[test]
+        fn colored_dfs_agrees_with_kahn_on_valid_graphs(
+            (node_count, edge_specs) in valid_graph_strategy(),
+        ) {
+            let mut backend = HashMapBackend::new();
+            let label = backend.intern("edge");
+            let nodes = (0..node_count)
+                .map(|index| Node::with_position(NodeId::new(index as u32), index))
+                .collect::<Vec<_>>();
+            let edges = edge_specs
+                .into_iter()
+                .enumerate()
+                .map(|(index, (source, target))| Edge::new(
+                    EdgeId::new(index as u32),
+                    NodeId::new(source as u32),
+                    NodeId::new(target as u32),
+                    label,
+                    TropicalWeight::new(1.0),
+                    EdgeMetadata::default(),
+                ))
+                .collect::<Vec<_>>();
+
+            prop_assert_eq!(
+                is_acyclic(&nodes, &edges),
+                topological_sort(&nodes, &edges).is_some(),
+            );
+        }
     }
 
     #[test]
@@ -473,6 +519,20 @@ mod tests {
         let empty_edges: &[Edge<TropicalWeight>] = &[];
 
         assert!(!is_acyclic(&nodes, empty_edges));
+    }
+
+    #[test]
+    fn deep_colored_dfs_uses_constant_native_stack() {
+        std::thread::Builder::new()
+            .name("deep-lattice-dfs".to_owned())
+            .stack_size(SMALL_NATIVE_STACK)
+            .spawn(|| {
+                let lattice = linear_lattice(DEEP_GRAPH_EDGES);
+                assert!(is_acyclic(lattice.nodes(), lattice.edges()));
+            })
+            .expect("the bounded-stack lattice worker must spawn")
+            .join()
+            .expect("lattice DFS must not overflow the native stack");
     }
 
     #[test]

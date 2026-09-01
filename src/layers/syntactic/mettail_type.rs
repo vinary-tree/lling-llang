@@ -18,7 +18,6 @@ use super::super::traits::{CorrectionLayer, LayerError, LayerResult};
 /// A MeTTaIL type expression.
 ///
 /// Types in MeTTaIL follow OSLF (Operational Semantic Logic Framework) patterns.
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TypeExpr {
     /// Base type (e.g., "String", "Number").
     Base(String),
@@ -28,6 +27,170 @@ pub enum TypeExpr {
     Variable(String),
     /// Type application (e.g., "List String").
     Application(Box<TypeExpr>, Vec<TypeExpr>),
+}
+
+impl Clone for TypeExpr {
+    fn clone(&self) -> Self {
+        enum Task<'a> {
+            Visit(&'a TypeExpr),
+            Function,
+            Application(usize),
+        }
+
+        let mut tasks = vec![Task::Visit(self)];
+        let mut values = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Visit(expression) => match expression {
+                    TypeExpr::Base(name) => values.push(TypeExpr::Base(name.clone())),
+                    TypeExpr::Variable(name) => values.push(TypeExpr::Variable(name.clone())),
+                    TypeExpr::Function(input, output) => {
+                        tasks.push(Task::Function);
+                        tasks.push(Task::Visit(output));
+                        tasks.push(Task::Visit(input));
+                    }
+                    TypeExpr::Application(constructor, arguments) => {
+                        tasks.push(Task::Application(arguments.len()));
+                        for argument in arguments.iter().rev() {
+                            tasks.push(Task::Visit(argument));
+                        }
+                        tasks.push(Task::Visit(constructor));
+                    }
+                },
+                Task::Function => {
+                    let output = values.pop().expect("function output clone is present");
+                    let input = values.pop().expect("function input clone is present");
+                    values.push(TypeExpr::Function(Box::new(input), Box::new(output)));
+                }
+                Task::Application(argument_count) => {
+                    let split = values
+                        .len()
+                        .checked_sub(argument_count)
+                        .expect("application argument clones are present");
+                    let arguments = values.split_off(split);
+                    let constructor = values
+                        .pop()
+                        .expect("application constructor clone is present");
+                    values.push(TypeExpr::Application(Box::new(constructor), arguments));
+                }
+            }
+        }
+        values
+            .pop()
+            .expect("the root type expression produces one clone")
+    }
+}
+
+impl PartialEq for TypeExpr {
+    fn eq(&self, other: &Self) -> bool {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (TypeExpr::Base(left), TypeExpr::Base(right))
+                | (TypeExpr::Variable(left), TypeExpr::Variable(right))
+                    if left == right => {}
+                (
+                    TypeExpr::Function(left_input, left_output),
+                    TypeExpr::Function(right_input, right_output),
+                ) => {
+                    pending.push((left_output, right_output));
+                    pending.push((left_input, right_input));
+                }
+                (
+                    TypeExpr::Application(left_constructor, left_arguments),
+                    TypeExpr::Application(right_constructor, right_arguments),
+                ) if left_arguments.len() == right_arguments.len() => {
+                    for pair in left_arguments.iter().zip(right_arguments).rev() {
+                        pending.push(pair);
+                    }
+                    pending.push((left_constructor, right_constructor));
+                }
+                _ => return false,
+            }
+        }
+        true
+    }
+}
+
+impl Eq for TypeExpr {}
+
+impl std::fmt::Debug for TypeExpr {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        enum Event<'a> {
+            Expression(&'a TypeExpr),
+            List(&'a [TypeExpr]),
+            Text(&'static str),
+        }
+
+        let mut events = vec![Event::Expression(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Text(text) => formatter.write_str(text)?,
+                Event::List(values) => {
+                    formatter.write_str("[")?;
+                    events.push(Event::Text("]"));
+                    for (index, value) in values.iter().enumerate().rev() {
+                        events.push(Event::Expression(value));
+                        if index > 0 {
+                            events.push(Event::Text(", "));
+                        }
+                    }
+                }
+                Event::Expression(expression) => match expression {
+                    TypeExpr::Base(name) => write!(formatter, "Base({name:?})")?,
+                    TypeExpr::Variable(name) => write!(formatter, "Variable({name:?})")?,
+                    TypeExpr::Function(input, output) => {
+                        formatter.write_str("Function(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Expression(output));
+                        events.push(Event::Text(", "));
+                        events.push(Event::Expression(input));
+                    }
+                    TypeExpr::Application(constructor, arguments) => {
+                        formatter.write_str("Application(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::List(arguments));
+                        events.push(Event::Text(", "));
+                        events.push(Event::Expression(constructor));
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Drop for TypeExpr {
+    fn drop(&mut self) {
+        fn drain(expression: &mut TypeExpr, pending: &mut Vec<TypeExpr>) {
+            match expression {
+                TypeExpr::Function(input, output) => {
+                    pending.push(std::mem::replace(
+                        &mut **output,
+                        TypeExpr::Variable(String::new()),
+                    ));
+                    pending.push(std::mem::replace(
+                        &mut **input,
+                        TypeExpr::Variable(String::new()),
+                    ));
+                }
+                TypeExpr::Application(constructor, arguments) => {
+                    pending.extend(std::mem::take(arguments));
+                    pending.push(std::mem::replace(
+                        &mut **constructor,
+                        TypeExpr::Variable(String::new()),
+                    ));
+                }
+                TypeExpr::Base(_) | TypeExpr::Variable(_) => {}
+            }
+        }
+
+        let mut pending = Vec::new();
+        drain(self, &mut pending);
+        while let Some(mut expression) = pending.pop() {
+            drain(&mut expression, &mut pending);
+        }
+    }
 }
 
 impl TypeExpr {

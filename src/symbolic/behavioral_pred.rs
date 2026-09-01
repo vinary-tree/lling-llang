@@ -32,9 +32,10 @@
 use moniker::{BoundTerm, Var};
 use std::fmt;
 
+mod lifecycle;
+
 /// Runtime behavioral predicate. Stored as a field on guarded receive
 /// constructors for per-instance shape dispatch and introspection.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum BehavioralPred {
     /// Atomic relation query: `path(x, {})`, `halts(p)`.
     /// `negated = true` corresponds to Ascent's `!path(...)`
@@ -102,120 +103,12 @@ impl BehavioralPred {
     /// macro pipeline during pattern-match substitution when a bound
     /// variable's name changes.
     pub fn substitute_var(&self, old: &str, new: &str) -> Self {
-        use BehavioralPred::*;
-        match self {
-            Top => Top,
-            RelationQuery {
-                relation_name,
-                args,
-                negated,
-            } => RelationQuery {
-                relation_name: relation_name.clone(),
-                args: args.iter().map(|a| a.substitute_var(old, new)).collect(),
-                negated: *negated,
-            },
-            Quantified {
-                quantifier,
-                var,
-                domain,
-                body,
-            } => {
-                // Shadowed: bound variable names do not undergo substitution.
-                if var == old {
-                    self.clone()
-                } else {
-                    Quantified {
-                        quantifier: *quantifier,
-                        var: var.clone(),
-                        domain: domain.as_ref().map(|d| d.substitute_var(old, new)),
-                        body: Box::new(body.substitute_var(old, new)),
-                    }
-                }
-            }
-            AcMatch {
-                bag,
-                elements,
-                rest,
-            } => AcMatch {
-                bag: bag.substitute_var(old, new),
-                elements: elements
-                    .iter()
-                    .map(|e| e.substitute_var(old, new))
-                    .collect(),
-                rest: rest.clone(),
-            },
-            And(a, b) => And(
-                Box::new(a.substitute_var(old, new)),
-                Box::new(b.substitute_var(old, new)),
-            ),
-            Or(a, b) => Or(
-                Box::new(a.substitute_var(old, new)),
-                Box::new(b.substitute_var(old, new)),
-            ),
-            Not(inner) => Not(Box::new(inner.substitute_var(old, new))),
-            Implies(p, c) => Implies(
-                Box::new(p.substitute_var(old, new)),
-                Box::new(c.substitute_var(old, new)),
-            ),
-        }
+        lifecycle::substitute_var(self, old, new)
     }
 
     /// Collect all free variable names referenced by this predicate.
     pub fn free_vars(&self) -> std::collections::HashSet<String> {
-        let mut acc = std::collections::HashSet::new();
-        self.collect_free_vars(&mut acc, &mut std::collections::HashSet::new());
-        acc
-    }
-
-    fn collect_free_vars(
-        &self,
-        acc: &mut std::collections::HashSet<String>,
-        bound: &mut std::collections::HashSet<String>,
-    ) {
-        use BehavioralPred::*;
-        match self {
-            Top => {}
-            RelationQuery { args, .. } => {
-                for a in args {
-                    if let PredArg::Var(v) = a {
-                        if !bound.contains(v) {
-                            acc.insert(v.clone());
-                        }
-                    }
-                }
-            }
-            Quantified {
-                var, domain, body, ..
-            } => {
-                if let Some(d) = domain {
-                    d.collect_free_vars(acc, bound);
-                }
-                let inserted = bound.insert(var.clone());
-                body.collect_free_vars(acc, bound);
-                if inserted {
-                    bound.remove(var);
-                }
-            }
-            AcMatch { bag, elements, .. } => {
-                if let PredArg::Var(v) = bag {
-                    if !bound.contains(v) {
-                        acc.insert(v.clone());
-                    }
-                }
-                for e in elements {
-                    if let PredArg::Var(v) = e {
-                        if !bound.contains(v) {
-                            acc.insert(v.clone());
-                        }
-                    }
-                }
-            }
-            And(a, b) | Or(a, b) | Implies(a, b) => {
-                a.collect_free_vars(acc, bound);
-                b.collect_free_vars(acc, bound);
-            }
-            Not(inner) => inner.collect_free_vars(acc, bound),
-        }
+        lifecycle::free_vars(self)
     }
 }
 
@@ -279,95 +172,6 @@ impl QuantifiedDomain {
             QuantifiedDomain::Enumerated(es) => QuantifiedDomain::Enumerated(
                 es.iter().map(|e| e.substitute_var(old, new)).collect(),
             ),
-        }
-    }
-
-    fn collect_free_vars(
-        &self,
-        acc: &mut std::collections::HashSet<String>,
-        bound: &std::collections::HashSet<String>,
-    ) {
-        if let QuantifiedDomain::Enumerated(es) = self {
-            for e in es {
-                if let PredArg::Var(v) = e {
-                    if !bound.contains(v) {
-                        acc.insert(v.clone());
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ═════════════════════════════════════════════════════════════════════════
-// Display
-// ═════════════════════════════════════════════════════════════════════════
-
-impl fmt::Display for BehavioralPred {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use BehavioralPred::*;
-        match self {
-            // Display as "true()" (nullary RelationQuery form) so that the
-            // parse→display roundtrip is stable: the guard parser always
-            // produces RelationQuery for identifiers, so "true()" round-trips
-            // as RelationQuery("true",[]) → "true()". Plain "true" would
-            // re-display as "true()" after one parse round, breaking the
-            // strong-roundtrip check in generated proptest strategies.
-            Top => write!(f, "true()"),
-            RelationQuery {
-                relation_name,
-                args,
-                negated,
-            } => {
-                if *negated {
-                    write!(f, "not ")?;
-                }
-                write!(f, "{}(", relation_name)?;
-                for (i, a) in args.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}", a)?;
-                }
-                write!(f, ")")
-            }
-            Quantified {
-                quantifier,
-                var,
-                domain,
-                body,
-            } => {
-                let q = match quantifier {
-                    Quantifier::ForAll => "forall",
-                    Quantifier::Exists => "exists",
-                };
-                write!(f, "{}({}", q, var)?;
-                if let Some(d) = domain {
-                    write!(f, ", {}", d)?;
-                }
-                write!(f, ", {})", body)
-            }
-            AcMatch {
-                bag,
-                elements,
-                rest,
-            } => {
-                write!(f, "ac_match({}, [", bag)?;
-                for (i, e) in elements.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}", e)?;
-                }
-                if let Some(r) = rest {
-                    write!(f, ", ...{}", r)?;
-                }
-                write!(f, "])")
-            }
-            And(a, b) => write!(f, "({} and {})", a, b),
-            Or(a, b) => write!(f, "({} or {})", a, b),
-            Not(inner) => write!(f, "(not {})", inner),
-            Implies(p, c) => write!(f, "({} entails {})", p, c),
         }
     }
 }

@@ -37,7 +37,7 @@
 //!
 //! - "Dysfluent WFST" (arXiv 2505.16351) - Zero-shot dysfluency detection
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::semiring::Semiring;
 use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition, Wfst};
@@ -183,6 +183,25 @@ struct PatternScanState {
     pattern_state: StateId,
     frame: FrameIndex,
     phones: Vec<PhoneId>,
+}
+
+#[derive(Clone, Copy)]
+struct PatternScanCursor {
+    lattice_state: StateId,
+    pattern_state: StateId,
+    frame: FrameIndex,
+}
+
+enum PatternScanWork {
+    Enter {
+        cursor: PatternScanCursor,
+        phone: Option<PhoneId>,
+    },
+    Exit {
+        frame: FrameIndex,
+        pattern_state: StateId,
+        phone_length: usize,
+    },
 }
 
 impl<W: Semiring + From<f64> + Clone> DysfluencyDetector<W> {
@@ -505,7 +524,7 @@ impl<W: Semiring + From<f64> + Clone> DysfluencyDetector<W> {
         spans
     }
 
-    /// Recursively scan for pattern matches.
+    /// Scan for pattern matches with an explicit depth-first machine.
     fn scan_for_pattern(
         &self,
         scan: &PatternScan<'_, W>,
@@ -514,69 +533,111 @@ impl<W: Semiring + From<f64> + Clone> DysfluencyDetector<W> {
     ) where
         W: Into<f64>,
     {
-        // Check if we've reached a final state in the pattern
-        if scan.pattern.is_final(state.pattern_state) && !state.phones.is_empty() {
-            let score: f64 = scan.pattern.final_weight(state.pattern_state).into();
-            spans.push(DysfluencySpan {
-                pattern: scan.pattern_type,
-                start_frame: state.frame.saturating_sub(state.phones.len()),
-                end_frame: state.frame,
-                phones: state.phones.clone(),
-                score,
-                repetition_count: self.count_repetitions(&state.phones),
+        let PatternScanState {
+            lattice_state,
+            pattern_state,
+            frame,
+            mut phones,
+        } = state;
+        phones.reserve(20usize.saturating_sub(phones.len()));
+
+        let pattern_state_count = scan.pattern.num_states();
+        let mut work = Vec::with_capacity(pattern_state_count.saturating_add(1));
+        let mut epsilon_on_path = HashSet::with_capacity(pattern_state_count);
+        work.push(PatternScanWork::Enter {
+            cursor: PatternScanCursor {
+                lattice_state,
+                pattern_state,
+                frame,
+            },
+            phone: None,
+        });
+
+        while let Some(item) = work.pop() {
+            let (cursor, phone) = match item {
+                PatternScanWork::Exit {
+                    frame,
+                    pattern_state,
+                    phone_length,
+                } => {
+                    let removed = epsilon_on_path.remove(&(frame, pattern_state));
+                    debug_assert!(removed, "every entered scan state has one exit frame");
+                    phones.truncate(phone_length);
+                    continue;
+                }
+                PatternScanWork::Enter { cursor, phone } => (cursor, phone),
+            };
+
+            let phone_length = phones.len();
+            if let Some(phone) = phone {
+                phones.push(phone);
+            }
+            let path_key = (cursor.frame, cursor.pattern_state);
+            if !epsilon_on_path.insert(path_key) {
+                phones.truncate(phone_length);
+                continue;
+            }
+            work.push(PatternScanWork::Exit {
+                frame: cursor.frame,
+                pattern_state: cursor.pattern_state,
+                phone_length,
             });
-        }
 
-        // Don't recurse too deep
-        if state.frame > 1000 {
-            return;
-        }
+            if scan.pattern.is_final(cursor.pattern_state) && !phones.is_empty() {
+                let score: f64 = scan.pattern.final_weight(cursor.pattern_state).into();
+                spans.push(DysfluencySpan {
+                    pattern: scan.pattern_type,
+                    start_frame: cursor.frame.saturating_sub(phones.len()),
+                    end_frame: cursor.frame,
+                    phones: phones.clone(),
+                    score,
+                    repetition_count: self.count_repetitions(&phones),
+                });
+            }
+            if cursor.frame > 1000 {
+                continue;
+            }
 
-        // Try matching lattice transitions with pattern transitions
-        for lat_tr in scan.lattice.transitions(state.lattice_state) {
-            for pat_tr in scan.pattern.transitions(state.pattern_state) {
-                // Check if labels match
-                let labels_match = match (lat_tr.input, pat_tr.input) {
-                    (Some(l1), Some(l2)) => l1 == l2,
-                    (None, None) => true, // epsilon matches epsilon
-                    _ => false,
-                };
+            let pattern_transitions = scan.pattern.transitions(cursor.pattern_state);
 
-                if labels_match {
-                    let mut new_phones = state.phones.clone();
-                    if let Some(phone) = lat_tr.input {
-                        new_phones.push(phone);
-                    }
-
-                    // Recurse (limited depth for efficiency)
-                    if new_phones.len() <= 20 {
-                        self.scan_for_pattern(
-                            scan,
-                            PatternScanState {
-                                lattice_state: lat_tr.to,
-                                pattern_state: pat_tr.to,
-                                frame: state.frame + 1,
-                                phones: new_phones,
-                            },
-                            spans,
-                        );
-                    }
+            // Pattern-only epsilon successors follow every matching-pair
+            // successor exactly once. Push them first in reverse order because
+            // the explicit work tape is LIFO.
+            for pattern_transition in pattern_transitions.iter().rev() {
+                if pattern_transition.input.is_none() {
+                    work.push(PatternScanWork::Enter {
+                        cursor: PatternScanCursor {
+                            lattice_state: cursor.lattice_state,
+                            pattern_state: pattern_transition.to,
+                            frame: cursor.frame,
+                        },
+                        phone: None,
+                    });
                 }
             }
 
-            // Also try epsilon transitions in pattern
-            for pat_tr in scan.pattern.transitions(state.pattern_state) {
-                if pat_tr.input.is_none() {
-                    self.scan_for_pattern(
-                        scan,
-                        PatternScanState {
-                            lattice_state: state.lattice_state,
-                            pattern_state: pat_tr.to,
-                            frame: state.frame,
-                            phones: state.phones.clone(),
+            // Preserve the recursive oracle's lattice-major, pattern-minor
+            // order by scheduling matching pairs in the reverse nesting order.
+            for lattice_transition in scan.lattice.transitions(cursor.lattice_state).iter().rev() {
+                for pattern_transition in pattern_transitions.iter().rev() {
+                    let labels_match = match (lattice_transition.input, pattern_transition.input) {
+                        (Some(left), Some(right)) => left == right,
+                        (None, None) => true,
+                        _ => false,
+                    };
+                    if !labels_match
+                        || phones.len() + usize::from(lattice_transition.input.is_some()) > 20
+                    {
+                        continue;
+                    }
+                    work.push(PatternScanWork::Enter {
+                        cursor: PatternScanCursor {
+                            lattice_state: lattice_transition.to,
+                            pattern_state: pattern_transition.to,
+                            frame: cursor.frame + 1,
                         },
-                        spans,
-                    );
+                        phone: lattice_transition.input,
+                    });
                 }
             }
         }
@@ -808,6 +869,182 @@ impl<W: Semiring + From<f64> + Clone> Default for SyllableRepetitionBuilder<W> {
 mod tests {
     use super::*;
     use crate::semiring::TropicalWeight;
+    use proptest::prelude::*;
+
+    const DEEP_EPSILON_DEPTH: usize = 100_000;
+    const SMALL_NATIVE_STACK: usize = 256 * 1024;
+
+    #[derive(Clone, Debug)]
+    struct ShallowGraph {
+        states: usize,
+        edges: Vec<(usize, Option<PhoneId>, usize)>,
+        finals: Vec<bool>,
+    }
+
+    fn shallow_graph(acyclic: bool) -> BoxedStrategy<ShallowGraph> {
+        (1usize..6)
+            .prop_flat_map(move |states| {
+                (
+                    Just(states),
+                    prop::collection::vec(
+                        (0usize..states, prop::option::of(0u32..3), 0usize..states),
+                        0..10,
+                    ),
+                    prop::collection::vec(any::<bool>(), states),
+                )
+            })
+            .prop_map(move |(states, mut edges, finals)| {
+                if acyclic {
+                    edges.retain(|(from, _, to)| from < to);
+                }
+                ShallowGraph {
+                    states,
+                    edges,
+                    finals,
+                }
+            })
+            .boxed()
+    }
+
+    fn build_graph(spec: &ShallowGraph) -> VectorWfst<PhoneId, TropicalWeight> {
+        let mut graph = VectorWfst::new();
+        graph.add_states(spec.states);
+        graph.set_start(0);
+        for (state, is_final) in spec.finals.iter().copied().enumerate() {
+            if is_final {
+                graph.set_final(state as StateId, TropicalWeight::one());
+            }
+        }
+        for &(from, label, to) in &spec.edges {
+            graph.add_transition(WeightedTransition {
+                from: from as StateId,
+                input: label,
+                output: label,
+                to: to as StateId,
+                weight: TropicalWeight::one(),
+            });
+        }
+        graph
+    }
+
+    fn recursive_scan_reference(
+        detector: &DysfluencyDetector<TropicalWeight>,
+        scan: &PatternScan<'_, TropicalWeight>,
+        state: PatternScanState,
+        epsilon_path: &mut Vec<StateId>,
+        spans: &mut Vec<DysfluencySpan>,
+    ) {
+        if scan.pattern.is_final(state.pattern_state) && !state.phones.is_empty() {
+            let score: f64 = scan.pattern.final_weight(state.pattern_state).into();
+            spans.push(DysfluencySpan {
+                pattern: scan.pattern_type,
+                start_frame: state.frame.saturating_sub(state.phones.len()),
+                end_frame: state.frame,
+                phones: state.phones.clone(),
+                score,
+                repetition_count: detector.count_repetitions(&state.phones),
+            });
+        }
+        if state.frame > 1000 {
+            return;
+        }
+
+        for lattice_transition in scan.lattice.transitions(state.lattice_state) {
+            for pattern_transition in scan.pattern.transitions(state.pattern_state) {
+                let labels_match = match (lattice_transition.input, pattern_transition.input) {
+                    (Some(left), Some(right)) => left == right,
+                    (None, None) => true,
+                    _ => false,
+                };
+                if !labels_match {
+                    continue;
+                }
+
+                let mut phones = state.phones.clone();
+                if let Some(phone) = lattice_transition.input {
+                    phones.push(phone);
+                }
+                if phones.len() <= 20 {
+                    let mut child_epsilon_path = vec![pattern_transition.to];
+                    recursive_scan_reference(
+                        detector,
+                        scan,
+                        PatternScanState {
+                            lattice_state: lattice_transition.to,
+                            pattern_state: pattern_transition.to,
+                            frame: state.frame + 1,
+                            phones,
+                        },
+                        &mut child_epsilon_path,
+                        spans,
+                    );
+                }
+            }
+        }
+
+        for pattern_transition in scan.pattern.transitions(state.pattern_state) {
+            if pattern_transition.input.is_some() || epsilon_path.contains(&pattern_transition.to) {
+                continue;
+            }
+            epsilon_path.push(pattern_transition.to);
+            recursive_scan_reference(
+                detector,
+                scan,
+                PatternScanState {
+                    lattice_state: state.lattice_state,
+                    pattern_state: pattern_transition.to,
+                    frame: state.frame,
+                    phones: state.phones.clone(),
+                },
+                epsilon_path,
+                spans,
+            );
+            epsilon_path.pop();
+        }
+    }
+
+    fn recursive_detect_pattern(
+        detector: &DysfluencyDetector<TropicalWeight>,
+        lattice: &VectorWfst<PhoneId, TropicalWeight>,
+        pattern: &VectorWfst<PhoneId, TropicalWeight>,
+        pattern_type: DysfluencyPattern,
+    ) -> Vec<DysfluencySpan> {
+        let scan = PatternScan {
+            lattice,
+            pattern,
+            pattern_type,
+        };
+        let initial = PatternScanState {
+            lattice_state: lattice.start(),
+            pattern_state: pattern.start(),
+            frame: 0,
+            phones: Vec::new(),
+        };
+        let mut epsilon_path = vec![pattern.start()];
+        let mut spans = Vec::new();
+        recursive_scan_reference(detector, &scan, initial, &mut epsilon_path, &mut spans);
+        spans
+    }
+
+    fn span_signature(
+        span: &DysfluencySpan,
+    ) -> (
+        DysfluencyPattern,
+        FrameIndex,
+        FrameIndex,
+        Vec<PhoneId>,
+        u64,
+        Option<usize>,
+    ) {
+        (
+            span.pattern,
+            span.start_frame,
+            span.end_frame,
+            span.phones.clone(),
+            span.score.to_bits(),
+            span.repetition_count,
+        )
+    }
 
     #[test]
     fn test_dysfluency_pattern_all() {
@@ -911,5 +1148,114 @@ mod tests {
 
         let spans = detector.detect(&lattice);
         assert!(spans.is_empty());
+    }
+
+    #[test]
+    fn pattern_epsilon_is_scheduled_once_independent_of_lattice_out_degree() {
+        let detector = DysfluencyDetector::<TropicalWeight>::with_vocab_size(4);
+
+        let mut lattice = VectorWfst::new();
+        lattice.add_states(4);
+        lattice.set_start(0);
+        lattice.add_transition(WeightedTransition {
+            from: 0,
+            input: Some(1),
+            output: Some(1),
+            to: 1,
+            weight: TropicalWeight::one(),
+        });
+        for to in [2, 3] {
+            lattice.add_transition(WeightedTransition {
+                from: 1,
+                input: Some(2),
+                output: Some(2),
+                to,
+                weight: TropicalWeight::one(),
+            });
+        }
+
+        let mut pattern = VectorWfst::new();
+        pattern.add_states(3);
+        pattern.set_start(0);
+        pattern.set_final(2, TropicalWeight::one());
+        pattern.add_transition(WeightedTransition {
+            from: 0,
+            input: Some(1),
+            output: Some(1),
+            to: 1,
+            weight: TropicalWeight::one(),
+        });
+        pattern.add_transition(WeightedTransition::epsilon(1, 2, TropicalWeight::one()));
+
+        let spans = detector.detect_pattern(&lattice, &pattern, DysfluencyPattern::SoundRepetition);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].phones, vec![1]);
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(512))]
+
+        #[test]
+        fn shallow_scan_matches_cycle_safe_recursive_reference(
+            lattice_spec in shallow_graph(true),
+            pattern_spec in shallow_graph(false),
+        ) {
+            let detector = DysfluencyDetector::<TropicalWeight>::with_vocab_size(4);
+            let lattice = build_graph(&lattice_spec);
+            let pattern = build_graph(&pattern_spec);
+            let expected = recursive_detect_pattern(
+                &detector,
+                &lattice,
+                &pattern,
+                DysfluencyPattern::SoundRepetition,
+            );
+            let actual = detector.detect_pattern(
+                &lattice,
+                &pattern,
+                DysfluencyPattern::SoundRepetition,
+            );
+            prop_assert_eq!(
+                actual.iter().map(span_signature).collect::<Vec<_>>(),
+                expected.iter().map(span_signature).collect::<Vec<_>>(),
+            );
+        }
+    }
+
+    #[test]
+    fn deep_pattern_epsilon_scan_uses_constant_native_stack() {
+        std::thread::Builder::new()
+            .stack_size(SMALL_NATIVE_STACK)
+            .spawn(|| {
+                let detector = DysfluencyDetector::<TropicalWeight>::with_vocab_size(4);
+
+                let mut lattice = VectorWfst::new();
+                lattice.add_states(2);
+                lattice.set_start(0);
+                lattice.add_transition(WeightedTransition {
+                    from: 0,
+                    input: Some(1),
+                    output: Some(1),
+                    to: 1,
+                    weight: TropicalWeight::one(),
+                });
+
+                let mut pattern = VectorWfst::new();
+                pattern.add_states(DEEP_EPSILON_DEPTH + 1);
+                pattern.set_start(0);
+                for state in 0..DEEP_EPSILON_DEPTH {
+                    pattern.add_transition(WeightedTransition::epsilon(
+                        state as StateId,
+                        (state + 1) as StateId,
+                        TropicalWeight::one(),
+                    ));
+                }
+
+                assert!(detector
+                    .detect_pattern(&lattice, &pattern, DysfluencyPattern::SoundRepetition,)
+                    .is_empty());
+            })
+            .expect("small-stack worker must spawn")
+            .join()
+            .expect("dysfluency epsilon scan must not overflow the native stack");
     }
 }

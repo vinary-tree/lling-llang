@@ -56,6 +56,7 @@ Core concepts and design of the framework:
 | [WFST Traits](architecture/wfst-traits.md) | Trait hierarchy for finite-state transducers |
 | [Backends](architecture/backends.md) | Storage abstraction and implementations |
 | [Resource ABI](architecture/resource-abi.md) | The scalar-WFST binding layer: providers, capture-once snapshots, the lazy composition product, the registry, and the raw-u32 status wire |
+| [Stack-safe execution](architecture/stack-safety.md) | Formal-first typed heap machines, SCC-wide recursion elimination, lifecycle safety, work/allocation bounds, concurrency, and evidence traceability |
 | [Foreign-language bindings](bindings/README.md) | C, C++, JavaScript, TypeScript, and ClojureScript package guides, executable evidence, ownership laws, and documentation governance |
 | [Layers](architecture/layers.md) | Correction-layer pipeline architecture |
 | [Lattice Bridge](architecture/lattice-bridge.md) | Semiring↔lattice bridge: semirings as `libdictenstein` dictionary values |
@@ -143,7 +144,7 @@ phase-by-phase implementation ledger are frozen historical records — see
 | Document | Description |
 |----------|-------------|
 | [Lookahead Tables](optimization/lookahead.md) | Pushing reachable weight to a pruning frontier |
-| [N-gram Back-off](optimization/ngram-backoff.md) | Back-off $`P(w \mid h) = \lambda \cdot \hat{P}(w \mid h) + (1 - \lambda) \cdot P(w \mid h')`$ |
+| [N-gram Back-off](optimization/ngram-backoff.md) | Back-off $`P(w \,\vert\, h) = \lambda \cdot \hat{P}(w \,\vert\, h) + (1 - \lambda) \cdot P(w \,\vert\, h')`$ |
 | [Token Grouping](optimization/token-grouping.md) | LET-Decoder lazy-evaluation token grouping |
 
 ### Archive
@@ -223,7 +224,7 @@ Correction-layer implementations:
 
 <details><summary>Text view</summary>
 
-```text
+```art
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                        Correction Layer Stack                           │
 ├─────────────────────────────────────────────────────────────────────────┤

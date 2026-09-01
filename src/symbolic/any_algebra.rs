@@ -39,6 +39,9 @@ use super::{
     KatBooleanAlgebra,
 };
 
+#[path = "any_algebra/lifecycle.rs"]
+mod lifecycle;
+
 // ══════════════════════════════════════════════════════════════════════════════
 // Sort
 // ══════════════════════════════════════════════════════════════════════════════
@@ -81,7 +84,6 @@ pub enum Sort {
 // ══════════════════════════════════════════════════════════════════════════════
 
 /// A concrete element of one of the supported sorts.
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AnyDomain {
     /// Integer (`Sort::Int`).
     Int(i64),
@@ -140,7 +142,6 @@ impl AnyDomain {
 // ══════════════════════════════════════════════════════════════════════════════
 
 /// A predicate over [`AnyDomain`].
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum AnyPred {
     /// Satisfied by every element.
     True,
@@ -222,15 +223,58 @@ where
     A: BooleanAlgebra,
     F: Fn(&AnyPred) -> Option<A::Predicate>,
 {
-    match p {
-        AnyPred::True => alg.true_pred(),
-        AnyPred::False => alg.false_pred(),
-        AnyPred::And(a, b) => alg.and(&fold_pred(alg, a, leaf), &fold_pred(alg, b, leaf)),
-        AnyPred::Or(a, b) => alg.or(&fold_pred(alg, a, leaf), &fold_pred(alg, b, leaf)),
-        AnyPred::Not(x) => alg.not(&fold_pred(alg, x, leaf)),
-        other if other.is_leaf() => leaf(other).unwrap_or_else(|| alg.false_pred()),
-        _ => unreachable!("all non-leaf cases handled above"),
+    enum Task<'a> {
+        Fold(&'a AnyPred),
+        And,
+        Or,
+        Not,
     }
+    let mut tasks = vec![Task::Fold(p)];
+    let mut values = Vec::new();
+    while let Some(task) = tasks.pop() {
+        match task {
+            Task::Fold(predicate) => match predicate {
+                AnyPred::True => values.push(alg.true_pred()),
+                AnyPred::False => values.push(alg.false_pred()),
+                AnyPred::And(left, right) => {
+                    tasks.push(Task::And);
+                    tasks.push(Task::Fold(right));
+                    tasks.push(Task::Fold(left));
+                }
+                AnyPred::Or(left, right) => {
+                    tasks.push(Task::Or);
+                    tasks.push(Task::Fold(right));
+                    tasks.push(Task::Fold(left));
+                }
+                AnyPred::Not(inner) => {
+                    tasks.push(Task::Not);
+                    tasks.push(Task::Fold(inner));
+                }
+                other if other.is_leaf() => {
+                    values.push(leaf(other).unwrap_or_else(|| alg.false_pred()));
+                }
+                _ => unreachable!("all non-leaf cases handled above"),
+            },
+            Task::And | Task::Or => {
+                let right = values.pop().expect("right projected predicate is present");
+                let left = values.pop().expect("left projected predicate is present");
+                values.push(if matches!(task, Task::And) {
+                    alg.and(&left, &right)
+                } else {
+                    alg.or(&left, &right)
+                });
+            }
+            Task::Not => {
+                let inner = values
+                    .pop()
+                    .expect("negated projected predicate is present");
+                values.push(alg.not(&inner));
+            }
+        }
+    }
+    values
+        .pop()
+        .expect("the root projection produces one predicate")
 }
 
 fn int_leaf(p: &AnyPred) -> Option<IntervalPred> {
@@ -337,7 +381,6 @@ fn map_leaf(p: &AnyPred) -> Option<MapPred<AnyPred, AnyPred>> {
 // ══════════════════════════════════════════════════════════════════════════════
 
 /// A single effective Boolean algebra, tagged by the sort it ranges over.
-#[derive(Clone, Debug)]
 pub enum AnyAlgebra {
     /// Bounded-integer algebra.
     Int(IntervalAlgebra),
@@ -633,10 +676,45 @@ impl BooleanAlgebra for AnyAlgebra {
 
 /// Exact-structure tree singleton: the pattern matched only by `term`.
 fn point_tree(elem: &AnyAlgebra, term: &SymTerm<AnyDomain>) -> TreePred<AnyPred> {
-    TreePred::Node {
-        constructor: term.constructor.clone(),
-        payload_guard: term.payload.as_ref().map(|p| elem.point(p)),
-        children: term.children.iter().map(|c| point_tree(elem, c)).collect(),
+    struct Frame<'a> {
+        term: &'a SymTerm<AnyDomain>,
+        payload_guard: Option<AnyPred>,
+        next_child: usize,
+        children: Vec<TreePred<AnyPred>>,
+    }
+    let mut frames = vec![Frame {
+        term,
+        payload_guard: term.payload.as_ref().map(|payload| elem.point(payload)),
+        next_child: 0,
+        children: Vec::with_capacity(term.children.len()),
+    }];
+    loop {
+        let frame = frames
+            .last_mut()
+            .expect("the root tree-point frame remains until completion");
+        if let Some(child) = frame.term.children.get(frame.next_child) {
+            frame.next_child += 1;
+            frames.push(Frame {
+                term: child,
+                payload_guard: child.payload.as_ref().map(|payload| elem.point(payload)),
+                next_child: 0,
+                children: Vec::with_capacity(child.children.len()),
+            });
+            continue;
+        }
+        let completed = frames
+            .pop()
+            .expect("a completed tree-point frame is present");
+        let predicate = TreePred::Node {
+            constructor: completed.term.constructor.clone(),
+            payload_guard: completed.payload_guard,
+            children: completed.children,
+        };
+        if let Some(parent) = frames.last_mut() {
+            parent.children.push(predicate);
+        } else {
+            return predicate;
+        }
     }
 }
 
@@ -801,9 +879,83 @@ mod tests {
     use super::super::string_algebra::StrPred;
     use super::super::sym_tree::{SymTerm, TreeAlgebra, TreePred};
     use super::*;
+    use proptest::prelude::*;
+
+    const DEEP_TREE_POINT_DEPTH: usize = 100_000;
+    const SMALL_NATIVE_STACK: usize = 256 * 1024;
 
     fn bi(n: i64) -> BigInt {
         BigInt::from(n)
+    }
+
+    fn unary_tree_algebra() -> AnyAlgebra {
+        let arities = [
+            ("A".to_owned(), 0usize),
+            ("B".to_owned(), 0usize),
+            ("U".to_owned(), 1usize),
+        ]
+        .into_iter()
+        .collect();
+        AnyAlgebra::Tree(Box::new(TreeAlgebra::new(
+            AnyAlgebra::Int(IntervalAlgebra::new(0, 1)),
+            arities,
+            std::collections::HashSet::new(),
+        )))
+    }
+
+    fn unary_tree_value(depth: usize, leaf: &str) -> AnyDomain {
+        let mut term = SymTerm::constant(leaf);
+        for _ in 0..depth {
+            term = SymTerm::node("U", vec![term]);
+        }
+        AnyDomain::Tree(Box::new(term))
+    }
+
+    fn unary_tree_singleton_depth(predicate: &AnyPred) -> Option<usize> {
+        let AnyPred::Tree(tree) = predicate else {
+            return None;
+        };
+        let mut depth = 0usize;
+        let mut current = tree.as_ref();
+        loop {
+            match current {
+                TreePred::Node {
+                    constructor,
+                    payload_guard: None,
+                    children,
+                } if constructor == "U" && children.len() == 1 => {
+                    depth += 1;
+                    current = &children[0];
+                }
+                TreePred::Node {
+                    constructor,
+                    payload_guard: None,
+                    children,
+                } if (constructor == "A" || constructor == "B") && children.is_empty() => {
+                    return Some(depth);
+                }
+                _ => return None,
+            }
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(512))]
+
+        #[test]
+        fn tree_singleton_refines_exact_unary_tree_equality(
+            depth in 0usize..128,
+            use_first_leaf in any::<bool>(),
+        ) {
+            let algebra = unary_tree_algebra();
+            let leaf = if use_first_leaf { "A" } else { "B" };
+            let other_leaf = if use_first_leaf { "B" } else { "A" };
+            let value = unary_tree_value(depth, leaf);
+            let other = unary_tree_value(depth, other_leaf);
+            let singleton = algebra.point(&value);
+            prop_assert!(algebra.evaluate(&singleton, &value));
+            prop_assert!(!algebra.evaluate(&singleton, &other));
+        }
     }
 
     #[test]
@@ -1007,6 +1159,29 @@ mod tests {
             &pt,
             &AnyDomain::Product(vec![AnyDomain::Int(8), AnyDomain::Str("k".to_string())])
         ));
+    }
+
+    #[test]
+    fn deep_tree_singleton_construction_and_evaluation_use_constant_native_stack() {
+        std::thread::Builder::new()
+            .name("deep-any-tree-point".to_owned())
+            .stack_size(SMALL_NATIVE_STACK)
+            .spawn(|| {
+                let algebra = unary_tree_algebra();
+                let value = unary_tree_value(DEEP_TREE_POINT_DEPTH, "A");
+                let singleton = algebra.point(&value);
+                assert!(algebra.evaluate(&singleton, &value));
+                assert_eq!(
+                    unary_tree_singleton_depth(&singleton),
+                    Some(DEEP_TREE_POINT_DEPTH),
+                );
+                drop(singleton);
+                drop(value);
+                drop(algebra);
+            })
+            .expect("the bounded-stack tree-singleton worker must spawn")
+            .join()
+            .expect("tree singleton construction must not overflow the native stack");
     }
 
     #[test]

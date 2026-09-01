@@ -973,6 +973,44 @@ impl fmt::Display for SftError {
 
 impl std::error::Error for SftError {}
 
+/// Stable source-state index over transition references.
+///
+/// Declared states use contiguous buckets on the hot path. Historical SFTs can
+/// contain transitions whose source lies outside `states`; those entries are
+/// retained in a sparse side table so equivalence lookup remains byte-for-byte
+/// compatible instead of allocating up to an attacker-controlled identifier.
+struct TransitionIndex<'a, A: BooleanAlgebra, B: BooleanAlgebra> {
+    dense: Vec<Vec<&'a SftTransition<A, B>>>,
+    sparse: HashMap<usize, Vec<&'a SftTransition<A, B>>>,
+}
+
+impl<'a, A: BooleanAlgebra, B: BooleanAlgebra> TransitionIndex<'a, A, B> {
+    fn new(state_count: usize, transitions: &'a [SftTransition<A, B>]) -> Self {
+        let mut dense: Vec<Vec<&SftTransition<A, B>>> =
+            (0..state_count).map(|_| Vec::new()).collect();
+        let mut sparse = HashMap::new();
+        for transition in transitions {
+            if let Some(bucket) = dense.get_mut(transition.from) {
+                bucket.push(transition);
+            } else {
+                sparse
+                    .entry(transition.from)
+                    .or_insert_with(Vec::new)
+                    .push(transition);
+            }
+        }
+        Self { dense, sparse }
+    }
+
+    fn outgoing(&self, state: usize) -> &[&'a SftTransition<A, B>] {
+        self.dense
+            .get(state)
+            .map(Vec::as_slice)
+            .or_else(|| self.sparse.get(&state).map(Vec::as_slice))
+            .unwrap_or(&[])
+    }
+}
+
 impl<A, B> SymbolicFiniteTransducer<A, B>
 where
     A: BooleanAlgebra,
@@ -989,13 +1027,13 @@ where
     /// Conservative approximation: checks for structurally identical
     /// output functions on overlapping guards from the same state.
     pub fn is_functional(&self) -> bool {
-        // Build adjacency: for each state, group transitions by guard overlap.
+        let transition_index = TransitionIndex::new(self.states.len(), &self.transitions);
+        self.is_functional_indexed(&transition_index)
+    }
+
+    fn is_functional_indexed(&self, transition_index: &TransitionIndex<'_, A, B>) -> bool {
         for state_id in 0..self.states.len() {
-            let state_transitions: Vec<&SftTransition<A, B>> = self
-                .transitions
-                .iter()
-                .filter(|t| t.from == state_id)
-                .collect();
+            let state_transitions = transition_index.outgoing(state_id);
 
             // Check all pairs of transitions from this state.
             for i in 0..state_transitions.len() {
@@ -1022,10 +1060,12 @@ where
     ///
     /// Both SFTs must be functional; returns `Err(NotFunctional)` otherwise.
     pub fn is_equivalent_functional(&self, other: &Self) -> Result<bool, SftError> {
-        if !self.is_functional() {
+        let self_index = TransitionIndex::new(self.states.len(), &self.transitions);
+        if !self.is_functional_indexed(&self_index) {
             return Err(SftError::NotFunctional);
         }
-        if !other.is_functional() {
+        let other_index = TransitionIndex::new(other.states.len(), &other.transitions);
+        if !other.is_functional_indexed(&other_index) {
             return Err(SftError::NotFunctional);
         }
 
@@ -1039,9 +1079,16 @@ where
         // For functional SFTs with the same domain: check if the product
         // self × other can produce different outputs on any reachable pair.
         // Structural check: for each pair of states, check transition compatibility.
+        let mut visited = HashSet::new();
         for &i1 in &self.initial_states {
             for &i2 in &other.initial_states {
-                if !self.check_output_equivalence_from(other, i1, i2, &mut HashSet::new()) {
+                if !self.check_output_equivalence_from(
+                    i1,
+                    i2,
+                    &mut visited,
+                    &self_index,
+                    &other_index,
+                ) {
                     return Ok(false);
                 }
             }
@@ -1051,32 +1098,53 @@ where
     }
 
     /// DFS check: from (q1, q2), do self and other produce the same outputs?
-    fn check_output_equivalence_from(
-        &self,
-        other: &Self,
+    fn check_output_equivalence_from<'a>(
+        &'a self,
         q1: usize,
         q2: usize,
         visited: &mut HashSet<(usize, usize)>,
+        self_index: &'a TransitionIndex<'a, A, B>,
+        other_index: &'a TransitionIndex<'a, A, B>,
     ) -> bool {
-        if !visited.insert((q1, q2)) {
-            return true; // Already checked this pair.
+        struct Frame<'a, A: BooleanAlgebra, B: BooleanAlgebra> {
+            left: &'a [&'a SftTransition<A, B>],
+            right: &'a [&'a SftTransition<A, B>],
+            left_index: usize,
+            right_index: usize,
         }
 
-        let t1s: Vec<&SftTransition<A, B>> =
-            self.transitions.iter().filter(|t| t.from == q1).collect();
-        let t2s: Vec<&SftTransition<A, B>> =
-            other.transitions.iter().filter(|t| t.from == q2).collect();
+        let make_frame = |left_state, right_state| Frame {
+            left: self_index.outgoing(left_state),
+            right: other_index.outgoing(right_state),
+            left_index: 0,
+            right_index: 0,
+        };
 
-        for t1 in &t1s {
-            for t2 in &t2s {
-                let overlap = self.input_algebra.and(&t1.guard, &t2.guard);
-                if self.input_algebra.is_satisfiable(&overlap) {
-                    if !output_structurally_equal(&t1.output, &t2.output) {
-                        return false;
-                    }
-                    if !self.check_output_equivalence_from(other, t1.to, t2.to, visited) {
-                        return false;
-                    }
+        if !visited.insert((q1, q2)) {
+            return true;
+        }
+        let mut frames = vec![make_frame(q1, q2)];
+        while let Some(frame) = frames.last_mut() {
+            if frame.left_index == frame.left.len() {
+                frames.pop();
+                continue;
+            }
+            if frame.right_index == frame.right.len() {
+                frame.left_index += 1;
+                frame.right_index = 0;
+                continue;
+            }
+            let left = frame.left[frame.left_index];
+            let right = frame.right[frame.right_index];
+            frame.right_index += 1;
+
+            let overlap = self.input_algebra.and(&left.guard, &right.guard);
+            if self.input_algebra.is_satisfiable(&overlap) {
+                if !output_structurally_equal(&left.output, &right.output) {
+                    return false;
+                }
+                if visited.insert((left.to, right.to)) {
+                    frames.push(make_frame(left.to, right.to));
                 }
             }
         }
@@ -1304,6 +1372,91 @@ impl fmt::Display for SftAnalysis {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    const DEEP_PRODUCT_PATH: usize = 100_000;
+    const SMALL_NATIVE_STACK: usize = 256 * 1024;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(512))]
+
+        #[test]
+        fn transition_index_preserves_reference_filter_and_order(
+            state_count in 0usize..16,
+            transition_specs in prop::collection::vec((0usize..24, 0usize..24), 0..96),
+            query in 0usize..24,
+        ) {
+            let transitions = transition_specs
+                .into_iter()
+                .map(|(from, to)| SftTransition::<CharClassAlgebra, CharClassAlgebra> {
+                    from,
+                    to,
+                    guard: CharClassPred::True,
+                    output: OutputFunction::Identity,
+                })
+                .collect::<Vec<_>>();
+            let index = TransitionIndex::new(state_count, &transitions);
+            let expected = transitions
+                .iter()
+                .filter(|transition| transition.from == query)
+                .map(|transition| (transition.from, transition.to))
+                .collect::<Vec<_>>();
+            let actual = index
+                .outgoing(query)
+                .iter()
+                .map(|transition| (transition.from, transition.to))
+                .collect::<Vec<_>>();
+            prop_assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn deep_functional_equivalence_product_path_uses_constant_native_stack() {
+        std::thread::Builder::new()
+            .name("deep-sft-equivalence".to_owned())
+            .stack_size(SMALL_NATIVE_STACK)
+            .spawn(|| {
+                let algebra = CharClassAlgebra::new();
+                let mut left = SymbolicFiniteTransducer::new(algebra.clone(), algebra.clone());
+                let mut right = SymbolicFiniteTransducer::new(algebra.clone(), algebra);
+                for state in 0..=DEEP_PRODUCT_PATH {
+                    let accepting = state == DEEP_PRODUCT_PATH;
+                    left.add_state(accepting, None);
+                    right.add_state(accepting, None);
+                }
+                left.set_initial(0);
+                right.set_initial(0);
+                for state in 0..DEEP_PRODUCT_PATH {
+                    left.add_transition(
+                        state,
+                        state + 1,
+                        CharClassPred::True,
+                        OutputFunction::Identity,
+                    );
+                    right.add_transition(
+                        state,
+                        state + 1,
+                        CharClassPred::True,
+                        OutputFunction::Identity,
+                    );
+                }
+
+                let left_index = TransitionIndex::new(left.states.len(), &left.transitions);
+                let right_index = TransitionIndex::new(right.states.len(), &right.transitions);
+                assert!(left.is_functional_indexed(&left_index));
+                assert!(right.is_functional_indexed(&right_index));
+                assert!(left.check_output_equivalence_from(
+                    0,
+                    0,
+                    &mut HashSet::new(),
+                    &left_index,
+                    &right_index,
+                ));
+            })
+            .expect("the bounded-stack SFT worker must spawn")
+            .join()
+            .expect("SFT product traversal must not overflow the native stack");
+    }
 
     #[test]
     fn compose_chain_empty_returns_none() {

@@ -100,7 +100,6 @@ impl Display for Token {
 }
 
 /// Predicate for matching tokens.
-#[derive(Debug, Clone)]
 pub enum TokenPredicate {
     /// Match any token.
     Any,
@@ -128,6 +127,167 @@ pub enum TokenPredicate {
     Not(Box<TokenPredicate>),
 }
 
+impl Clone for TokenPredicate {
+    fn clone(&self) -> Self {
+        enum Task<'a> {
+            Predicate(&'a TokenPredicate),
+            Any(usize),
+            All(usize),
+            Not,
+        }
+        let mut tasks = vec![Task::Predicate(self)];
+        let mut values = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Predicate(predicate) => match predicate {
+                    TokenPredicate::Any => values.push(TokenPredicate::Any),
+                    TokenPredicate::Text(text) => {
+                        values.push(TokenPredicate::Text(text.clone()));
+                    }
+                    TokenPredicate::TextCaseInsensitive(text) => {
+                        values.push(TokenPredicate::TextCaseInsensitive(text.clone()));
+                    }
+                    TokenPredicate::Kind(kind) => values.push(TokenPredicate::Kind(*kind)),
+                    TokenPredicate::KindAndText(kind, text) => {
+                        values.push(TokenPredicate::KindAndText(*kind, text.clone()));
+                    }
+                    TokenPredicate::StartsWith(prefix) => {
+                        values.push(TokenPredicate::StartsWith(prefix.clone()));
+                    }
+                    TokenPredicate::EndsWith(suffix) => {
+                        values.push(TokenPredicate::EndsWith(suffix.clone()));
+                    }
+                    TokenPredicate::Contains(fragment) => {
+                        values.push(TokenPredicate::Contains(fragment.clone()));
+                    }
+                    TokenPredicate::Regex(pattern) => {
+                        values.push(TokenPredicate::Regex(pattern.clone()));
+                    }
+                    TokenPredicate::Any_(predicates) | TokenPredicate::All(predicates) => {
+                        tasks.push(if matches!(predicate, TokenPredicate::Any_(_)) {
+                            Task::Any(predicates.len())
+                        } else {
+                            Task::All(predicates.len())
+                        });
+                        tasks.extend(predicates.iter().rev().map(Task::Predicate));
+                    }
+                    TokenPredicate::Not(inner) => {
+                        tasks.push(Task::Not);
+                        tasks.push(Task::Predicate(inner));
+                    }
+                },
+                Task::Any(length) | Task::All(length) => {
+                    let offset = values
+                        .len()
+                        .checked_sub(length)
+                        .expect("all token-predicate children are cloned");
+                    let children = values.split_off(offset);
+                    values.push(if matches!(task, Task::Any(_)) {
+                        TokenPredicate::Any_(children)
+                    } else {
+                        TokenPredicate::All(children)
+                    });
+                }
+                Task::Not => {
+                    let inner = values.pop().expect("negated token predicate is cloned");
+                    values.push(TokenPredicate::Not(Box::new(inner)));
+                }
+            }
+        }
+        values
+            .pop()
+            .expect("the root token predicate produces one clone")
+    }
+}
+
+impl Debug for TokenPredicate {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        enum Event<'a> {
+            Predicate(&'a TokenPredicate),
+            Text(&'static str),
+        }
+        let mut events = vec![Event::Predicate(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Text(text) => formatter.write_str(text)?,
+                Event::Predicate(predicate) => match predicate {
+                    TokenPredicate::Any => formatter.write_str("Any")?,
+                    TokenPredicate::Text(text) => write!(formatter, "Text({text:?})")?,
+                    TokenPredicate::TextCaseInsensitive(text) => {
+                        write!(formatter, "TextCaseInsensitive({text:?})")?;
+                    }
+                    TokenPredicate::Kind(kind) => write!(formatter, "Kind({kind:?})")?,
+                    TokenPredicate::KindAndText(kind, text) => {
+                        write!(formatter, "KindAndText({kind:?}, {text:?})")?;
+                    }
+                    TokenPredicate::StartsWith(prefix) => {
+                        write!(formatter, "StartsWith({prefix:?})")?;
+                    }
+                    TokenPredicate::EndsWith(suffix) => {
+                        write!(formatter, "EndsWith({suffix:?})")?;
+                    }
+                    TokenPredicate::Contains(fragment) => {
+                        write!(formatter, "Contains({fragment:?})")?;
+                    }
+                    TokenPredicate::Regex(pattern) => {
+                        write!(formatter, "Regex({pattern:?})")?;
+                    }
+                    TokenPredicate::Any_(predicates) | TokenPredicate::All(predicates) => {
+                        formatter.write_str(if matches!(predicate, TokenPredicate::Any_(_)) {
+                            "Any_(["
+                        } else {
+                            "All(["
+                        })?;
+                        events.push(Event::Text("])"));
+                        for (index, child) in predicates.iter().enumerate().rev() {
+                            if index + 1 < predicates.len() {
+                                events.push(Event::Text(", "));
+                            }
+                            events.push(Event::Predicate(child));
+                        }
+                    }
+                    TokenPredicate::Not(inner) => {
+                        formatter.write_str("Not(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Predicate(inner));
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Drop for TokenPredicate {
+    fn drop(&mut self) {
+        fn drain(predicate: &mut TokenPredicate, pending: &mut Vec<TokenPredicate>) {
+            match predicate {
+                TokenPredicate::Any_(children) | TokenPredicate::All(children) => {
+                    pending.append(children);
+                }
+                TokenPredicate::Not(inner) => {
+                    pending.push(std::mem::replace(&mut **inner, TokenPredicate::Any));
+                }
+                TokenPredicate::Any
+                | TokenPredicate::Text(_)
+                | TokenPredicate::TextCaseInsensitive(_)
+                | TokenPredicate::Kind(_)
+                | TokenPredicate::KindAndText(_, _)
+                | TokenPredicate::StartsWith(_)
+                | TokenPredicate::EndsWith(_)
+                | TokenPredicate::Contains(_)
+                | TokenPredicate::Regex(_) => {}
+            }
+        }
+
+        let mut pending = Vec::new();
+        drain(self, &mut pending);
+        while let Some(mut predicate) = pending.pop() {
+            drain(&mut predicate, &mut pending);
+        }
+    }
+}
+
 impl TokenPredicate {
     /// Create a text predicate.
     pub fn text(s: impl Into<String>) -> Self {
@@ -151,20 +311,105 @@ impl TokenPredicate {
 
     /// Check if a token matches this predicate.
     pub fn matches(&self, token: &Token) -> bool {
-        match self {
-            TokenPredicate::Any => true,
-            TokenPredicate::Text(t) => token.text == *t,
-            TokenPredicate::TextCaseInsensitive(t) => token.text.eq_ignore_ascii_case(t),
-            TokenPredicate::Kind(k) => token.kind == *k,
-            TokenPredicate::KindAndText(k, t) => token.kind == *k && token.text == *t,
-            TokenPredicate::StartsWith(prefix) => token.text.starts_with(prefix),
-            TokenPredicate::EndsWith(suffix) => token.text.ends_with(suffix),
-            TokenPredicate::Contains(sub) => token.text.contains(sub),
-            TokenPredicate::Regex(pattern) => regex_matches(&token.text, pattern),
-            TokenPredicate::Any_(preds) => preds.iter().any(|p| p.matches(token)),
-            TokenPredicate::All(preds) => preds.iter().all(|p| p.matches(token)),
-            TokenPredicate::Not(pred) => !pred.matches(token),
+        enum Frame<'a> {
+            Eval(&'a TokenPredicate),
+            Not,
+            Any {
+                predicates: &'a [TokenPredicate],
+                next: usize,
+            },
+            All {
+                predicates: &'a [TokenPredicate],
+                next: usize,
+            },
         }
+        let mut frames = vec![Frame::Eval(self)];
+        let mut result = None;
+        while let Some(frame) = frames.pop() {
+            match frame {
+                Frame::Eval(predicate) => match predicate {
+                    TokenPredicate::Any => result = Some(true),
+                    TokenPredicate::Text(text) => result = Some(token.text == *text),
+                    TokenPredicate::TextCaseInsensitive(text) => {
+                        result = Some(token.text.eq_ignore_ascii_case(text));
+                    }
+                    TokenPredicate::Kind(kind) => result = Some(token.kind == *kind),
+                    TokenPredicate::KindAndText(kind, text) => {
+                        result = Some(token.kind == *kind && token.text == *text);
+                    }
+                    TokenPredicate::StartsWith(prefix) => {
+                        result = Some(token.text.starts_with(prefix));
+                    }
+                    TokenPredicate::EndsWith(suffix) => {
+                        result = Some(token.text.ends_with(suffix));
+                    }
+                    TokenPredicate::Contains(fragment) => {
+                        result = Some(token.text.contains(fragment));
+                    }
+                    TokenPredicate::Regex(pattern) => {
+                        result = Some(regex_matches(&token.text, pattern));
+                    }
+                    TokenPredicate::Any_(predicates) => {
+                        if let Some(first) = predicates.first() {
+                            frames.push(Frame::Any {
+                                predicates,
+                                next: 1,
+                            });
+                            frames.push(Frame::Eval(first));
+                        } else {
+                            result = Some(false);
+                        }
+                    }
+                    TokenPredicate::All(predicates) => {
+                        if let Some(first) = predicates.first() {
+                            frames.push(Frame::All {
+                                predicates,
+                                next: 1,
+                            });
+                            frames.push(Frame::Eval(first));
+                        } else {
+                            result = Some(true);
+                        }
+                    }
+                    TokenPredicate::Not(inner) => {
+                        frames.push(Frame::Not);
+                        frames.push(Frame::Eval(inner));
+                    }
+                },
+                Frame::Not => {
+                    result = Some(!result.take().expect("negated token predicate is evaluated"));
+                }
+                Frame::Any { predicates, next } => {
+                    if result.take().expect("Any child is evaluated") {
+                        result = Some(true);
+                    } else if let Some(predicate) = predicates.get(next) {
+                        frames.push(Frame::Any {
+                            predicates,
+                            next: next + 1,
+                        });
+                        frames.push(Frame::Eval(predicate));
+                    } else {
+                        result = Some(false);
+                    }
+                }
+                Frame::All { predicates, next } => {
+                    if result.take().expect("All child is evaluated") {
+                        if let Some(predicate) = predicates.get(next) {
+                            frames.push(Frame::All {
+                                predicates,
+                                next: next + 1,
+                            });
+                            frames.push(Frame::Eval(predicate));
+                        } else {
+                            result = Some(true);
+                        }
+                    } else {
+                        result = Some(false);
+                    }
+                }
+            }
+        }
+        result.expect("the root token predicate produces one Boolean result")
     }
 }
 
@@ -176,7 +421,6 @@ fn regex_matches(text: &str, pattern: &str) -> bool {
 }
 
 /// A pattern for matching sequences of tokens.
-#[derive(Debug, Clone)]
 pub struct TokenPattern {
     /// Elements in the pattern.
     pub elements: Vec<PatternElement>,
@@ -185,7 +429,6 @@ pub struct TokenPattern {
 }
 
 /// Element in a token pattern.
-#[derive(Debug, Clone)]
 pub enum PatternElement {
     /// Match a single token.
     Single(TokenPredicate),
@@ -203,6 +446,257 @@ pub enum PatternElement {
     LookAhead(TokenPredicate),
     /// Negative look-ahead.
     NegativeLookAhead(TokenPredicate),
+}
+
+enum PatternCloneTask<'a> {
+    Pattern(&'a TokenPattern),
+    FinishPattern { element_count: usize, name: &'a str },
+    Element(&'a PatternElement),
+    FinishAlternative(usize),
+}
+
+enum PatternCloneValue {
+    Pattern(TokenPattern),
+    Element(PatternElement),
+}
+
+fn clone_pattern_syntax(root: PatternCloneTask<'_>) -> PatternCloneValue {
+    let mut tasks = vec![root];
+    let mut values = Vec::new();
+    while let Some(task) = tasks.pop() {
+        match task {
+            PatternCloneTask::Pattern(pattern) => {
+                tasks.push(PatternCloneTask::FinishPattern {
+                    element_count: pattern.elements.len(),
+                    name: &pattern.name,
+                });
+                tasks.extend(pattern.elements.iter().rev().map(PatternCloneTask::Element));
+            }
+            PatternCloneTask::FinishPattern {
+                element_count,
+                name,
+            } => {
+                let offset = values
+                    .len()
+                    .checked_sub(element_count)
+                    .expect("all token-pattern elements are cloned");
+                let elements = values
+                    .split_off(offset)
+                    .into_iter()
+                    .map(|value| match value {
+                        PatternCloneValue::Element(element) => element,
+                        PatternCloneValue::Pattern(_) => {
+                            unreachable!("a pattern clone contains only element values")
+                        }
+                    })
+                    .collect();
+                values.push(PatternCloneValue::Pattern(TokenPattern {
+                    elements,
+                    name: name.to_owned(),
+                }));
+            }
+            PatternCloneTask::Element(element) => match element {
+                PatternElement::Single(predicate) => values.push(PatternCloneValue::Element(
+                    PatternElement::Single(predicate.clone()),
+                )),
+                PatternElement::ZeroOrMore(predicate) => values.push(PatternCloneValue::Element(
+                    PatternElement::ZeroOrMore(predicate.clone()),
+                )),
+                PatternElement::OneOrMore(predicate) => values.push(PatternCloneValue::Element(
+                    PatternElement::OneOrMore(predicate.clone()),
+                )),
+                PatternElement::Optional(predicate) => values.push(PatternCloneValue::Element(
+                    PatternElement::Optional(predicate.clone()),
+                )),
+                PatternElement::Capture(name, predicate) => {
+                    values.push(PatternCloneValue::Element(PatternElement::Capture(
+                        name.clone(),
+                        predicate.clone(),
+                    )))
+                }
+                PatternElement::Alternative(alternatives) => {
+                    tasks.push(PatternCloneTask::FinishAlternative(alternatives.len()));
+                    tasks.extend(alternatives.iter().rev().map(PatternCloneTask::Pattern));
+                }
+                PatternElement::LookAhead(predicate) => values.push(PatternCloneValue::Element(
+                    PatternElement::LookAhead(predicate.clone()),
+                )),
+                PatternElement::NegativeLookAhead(predicate) => {
+                    values.push(PatternCloneValue::Element(
+                        PatternElement::NegativeLookAhead(predicate.clone()),
+                    ))
+                }
+            },
+            PatternCloneTask::FinishAlternative(pattern_count) => {
+                let offset = values
+                    .len()
+                    .checked_sub(pattern_count)
+                    .expect("all alternative token patterns are cloned");
+                let alternatives = values
+                    .split_off(offset)
+                    .into_iter()
+                    .map(|value| match value {
+                        PatternCloneValue::Pattern(pattern) => pattern,
+                        PatternCloneValue::Element(_) => {
+                            unreachable!("an alternative clone contains only pattern values")
+                        }
+                    })
+                    .collect();
+                values.push(PatternCloneValue::Element(PatternElement::Alternative(
+                    alternatives,
+                )));
+            }
+        }
+    }
+    values
+        .pop()
+        .expect("the root token-pattern syntax produces one clone")
+}
+
+impl Clone for TokenPattern {
+    fn clone(&self) -> Self {
+        match clone_pattern_syntax(PatternCloneTask::Pattern(self)) {
+            PatternCloneValue::Pattern(pattern) => pattern,
+            PatternCloneValue::Element(_) => {
+                unreachable!("a token-pattern clone produces a pattern")
+            }
+        }
+    }
+}
+
+impl Clone for PatternElement {
+    fn clone(&self) -> Self {
+        match clone_pattern_syntax(PatternCloneTask::Element(self)) {
+            PatternCloneValue::Element(element) => element,
+            PatternCloneValue::Pattern(_) => {
+                unreachable!("a pattern-element clone produces an element")
+            }
+        }
+    }
+}
+
+enum PatternDebugEvent<'a> {
+    Pattern(&'a TokenPattern),
+    Element(&'a PatternElement),
+    PatternSuffix(&'a str),
+    Text(&'static str),
+}
+
+fn debug_pattern_syntax(
+    root: PatternDebugEvent<'_>,
+    formatter: &mut fmt::Formatter<'_>,
+) -> fmt::Result {
+    let mut events = vec![root];
+    while let Some(event) = events.pop() {
+        match event {
+            PatternDebugEvent::Text(text) => formatter.write_str(text)?,
+            PatternDebugEvent::PatternSuffix(name) => {
+                write!(formatter, "], name: {name:?} }}")?;
+            }
+            PatternDebugEvent::Pattern(pattern) => {
+                formatter.write_str("TokenPattern { elements: [")?;
+                events.push(PatternDebugEvent::PatternSuffix(&pattern.name));
+                for (index, element) in pattern.elements.iter().enumerate().rev() {
+                    if index + 1 < pattern.elements.len() {
+                        events.push(PatternDebugEvent::Text(", "));
+                    }
+                    events.push(PatternDebugEvent::Element(element));
+                }
+            }
+            PatternDebugEvent::Element(element) => match element {
+                PatternElement::Single(predicate) => {
+                    write!(formatter, "Single({predicate:?})")?;
+                }
+                PatternElement::ZeroOrMore(predicate) => {
+                    write!(formatter, "ZeroOrMore({predicate:?})")?;
+                }
+                PatternElement::OneOrMore(predicate) => {
+                    write!(formatter, "OneOrMore({predicate:?})")?;
+                }
+                PatternElement::Optional(predicate) => {
+                    write!(formatter, "Optional({predicate:?})")?;
+                }
+                PatternElement::Capture(name, predicate) => {
+                    write!(formatter, "Capture({name:?}, {predicate:?})")?;
+                }
+                PatternElement::Alternative(alternatives) => {
+                    formatter.write_str("Alternative([")?;
+                    events.push(PatternDebugEvent::Text("])"));
+                    for (index, pattern) in alternatives.iter().enumerate().rev() {
+                        if index + 1 < alternatives.len() {
+                            events.push(PatternDebugEvent::Text(", "));
+                        }
+                        events.push(PatternDebugEvent::Pattern(pattern));
+                    }
+                }
+                PatternElement::LookAhead(predicate) => {
+                    write!(formatter, "LookAhead({predicate:?})")?;
+                }
+                PatternElement::NegativeLookAhead(predicate) => {
+                    write!(formatter, "NegativeLookAhead({predicate:?})")?;
+                }
+            },
+        }
+    }
+    Ok(())
+}
+
+impl Debug for TokenPattern {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        debug_pattern_syntax(PatternDebugEvent::Pattern(self), formatter)
+    }
+}
+
+impl Debug for PatternElement {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        debug_pattern_syntax(PatternDebugEvent::Element(self), formatter)
+    }
+}
+
+enum OwnedPatternSyntax {
+    Pattern(TokenPattern),
+    Element(PatternElement),
+}
+
+fn drain_pattern_element(element: &mut PatternElement, pending: &mut Vec<OwnedPatternSyntax>) {
+    if let PatternElement::Alternative(alternatives) = element {
+        pending.extend(
+            std::mem::take(alternatives)
+                .into_iter()
+                .map(OwnedPatternSyntax::Pattern),
+        );
+    }
+}
+
+fn drain_owned_pattern_syntax(pending: &mut Vec<OwnedPatternSyntax>) {
+    while let Some(mut syntax) = pending.pop() {
+        match &mut syntax {
+            OwnedPatternSyntax::Pattern(pattern) => pending.extend(
+                std::mem::take(&mut pattern.elements)
+                    .into_iter()
+                    .map(OwnedPatternSyntax::Element),
+            ),
+            OwnedPatternSyntax::Element(element) => drain_pattern_element(element, pending),
+        }
+    }
+}
+
+impl Drop for TokenPattern {
+    fn drop(&mut self) {
+        let mut pending = std::mem::take(&mut self.elements)
+            .into_iter()
+            .map(OwnedPatternSyntax::Element)
+            .collect::<Vec<_>>();
+        drain_owned_pattern_syntax(&mut pending);
+    }
+}
+
+impl Drop for PatternElement {
+    fn drop(&mut self) {
+        let mut pending = Vec::new();
+        drain_pattern_element(self, &mut pending);
+        drain_owned_pattern_syntax(&mut pending);
+    }
 }
 
 impl TokenPattern {
@@ -362,89 +856,176 @@ impl PatternMatcher {
         tokens: &[Token],
         start: usize,
     ) -> Option<PatternMatch> {
-        let mut pos = start;
-        let mut matched_tokens = Vec::new();
-        let mut captures = std::collections::HashMap::new();
+        struct MatchState {
+            pos: usize,
+            matched_tokens: Vec<Token>,
+            captures: std::collections::HashMap<String, Vec<Token>>,
+        }
 
-        for element in &pattern.elements {
-            match element {
-                PatternElement::Single(pred) => {
-                    if pos >= tokens.len() || !pred.matches(&tokens[pos]) {
-                        return None;
-                    }
-                    matched_tokens.push(tokens[pos].clone());
-                    pos += 1;
-                }
-                PatternElement::Optional(pred) => {
-                    if pos < tokens.len() && pred.matches(&tokens[pos]) {
-                        matched_tokens.push(tokens[pos].clone());
-                        pos += 1;
-                    }
-                }
-                PatternElement::ZeroOrMore(pred) => {
-                    while pos < tokens.len() && pred.matches(&tokens[pos]) {
-                        matched_tokens.push(tokens[pos].clone());
-                        pos += 1;
-                    }
-                }
-                PatternElement::OneOrMore(pred) => {
-                    if pos >= tokens.len() || !pred.matches(&tokens[pos]) {
-                        return None;
-                    }
-                    while pos < tokens.len() && pred.matches(&tokens[pos]) {
-                        matched_tokens.push(tokens[pos].clone());
-                        pos += 1;
-                    }
-                }
-                PatternElement::Capture(name, pred) => {
-                    if pos >= tokens.len() || !pred.matches(&tokens[pos]) {
-                        return None;
-                    }
-                    captures
-                        .entry(name.clone())
-                        .or_insert_with(Vec::new)
-                        .push(tokens[pos].clone());
-                    matched_tokens.push(tokens[pos].clone());
-                    pos += 1;
-                }
-                PatternElement::Alternative(alts) => {
-                    let mut found = false;
-                    for alt in alts {
-                        if let Some(sub_match) = self.try_match_at(alt, tokens, pos) {
-                            matched_tokens.extend(sub_match.tokens);
-                            for (k, v) in sub_match.captures {
-                                captures.entry(k).or_insert_with(Vec::new).extend(v);
-                            }
-                            pos = sub_match.end_index;
-                            found = true;
-                            break;
-                        }
-                    }
-                    if !found {
-                        return None;
-                    }
-                }
-                PatternElement::LookAhead(pred) => {
-                    if pos >= tokens.len() || !pred.matches(&tokens[pos]) {
-                        return None;
-                    }
-                    // Don't consume
-                }
-                PatternElement::NegativeLookAhead(pred) => {
-                    if pos < tokens.len() && pred.matches(&tokens[pos]) {
-                        return None;
-                    }
-                    // Don't consume
-                }
+        struct Cursor<'a> {
+            pattern: &'a TokenPattern,
+            next_element: usize,
+            state: MatchState,
+        }
+
+        struct AlternativeFrame<'a> {
+            alternatives: &'a [TokenPattern],
+            next_alternative: usize,
+            parent: Cursor<'a>,
+        }
+
+        fn fresh_cursor(pattern: &TokenPattern, pos: usize) -> Cursor<'_> {
+            Cursor {
+                pattern,
+                next_element: 0,
+                state: MatchState {
+                    pos,
+                    matched_tokens: Vec::new(),
+                    captures: std::collections::HashMap::new(),
+                },
             }
         }
 
-        Some(PatternMatch {
-            tokens: matched_tokens,
-            captures,
-            start_index: start,
-            end_index: pos,
-        })
+        fn resume_after_failure<'a>(
+            alternatives: &mut Vec<AlternativeFrame<'a>>,
+        ) -> Option<Cursor<'a>> {
+            while let Some(mut frame) = alternatives.pop() {
+                if let Some(pattern) = frame.alternatives.get(frame.next_alternative) {
+                    frame.next_alternative += 1;
+                    let pos = frame.parent.state.pos;
+                    alternatives.push(frame);
+                    return Some(fresh_cursor(pattern, pos));
+                }
+            }
+            None
+        }
+
+        let mut cursor = fresh_cursor(pattern, start);
+        let mut alternatives: Vec<AlternativeFrame<'_>> = Vec::new();
+
+        loop {
+            let Some(element) = cursor.pattern.elements.get(cursor.next_element) else {
+                if let Some(frame) = alternatives.pop() {
+                    let completed = cursor.state;
+                    cursor = frame.parent;
+                    cursor.state.pos = completed.pos;
+                    cursor.state.matched_tokens.extend(completed.matched_tokens);
+                    for (name, captured) in completed.captures {
+                        cursor
+                            .state
+                            .captures
+                            .entry(name)
+                            .or_insert_with(Vec::new)
+                            .extend(captured);
+                    }
+                    continue;
+                }
+
+                return Some(PatternMatch {
+                    tokens: cursor.state.matched_tokens,
+                    captures: cursor.state.captures,
+                    start_index: start,
+                    end_index: cursor.state.pos,
+                });
+            };
+            cursor.next_element += 1;
+
+            let matched = match element {
+                PatternElement::Single(pred) => {
+                    if cursor.state.pos >= tokens.len() || !pred.matches(&tokens[cursor.state.pos])
+                    {
+                        false
+                    } else {
+                        cursor
+                            .state
+                            .matched_tokens
+                            .push(tokens[cursor.state.pos].clone());
+                        cursor.state.pos += 1;
+                        true
+                    }
+                }
+                PatternElement::Optional(pred) => {
+                    if cursor.state.pos < tokens.len() && pred.matches(&tokens[cursor.state.pos]) {
+                        cursor
+                            .state
+                            .matched_tokens
+                            .push(tokens[cursor.state.pos].clone());
+                        cursor.state.pos += 1;
+                    }
+                    true
+                }
+                PatternElement::ZeroOrMore(pred) => {
+                    while cursor.state.pos < tokens.len() && pred.matches(&tokens[cursor.state.pos])
+                    {
+                        cursor
+                            .state
+                            .matched_tokens
+                            .push(tokens[cursor.state.pos].clone());
+                        cursor.state.pos += 1;
+                    }
+                    true
+                }
+                PatternElement::OneOrMore(pred) => {
+                    if cursor.state.pos >= tokens.len() || !pred.matches(&tokens[cursor.state.pos])
+                    {
+                        false
+                    } else {
+                        while cursor.state.pos < tokens.len()
+                            && pred.matches(&tokens[cursor.state.pos])
+                        {
+                            cursor
+                                .state
+                                .matched_tokens
+                                .push(tokens[cursor.state.pos].clone());
+                            cursor.state.pos += 1;
+                        }
+                        true
+                    }
+                }
+                PatternElement::Capture(name, pred) => {
+                    if cursor.state.pos >= tokens.len() || !pred.matches(&tokens[cursor.state.pos])
+                    {
+                        false
+                    } else {
+                        cursor
+                            .state
+                            .captures
+                            .entry(name.clone())
+                            .or_insert_with(Vec::new)
+                            .push(tokens[cursor.state.pos].clone());
+                        cursor
+                            .state
+                            .matched_tokens
+                            .push(tokens[cursor.state.pos].clone());
+                        cursor.state.pos += 1;
+                        true
+                    }
+                }
+                PatternElement::Alternative(candidates) => {
+                    if let Some(first) = candidates.first() {
+                        let pos = cursor.state.pos;
+                        alternatives.push(AlternativeFrame {
+                            alternatives: candidates,
+                            next_alternative: 1,
+                            parent: cursor,
+                        });
+                        cursor = fresh_cursor(first, pos);
+                        continue;
+                    }
+                    false
+                }
+                PatternElement::LookAhead(pred) => {
+                    cursor.state.pos < tokens.len() && pred.matches(&tokens[cursor.state.pos])
+                }
+                PatternElement::NegativeLookAhead(pred) => {
+                    cursor.state.pos >= tokens.len() || !pred.matches(&tokens[cursor.state.pos])
+                }
+            };
+
+            if !matched {
+                cursor = resume_after_failure(&mut alternatives)?;
+            }
+        }
     }
 }
 
@@ -535,6 +1116,153 @@ impl TokenReplacement {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    const DEEP_PATTERN_DEPTH: usize = 100_000;
+    const SMALL_NATIVE_STACK: usize = 256 * 1024;
+
+    fn shallow_text() -> BoxedStrategy<String> {
+        prop::sample::select(vec!["a".to_string(), "b".to_string(), "c".to_string()]).boxed()
+    }
+
+    fn shallow_predicate() -> BoxedStrategy<TokenPredicate> {
+        shallow_text().prop_map(TokenPredicate::text).boxed()
+    }
+
+    fn shallow_primitive_element() -> BoxedStrategy<PatternElement> {
+        prop_oneof![
+            4 => shallow_predicate().prop_map(PatternElement::Single),
+            2 => shallow_predicate().prop_map(PatternElement::ZeroOrMore),
+            2 => shallow_predicate().prop_map(PatternElement::OneOrMore),
+            2 => shallow_predicate().prop_map(PatternElement::Optional),
+            2 => (shallow_text(), shallow_predicate())
+                .prop_map(|(name, predicate)| PatternElement::Capture(name, predicate)),
+            1 => shallow_predicate().prop_map(PatternElement::LookAhead),
+            1 => shallow_predicate().prop_map(PatternElement::NegativeLookAhead),
+        ]
+        .boxed()
+    }
+
+    fn shallow_pattern() -> BoxedStrategy<TokenPattern> {
+        prop::collection::vec(shallow_primitive_element(), 0..5)
+            .prop_map(|elements| TokenPattern {
+                elements,
+                name: "leaf".to_string(),
+            })
+            .prop_recursive(4, 64, 4, |inner| {
+                (
+                    prop::collection::vec(shallow_primitive_element(), 0..3),
+                    prop::collection::vec(inner, 0..4),
+                    prop::collection::vec(shallow_primitive_element(), 0..3),
+                )
+                    .prop_map(|(mut prefix, alternatives, suffix)| {
+                        prefix.push(PatternElement::Alternative(alternatives));
+                        prefix.extend(suffix);
+                        TokenPattern {
+                            elements: prefix,
+                            name: "nested".to_string(),
+                        }
+                    })
+            })
+            .boxed()
+    }
+
+    fn shallow_tokens() -> BoxedStrategy<Vec<Token>> {
+        prop::collection::vec(
+            shallow_text().prop_map(|text| Token::simple(TokenKind::Identifier, text)),
+            0..12,
+        )
+        .boxed()
+    }
+
+    fn recursive_try_match_at(
+        pattern: &TokenPattern,
+        tokens: &[Token],
+        start: usize,
+    ) -> Option<PatternMatch> {
+        let mut pos = start;
+        let mut matched_tokens = Vec::new();
+        let mut captures = std::collections::HashMap::new();
+
+        for element in &pattern.elements {
+            match element {
+                PatternElement::Single(predicate) => {
+                    if pos >= tokens.len() || !predicate.matches(&tokens[pos]) {
+                        return None;
+                    }
+                    matched_tokens.push(tokens[pos].clone());
+                    pos += 1;
+                }
+                PatternElement::Optional(predicate) => {
+                    if pos < tokens.len() && predicate.matches(&tokens[pos]) {
+                        matched_tokens.push(tokens[pos].clone());
+                        pos += 1;
+                    }
+                }
+                PatternElement::ZeroOrMore(predicate) => {
+                    while pos < tokens.len() && predicate.matches(&tokens[pos]) {
+                        matched_tokens.push(tokens[pos].clone());
+                        pos += 1;
+                    }
+                }
+                PatternElement::OneOrMore(predicate) => {
+                    if pos >= tokens.len() || !predicate.matches(&tokens[pos]) {
+                        return None;
+                    }
+                    while pos < tokens.len() && predicate.matches(&tokens[pos]) {
+                        matched_tokens.push(tokens[pos].clone());
+                        pos += 1;
+                    }
+                }
+                PatternElement::Capture(name, predicate) => {
+                    if pos >= tokens.len() || !predicate.matches(&tokens[pos]) {
+                        return None;
+                    }
+                    captures
+                        .entry(name.clone())
+                        .or_insert_with(Vec::new)
+                        .push(tokens[pos].clone());
+                    matched_tokens.push(tokens[pos].clone());
+                    pos += 1;
+                }
+                PatternElement::Alternative(alternatives) => {
+                    let mut matched = None;
+                    for alternative in alternatives {
+                        if let Some(candidate) = recursive_try_match_at(alternative, tokens, pos) {
+                            matched = Some(candidate);
+                            break;
+                        }
+                    }
+                    let candidate = matched?;
+                    matched_tokens.extend(candidate.tokens);
+                    for (name, captured) in candidate.captures {
+                        captures
+                            .entry(name)
+                            .or_insert_with(Vec::new)
+                            .extend(captured);
+                    }
+                    pos = candidate.end_index;
+                }
+                PatternElement::LookAhead(predicate) => {
+                    if pos >= tokens.len() || !predicate.matches(&tokens[pos]) {
+                        return None;
+                    }
+                }
+                PatternElement::NegativeLookAhead(predicate) => {
+                    if pos < tokens.len() && predicate.matches(&tokens[pos]) {
+                        return None;
+                    }
+                }
+            }
+        }
+
+        Some(PatternMatch {
+            tokens: matched_tokens,
+            captures,
+            start_index: start,
+            end_index: pos,
+        })
+    }
 
     #[test]
     fn test_token_creation() {
@@ -760,5 +1488,163 @@ mod tests {
 
         assert_eq!(pattern.elements.len(), 3);
         assert_eq!(pattern.name, "arrow_function");
+    }
+
+    #[test]
+    fn iterative_debug_matches_derived_shape_and_clone() {
+        let predicate = TokenPredicate::Any_(vec![
+            TokenPredicate::text("a"),
+            TokenPredicate::not(TokenPredicate::kind(TokenKind::Keyword)),
+        ]);
+        assert_eq!(
+            format!("{predicate:?}"),
+            "Any_([Text(\"a\"), Not(Kind(Keyword))])",
+        );
+
+        let pattern = TokenPattern {
+            elements: vec![
+                PatternElement::Single(TokenPredicate::text("a")),
+                PatternElement::Alternative(vec![TokenPattern {
+                    elements: vec![PatternElement::Optional(TokenPredicate::kind(
+                        TokenKind::Identifier,
+                    ))],
+                    name: "nested".to_string(),
+                }]),
+            ],
+            name: "root".to_string(),
+        };
+        let expected = "TokenPattern { elements: [Single(Text(\"a\")), Alternative([TokenPattern { elements: [Optional(Kind(Identifier))], name: \"nested\" }])], name: \"root\" }";
+        assert_eq!(format!("{pattern:?}"), expected);
+        assert_eq!(format!("{:?}", pattern.clone()), expected);
+    }
+
+    #[test]
+    fn alternative_restores_entry_state_and_continues_parent() {
+        let preferred = TokenPattern::exact_sequence("preferred", &["x", "a"]);
+        let fallback = TokenPattern::exact_sequence("fallback", &["x", "b"]);
+        let pattern = TokenPattern {
+            elements: vec![
+                PatternElement::Alternative(vec![preferred, fallback]),
+                PatternElement::Single(TokenPredicate::text("z")),
+            ],
+            name: "parent".to_string(),
+        };
+        let tokens = ["x", "b", "z"]
+            .into_iter()
+            .map(|text| Token::simple(TokenKind::Identifier, text))
+            .collect::<Vec<_>>();
+        let matched = PatternMatcher::new()
+            .try_match_at(&pattern, &tokens, 0)
+            .expect("fallback must restart at the alternative's entry state");
+        assert_eq!(matched.end_index, tokens.len());
+        assert_eq!(
+            matched
+                .tokens
+                .iter()
+                .map(|token| token.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["x", "b", "z"],
+        );
+    }
+
+    #[test]
+    fn first_success_commits_before_parent_continuation() {
+        let preferred = TokenPattern::exact_sequence("preferred", &["x"]);
+        let fallback = TokenPattern::exact_sequence("fallback", &["x", "b"]);
+        let pattern = TokenPattern {
+            elements: vec![
+                PatternElement::Alternative(vec![preferred, fallback]),
+                PatternElement::Single(TokenPredicate::text("z")),
+            ],
+            name: "parent".to_string(),
+        };
+        let tokens = ["x", "b", "z"]
+            .into_iter()
+            .map(|text| Token::simple(TokenKind::Identifier, text))
+            .collect::<Vec<_>>();
+        assert!(PatternMatcher::new()
+            .try_match_at(&pattern, &tokens, 0)
+            .is_none());
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(512))]
+
+        #[test]
+        fn ordered_alternative_selects_the_first_matching_branch(
+            token_text in "[a-c]",
+            preferred_text in "[a-c]",
+            fallback_text in "[a-c]",
+            suffix_text in "[d-f]",
+        ) {
+            let preferred = TokenPattern::exact_sequence("preferred", &[&preferred_text]);
+            let fallback = TokenPattern::exact_sequence("fallback", &[&fallback_text]);
+            let pattern = TokenPattern {
+                elements: vec![
+                    PatternElement::Alternative(vec![preferred, fallback]),
+                    PatternElement::Single(TokenPredicate::text(&suffix_text)),
+                ],
+                name: "parent".to_string(),
+            };
+            let tokens = vec![
+                Token::simple(TokenKind::Identifier, &token_text),
+                Token::simple(TokenKind::Identifier, &suffix_text),
+            ];
+            let actual = PatternMatcher::new().try_match_at(&pattern, &tokens, 0);
+            let expected = token_text == preferred_text || token_text == fallback_text;
+            prop_assert_eq!(actual.is_some(), expected);
+            if let Some(matched) = actual {
+                prop_assert_eq!(matched.end_index, 2);
+            }
+        }
+
+        #[test]
+        fn shallow_pattern_machine_matches_recursive_reference(
+            pattern in shallow_pattern(),
+            tokens in shallow_tokens(),
+            start in 0usize..16,
+        ) {
+            let expected = recursive_try_match_at(&pattern, &tokens, start);
+            let actual = PatternMatcher::new().try_match_at(&pattern, &tokens, start);
+            match (actual, expected) {
+                (Some(actual), Some(expected)) => {
+                    prop_assert_eq!(actual.tokens, expected.tokens);
+                    prop_assert_eq!(actual.captures, expected.captures);
+                    prop_assert_eq!(actual.start_index, expected.start_index);
+                    prop_assert_eq!(actual.end_index, expected.end_index);
+                }
+                (None, None) => {}
+                (actual, expected) => {
+                    prop_assert!(false, "iterative={actual:?}, recursive={expected:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn deep_pattern_alternative_lifecycle_uses_constant_native_stack() {
+        std::thread::Builder::new()
+            .stack_size(SMALL_NATIVE_STACK)
+            .spawn(|| {
+                let mut pattern = TokenPattern::exact_sequence("leaf", &["x"]);
+                for _ in 0..DEEP_PATTERN_DEPTH {
+                    pattern = TokenPattern {
+                        elements: vec![PatternElement::Alternative(vec![pattern])],
+                        name: "nested".to_string(),
+                    };
+                }
+                let tokens = vec![Token::simple(TokenKind::Identifier, "x")];
+                let matched = PatternMatcher::new()
+                    .try_match_at(&pattern, &tokens, 0)
+                    .expect("the unique nested alternative must match");
+                assert_eq!(matched.end_index, 1);
+                let cloned = pattern.clone();
+                assert!(format!("{pattern:?}").starts_with("TokenPattern {"));
+                drop(cloned);
+                drop(pattern);
+            })
+            .expect("small-stack worker must spawn")
+            .join()
+            .expect("token-pattern lifecycle must not overflow the native stack");
     }
 }

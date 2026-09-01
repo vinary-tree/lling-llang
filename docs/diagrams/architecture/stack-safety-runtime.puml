@@ -1,0 +1,36 @@
+@startuml
+title Stack-safe runtime structure
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam ArrowColor #455A64
+skinparam ArrowThickness 1.5
+skinparam defaultFontName Helvetica
+
+rectangle "Immutable input\nsyntax · tree · lattice · automaton" as Input #BBDEFB
+rectangle "Borrowed indexes\nadjacency · exact tuple · scope" as Index #BBDEFB
+rectangle "Typed control state\nfinite frame variants" as Control #FFCDD2
+rectangle "Heap work tape W\npending visits and reductions" as Work #FFCDD2
+rectangle "Heap value tape V\ncompleted child results" as Values #FFE0B2
+rectangle "One native driver frame\ninput-depth independent" as Native #ECEFF1
+rectangle "Exact output or typed failure" as Output #C8E6C9
+
+Input --> Control : borrowed node
+Index --> Control : bounded lookup
+Control --> Work : schedule
+Work --> Control : next task
+Control --> Values : reduce
+Values --> Control : child results
+Native ..> Control : drives loop
+Control --> Output : terminal publish
+
+legend right
+  |= Color |= Meaning |
+  |<#BBDEFB> | immutable input and indexes |
+  |<#FFCDD2> | formally constrained machine state |
+  |<#FFE0B2> | heap-resident completed values |
+  |<#ECEFF1> | constant native frame |
+  |<#C8E6C9> | terminal result |
+endlegend
+@enduml

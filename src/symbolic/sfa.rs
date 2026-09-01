@@ -89,6 +89,7 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 // ══════════════════════════════════════════════════════════════════════════════
 // BooleanAlgebra trait
@@ -178,7 +179,6 @@ pub trait BooleanAlgebra: Clone + std::fmt::Debug + Send + Sync + 'static {
 /// Represents sets of integers via half-open ranges `[lo, hi)`, their unions,
 /// and their complements. The algebra domain is `i64` values within a
 /// configured `[min_val, max_val)` universe.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum IntervalPred {
     /// The universal predicate: satisfied by all integers in `[min_val, max_val)`.
     True,
@@ -192,9 +192,127 @@ pub enum IntervalPred {
     Not(Box<IntervalPred>),
 }
 
+impl Clone for IntervalPred {
+    fn clone(&self) -> Self {
+        let mut negations = 0usize;
+        let mut current = self;
+        while let IntervalPred::Not(inner) = current {
+            negations += 1;
+            current = inner;
+        }
+        let mut cloned = match current {
+            IntervalPred::True => IntervalPred::True,
+            IntervalPred::False => IntervalPred::False,
+            IntervalPred::Range(lo, hi) => IntervalPred::Range(*lo, *hi),
+            IntervalPred::Union(ranges) => IntervalPred::Union(ranges.clone()),
+            IntervalPred::Not(_) => unreachable!("the unary spine was fully traversed"),
+        };
+        for _ in 0..negations {
+            cloned = IntervalPred::Not(Box::new(cloned));
+        }
+        cloned
+    }
+}
+
+impl PartialEq for IntervalPred {
+    fn eq(&self, other: &Self) -> bool {
+        let mut left = self;
+        let mut right = other;
+        loop {
+            match (left, right) {
+                (IntervalPred::True, IntervalPred::True)
+                | (IntervalPred::False, IntervalPred::False) => return true,
+                (IntervalPred::Range(ll, lh), IntervalPred::Range(rl, rh)) => {
+                    return ll == rl && lh == rh;
+                }
+                (IntervalPred::Union(left), IntervalPred::Union(right)) => {
+                    return left == right;
+                }
+                (IntervalPred::Not(li), IntervalPred::Not(ri)) => {
+                    left = li;
+                    right = ri;
+                }
+                _ => return false,
+            }
+        }
+    }
+}
+
+impl Eq for IntervalPred {}
+
+impl Hash for IntervalPred {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut current = self;
+        loop {
+            std::mem::discriminant(current).hash(state);
+            match current {
+                IntervalPred::True | IntervalPred::False => return,
+                IntervalPred::Range(lo, hi) => {
+                    lo.hash(state);
+                    hi.hash(state);
+                    return;
+                }
+                IntervalPred::Union(ranges) => {
+                    ranges.hash(state);
+                    return;
+                }
+                IntervalPred::Not(inner) => current = inner,
+            }
+        }
+    }
+}
+
+impl fmt::Debug for IntervalPred {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut negations = 0usize;
+        let mut current = self;
+        while let IntervalPred::Not(inner) = current {
+            write!(f, "Not(")?;
+            negations += 1;
+            current = inner;
+        }
+        match current {
+            IntervalPred::True => write!(f, "True")?,
+            IntervalPred::False => write!(f, "False")?,
+            IntervalPred::Range(lo, hi) => write!(f, "Range({lo:?}, {hi:?})")?,
+            IntervalPred::Union(ranges) => write!(f, "Union({ranges:?})")?,
+            IntervalPred::Not(_) => unreachable!("the unary spine was fully traversed"),
+        }
+        for _ in 0..negations {
+            write!(f, ")")?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for IntervalPred {
+    fn drop(&mut self) {
+        fn take_child(predicate: &mut IntervalPred) -> Option<IntervalPred> {
+            match predicate {
+                IntervalPred::Not(inner) => {
+                    Some(std::mem::replace(&mut **inner, IntervalPred::True))
+                }
+                IntervalPred::True
+                | IntervalPred::False
+                | IntervalPred::Range(_, _)
+                | IntervalPred::Union(_) => None,
+            }
+        }
+        let mut current = take_child(self);
+        while let Some(mut predicate) = current {
+            current = take_child(&mut predicate);
+        }
+    }
+}
+
 impl fmt::Display for IntervalPred {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
+        let mut current = self;
+        while let IntervalPred::Not(inner) = current {
+            write!(f, "~")?;
+            current = inner;
+        }
+        match current {
             IntervalPred::True => write!(f, "TRUE"),
             IntervalPred::False => write!(f, "FALSE"),
             IntervalPred::Range(lo, hi) => write!(f, "[{}, {})", lo, hi),
@@ -208,7 +326,7 @@ impl fmt::Display for IntervalPred {
                 }
                 write!(f, ")")
             }
-            IntervalPred::Not(inner) => write!(f, "~{}", inner),
+            IntervalPred::Not(_) => unreachable!("the unary spine was fully traversed"),
         }
     }
 }
@@ -243,7 +361,13 @@ impl IntervalAlgebra {
     /// representing exactly the set of integers satisfying the predicate
     /// within the universe `[min_val, max_val)`.
     fn normalize(&self, pred: &IntervalPred) -> Vec<(i64, i64)> {
-        match pred {
+        let mut current = pred;
+        let mut negated = false;
+        while let IntervalPred::Not(inner) = current {
+            negated = !negated;
+            current = inner;
+        }
+        let ranges = match current {
             IntervalPred::True => vec![(self.min_val, self.max_val)],
             IntervalPred::False => vec![],
             IntervalPred::Range(lo, hi) => {
@@ -272,10 +396,12 @@ impl IntervalAlgebra {
                 clipped.sort_unstable();
                 merge_ranges(&clipped)
             }
-            IntervalPred::Not(inner) => {
-                let inner_ranges = self.normalize(inner);
-                complement_ranges(&inner_ranges, self.min_val, self.max_val)
-            }
+            IntervalPred::Not(_) => unreachable!("the unary spine was fully traversed"),
+        };
+        if negated {
+            complement_ranges(&ranges, self.min_val, self.max_val)
+        } else {
+            ranges
         }
     }
 
@@ -416,7 +542,6 @@ impl BooleanAlgebra for IntervalAlgebra {
 /// Represents sets of characters via inclusive ranges `[lo, hi]`, their unions,
 /// and their complements. The domain is the full Unicode scalar value range
 /// `['\0', char::MAX]`.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum CharClassPred {
     /// The universal predicate: satisfied by all characters.
     True,
@@ -430,9 +555,127 @@ pub enum CharClassPred {
     Not(Box<CharClassPred>),
 }
 
+impl Clone for CharClassPred {
+    fn clone(&self) -> Self {
+        let mut negations = 0usize;
+        let mut current = self;
+        while let CharClassPred::Not(inner) = current {
+            negations += 1;
+            current = inner;
+        }
+        let mut cloned = match current {
+            CharClassPred::True => CharClassPred::True,
+            CharClassPred::False => CharClassPred::False,
+            CharClassPred::Range(lo, hi) => CharClassPred::Range(*lo, *hi),
+            CharClassPred::Union(ranges) => CharClassPred::Union(ranges.clone()),
+            CharClassPred::Not(_) => unreachable!("the unary spine was fully traversed"),
+        };
+        for _ in 0..negations {
+            cloned = CharClassPred::Not(Box::new(cloned));
+        }
+        cloned
+    }
+}
+
+impl PartialEq for CharClassPred {
+    fn eq(&self, other: &Self) -> bool {
+        let mut left = self;
+        let mut right = other;
+        loop {
+            match (left, right) {
+                (CharClassPred::True, CharClassPred::True)
+                | (CharClassPred::False, CharClassPred::False) => return true,
+                (CharClassPred::Range(ll, lh), CharClassPred::Range(rl, rh)) => {
+                    return ll == rl && lh == rh;
+                }
+                (CharClassPred::Union(left), CharClassPred::Union(right)) => {
+                    return left == right;
+                }
+                (CharClassPred::Not(li), CharClassPred::Not(ri)) => {
+                    left = li;
+                    right = ri;
+                }
+                _ => return false,
+            }
+        }
+    }
+}
+
+impl Eq for CharClassPred {}
+
+impl Hash for CharClassPred {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut current = self;
+        loop {
+            std::mem::discriminant(current).hash(state);
+            match current {
+                CharClassPred::True | CharClassPred::False => return,
+                CharClassPred::Range(lo, hi) => {
+                    lo.hash(state);
+                    hi.hash(state);
+                    return;
+                }
+                CharClassPred::Union(ranges) => {
+                    ranges.hash(state);
+                    return;
+                }
+                CharClassPred::Not(inner) => current = inner,
+            }
+        }
+    }
+}
+
+impl fmt::Debug for CharClassPred {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut negations = 0usize;
+        let mut current = self;
+        while let CharClassPred::Not(inner) = current {
+            write!(f, "Not(")?;
+            negations += 1;
+            current = inner;
+        }
+        match current {
+            CharClassPred::True => write!(f, "True")?,
+            CharClassPred::False => write!(f, "False")?,
+            CharClassPred::Range(lo, hi) => write!(f, "Range({lo:?}, {hi:?})")?,
+            CharClassPred::Union(ranges) => write!(f, "Union({ranges:?})")?,
+            CharClassPred::Not(_) => unreachable!("the unary spine was fully traversed"),
+        }
+        for _ in 0..negations {
+            write!(f, ")")?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for CharClassPred {
+    fn drop(&mut self) {
+        fn take_child(predicate: &mut CharClassPred) -> Option<CharClassPred> {
+            match predicate {
+                CharClassPred::Not(inner) => {
+                    Some(std::mem::replace(&mut **inner, CharClassPred::True))
+                }
+                CharClassPred::True
+                | CharClassPred::False
+                | CharClassPred::Range(_, _)
+                | CharClassPred::Union(_) => None,
+            }
+        }
+        let mut current = take_child(self);
+        while let Some(mut predicate) = current {
+            current = take_child(&mut predicate);
+        }
+    }
+}
+
 impl fmt::Display for CharClassPred {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
+        let mut current = self;
+        while let CharClassPred::Not(inner) = current {
+            write!(f, "~")?;
+            current = inner;
+        }
+        match current {
             CharClassPred::True => write!(f, "TRUE"),
             CharClassPred::False => write!(f, "FALSE"),
             CharClassPred::Range(lo, hi) => {
@@ -456,7 +699,7 @@ impl fmt::Display for CharClassPred {
                 }
                 write!(f, "]")
             }
-            CharClassPred::Not(inner) => write!(f, "~{}", inner),
+            CharClassPred::Not(_) => unreachable!("the unary spine was fully traversed"),
         }
     }
 }
@@ -479,7 +722,13 @@ impl CharClassAlgebra {
     /// Normalize a predicate to a sorted, non-overlapping list of
     /// half-open `u32` ranges `[lo, hi)`.
     fn normalize_u32(pred: &CharClassPred) -> Vec<(u32, u32)> {
-        match pred {
+        let mut current = pred;
+        let mut negated = false;
+        while let CharClassPred::Not(inner) = current {
+            negated = !negated;
+            current = inner;
+        }
+        let ranges = match current {
             CharClassPred::True => vec![(0, (char::MAX as u32) + 1)],
             CharClassPred::False => vec![],
             CharClassPred::Range(lo, hi) => {
@@ -503,10 +752,12 @@ impl CharClassAlgebra {
                 u32_ranges.sort_unstable();
                 merge_u32_ranges(&u32_ranges)
             }
-            CharClassPred::Not(inner) => {
-                let inner_ranges = Self::normalize_u32(inner);
-                complement_u32_ranges(&inner_ranges, 0, (char::MAX as u32) + 1)
-            }
+            CharClassPred::Not(_) => unreachable!("the unary spine was fully traversed"),
+        };
+        if negated {
+            complement_u32_ranges(&ranges, 0, (char::MAX as u32) + 1)
+        } else {
+            ranges
         }
     }
 
@@ -1487,7 +1738,6 @@ impl fmt::Display for DecidabilityTier {
 /// This is a richer predicate language than `BooleanTest`, supporting
 /// quantification (both finite and infinite-domain), relational atoms
 /// (database lookups), and bounded checking.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PredicateExpr {
     /// Boolean true.
     True,
@@ -1555,33 +1805,430 @@ pub enum PredicateExpr {
     },
 }
 
+impl Clone for PredicateExpr {
+    fn clone(&self) -> Self {
+        enum Task<'a> {
+            Clone(&'a PredicateExpr),
+            Not,
+            And,
+            Or,
+            ForallFinite(&'a str, &'a [String]),
+            ExistsFinite(&'a str, &'a [String]),
+            ForallInfinite(&'a str),
+            ExistsInfinite(&'a str),
+            Bounded(u64),
+        }
+        let mut tasks = vec![Task::Clone(self)];
+        let mut values = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Clone(expression) => match expression {
+                    PredicateExpr::True => values.push(PredicateExpr::True),
+                    PredicateExpr::False => values.push(PredicateExpr::False),
+                    PredicateExpr::Atom(name) => values.push(PredicateExpr::Atom(name.clone())),
+                    PredicateExpr::Not(inner) => {
+                        tasks.push(Task::Not);
+                        tasks.push(Task::Clone(inner));
+                    }
+                    PredicateExpr::And(left, right) => {
+                        tasks.push(Task::And);
+                        tasks.push(Task::Clone(right));
+                        tasks.push(Task::Clone(left));
+                    }
+                    PredicateExpr::Or(left, right) => {
+                        tasks.push(Task::Or);
+                        tasks.push(Task::Clone(right));
+                        tasks.push(Task::Clone(left));
+                    }
+                    PredicateExpr::ForallFinite { var, domain, body } => {
+                        tasks.push(Task::ForallFinite(var, domain));
+                        tasks.push(Task::Clone(body));
+                    }
+                    PredicateExpr::ExistsFinite { var, domain, body } => {
+                        tasks.push(Task::ExistsFinite(var, domain));
+                        tasks.push(Task::Clone(body));
+                    }
+                    PredicateExpr::ForallInfinite { var, body } => {
+                        tasks.push(Task::ForallInfinite(var));
+                        tasks.push(Task::Clone(body));
+                    }
+                    PredicateExpr::ExistsInfinite { var, body } => {
+                        tasks.push(Task::ExistsInfinite(var));
+                        tasks.push(Task::Clone(body));
+                    }
+                    PredicateExpr::Relation { name, args } => {
+                        values.push(PredicateExpr::Relation {
+                            name: name.clone(),
+                            args: args.clone(),
+                        });
+                    }
+                    PredicateExpr::Bounded { body, bound } => {
+                        tasks.push(Task::Bounded(*bound));
+                        tasks.push(Task::Clone(body));
+                    }
+                },
+                Task::Not => {
+                    let inner = values.pop().expect("negated expression clone is present");
+                    values.push(PredicateExpr::Not(Box::new(inner)));
+                }
+                Task::And | Task::Or => {
+                    let right = values.pop().expect("right expression clone is present");
+                    let left = values.pop().expect("left expression clone is present");
+                    values.push(if matches!(task, Task::And) {
+                        PredicateExpr::And(Box::new(left), Box::new(right))
+                    } else {
+                        PredicateExpr::Or(Box::new(left), Box::new(right))
+                    });
+                }
+                Task::ForallFinite(var, domain) | Task::ExistsFinite(var, domain) => {
+                    let body = values
+                        .pop()
+                        .expect("finite quantifier body clone is present");
+                    values.push(if matches!(task, Task::ForallFinite(_, _)) {
+                        PredicateExpr::ForallFinite {
+                            var: var.to_string(),
+                            domain: domain.to_vec(),
+                            body: Box::new(body),
+                        }
+                    } else {
+                        PredicateExpr::ExistsFinite {
+                            var: var.to_string(),
+                            domain: domain.to_vec(),
+                            body: Box::new(body),
+                        }
+                    });
+                }
+                Task::ForallInfinite(var) | Task::ExistsInfinite(var) => {
+                    let body = values
+                        .pop()
+                        .expect("infinite quantifier body clone is present");
+                    values.push(if matches!(task, Task::ForallInfinite(_)) {
+                        PredicateExpr::ForallInfinite {
+                            var: var.to_string(),
+                            body: Box::new(body),
+                        }
+                    } else {
+                        PredicateExpr::ExistsInfinite {
+                            var: var.to_string(),
+                            body: Box::new(body),
+                        }
+                    });
+                }
+                Task::Bounded(bound) => {
+                    let body = values.pop().expect("bounded body clone is present");
+                    values.push(PredicateExpr::Bounded {
+                        body: Box::new(body),
+                        bound,
+                    });
+                }
+            }
+        }
+        values
+            .pop()
+            .expect("the root expression produces one clone")
+    }
+}
+
+impl PartialEq for PredicateExpr {
+    fn eq(&self, other: &Self) -> bool {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (PredicateExpr::True, PredicateExpr::True)
+                | (PredicateExpr::False, PredicateExpr::False) => {}
+                (PredicateExpr::Atom(left), PredicateExpr::Atom(right)) if left == right => {}
+                (PredicateExpr::Not(left), PredicateExpr::Not(right)) => {
+                    pending.push((left, right));
+                }
+                (PredicateExpr::And(ll, lr), PredicateExpr::And(rl, rr))
+                | (PredicateExpr::Or(ll, lr), PredicateExpr::Or(rl, rr)) => {
+                    pending.push((lr, rr));
+                    pending.push((ll, rl));
+                }
+                (
+                    PredicateExpr::ForallFinite {
+                        var: lv,
+                        domain: ld,
+                        body: lb,
+                    },
+                    PredicateExpr::ForallFinite {
+                        var: rv,
+                        domain: rd,
+                        body: rb,
+                    },
+                )
+                | (
+                    PredicateExpr::ExistsFinite {
+                        var: lv,
+                        domain: ld,
+                        body: lb,
+                    },
+                    PredicateExpr::ExistsFinite {
+                        var: rv,
+                        domain: rd,
+                        body: rb,
+                    },
+                ) if lv == rv && ld == rd => pending.push((lb, rb)),
+                (
+                    PredicateExpr::ForallInfinite { var: lv, body: lb },
+                    PredicateExpr::ForallInfinite { var: rv, body: rb },
+                )
+                | (
+                    PredicateExpr::ExistsInfinite { var: lv, body: lb },
+                    PredicateExpr::ExistsInfinite { var: rv, body: rb },
+                ) if lv == rv => pending.push((lb, rb)),
+                (
+                    PredicateExpr::Relation { name: ln, args: la },
+                    PredicateExpr::Relation { name: rn, args: ra },
+                ) if ln == rn && la == ra => {}
+                (
+                    PredicateExpr::Bounded {
+                        body: lb,
+                        bound: ll,
+                    },
+                    PredicateExpr::Bounded {
+                        body: rb,
+                        bound: rl,
+                    },
+                ) if ll == rl => pending.push((lb, rb)),
+                _ => return false,
+            }
+        }
+        true
+    }
+}
+
+impl Eq for PredicateExpr {}
+
+impl Hash for PredicateExpr {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        enum Event<'a> {
+            Expr(&'a PredicateExpr),
+            Bound(u64),
+        }
+        let mut pending = vec![Event::Expr(self)];
+        while let Some(event) = pending.pop() {
+            match event {
+                Event::Bound(bound) => bound.hash(state),
+                Event::Expr(expression) => {
+                    std::mem::discriminant(expression).hash(state);
+                    match expression {
+                        PredicateExpr::True | PredicateExpr::False => {}
+                        PredicateExpr::Atom(name) => name.hash(state),
+                        PredicateExpr::Not(inner) => pending.push(Event::Expr(inner)),
+                        PredicateExpr::And(left, right) | PredicateExpr::Or(left, right) => {
+                            pending.push(Event::Expr(right));
+                            pending.push(Event::Expr(left));
+                        }
+                        PredicateExpr::ForallFinite { var, domain, body }
+                        | PredicateExpr::ExistsFinite { var, domain, body } => {
+                            var.hash(state);
+                            domain.hash(state);
+                            pending.push(Event::Expr(body));
+                        }
+                        PredicateExpr::ForallInfinite { var, body }
+                        | PredicateExpr::ExistsInfinite { var, body } => {
+                            var.hash(state);
+                            pending.push(Event::Expr(body));
+                        }
+                        PredicateExpr::Relation { name, args } => {
+                            name.hash(state);
+                            args.hash(state);
+                        }
+                        PredicateExpr::Bounded { body, bound } => {
+                            pending.push(Event::Bound(*bound));
+                            pending.push(Event::Expr(body));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl fmt::Debug for PredicateExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        enum Event<'a> {
+            Expr(&'a PredicateExpr),
+            Text(&'static str),
+            Bound(u64),
+        }
+        let mut events = vec![Event::Expr(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Text(text) => write!(f, "{text}")?,
+                Event::Bound(bound) => write!(f, "{bound:?}")?,
+                Event::Expr(expression) => match expression {
+                    PredicateExpr::True => write!(f, "True")?,
+                    PredicateExpr::False => write!(f, "False")?,
+                    PredicateExpr::Atom(name) => write!(f, "Atom({name:?})")?,
+                    PredicateExpr::Not(inner) => {
+                        write!(f, "Not(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Expr(inner));
+                    }
+                    PredicateExpr::And(left, right) | PredicateExpr::Or(left, right) => {
+                        write!(
+                            f,
+                            "{}(",
+                            if matches!(expression, PredicateExpr::And(_, _)) {
+                                "And"
+                            } else {
+                                "Or"
+                            }
+                        )?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Expr(right));
+                        events.push(Event::Text(", "));
+                        events.push(Event::Expr(left));
+                    }
+                    PredicateExpr::ForallFinite { var, domain, body }
+                    | PredicateExpr::ExistsFinite { var, domain, body } => {
+                        write!(
+                            f,
+                            "{} {{ var: {var:?}, domain: {domain:?}, body: ",
+                            if matches!(expression, PredicateExpr::ForallFinite { .. }) {
+                                "ForallFinite"
+                            } else {
+                                "ExistsFinite"
+                            }
+                        )?;
+                        events.push(Event::Text(" }"));
+                        events.push(Event::Expr(body));
+                    }
+                    PredicateExpr::ForallInfinite { var, body }
+                    | PredicateExpr::ExistsInfinite { var, body } => {
+                        write!(
+                            f,
+                            "{} {{ var: {var:?}, body: ",
+                            if matches!(expression, PredicateExpr::ForallInfinite { .. }) {
+                                "ForallInfinite"
+                            } else {
+                                "ExistsInfinite"
+                            }
+                        )?;
+                        events.push(Event::Text(" }"));
+                        events.push(Event::Expr(body));
+                    }
+                    PredicateExpr::Relation { name, args } => {
+                        write!(f, "Relation {{ name: {name:?}, args: {args:?} }}")?;
+                    }
+                    PredicateExpr::Bounded { body, bound } => {
+                        write!(f, "Bounded {{ body: ")?;
+                        events.push(Event::Text(" }"));
+                        events.push(Event::Bound(*bound));
+                        events.push(Event::Text(", bound: "));
+                        events.push(Event::Expr(body));
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+}
+
 impl fmt::Display for PredicateExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PredicateExpr::True => write!(f, "true"),
-            PredicateExpr::False => write!(f, "false"),
-            PredicateExpr::Atom(name) => write!(f, "{}", name),
-            PredicateExpr::Not(inner) => write!(f, "~({})", inner),
-            PredicateExpr::And(a, b) => write!(f, "({} /\\ {})", a, b),
-            PredicateExpr::Or(a, b) => write!(f, "({} \\/ {})", a, b),
-            PredicateExpr::ForallFinite { var, domain, body } => {
-                write!(f, "forall {} in {:?}. {}", var, domain, body)
+        enum Event<'a> {
+            Expr(&'a PredicateExpr),
+            Text(&'static str),
+            Bound(u64),
+        }
+        let mut events = vec![Event::Expr(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Text(text) => write!(f, "{text}")?,
+                Event::Bound(bound) => write!(f, ", {bound}")?,
+                Event::Expr(expression) => match expression {
+                    PredicateExpr::True => write!(f, "true")?,
+                    PredicateExpr::False => write!(f, "false")?,
+                    PredicateExpr::Atom(name) => write!(f, "{name}")?,
+                    PredicateExpr::Not(inner) => {
+                        write!(f, "~(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Expr(inner));
+                    }
+                    PredicateExpr::And(left, right) | PredicateExpr::Or(left, right) => {
+                        write!(f, "(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Expr(right));
+                        events.push(Event::Text(
+                            if matches!(expression, PredicateExpr::And(_, _)) {
+                                " /\\ "
+                            } else {
+                                " \\/ "
+                            },
+                        ));
+                        events.push(Event::Expr(left));
+                    }
+                    PredicateExpr::ForallFinite { var, domain, body }
+                    | PredicateExpr::ExistsFinite { var, domain, body } => {
+                        write!(
+                            f,
+                            "{} {var} in {domain:?}. ",
+                            if matches!(expression, PredicateExpr::ForallFinite { .. }) {
+                                "forall"
+                            } else {
+                                "exists"
+                            }
+                        )?;
+                        events.push(Event::Expr(body));
+                    }
+                    PredicateExpr::ForallInfinite { var, body }
+                    | PredicateExpr::ExistsInfinite { var, body } => {
+                        write!(
+                            f,
+                            "{} {var}. ",
+                            if matches!(expression, PredicateExpr::ForallInfinite { .. }) {
+                                "forall"
+                            } else {
+                                "exists"
+                            }
+                        )?;
+                        events.push(Event::Expr(body));
+                    }
+                    PredicateExpr::Relation { name, args } => {
+                        write!(f, "{}({})", name, args.join(", "))?;
+                    }
+                    PredicateExpr::Bounded { body, bound } => {
+                        write!(f, "bounded(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Bound(*bound));
+                        events.push(Event::Expr(body));
+                    }
+                },
             }
-            PredicateExpr::ExistsFinite { var, domain, body } => {
-                write!(f, "exists {} in {:?}. {}", var, domain, body)
+        }
+        Ok(())
+    }
+}
+
+impl Drop for PredicateExpr {
+    fn drop(&mut self) {
+        fn drain(expression: &mut PredicateExpr, pending: &mut Vec<PredicateExpr>) {
+            match expression {
+                PredicateExpr::Not(inner)
+                | PredicateExpr::ForallFinite { body: inner, .. }
+                | PredicateExpr::ExistsFinite { body: inner, .. }
+                | PredicateExpr::ForallInfinite { body: inner, .. }
+                | PredicateExpr::ExistsInfinite { body: inner, .. }
+                | PredicateExpr::Bounded { body: inner, .. } => {
+                    pending.push(std::mem::replace(&mut **inner, PredicateExpr::True));
+                }
+                PredicateExpr::And(left, right) | PredicateExpr::Or(left, right) => {
+                    pending.push(std::mem::replace(&mut **right, PredicateExpr::True));
+                    pending.push(std::mem::replace(&mut **left, PredicateExpr::True));
+                }
+                PredicateExpr::True
+                | PredicateExpr::False
+                | PredicateExpr::Atom(_)
+                | PredicateExpr::Relation { .. } => {}
             }
-            PredicateExpr::ForallInfinite { var, body } => {
-                write!(f, "forall {}. {}", var, body)
-            }
-            PredicateExpr::ExistsInfinite { var, body } => {
-                write!(f, "exists {}. {}", var, body)
-            }
-            PredicateExpr::Relation { name, args } => {
-                write!(f, "{}({})", name, args.join(", "))
-            }
-            PredicateExpr::Bounded { body, bound } => {
-                write!(f, "bounded({}, {})", body, bound)
-            }
+        }
+        let mut pending = Vec::new();
+        drain(self, &mut pending);
+        while let Some(mut expression) = pending.pop() {
+            drain(&mut expression, &mut pending);
         }
     }
 }
@@ -1616,43 +2263,63 @@ pub fn classify_decidability(expr: &PredicateExpr) -> DecidabilityTier {
 /// `in_bounded` tracks whether we are inside a `Bounded` wrapper,
 /// which downgrades infinite quantifiers from T4 to T3.
 fn classify_decidability_inner(expr: &PredicateExpr, in_bounded: bool) -> DecidabilityTier {
-    match expr {
-        PredicateExpr::True | PredicateExpr::False | PredicateExpr::Atom(_) => {
-            DecidabilityTier::CompileTimeDecidable
-        }
-
-        PredicateExpr::Not(inner) => classify_decidability_inner(inner, in_bounded),
-
-        PredicateExpr::And(a, b) | PredicateExpr::Or(a, b) => {
-            let ta = classify_decidability_inner(a, in_bounded);
-            let tb = classify_decidability_inner(b, in_bounded);
-            ta.max(tb)
-        }
-
-        PredicateExpr::ForallFinite { body, .. } | PredicateExpr::ExistsFinite { body, .. } => {
-            // Finite-domain quantification is at most T1 from the quantifier itself.
-            // But the body may push it higher.
-            classify_decidability_inner(body, in_bounded)
-        }
-
-        PredicateExpr::ForallInfinite { body, .. } | PredicateExpr::ExistsInfinite { body, .. } => {
-            if in_bounded {
-                // Inside a Bounded wrapper → T3 from the quantifier.
-                let body_tier = classify_decidability_inner(body, in_bounded);
-                body_tier.max(DecidabilityTier::SemiDecidable)
-            } else {
-                // Unbounded infinite quantification → T4.
-                DecidabilityTier::Undecidable
+    enum Frame<'a> {
+        Visit(&'a PredicateExpr, bool),
+        BinaryRight(&'a PredicateExpr, bool),
+        BinaryFinish(DecidabilityTier),
+        Floor(DecidabilityTier),
+    }
+    let mut frames = vec![Frame::Visit(expr, in_bounded)];
+    let mut result = None;
+    while let Some(frame) = frames.pop() {
+        match frame {
+            Frame::Visit(expression, bounded) => match expression {
+                PredicateExpr::True | PredicateExpr::False | PredicateExpr::Atom(_) => {
+                    result = Some(DecidabilityTier::CompileTimeDecidable);
+                }
+                PredicateExpr::Relation { .. } => {
+                    result = Some(DecidabilityTier::RuntimeDecidable);
+                }
+                PredicateExpr::Not(inner)
+                | PredicateExpr::ForallFinite { body: inner, .. }
+                | PredicateExpr::ExistsFinite { body: inner, .. } => {
+                    frames.push(Frame::Visit(inner, bounded));
+                }
+                PredicateExpr::And(left, right) | PredicateExpr::Or(left, right) => {
+                    frames.push(Frame::BinaryRight(right, bounded));
+                    frames.push(Frame::Visit(left, bounded));
+                }
+                PredicateExpr::ForallInfinite { body, .. }
+                | PredicateExpr::ExistsInfinite { body, .. } => {
+                    if bounded {
+                        frames.push(Frame::Floor(DecidabilityTier::SemiDecidable));
+                        frames.push(Frame::Visit(body, true));
+                    } else {
+                        result = Some(DecidabilityTier::Undecidable);
+                    }
+                }
+                PredicateExpr::Bounded { body, .. } => {
+                    frames.push(Frame::Visit(body, true));
+                }
+            },
+            Frame::BinaryRight(right, bounded) => {
+                let left = result.take().expect("left decidability tier is available");
+                frames.push(Frame::BinaryFinish(left));
+                frames.push(Frame::Visit(right, bounded));
+            }
+            Frame::BinaryFinish(left) => {
+                let right = result.take().expect("right decidability tier is available");
+                result = Some(left.max(right));
+            }
+            Frame::Floor(floor) => {
+                let body = result
+                    .take()
+                    .expect("bounded infinite body tier is available");
+                result = Some(body.max(floor));
             }
         }
-
-        PredicateExpr::Relation { .. } => DecidabilityTier::RuntimeDecidable,
-
-        PredicateExpr::Bounded { body, .. } => {
-            // The Bounded wrapper enables semi-decidability for infinite quantifiers.
-            classify_decidability_inner(body, true)
-        }
     }
+    result.expect("the root expression produces one decidability tier")
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1721,7 +2388,6 @@ impl fmt::Display for SymbolicAnalysis {
 /// Represents Boolean combinations of predicates from algebras `A` and `B`.
 /// The domain is the pair `(A::Domain, B::Domain)`, and satisfiability requires
 /// both components to be satisfiable (independent domains).
-#[derive(Clone, Debug)]
 pub enum ProductPred<A: BooleanAlgebra, B: BooleanAlgebra> {
     /// Always true.
     True,
@@ -1741,19 +2407,86 @@ pub enum ProductPred<A: BooleanAlgebra, B: BooleanAlgebra> {
     Not(Box<ProductPred<A, B>>),
 }
 
+impl<A: BooleanAlgebra, B: BooleanAlgebra> Clone for ProductPred<A, B> {
+    fn clone(&self) -> Self {
+        enum Task<'a, A: BooleanAlgebra, B: BooleanAlgebra> {
+            Clone(&'a ProductPred<A, B>),
+            And,
+            Or,
+            Not,
+        }
+        let mut tasks = vec![Task::Clone(self)];
+        let mut values = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Clone(predicate) => match predicate {
+                    ProductPred::True => values.push(ProductPred::True),
+                    ProductPred::False => values.push(ProductPred::False),
+                    ProductPred::Both(left, right) => {
+                        values.push(ProductPred::Both(left.clone(), right.clone()));
+                    }
+                    ProductPred::LeftOnly(left) => {
+                        values.push(ProductPred::LeftOnly(left.clone()));
+                    }
+                    ProductPred::RightOnly(right) => {
+                        values.push(ProductPred::RightOnly(right.clone()));
+                    }
+                    ProductPred::And(left, right) => {
+                        tasks.push(Task::And);
+                        tasks.push(Task::Clone(right));
+                        tasks.push(Task::Clone(left));
+                    }
+                    ProductPred::Or(left, right) => {
+                        tasks.push(Task::Or);
+                        tasks.push(Task::Clone(right));
+                        tasks.push(Task::Clone(left));
+                    }
+                    ProductPred::Not(inner) => {
+                        tasks.push(Task::Not);
+                        tasks.push(Task::Clone(inner));
+                    }
+                },
+                Task::And | Task::Or => {
+                    let right = values.pop().expect("right product clone is present");
+                    let left = values.pop().expect("left product clone is present");
+                    values.push(if matches!(task, Task::And) {
+                        ProductPred::And(Box::new(left), Box::new(right))
+                    } else {
+                        ProductPred::Or(Box::new(left), Box::new(right))
+                    });
+                }
+                Task::Not => {
+                    let inner = values.pop().expect("negated product clone is present");
+                    values.push(ProductPred::Not(Box::new(inner)));
+                }
+            }
+        }
+        values.pop().expect("the root product produces one clone")
+    }
+}
+
 impl<A: BooleanAlgebra, B: BooleanAlgebra> PartialEq for ProductPred<A, B> {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (ProductPred::True, ProductPred::True) => true,
-            (ProductPred::False, ProductPred::False) => true,
-            (ProductPred::Both(a1, b1), ProductPred::Both(a2, b2)) => a1 == a2 && b1 == b2,
-            (ProductPred::LeftOnly(a1), ProductPred::LeftOnly(a2)) => a1 == a2,
-            (ProductPred::RightOnly(b1), ProductPred::RightOnly(b2)) => b1 == b2,
-            (ProductPred::And(l1, r1), ProductPred::And(l2, r2)) => l1 == l2 && r1 == r2,
-            (ProductPred::Or(l1, r1), ProductPred::Or(l2, r2)) => l1 == l2 && r1 == r2,
-            (ProductPred::Not(a), ProductPred::Not(b)) => a == b,
-            _ => false,
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (ProductPred::True, ProductPred::True)
+                | (ProductPred::False, ProductPred::False) => {}
+                (ProductPred::Both(la, lb), ProductPred::Both(ra, rb)) if la == ra && lb == rb => {}
+                (ProductPred::LeftOnly(left), ProductPred::LeftOnly(right)) if left == right => {}
+                (ProductPred::RightOnly(left), ProductPred::RightOnly(right)) if left == right => {}
+                (ProductPred::And(ll, lr), ProductPred::And(rl, rr))
+                | (ProductPred::Or(ll, lr), ProductPred::Or(rl, rr)) => {
+                    pending.push((lr, rr));
+                    pending.push((ll, rl));
+                }
+                (ProductPred::Not(left), ProductPred::Not(right)) => {
+                    pending.push((left, right));
+                }
+                _ => return false,
+            }
         }
+        true
     }
 }
 
@@ -1761,36 +2494,136 @@ impl<A: BooleanAlgebra, B: BooleanAlgebra> Eq for ProductPred<A, B> {}
 
 impl<A: BooleanAlgebra, B: BooleanAlgebra> std::hash::Hash for ProductPred<A, B> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
-        match self {
-            ProductPred::True | ProductPred::False => {}
-            ProductPred::Both(a, b) => {
-                a.hash(state);
-                b.hash(state);
+        let mut pending = vec![self];
+        while let Some(predicate) = pending.pop() {
+            std::mem::discriminant(predicate).hash(state);
+            match predicate {
+                ProductPred::True | ProductPred::False => {}
+                ProductPred::Both(left, right) => {
+                    left.hash(state);
+                    right.hash(state);
+                }
+                ProductPred::LeftOnly(left) => left.hash(state),
+                ProductPred::RightOnly(right) => right.hash(state),
+                ProductPred::And(left, right) | ProductPred::Or(left, right) => {
+                    pending.push(right);
+                    pending.push(left);
+                }
+                ProductPred::Not(inner) => pending.push(inner),
             }
-            ProductPred::LeftOnly(a) => a.hash(state),
-            ProductPred::RightOnly(b) => b.hash(state),
-            ProductPred::And(l, r) | ProductPred::Or(l, r) => {
-                l.hash(state);
-                r.hash(state);
+        }
+    }
+}
+
+impl<A: BooleanAlgebra, B: BooleanAlgebra> fmt::Debug for ProductPred<A, B> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        enum Event<'a, A: BooleanAlgebra, B: BooleanAlgebra> {
+            Pred(&'a ProductPred<A, B>),
+            Text(&'static str),
+        }
+        let mut events = vec![Event::Pred(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Text(text) => write!(f, "{text}")?,
+                Event::Pred(predicate) => match predicate {
+                    ProductPred::True => write!(f, "True")?,
+                    ProductPred::False => write!(f, "False")?,
+                    ProductPred::Both(left, right) => write!(f, "Both({left:?}, {right:?})")?,
+                    ProductPred::LeftOnly(left) => write!(f, "LeftOnly({left:?})")?,
+                    ProductPred::RightOnly(right) => write!(f, "RightOnly({right:?})")?,
+                    ProductPred::And(left, right) | ProductPred::Or(left, right) => {
+                        write!(
+                            f,
+                            "{}(",
+                            if matches!(predicate, ProductPred::And(_, _)) {
+                                "And"
+                            } else {
+                                "Or"
+                            }
+                        )?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Pred(right));
+                        events.push(Event::Text(", "));
+                        events.push(Event::Pred(left));
+                    }
+                    ProductPred::Not(inner) => {
+                        write!(f, "Not(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Pred(inner));
+                    }
+                },
             }
-            ProductPred::Not(inner) => inner.hash(state),
+        }
+        Ok(())
+    }
+}
+
+impl<A: BooleanAlgebra, B: BooleanAlgebra> Drop for ProductPred<A, B> {
+    fn drop(&mut self) {
+        fn drain<A: BooleanAlgebra, B: BooleanAlgebra>(
+            predicate: &mut ProductPred<A, B>,
+            pending: &mut Vec<ProductPred<A, B>>,
+        ) {
+            match predicate {
+                ProductPred::And(left, right) | ProductPred::Or(left, right) => {
+                    pending.push(std::mem::replace(&mut **right, ProductPred::True));
+                    pending.push(std::mem::replace(&mut **left, ProductPred::True));
+                }
+                ProductPred::Not(inner) => {
+                    pending.push(std::mem::replace(&mut **inner, ProductPred::True));
+                }
+                ProductPred::True
+                | ProductPred::False
+                | ProductPred::Both(_, _)
+                | ProductPred::LeftOnly(_)
+                | ProductPred::RightOnly(_) => {}
+            }
+        }
+        let mut pending = Vec::new();
+        drain(self, &mut pending);
+        while let Some(mut predicate) = pending.pop() {
+            drain(&mut predicate, &mut pending);
         }
     }
 }
 
 impl<A: BooleanAlgebra, B: BooleanAlgebra> fmt::Display for ProductPred<A, B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ProductPred::True => write!(f, "TRUE"),
-            ProductPred::False => write!(f, "FALSE"),
-            ProductPred::Both(a, b) => write!(f, "({:?} × {:?})", a, b),
-            ProductPred::LeftOnly(a) => write!(f, "({:?} × TRUE)", a),
-            ProductPred::RightOnly(b) => write!(f, "(TRUE × {:?})", b),
-            ProductPred::And(l, r) => write!(f, "({} ∧ {})", l, r),
-            ProductPred::Or(l, r) => write!(f, "({} ∨ {})", l, r),
-            ProductPred::Not(inner) => write!(f, "¬{}", inner),
+        enum Event<'a, A: BooleanAlgebra, B: BooleanAlgebra> {
+            Pred(&'a ProductPred<A, B>),
+            Text(&'static str),
         }
+        let mut events = vec![Event::Pred(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Text(text) => write!(f, "{text}")?,
+                Event::Pred(predicate) => match predicate {
+                    ProductPred::True => write!(f, "TRUE")?,
+                    ProductPred::False => write!(f, "FALSE")?,
+                    ProductPred::Both(left, right) => write!(f, "({left:?} × {right:?})")?,
+                    ProductPred::LeftOnly(left) => write!(f, "({left:?} × TRUE)")?,
+                    ProductPred::RightOnly(right) => write!(f, "(TRUE × {right:?})")?,
+                    ProductPred::And(left, right) | ProductPred::Or(left, right) => {
+                        write!(f, "(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Pred(right));
+                        events.push(Event::Text(
+                            if matches!(predicate, ProductPred::And(_, _)) {
+                                " ∧ "
+                            } else {
+                                " ∨ "
+                            },
+                        ));
+                        events.push(Event::Pred(left));
+                    }
+                    ProductPred::Not(inner) => {
+                        write!(f, "¬")?;
+                        events.push(Event::Pred(inner));
+                    }
+                },
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1830,71 +2663,83 @@ impl<A: BooleanAlgebra, B: BooleanAlgebra> ProductAlgebra<A, B> {
     /// The overall predicate is satisfiable iff at least one disjunct has
     /// both components satisfiable (independent domains factor per-disjunct).
     fn to_dnf(&self, pred: &ProductPred<A, B>) -> Vec<(A::Predicate, B::Predicate)> {
-        match pred {
-            ProductPred::True => {
-                vec![(self.left.true_pred(), self.right.true_pred())]
-            }
-            ProductPred::False => vec![],
-            ProductPred::Both(a, b) => vec![(a.clone(), b.clone())],
-            ProductPred::LeftOnly(a) => vec![(a.clone(), self.right.true_pred())],
-            ProductPred::RightOnly(b) => vec![(self.left.true_pred(), b.clone())],
-            ProductPred::And(l, r) => {
-                let l_dnf = self.to_dnf(l);
-                let r_dnf = self.to_dnf(r);
-                let mut result = Vec::with_capacity(l_dnf.len() * r_dnf.len());
-                for (ll, lr) in &l_dnf {
-                    for (rl, rr) in &r_dnf {
-                        let left_conj = self.left.and(ll, rl);
-                        let right_conj = self.right.and(lr, rr);
-                        result.push((left_conj, right_conj));
+        enum Task<'a, A: BooleanAlgebra, B: BooleanAlgebra> {
+            Convert(&'a ProductPred<A, B>, bool),
+            Combine { conjunction: bool },
+        }
+        let mut tasks = vec![Task::Convert(pred, false)];
+        let mut values: Vec<Vec<(A::Predicate, B::Predicate)>> = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Convert(predicate, negated) => match predicate {
+                    ProductPred::True => values.push(if negated {
+                        Vec::new()
+                    } else {
+                        vec![(self.left.true_pred(), self.right.true_pred())]
+                    }),
+                    ProductPred::False => values.push(if negated {
+                        vec![(self.left.true_pred(), self.right.true_pred())]
+                    } else {
+                        Vec::new()
+                    }),
+                    ProductPred::Both(left, right) => values.push(if negated {
+                        vec![
+                            (self.left.not(left), self.right.true_pred()),
+                            (self.left.true_pred(), self.right.not(right)),
+                        ]
+                    } else {
+                        vec![(left.clone(), right.clone())]
+                    }),
+                    ProductPred::LeftOnly(left) => values.push(vec![(
+                        if negated {
+                            self.left.not(left)
+                        } else {
+                            left.clone()
+                        },
+                        self.right.true_pred(),
+                    )]),
+                    ProductPred::RightOnly(right) => values.push(vec![(
+                        self.left.true_pred(),
+                        if negated {
+                            self.right.not(right)
+                        } else {
+                            right.clone()
+                        },
+                    )]),
+                    ProductPred::And(left, right) | ProductPred::Or(left, right) => {
+                        let source_is_and = matches!(predicate, ProductPred::And(_, _));
+                        tasks.push(Task::Combine {
+                            conjunction: source_is_and != negated,
+                        });
+                        tasks.push(Task::Convert(right, negated));
+                        tasks.push(Task::Convert(left, negated));
+                    }
+                    ProductPred::Not(inner) => tasks.push(Task::Convert(inner, !negated)),
+                },
+                Task::Combine { conjunction } => {
+                    let right = values.pop().expect("right product DNF is present");
+                    let mut left = values.pop().expect("left product DNF is present");
+                    if conjunction {
+                        let capacity = left.len().saturating_mul(right.len());
+                        let mut product = Vec::with_capacity(capacity);
+                        for (left_a, left_b) in &left {
+                            for (right_a, right_b) in &right {
+                                product.push((
+                                    self.left.and(left_a, right_a),
+                                    self.right.and(left_b, right_b),
+                                ));
+                            }
+                        }
+                        values.push(product);
+                    } else {
+                        left.reserve(right.len());
+                        left.extend(right);
+                        values.push(left);
                     }
                 }
-                result
-            }
-            ProductPred::Or(l, r) => {
-                let mut l_dnf = self.to_dnf(l);
-                let r_dnf = self.to_dnf(r);
-                l_dnf.extend(r_dnf);
-                l_dnf
-            }
-            ProductPred::Not(inner) => {
-                // ¬P: push negation down to atoms using De Morgan's laws.
-                // ¬(A ∧ B) = ¬A ∨ ¬B
-                // ¬(A ∨ B) = ¬A ∧ ¬B
-                // ¬True = False, ¬False = True
-                // ¬Both(a,b) = LeftOnly(¬a) ∨ RightOnly(¬b) (De Morgan over independent domains)
-                // ¬LeftOnly(a) = LeftOnly(¬a) (right was True, remains True)
-                // ¬RightOnly(b) = RightOnly(¬b) (left was True, remains True)
-                let negated = self.negate_pred(inner);
-                self.to_dnf(&negated)
             }
         }
-    }
-
-    /// Push negation down to atomic predicates (NNF conversion).
-    fn negate_pred(&self, pred: &ProductPred<A, B>) -> ProductPred<A, B> {
-        match pred {
-            ProductPred::True => ProductPred::False,
-            ProductPred::False => ProductPred::True,
-            ProductPred::Both(a, b) => {
-                // ¬(a ∧ b) = ¬a ∨ ¬b (De Morgan, independent domains)
-                ProductPred::Or(
-                    Box::new(ProductPred::LeftOnly(self.left.not(a))),
-                    Box::new(ProductPred::RightOnly(self.right.not(b))),
-                )
-            }
-            ProductPred::LeftOnly(a) => ProductPred::LeftOnly(self.left.not(a)),
-            ProductPred::RightOnly(b) => ProductPred::RightOnly(self.right.not(b)),
-            ProductPred::And(l, r) => {
-                // ¬(L ∧ R) = ¬L ∨ ¬R
-                ProductPred::Or(Box::new(self.negate_pred(l)), Box::new(self.negate_pred(r)))
-            }
-            ProductPred::Or(l, r) => {
-                // ¬(L ∨ R) = ¬L ∧ ¬R
-                ProductPred::And(Box::new(self.negate_pred(l)), Box::new(self.negate_pred(r)))
-            }
-            ProductPred::Not(inner) => (**inner).clone(), // Double negation
-        }
+        values.pop().expect("the root product produces one DNF")
     }
 
     // 2026-05-12: `extract_left` and `extract_right` methods DELETED —
@@ -1965,18 +2810,68 @@ impl<A: BooleanAlgebra, B: BooleanAlgebra> BooleanAlgebra for ProductAlgebra<A, 
     }
 
     fn evaluate(&self, pred: &ProductPred<A, B>, elem: &ProductDomain<A, B>) -> bool {
-        match pred {
-            ProductPred::True => true,
-            ProductPred::False => false,
-            ProductPred::Both(a, b) => {
-                self.left.evaluate(a, &elem.0) && self.right.evaluate(b, &elem.1)
-            }
-            ProductPred::LeftOnly(a) => self.left.evaluate(a, &elem.0),
-            ProductPred::RightOnly(b) => self.right.evaluate(b, &elem.1),
-            ProductPred::And(l, r) => self.evaluate(l, elem) && self.evaluate(r, elem),
-            ProductPred::Or(l, r) => self.evaluate(l, elem) || self.evaluate(r, elem),
-            ProductPred::Not(inner) => !self.evaluate(inner, elem),
+        enum Frame<'a, A: BooleanAlgebra, B: BooleanAlgebra> {
+            Eval(&'a ProductPred<A, B>),
+            Not,
+            AndRight(&'a ProductPred<A, B>),
+            OrRight(&'a ProductPred<A, B>),
         }
+        let mut frames = vec![Frame::Eval(pred)];
+        let mut result = None;
+        while let Some(frame) = frames.pop() {
+            match frame {
+                Frame::Eval(predicate) => match predicate {
+                    ProductPred::True => result = Some(true),
+                    ProductPred::False => result = Some(false),
+                    ProductPred::Both(left, right) => {
+                        result = Some(
+                            self.left.evaluate(left, &elem.0)
+                                && self.right.evaluate(right, &elem.1),
+                        );
+                    }
+                    ProductPred::LeftOnly(left) => {
+                        result = Some(self.left.evaluate(left, &elem.0));
+                    }
+                    ProductPred::RightOnly(right) => {
+                        result = Some(self.right.evaluate(right, &elem.1));
+                    }
+                    ProductPred::And(left, right) => {
+                        frames.push(Frame::AndRight(right));
+                        frames.push(Frame::Eval(left));
+                    }
+                    ProductPred::Or(left, right) => {
+                        frames.push(Frame::OrRight(right));
+                        frames.push(Frame::Eval(left));
+                    }
+                    ProductPred::Not(inner) => {
+                        frames.push(Frame::Not);
+                        frames.push(Frame::Eval(inner));
+                    }
+                },
+                Frame::Not => result = Some(!result.take().expect("negated product is evaluated")),
+                Frame::AndRight(right) => {
+                    if result
+                        .take()
+                        .expect("left product conjunction is evaluated")
+                    {
+                        frames.push(Frame::Eval(right));
+                    } else {
+                        result = Some(false);
+                    }
+                }
+                Frame::OrRight(right) => {
+                    if result
+                        .take()
+                        .expect("left product disjunction is evaluated")
+                    {
+                        result = Some(true);
+                    } else {
+                        frames.push(Frame::Eval(right));
+                    }
+                }
+            }
+        }
+        result.expect("the root product predicate produces one result")
     }
 }
 

@@ -4,9 +4,9 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 /// Mathematical type for expressions.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MathType {
     /// Numeric value (integer, real, complex).
     Number,
@@ -57,6 +57,288 @@ pub enum MathType {
     Error(String),
 }
 
+impl Clone for MathType {
+    fn clone(&self) -> Self {
+        enum Task<'a> {
+            Clone(&'a MathType),
+            Function(Arity, usize),
+            Vector(Option<usize>),
+            Matrix(Option<(usize, usize)>),
+        }
+        let mut tasks = vec![Task::Clone(self)];
+        let mut values = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Clone(math_type) => match math_type {
+                    MathType::Number => values.push(MathType::Number),
+                    MathType::Variable => values.push(MathType::Variable),
+                    MathType::Function {
+                        arity,
+                        domain,
+                        codomain,
+                    } => {
+                        tasks.push(Task::Function(*arity, domain.len()));
+                        tasks.push(Task::Clone(codomain));
+                        tasks.extend(domain.iter().rev().map(Task::Clone));
+                    }
+                    MathType::BinaryOp => values.push(MathType::BinaryOp),
+                    MathType::UnaryOp => values.push(MathType::UnaryOp),
+                    MathType::NaryOp => values.push(MathType::NaryOp),
+                    MathType::Relation => values.push(MathType::Relation),
+                    MathType::Set => values.push(MathType::Set),
+                    MathType::Vector { element, dimension } => {
+                        tasks.push(Task::Vector(*dimension));
+                        tasks.push(Task::Clone(element));
+                    }
+                    MathType::Matrix {
+                        element,
+                        dimensions,
+                    } => {
+                        tasks.push(Task::Matrix(*dimensions));
+                        tasks.push(Task::Clone(element));
+                    }
+                    MathType::Boolean => values.push(MathType::Boolean),
+                    MathType::Unit => values.push(MathType::Unit),
+                    MathType::TypeVar(id) => values.push(MathType::TypeVar(*id)),
+                    MathType::Unknown => values.push(MathType::Unknown),
+                    MathType::Error(message) => values.push(MathType::Error(message.clone())),
+                },
+                Task::Function(arity, domain_len) => {
+                    let codomain = values.pop().expect("function codomain clone is present");
+                    let first = values
+                        .len()
+                        .checked_sub(domain_len)
+                        .expect("all function domain clones are present");
+                    let domain = values.split_off(first);
+                    values.push(MathType::Function {
+                        arity,
+                        domain,
+                        codomain: Box::new(codomain),
+                    });
+                }
+                Task::Vector(dimension) => {
+                    let element = values.pop().expect("vector element clone is present");
+                    values.push(MathType::Vector {
+                        element: Box::new(element),
+                        dimension,
+                    });
+                }
+                Task::Matrix(dimensions) => {
+                    let element = values.pop().expect("matrix element clone is present");
+                    values.push(MathType::Matrix {
+                        element: Box::new(element),
+                        dimensions,
+                    });
+                }
+            }
+        }
+        values.pop().expect("the root math type produces one clone")
+    }
+}
+
+impl PartialEq for MathType {
+    fn eq(&self, other: &Self) -> bool {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (MathType::Number, MathType::Number)
+                | (MathType::Variable, MathType::Variable)
+                | (MathType::BinaryOp, MathType::BinaryOp)
+                | (MathType::UnaryOp, MathType::UnaryOp)
+                | (MathType::NaryOp, MathType::NaryOp)
+                | (MathType::Relation, MathType::Relation)
+                | (MathType::Set, MathType::Set)
+                | (MathType::Boolean, MathType::Boolean)
+                | (MathType::Unit, MathType::Unit)
+                | (MathType::Unknown, MathType::Unknown) => {}
+                (
+                    MathType::Function {
+                        arity: la,
+                        domain: ld,
+                        codomain: lc,
+                    },
+                    MathType::Function {
+                        arity: ra,
+                        domain: rd,
+                        codomain: rc,
+                    },
+                ) if la == ra && ld.len() == rd.len() => {
+                    pending.push((lc, rc));
+                    pending.extend(ld.iter().zip(rd).rev());
+                }
+                (
+                    MathType::Vector {
+                        element: le,
+                        dimension: ld,
+                    },
+                    MathType::Vector {
+                        element: re,
+                        dimension: rd,
+                    },
+                ) if ld == rd => pending.push((le, re)),
+                (
+                    MathType::Matrix {
+                        element: le,
+                        dimensions: ld,
+                    },
+                    MathType::Matrix {
+                        element: re,
+                        dimensions: rd,
+                    },
+                ) if ld == rd => pending.push((le, re)),
+                (MathType::TypeVar(left), MathType::TypeVar(right)) if left == right => {}
+                (MathType::Error(left), MathType::Error(right)) if left == right => {}
+                _ => return false,
+            }
+        }
+        true
+    }
+}
+
+impl Eq for MathType {}
+
+impl Hash for MathType {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut pending = vec![self];
+        while let Some(math_type) = pending.pop() {
+            std::mem::discriminant(math_type).hash(state);
+            match math_type {
+                MathType::Function {
+                    arity,
+                    domain,
+                    codomain,
+                } => {
+                    arity.hash(state);
+                    domain.len().hash(state);
+                    pending.push(codomain);
+                    pending.extend(domain.iter().rev());
+                }
+                MathType::Vector { element, dimension } => {
+                    pending.push(element);
+                    dimension.hash(state);
+                }
+                MathType::Matrix {
+                    element,
+                    dimensions,
+                } => {
+                    pending.push(element);
+                    dimensions.hash(state);
+                }
+                MathType::TypeVar(id) => id.hash(state),
+                MathType::Error(message) => message.hash(state),
+                MathType::Number
+                | MathType::Variable
+                | MathType::BinaryOp
+                | MathType::UnaryOp
+                | MathType::NaryOp
+                | MathType::Relation
+                | MathType::Set
+                | MathType::Boolean
+                | MathType::Unit
+                | MathType::Unknown => {}
+            }
+        }
+    }
+}
+
+impl fmt::Debug for MathType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        enum Event<'a> {
+            Type(&'a MathType),
+            Domain(&'a [MathType], usize),
+            Text(&'static str),
+            VectorSuffix(Option<usize>),
+            MatrixSuffix(Option<(usize, usize)>),
+        }
+        let mut events = vec![Event::Type(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Text(text) => write!(f, "{text}")?,
+                Event::VectorSuffix(dimension) => {
+                    write!(f, ", dimension: {dimension:?} }}")?;
+                }
+                Event::MatrixSuffix(dimensions) => {
+                    write!(f, ", dimensions: {dimensions:?} }}")?;
+                }
+                Event::Domain(domain, index) => {
+                    if index == domain.len() {
+                        write!(f, "]")?;
+                    } else {
+                        if index > 0 {
+                            write!(f, ", ")?;
+                        }
+                        events.push(Event::Domain(domain, index + 1));
+                        events.push(Event::Type(&domain[index]));
+                    }
+                }
+                Event::Type(math_type) => match math_type {
+                    MathType::Number => write!(f, "Number")?,
+                    MathType::Variable => write!(f, "Variable")?,
+                    MathType::Function {
+                        arity,
+                        domain,
+                        codomain,
+                    } => {
+                        write!(f, "Function {{ arity: {arity:?}, domain: [")?;
+                        events.push(Event::Text(" }"));
+                        events.push(Event::Type(codomain));
+                        events.push(Event::Text(", codomain: "));
+                        events.push(Event::Domain(domain, 0));
+                    }
+                    MathType::BinaryOp => write!(f, "BinaryOp")?,
+                    MathType::UnaryOp => write!(f, "UnaryOp")?,
+                    MathType::NaryOp => write!(f, "NaryOp")?,
+                    MathType::Relation => write!(f, "Relation")?,
+                    MathType::Set => write!(f, "Set")?,
+                    MathType::Vector { element, dimension } => {
+                        write!(f, "Vector {{ element: ")?;
+                        events.push(Event::VectorSuffix(*dimension));
+                        events.push(Event::Type(element));
+                    }
+                    MathType::Matrix {
+                        element,
+                        dimensions,
+                    } => {
+                        write!(f, "Matrix {{ element: ")?;
+                        events.push(Event::MatrixSuffix(*dimensions));
+                        events.push(Event::Type(element));
+                    }
+                    MathType::Boolean => write!(f, "Boolean")?,
+                    MathType::Unit => write!(f, "Unit")?,
+                    MathType::TypeVar(id) => write!(f, "TypeVar({id:?})")?,
+                    MathType::Unknown => write!(f, "Unknown")?,
+                    MathType::Error(message) => write!(f, "Error({message:?})")?,
+                },
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Drop for MathType {
+    fn drop(&mut self) {
+        fn drain(math_type: &mut MathType, pending: &mut Vec<MathType>) {
+            match math_type {
+                MathType::Function {
+                    domain, codomain, ..
+                } => {
+                    pending.append(domain);
+                    pending.push(std::mem::replace(&mut **codomain, MathType::Unknown));
+                }
+                MathType::Vector { element, .. } | MathType::Matrix { element, .. } => {
+                    pending.push(std::mem::replace(&mut **element, MathType::Unknown));
+                }
+                _ => {}
+            }
+        }
+        let mut pending = Vec::new();
+        drain(self, &mut pending);
+        while let Some(mut math_type) = pending.pop() {
+            drain(&mut math_type, &mut pending);
+        }
+    }
+}
+
 impl MathType {
     /// Check if this type is numeric (Number, Variable that could be numeric).
     pub fn is_numeric(&self) -> bool {
@@ -105,51 +387,76 @@ impl MathType {
 
 impl fmt::Display for MathType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            MathType::Number => write!(f, "Number"),
-            MathType::Variable => write!(f, "Var"),
-            MathType::Function {
-                arity,
-                domain,
-                codomain,
-            } => {
-                let args: Vec<_> = domain.iter().map(|t| t.to_string()).collect();
-                write!(
-                    f,
-                    "({}) -> {} [arity: {:?}]",
-                    args.join(", "),
-                    codomain,
-                    arity
-                )
-            }
-            MathType::BinaryOp => write!(f, "BinOp"),
-            MathType::UnaryOp => write!(f, "UnaryOp"),
-            MathType::NaryOp => write!(f, "NaryOp"),
-            MathType::Relation => write!(f, "Relation"),
-            MathType::Set => write!(f, "Set"),
-            MathType::Vector { element, dimension } => {
-                if let Some(d) = dimension {
-                    write!(f, "Vec<{}>^{}", element, d)
-                } else {
-                    write!(f, "Vec<{}>", element)
-                }
-            }
-            MathType::Matrix {
-                element,
-                dimensions,
-            } => {
-                if let Some((r, c)) = dimensions {
-                    write!(f, "Mat<{}>^({}x{})", element, r, c)
-                } else {
-                    write!(f, "Mat<{}>", element)
-                }
-            }
-            MathType::Boolean => write!(f, "Bool"),
-            MathType::Unit => write!(f, "()"),
-            MathType::TypeVar(id) => write!(f, "T{}", id),
-            MathType::Unknown => write!(f, "?"),
-            MathType::Error(msg) => write!(f, "Error({})", msg),
+        enum Event<'a> {
+            Type(&'a MathType),
+            Domain(&'a [MathType], usize),
+            FunctionSuffix(Arity),
+            VectorSuffix(Option<usize>),
+            MatrixSuffix(Option<(usize, usize)>),
         }
+        let mut events = vec![Event::Type(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::FunctionSuffix(arity) => write!(f, " [arity: {arity:?}]")?,
+                Event::VectorSuffix(dimension) => match dimension {
+                    Some(dimension) => write!(f, ">^{dimension}")?,
+                    None => write!(f, ">")?,
+                },
+                Event::MatrixSuffix(dimensions) => match dimensions {
+                    Some((rows, columns)) => write!(f, ">^({rows}x{columns})")?,
+                    None => write!(f, ">")?,
+                },
+                Event::Domain(domain, index) => {
+                    if index == domain.len() {
+                        write!(f, ") -> ")?;
+                    } else {
+                        if index > 0 {
+                            write!(f, ", ")?;
+                        }
+                        events.push(Event::Domain(domain, index + 1));
+                        events.push(Event::Type(&domain[index]));
+                    }
+                }
+                Event::Type(math_type) => match math_type {
+                    MathType::Number => write!(f, "Number")?,
+                    MathType::Variable => write!(f, "Var")?,
+                    MathType::Function {
+                        arity,
+                        domain,
+                        codomain,
+                    } => {
+                        write!(f, "(")?;
+                        events.push(Event::FunctionSuffix(*arity));
+                        events.push(Event::Type(codomain));
+                        events.push(Event::Domain(domain, 0));
+                    }
+                    MathType::BinaryOp => write!(f, "BinOp")?,
+                    MathType::UnaryOp => write!(f, "UnaryOp")?,
+                    MathType::NaryOp => write!(f, "NaryOp")?,
+                    MathType::Relation => write!(f, "Relation")?,
+                    MathType::Set => write!(f, "Set")?,
+                    MathType::Vector { element, dimension } => {
+                        write!(f, "Vec<")?;
+                        events.push(Event::VectorSuffix(*dimension));
+                        events.push(Event::Type(element));
+                    }
+                    MathType::Matrix {
+                        element,
+                        dimensions,
+                    } => {
+                        write!(f, "Mat<")?;
+                        events.push(Event::MatrixSuffix(*dimensions));
+                        events.push(Event::Type(element));
+                    }
+                    MathType::Boolean => write!(f, "Bool")?,
+                    MathType::Unit => write!(f, "()")?,
+                    MathType::TypeVar(id) => write!(f, "T{id}")?,
+                    MathType::Unknown => write!(f, "?")?,
+                    MathType::Error(message) => write!(f, "Error({message})")?,
+                },
+            }
+        }
+        Ok(())
     }
 }
 
@@ -255,7 +562,7 @@ pub enum SemanticCategory {
 }
 
 /// Type environment mapping identifiers to types.
-#[derive(Debug, Clone, Default)]
+#[derive(Default)]
 pub struct TypeEnvironment {
     /// Variable bindings.
     bindings: HashMap<String, MathType>,
@@ -284,14 +591,77 @@ impl TypeEnvironment {
 
     /// Look up a variable's type.
     pub fn lookup(&self, name: &str) -> Option<&MathType> {
-        self.bindings
-            .get(name)
-            .or_else(|| self.parent.as_ref().and_then(|p| p.lookup(name)))
+        let mut current = Some(self);
+        while let Some(environment) = current {
+            if let Some(value) = environment.bindings.get(name) {
+                return Some(value);
+            }
+            current = environment.parent.as_deref();
+        }
+        None
     }
 
     /// Check if a variable is bound.
     pub fn contains(&self, name: &str) -> bool {
         self.lookup(name).is_some()
+    }
+}
+
+impl Clone for TypeEnvironment {
+    fn clone(&self) -> Self {
+        let mut chain = Vec::new();
+        let mut current = Some(self);
+        while let Some(environment) = current {
+            chain.push(environment);
+            current = environment.parent.as_deref();
+        }
+
+        let mut cloned_parent = None;
+        for environment in chain.into_iter().rev() {
+            cloned_parent = Some(Box::new(TypeEnvironment {
+                bindings: environment.bindings.clone(),
+                parent: cloned_parent,
+            }));
+        }
+        *cloned_parent.expect("an environment chain always contains its root")
+    }
+}
+
+impl std::fmt::Debug for TypeEnvironment {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut current = self;
+        let mut parent_links = 0usize;
+        loop {
+            write!(
+                formatter,
+                "TypeEnvironment {{ bindings: {:?}, parent: ",
+                current.bindings
+            )?;
+            match current.parent.as_deref() {
+                Some(parent) => {
+                    formatter.write_str("Some(")?;
+                    parent_links += 1;
+                    current = parent;
+                }
+                None => {
+                    formatter.write_str("None }")?;
+                    break;
+                }
+            }
+        }
+        for _ in 0..parent_links {
+            formatter.write_str(") }")?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for TypeEnvironment {
+    fn drop(&mut self) {
+        let mut parent = self.parent.take();
+        while let Some(mut environment) = parent {
+            parent = environment.parent.take();
+        }
     }
 }
 
@@ -438,6 +808,7 @@ pub enum TypeWarningKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn test_math_type_display() {
@@ -504,6 +875,79 @@ mod tests {
 
         // Parent cannot see child's bindings
         assert!(parent.lookup("y").is_none());
+    }
+
+    #[test]
+    fn deep_type_environment_lifecycle_uses_constant_native_stack() {
+        const DEPTH: usize = 100_000;
+        std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(|| {
+                let mut root_bindings = HashMap::new();
+                root_bindings.insert("root".to_string(), MathType::Number);
+                let mut environment = TypeEnvironment {
+                    bindings: root_bindings,
+                    parent: None,
+                };
+                for _ in 0..DEPTH {
+                    environment = TypeEnvironment {
+                        bindings: HashMap::new(),
+                        parent: Some(Box::new(environment)),
+                    };
+                }
+                assert_eq!(environment.lookup("root"), Some(&MathType::Number));
+                let cloned = environment.clone();
+                assert_eq!(cloned.lookup("root"), Some(&MathType::Number));
+                assert!(format!("{environment:?}").starts_with("TypeEnvironment {"));
+                drop(cloned);
+                drop(environment);
+            })
+            .expect("small-stack worker must spawn")
+            .join()
+            .expect("type-environment lifecycle must not overflow the native stack");
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(512))]
+
+        #[test]
+        fn type_environment_lookup_matches_reverse_scope_reference(
+            scopes in prop::collection::vec(
+                prop::collection::vec((0u8..8, any::<bool>()), 0..=8),
+                1..=8,
+            ),
+            query in 0u8..8,
+        ) {
+            let mut environment = TypeEnvironment::new();
+            let mut reference = Vec::<HashMap<String, MathType>>::new();
+            for (scope_index, scope) in scopes.into_iter().enumerate() {
+                if scope_index > 0 {
+                    environment = environment.child();
+                }
+                let mut model_scope = HashMap::new();
+                for (name, is_number) in scope {
+                    let name = format!("v{name}");
+                    let value = if is_number {
+                        MathType::Number
+                    } else {
+                        MathType::Set
+                    };
+                    environment.bind(name.clone(), value.clone());
+                    model_scope.insert(name, value);
+                }
+                reference.push(model_scope);
+            }
+
+            let name = format!("v{query}");
+            let expected = reference
+                .iter()
+                .rev()
+                .find_map(|scope| scope.get(&name));
+            prop_assert_eq!(environment.lookup(&name), expected);
+            let cloned = environment.clone();
+            prop_assert_eq!(cloned.lookup(&name), expected);
+            prop_assert_eq!(format!("{cloned:?}"), format!("{environment:?}"));
+        }
     }
 
     #[test]

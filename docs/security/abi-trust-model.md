@@ -6,7 +6,7 @@ scalar-WFST providers (`lling_wfst_import`, `lling_wfst_compose`) and it
 *produces* resources for foreign consumers (`lling_wfst_resource`). Each
 role has its own boundary discipline. This document is the lling-llang
 instantiation of the family-wide trust model, which is normative here:
-[family security model](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/security-model.md)
+[family security model](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/security-model.md)
 (assets, trust zones, the containment law, the parallelism-by-claim
 analysis, exhaustion vectors, and stated non-goals).
 
@@ -26,11 +26,11 @@ Symbols link to [`NOTATION.md`](../NOTATION.md).
 | **trust boundary** | The vtable edge: every provider callback's *data* replies (statuses, counts, flags, labels, weights) are untrusted input. |
 | **containment** | Faults become status codes; no unwinding crosses `extern "C"` in either direction. |
 | $`\bar{0}`$, $`+\infty`$, $`-\infty`$ | The tropical additive identity is $`+\infty`$; $`-\infty`$ is *outside* the tropical carrier and is treated as hostile input. |
-| **F1 / LLING-B2** | The confirmed ingestion finding motivating this document ([case study below](#the-motivating-case-f1--a--infty-that-nan-poisons-composition)). |
+| **F1 / LLING-B2** | The confirmed ingestion finding motivating this document ([case study below](#the-motivating-case-f1)). |
 
 ## Trust zones
 
-```text
+```art
 ┌────────────────────────── process ──────────────────────────────────┐
 │  C caller (application)                                             │
 │      │  lling_* calls: statuses out, panics contained               │
@@ -72,7 +72,7 @@ Three parties, three postures:
 
 At capture, import, and every lazy expansion, all provider output passes
 explicit acceptance predicates (stated as display math in the
-[architecture doc](../architecture/resource-abi.md#validation-at-ingestion--the-acceptance-predicates)):
+[architecture doc](../architecture/resource-abi.md#validation-at-ingestion-the-acceptance-predicates)):
 
 | Reply channel | Checks | On violation |
 |---|---|---|
@@ -94,9 +94,10 @@ materializes only visited product states), and *blocking* inside a callback
 (a stalled provider stalls the calling thread; run untrusted providers
 out-of-process if this must be bounded).
 
-## The motivating case: F1 — a $`-\infty`$ that NaN-poisons composition
+## The motivating case F1
 
-The concrete, confirmed case that shaped these duties (ledger finding
+The concrete case is a hostile $`-\infty`$ weight that NaN-poisons composition.
+This confirmed case shaped these duties (ledger finding
 LLING-B2, family pre-registered finding F1):
 
 - **The hole.** ABI weight ingestion originally rejected only NaN
@@ -129,7 +130,7 @@ LLING-B2, family pre-registered finding F1):
 - **The lesson, generalized.** *Representation validity is per-domain, not
   merely "not NaN".* Each of the seven family weight domains has its own
   carrier predicate (see the
-  [weight-domain table](../api/c-abi-reference.md#weight-domains--semirings));
+  [weight-domain table](../api/c-abi-reference.md#weight-domains-semirings));
   a consumer must enforce the predicate of the domain it consumes at every
   ingestion site, and every construction surface must enforce the predicate
   of the domain it builds. The finding's full record is in the
@@ -139,7 +140,7 @@ LLING-B2, family pre-registered finding F1):
 
 The family law — **no unwinding crosses `extern "C"`, in either
 direction** — is implemented here exactly as the
-[canon records](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/security-model.md#3-the-panic-and-exception-containment-law):
+[canon records](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/security-model.md):
 
 - **Every `lling_*` entry point** runs its body inside `boundary()`
   (`src/ffi.rs`): `catch_unwind(AssertUnwindSafe(..))` converts any Rust
@@ -195,13 +196,13 @@ Inherited from the family model and restated so nobody relies on more:
 
 ## References
 
-- [Family security model](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/security-model.md)
+- [Family security model](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/security-model.md)
   — the normative trust zones, containment law, claim analysis, exhaustion
   vectors, and non-goals this document instantiates.
 - [Bindings findings ledger](../scientific-ledger/bindings-findings-ledger.md)
   — LLING-B2 (F1), the confirmed ingestion finding, with evidence and
   verification.
-- [Collins 1960](../BIBLIOGRAPHY.md#ref-collins1960) — reference counting,
+- [Collins 1960](https://doi.org/10.1145/367487.367501) — reference counting,
   the discipline behind retain/release balance.
-- [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — the WFST composition
+- [Mohri 2002](https://doi.org/10.1006/csla.2001.0184) — the WFST composition
   semantics whose integrity the weight validation protects.

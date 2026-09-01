@@ -6,7 +6,7 @@ the `vt.scalar-wfst.1` resource layer in `src/bindings.rs`, the C/C++ headers,
 the JavaScript/TypeScript/ClojureScript facades, and the release machinery).
 Every entry uses the uniform family schema:
 
-```
+```text
 Finding LLING-B<N> | date | component | class | severity | evidence | analysis | fix | verification | status
 ```
 
@@ -113,13 +113,13 @@ $`\mathrm{NaN}`$. Every ABI ingestion site, however, tests only
 
 | # | Channel | Site (at `0fc05f0`) | What it does |
 |---|---|---|---|
-| 1 | capture/expand | `src/bindings.rs:262` — `if valid > 1 \|\| is_final > 1 \|\| final_weight.is_nan()` | admits a $`-\infty`$ final weight from a foreign `state_info` |
-| 2 | capture/expand | `src/bindings.rs:304` — `\|\| arc.weight.is_nan()` | admits $`-\infty`$ arc weights from a foreign `state_arcs` page |
+| 1 | capture/expand | `src/bindings.rs:262` — <code>if valid &gt; 1 &#124;&#124; is_final &gt; 1 &#124;&#124; final_weight.is_nan()</code> | admits a $`-\infty`$ final weight from a foreign `state_info` |
+| 2 | capture/expand | `src/bindings.rs:304` — <code>&#124;&#124; arc.weight.is_nan()</code> | admits $`-\infty`$ arc weights from a foreign `state_arcs` page |
 | 3 | composition | `src/bindings.rs:392` — `left.final_weight + right.final_weight` | raw IEEE-754 addition of two captured final weights |
 | 4 | composition | `src/bindings.rs:455` — `weight: left_arc.weight + right_arc.weight` | raw IEEE-754 addition of two matched arc weights |
-| 5 | import | `src/bindings.rs:970` — `\|\| !final_weight.is_finite() && !final_weight.is_infinite()` | rejects only $`\mathrm{NaN}`$ (a $`-\infty`$ value *is* infinite, so it passes) |
+| 5 | import | `src/bindings.rs:970` — <code>&#124;&#124; !final_weight.is_finite() &amp;&amp; !final_weight.is_infinite()</code> | rejects only $`\mathrm{NaN}`$ (a $`-\infty`$ value *is* infinite, so it passes) |
 | 6 | import | `src/bindings.rs:981` — `TropicalWeight::new(final_weight)` | **panics** on the admitted $`-\infty`$ |
-| 7 | import | `src/bindings.rs:1007` — `\|\| arc.weight.is_nan()` | admits $`-\infty`$ arc weights |
+| 7 | import | `src/bindings.rs:1007` — <code>&#124;&#124; arc.weight.is_nan()</code> | admits $`-\infty`$ arc weights |
 | 8 | import | `src/bindings.rs:1049` — `TropicalWeight::new(arc.weight)` | **panics** on the admitted $`-\infty`$ |
 | 9 | builder | `src/ffi.rs:200` (`set_final`) and `src/ffi.rs:263` (`add_arc`) — `if weight.is_nan()` | NaN-only rejection at the C builder surface |
 | 10 | builder | `src/ffi.rs:210` and `src/ffi.rs:274` — `TropicalWeight::new(weight)` | **panics** on $`-\infty`$; surfaces as `LLING_STATUS_PANIC` instead of `LLING_STATUS_INVALID_ARGUMENT` |
@@ -557,8 +557,9 @@ they need a machine-level checker.
 
 **What the leg runs.** `scripts/run-sanitizers.sh` builds the crate's OWN
 boundary suites with a nightly toolchain under `-Zbuild-std` (rebuilding `std`
-and every dependency — including the sibling `vinary-tree-interop` crate at the
-ABI boundary — with the sanitizer runtime), then runs them, first under
+and every dependency — including the locked, registry-resolved
+`vinary-tree-interop` crate at the ABI boundary — with the sanitizer runtime),
+then runs them, first under
 AddressSanitizer + LeakSanitizer, then under ThreadSanitizer:
 
 - `ASAN_OPTIONS="detect_leaks=1:detect_stack_use_after_return=1"`;
@@ -597,7 +598,7 @@ would not surface.
 1. Scoped smoke over the leak/orphan suite (validates the toolchain end to end
    and the retain discipline directly):
 
-   ```
+   ```bash
    SANITIZER_ONLY=address scripts/run-sanitizers.sh --test ffi_out_pointer_safety
    ```
 
@@ -608,7 +609,7 @@ would not surface.
 
 2. Full leg, exactly as CI runs it:
 
-   ```
+   ```bash
    scripts/run-sanitizers.sh          # asan+lsan then tsan, whole suite
    ```
 

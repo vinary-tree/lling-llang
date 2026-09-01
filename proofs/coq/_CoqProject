@@ -52,6 +52,7 @@ abi/EpsilonFilterSoundness.v
 -Q presburger PresburgerProofs
 -Q sft Sft
 -Q symbolic_algebra SymbolicAlgebra
+-Q stack_safety StackSafety
 
 logict/LogicTFairness.v
 presburger/PresburgerBooleanAlgebra.v
@@ -69,3 +70,18 @@ symbolic_algebra/TreeAlgebraClosure.v
 symbolic_algebra/TheoryCombination.v
 symbolic_algebra/GuardTierCertificate.v
 symbolic_algebra/BehavioralNegation.v
+stack_safety/ContinuationMachine.v
+stack_safety/OrderedForestMachine.v
+stack_safety/TreeTransducerScc.v
+stack_safety/PolarityNormalization.v
+stack_safety/DecidabilityMachine.v
+stack_safety/BehavioralFormulaMachine.v
+stack_safety/TokenPatternMachine.v
+stack_safety/DysfluencyScanMachine.v
+stack_safety/MultisetPartitionMachine.v
+stack_safety/CrossCarrierLifecycle.v
+stack_safety/SyntaxTreeMachine.v
+stack_safety/AdjacencyIndex.v
+stack_safety/OutputAssembly.v
+stack_safety/SignedPresburgerRemainder.v
+stack_safety/TreeRunIndex.v

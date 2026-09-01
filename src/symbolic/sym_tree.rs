@@ -16,6 +16,8 @@
 //! `TreeAlgebra` Boolean-algebra wrapper are added in M1.6b.
 
 use std::collections::{HashMap, HashSet};
+use std::fmt::{self, Debug};
+use std::hash::{Hash, Hasher};
 
 use super::BooleanAlgebra;
 
@@ -27,7 +29,6 @@ use super::BooleanAlgebra;
 ///
 /// Structural constructors (e.g. `Cons`, `Pair`) carry `payload = None`; scalar
 /// leaf constructors (e.g. an integer literal `Lit`) carry `payload = Some(d)`.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SymTerm<D> {
     /// The head constructor.
     pub constructor: String,
@@ -66,6 +67,120 @@ impl<D> SymTerm<D> {
     }
 }
 
+impl<D: Clone> Clone for SymTerm<D> {
+    fn clone(&self) -> Self {
+        struct Frame<'a, D> {
+            source: &'a SymTerm<D>,
+            next_child: usize,
+            children: Vec<SymTerm<D>>,
+        }
+
+        let mut frames = vec![Frame {
+            source: self,
+            next_child: 0,
+            children: Vec::with_capacity(self.children.len()),
+        }];
+        loop {
+            let frame = frames
+                .last_mut()
+                .expect("the root clone frame remains until completion");
+            if let Some(child) = frame.source.children.get(frame.next_child) {
+                frame.next_child += 1;
+                frames.push(Frame {
+                    source: child,
+                    next_child: 0,
+                    children: Vec::with_capacity(child.children.len()),
+                });
+                continue;
+            }
+            let completed = frames.pop().expect("a completed clone frame is present");
+            let cloned = SymTerm {
+                constructor: completed.source.constructor.clone(),
+                payload: completed.source.payload.clone(),
+                children: completed.children,
+            };
+            if let Some(parent) = frames.last_mut() {
+                parent.children.push(cloned);
+            } else {
+                return cloned;
+            }
+        }
+    }
+}
+
+impl<D: PartialEq> PartialEq for SymTerm<D> {
+    fn eq(&self, other: &Self) -> bool {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            if left.constructor != right.constructor
+                || left.payload != right.payload
+                || left.children.len() != right.children.len()
+            {
+                return false;
+            }
+            pending.extend(left.children.iter().zip(&right.children).rev());
+        }
+        true
+    }
+}
+
+impl<D: Eq> Eq for SymTerm<D> {}
+
+impl<D: Hash> Hash for SymTerm<D> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut pending = vec![self];
+        while let Some(term) = pending.pop() {
+            term.constructor.hash(state);
+            term.payload.hash(state);
+            term.children.len().hash(state);
+            pending.extend(term.children.iter().rev());
+        }
+    }
+}
+
+impl<D: Debug> Debug for SymTerm<D> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        enum Event<'a, D> {
+            Term(&'a SymTerm<D>),
+            Children(&'a [SymTerm<D>], usize),
+        }
+        let mut events = vec![Event::Term(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Term(term) => {
+                    write!(
+                        f,
+                        "SymTerm {{ constructor: {:?}, payload: {:?}, children: [",
+                        term.constructor, term.payload
+                    )?;
+                    events.push(Event::Children(&term.children, 0));
+                }
+                Event::Children(children, index) => {
+                    if index == children.len() {
+                        write!(f, "] }}")?;
+                    } else {
+                        if index > 0 {
+                            write!(f, ", ")?;
+                        }
+                        events.push(Event::Children(children, index + 1));
+                        events.push(Event::Term(&children[index]));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<D> Drop for SymTerm<D> {
+    fn drop(&mut self) {
+        let mut pending = std::mem::take(&mut self.children);
+        while let Some(mut child) = pending.pop() {
+            pending.append(&mut child.children);
+        }
+    }
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // SymbolicTreeAutomaton
 // ══════════════════════════════════════════════════════════════════════════════
@@ -84,6 +199,121 @@ pub struct TreeTrans<P> {
     pub child_states: Vec<usize>,
     /// Resulting state.
     pub target: usize,
+}
+
+/// Request-local transition index used by [`SymbolicTreeAutomaton::run`].
+///
+/// Keys borrow the immutable automaton rather than cloning constructors or
+/// child-state tuples.  Each transition contributes one source-order bucket
+/// index and one exact-tuple index.  The former bounds adversarial
+/// nondeterministic products; the latter makes deterministic and low-ambiguity
+/// runs output-sensitive.
+struct TreeTransitionBucket<'transition> {
+    stable_indices: Vec<usize>,
+    exact_indices: HashMap<&'transition [usize], Vec<usize>>,
+}
+
+impl TreeTransitionBucket<'_> {
+    fn new() -> Self {
+        Self {
+            stable_indices: Vec::new(),
+            exact_indices: HashMap::new(),
+        }
+    }
+}
+
+struct TreeTransitionIndex<'transition> {
+    by_constructor: HashMap<&'transition str, HashMap<usize, TreeTransitionBucket<'transition>>>,
+}
+
+impl<'transition> TreeTransitionIndex<'transition> {
+    fn new<P>(transitions: &'transition [TreeTrans<P>]) -> Self {
+        let mut by_constructor = HashMap::new();
+        for (index, transition) in transitions.iter().enumerate() {
+            let bucket = by_constructor
+                .entry(transition.constructor.as_str())
+                .or_insert_with(HashMap::new)
+                .entry(transition.child_states.len())
+                .or_insert_with(TreeTransitionBucket::new);
+            bucket.stable_indices.push(index);
+            bucket
+                .exact_indices
+                .entry(transition.child_states.as_slice())
+                .or_default()
+                .push(index);
+        }
+        Self { by_constructor }
+    }
+
+    fn bucket(
+        &self,
+        constructor: &str,
+        arity: usize,
+    ) -> Option<&TreeTransitionBucket<'transition>> {
+        self.by_constructor.get(constructor)?.get(&arity)
+    }
+}
+
+fn capped_cartesian_size(sets: &[HashSet<usize>], cap: usize) -> usize {
+    sets.iter().fold(1usize, |product, set| {
+        product.saturating_mul(set.len()).min(cap)
+    })
+}
+
+/// Append exact-tuple transition indices without materializing the Cartesian
+/// product.  Scratch buffers are retained across input nodes, so deterministic
+/// unary runs allocate no tuple-enumeration storage per node.
+fn append_exact_transition_indices(
+    bucket: &TreeTransitionBucket<'_>,
+    sets: &[HashSet<usize>],
+    choices: &mut Vec<Vec<usize>>,
+    positions: &mut Vec<usize>,
+    tuple: &mut Vec<usize>,
+    output: &mut Vec<usize>,
+) {
+    if sets.is_empty() {
+        if let Some(indices) = bucket.exact_indices.get(&[][..]) {
+            output.extend_from_slice(indices);
+        }
+        return;
+    }
+
+    if choices.len() < sets.len() {
+        choices.resize_with(sets.len(), Vec::new);
+    }
+    for (choice, set) in choices.iter_mut().zip(sets) {
+        choice.clear();
+        choice.extend(set.iter().copied());
+        if choice.is_empty() {
+            return;
+        }
+    }
+    positions.clear();
+    positions.resize(sets.len(), 0);
+    tuple.clear();
+    tuple.resize(sets.len(), 0);
+
+    loop {
+        for slot in 0..sets.len() {
+            tuple[slot] = choices[slot][positions[slot]];
+        }
+        if let Some(indices) = bucket.exact_indices.get(tuple.as_slice()) {
+            output.extend_from_slice(indices);
+        }
+
+        let mut slot = sets.len();
+        loop {
+            if slot == 0 {
+                return;
+            }
+            slot -= 1;
+            positions[slot] += 1;
+            if positions[slot] < choices[slot].len() {
+                break;
+            }
+            positions[slot] = 0;
+        }
+    }
 }
 
 /// A bottom-up symbolic tree automaton over element algebra `A`.
@@ -154,28 +384,86 @@ impl<A: BooleanAlgebra> SymbolicTreeAutomaton<A> {
 
     /// Bottom-up: the set of states the automaton can reach at the root of `term`.
     pub fn run(&self, term: &SymTerm<A::Domain>) -> HashSet<usize> {
-        let child_state_sets: Vec<HashSet<usize>> =
-            term.children.iter().map(|c| self.run(c)).collect();
-        let mut reached = HashSet::new();
-        for trans in &self.transitions {
-            if trans.constructor != term.constructor
-                || trans.child_states.len() != term.children.len()
-            {
-                continue;
-            }
-            if !self.payload_matches(&trans.payload_guard, &term.payload) {
-                continue;
-            }
-            let children_ok = trans
-                .child_states
-                .iter()
-                .zip(&child_state_sets)
-                .all(|(q, set)| set.contains(q));
-            if children_ok {
-                reached.insert(trans.target);
+        enum Task<'term, D> {
+            Visit(&'term SymTerm<D>),
+            Reduce(&'term SymTerm<D>),
+        }
+
+        let transition_index = TreeTransitionIndex::new(&self.transitions);
+        let mut tasks = vec![Task::Visit(term)];
+        let mut values: Vec<HashSet<usize>> = Vec::new();
+        let mut candidates = Vec::new();
+        let mut choices = Vec::new();
+        let mut positions = Vec::new();
+        let mut tuple = Vec::new();
+
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Visit(current) => {
+                    tasks.push(Task::Reduce(current));
+                    tasks.extend(current.children.iter().rev().map(Task::Visit));
+                }
+                Task::Reduce(current) => {
+                    let child_count = current.children.len();
+                    let first_child = values
+                        .len()
+                        .checked_sub(child_count)
+                        .expect("all child results precede their parent reduction");
+                    let child_states = &values[first_child..];
+                    candidates.clear();
+
+                    if let Some(bucket) = transition_index.bucket(&current.constructor, child_count)
+                    {
+                        let exact_work =
+                            capped_cartesian_size(child_states, bucket.stable_indices.len());
+                        if exact_work < bucket.stable_indices.len() {
+                            append_exact_transition_indices(
+                                bucket,
+                                child_states,
+                                &mut choices,
+                                &mut positions,
+                                &mut tuple,
+                                &mut candidates,
+                            );
+                            candidates.sort_unstable();
+                        } else {
+                            candidates.extend(bucket.stable_indices.iter().copied().filter(
+                                |&index| {
+                                    self.transitions[index]
+                                        .child_states
+                                        .iter()
+                                        .zip(child_states)
+                                        .all(|(state, set)| set.contains(state))
+                                },
+                            ));
+                        }
+                    }
+
+                    // Reuse the first child's allocation after all child-state
+                    // membership checks are complete.  A deterministic unary
+                    // path consequently carries one HashSet allocation through
+                    // the entire ascent.
+                    let mut reached = if child_count == 0 {
+                        HashSet::with_capacity(candidates.len())
+                    } else {
+                        std::mem::take(&mut values[first_child])
+                    };
+                    reached.clear();
+                    reached.reserve(candidates.len());
+                    for &index in &candidates {
+                        let transition = &self.transitions[index];
+                        if self.payload_matches(&transition.payload_guard, &current.payload) {
+                            reached.insert(transition.target);
+                        }
+                    }
+                    values.truncate(first_child);
+                    values.push(reached);
+                }
             }
         }
-        reached
+        values
+            .pop()
+            .expect("the root term produces one reachable-state set")
     }
 
     /// Whether `term` is accepted (some reachable root state is accepting).
@@ -338,7 +626,13 @@ impl<A: BooleanAlgebra> SymbolicTreeAutomaton<A> {
 }
 
 fn term_size<D>(t: &SymTerm<D>) -> usize {
-    1 + t.children.iter().map(term_size).sum::<usize>()
+    let mut size = 0usize;
+    let mut pending = vec![t];
+    while let Some(term) = pending.pop() {
+        size += 1;
+        pending.extend(term.children.iter().rev());
+    }
+    size
 }
 
 /// All `n^k` index tuples (k-fold cartesian product of `0..n`).
@@ -525,7 +819,6 @@ impl<A: BooleanAlgebra> SymbolicTreeAutomaton<A> {
 // ══════════════════════════════════════════════════════════════════════════════
 
 /// A symbolic tree predicate over element-predicate type `P`.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum TreePred<P> {
     /// Matches every well-formed term.
     True,
@@ -546,6 +839,242 @@ pub enum TreePred<P> {
     Or(Box<TreePred<P>>, Box<TreePred<P>>),
     /// Negation (relative to the ranked-alphabet universe).
     Not(Box<TreePred<P>>),
+}
+
+impl<P: Clone> Clone for TreePred<P> {
+    fn clone(&self) -> Self {
+        enum Task<'a, P> {
+            Clone(&'a TreePred<P>),
+            Node {
+                constructor: &'a str,
+                payload_guard: &'a Option<P>,
+                child_count: usize,
+            },
+            And,
+            Or,
+            Not,
+        }
+        let mut tasks = vec![Task::Clone(self)];
+        let mut values = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Clone(predicate) => match predicate {
+                    TreePred::True => values.push(TreePred::True),
+                    TreePred::False => values.push(TreePred::False),
+                    TreePred::Wild => values.push(TreePred::Wild),
+                    TreePred::Node {
+                        constructor,
+                        payload_guard,
+                        children,
+                    } => {
+                        tasks.push(Task::Node {
+                            constructor,
+                            payload_guard,
+                            child_count: children.len(),
+                        });
+                        tasks.extend(children.iter().rev().map(Task::Clone));
+                    }
+                    TreePred::And(left, right) => {
+                        tasks.push(Task::And);
+                        tasks.push(Task::Clone(right));
+                        tasks.push(Task::Clone(left));
+                    }
+                    TreePred::Or(left, right) => {
+                        tasks.push(Task::Or);
+                        tasks.push(Task::Clone(right));
+                        tasks.push(Task::Clone(left));
+                    }
+                    TreePred::Not(inner) => {
+                        tasks.push(Task::Not);
+                        tasks.push(Task::Clone(inner));
+                    }
+                },
+                Task::Node {
+                    constructor,
+                    payload_guard,
+                    child_count,
+                } => {
+                    let first = values
+                        .len()
+                        .checked_sub(child_count)
+                        .expect("all tree-predicate children are cloned first");
+                    let children = values.split_off(first);
+                    values.push(TreePred::Node {
+                        constructor: constructor.to_string(),
+                        payload_guard: payload_guard.clone(),
+                        children,
+                    });
+                }
+                Task::And | Task::Or => {
+                    let right = values.pop().expect("right predicate clone is present");
+                    let left = values.pop().expect("left predicate clone is present");
+                    values.push(if matches!(task, Task::And) {
+                        TreePred::And(Box::new(left), Box::new(right))
+                    } else {
+                        TreePred::Or(Box::new(left), Box::new(right))
+                    });
+                }
+                Task::Not => {
+                    let inner = values.pop().expect("negated predicate clone is present");
+                    values.push(TreePred::Not(Box::new(inner)));
+                }
+            }
+        }
+        values
+            .pop()
+            .expect("the root tree predicate produces one clone")
+    }
+}
+
+impl<P: PartialEq> PartialEq for TreePred<P> {
+    fn eq(&self, other: &Self) -> bool {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (TreePred::True, TreePred::True)
+                | (TreePred::False, TreePred::False)
+                | (TreePred::Wild, TreePred::Wild) => {}
+                (
+                    TreePred::Node {
+                        constructor: lc,
+                        payload_guard: lp,
+                        children: lk,
+                    },
+                    TreePred::Node {
+                        constructor: rc,
+                        payload_guard: rp,
+                        children: rk,
+                    },
+                ) if lc == rc && lp == rp && lk.len() == rk.len() => {
+                    pending.extend(lk.iter().zip(rk).rev());
+                }
+                (TreePred::And(la, lb), TreePred::And(ra, rb))
+                | (TreePred::Or(la, lb), TreePred::Or(ra, rb)) => {
+                    pending.push((lb, rb));
+                    pending.push((la, ra));
+                }
+                (TreePred::Not(left), TreePred::Not(right)) => pending.push((left, right)),
+                _ => return false,
+            }
+        }
+        true
+    }
+}
+
+impl<P: Eq> Eq for TreePred<P> {}
+
+impl<P: Hash> Hash for TreePred<P> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut pending = vec![self];
+        while let Some(predicate) = pending.pop() {
+            std::mem::discriminant(predicate).hash(state);
+            match predicate {
+                TreePred::True | TreePred::False | TreePred::Wild => {}
+                TreePred::Node {
+                    constructor,
+                    payload_guard,
+                    children,
+                } => {
+                    constructor.hash(state);
+                    payload_guard.hash(state);
+                    children.len().hash(state);
+                    pending.extend(children.iter().rev());
+                }
+                TreePred::And(left, right) | TreePred::Or(left, right) => {
+                    pending.push(right);
+                    pending.push(left);
+                }
+                TreePred::Not(inner) => pending.push(inner),
+            }
+        }
+    }
+}
+
+impl<P: Debug> Debug for TreePred<P> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        enum Event<'a, P> {
+            Predicate(&'a TreePred<P>),
+            Children(&'a [TreePred<P>], usize),
+            Text(&'static str),
+        }
+        let mut events = vec![Event::Predicate(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Text(text) => write!(f, "{text}")?,
+                Event::Children(children, index) => {
+                    if index == children.len() {
+                        write!(f, "] }}")?;
+                    } else {
+                        if index > 0 {
+                            write!(f, ", ")?;
+                        }
+                        events.push(Event::Children(children, index + 1));
+                        events.push(Event::Predicate(&children[index]));
+                    }
+                }
+                Event::Predicate(predicate) => match predicate {
+                    TreePred::True => write!(f, "True")?,
+                    TreePred::False => write!(f, "False")?,
+                    TreePred::Wild => write!(f, "Wild")?,
+                    TreePred::Node {
+                        constructor,
+                        payload_guard,
+                        children,
+                    } => {
+                        write!(
+                            f,
+                            "Node {{ constructor: {constructor:?}, payload_guard: {payload_guard:?}, children: ["
+                        )?;
+                        events.push(Event::Children(children, 0));
+                    }
+                    TreePred::And(left, right) | TreePred::Or(left, right) => {
+                        write!(
+                            f,
+                            "{}(",
+                            if matches!(predicate, TreePred::And(_, _)) {
+                                "And"
+                            } else {
+                                "Or"
+                            }
+                        )?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Predicate(right));
+                        events.push(Event::Text(", "));
+                        events.push(Event::Predicate(left));
+                    }
+                    TreePred::Not(inner) => {
+                        write!(f, "Not(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Predicate(inner));
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<P> Drop for TreePred<P> {
+    fn drop(&mut self) {
+        fn drain<P>(predicate: &mut TreePred<P>, pending: &mut Vec<TreePred<P>>) {
+            match predicate {
+                TreePred::Node { children, .. } => pending.append(children),
+                TreePred::And(left, right) | TreePred::Or(left, right) => {
+                    pending.push(std::mem::replace(&mut **right, TreePred::False));
+                    pending.push(std::mem::replace(&mut **left, TreePred::False));
+                }
+                TreePred::Not(inner) => {
+                    pending.push(std::mem::replace(&mut **inner, TreePred::False));
+                }
+                TreePred::True | TreePred::False | TreePred::Wild => {}
+            }
+        }
+        let mut pending = Vec::new();
+        drain(self, &mut pending);
+        while let Some(mut predicate) = pending.pop() {
+            drain(&mut predicate, &mut pending);
+        }
+    }
 }
 
 /// The effective Boolean algebra of symbolic tree predicates over a ranked
@@ -606,28 +1135,34 @@ impl<A: BooleanAlgebra> TreeAlgebra<A> {
         &self,
         constructor: &str,
         payload_guard: &Option<A::Predicate>,
-        children: &[TreePred<A::Predicate>],
+        child_autos: Vec<SymbolicTreeAutomaton<A>>,
     ) -> SymbolicTreeAutomaton<A> {
-        let child_autos: Vec<SymbolicTreeAutomaton<A>> =
-            children.iter().map(|ch| self.compile(ch)).collect();
         let mut result = SymbolicTreeAutomaton::new(self.elem.clone());
         result.arities = self.arities.clone();
         let mut child_accepts: Vec<Vec<usize>> = Vec::with_capacity(child_autos.len());
-        for ca in &child_autos {
+        for mut ca in child_autos {
             for (cc, &aa) in &ca.arities {
                 result.arities.insert(cc.clone(), aa);
             }
             let base = result.num_states;
-            result.num_states += ca.num_states;
-            for t in &ca.transitions {
-                result.transitions.push(TreeTrans {
-                    constructor: t.constructor.clone(),
-                    payload_guard: t.payload_guard.clone(),
-                    child_states: t.child_states.iter().map(|q| q + base).collect(),
-                    target: t.target + base,
-                });
-            }
             child_accepts.push(ca.accepting.iter().map(|&q| q + base).collect());
+            result.num_states += ca.num_states;
+            if base == 0 {
+                // The first (and, for a unary chain, only) child already uses
+                // the target numbering.  Transfer its transition buffer in
+                // constant time instead of copying the growing subtree.
+                result.transitions = std::mem::take(&mut ca.transitions);
+            } else {
+                result.transitions.reserve(ca.transitions.len());
+                result
+                    .transitions
+                    .extend(ca.transitions.into_iter().map(|t| TreeTrans {
+                        constructor: t.constructor,
+                        payload_guard: t.payload_guard,
+                        child_states: t.child_states.into_iter().map(|q| q + base).collect(),
+                        target: t.target + base,
+                    }));
+            }
         }
         let q = result.num_states;
         result.num_states += 1;
@@ -645,18 +1180,84 @@ impl<A: BooleanAlgebra> TreeAlgebra<A> {
 
     /// Compile a tree predicate into a symbolic tree automaton.
     fn compile(&self, p: &TreePred<A::Predicate>) -> SymbolicTreeAutomaton<A> {
-        match p {
-            TreePred::True | TreePred::Wild => self.universal(),
-            TreePred::False => self.empty_automaton(),
-            TreePred::Node {
-                constructor,
-                payload_guard,
-                children,
-            } => self.compile_node(constructor, payload_guard, children),
-            TreePred::And(a, b) => self.compile(a).intersect(&self.compile(b)),
-            TreePred::Or(a, b) => self.compile(a).union(&self.compile(b)),
-            TreePred::Not(x) => self.compile(x).complement(),
+        enum Task<'a, P> {
+            Compile(&'a TreePred<P>),
+            Node {
+                constructor: &'a str,
+                payload_guard: &'a Option<P>,
+                child_count: usize,
+            },
+            And,
+            Or,
+            Not,
         }
+
+        let mut tasks = vec![Task::Compile(p)];
+        let mut automata = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Compile(predicate) => match predicate {
+                    TreePred::True | TreePred::Wild => automata.push(self.universal()),
+                    TreePred::False => automata.push(self.empty_automaton()),
+                    TreePred::Node {
+                        constructor,
+                        payload_guard,
+                        children,
+                    } => {
+                        tasks.push(Task::Node {
+                            constructor,
+                            payload_guard,
+                            child_count: children.len(),
+                        });
+                        tasks.extend(children.iter().rev().map(Task::Compile));
+                    }
+                    TreePred::And(left, right) => {
+                        tasks.push(Task::And);
+                        tasks.push(Task::Compile(right));
+                        tasks.push(Task::Compile(left));
+                    }
+                    TreePred::Or(left, right) => {
+                        tasks.push(Task::Or);
+                        tasks.push(Task::Compile(right));
+                        tasks.push(Task::Compile(left));
+                    }
+                    TreePred::Not(inner) => {
+                        tasks.push(Task::Not);
+                        tasks.push(Task::Compile(inner));
+                    }
+                },
+                Task::Node {
+                    constructor,
+                    payload_guard,
+                    child_count,
+                } => {
+                    let first_child = automata
+                        .len()
+                        .checked_sub(child_count)
+                        .expect("all child automata are compiled before their node");
+                    let children = automata.split_off(first_child);
+                    automata.push(self.compile_node(constructor, payload_guard, children));
+                }
+                Task::And | Task::Or => {
+                    let right = automata.pop().expect("right compiled automaton is present");
+                    let left = automata.pop().expect("left compiled automaton is present");
+                    automata.push(if matches!(task, Task::And) {
+                        left.intersect(&right)
+                    } else {
+                        left.union(&right)
+                    });
+                }
+                Task::Not => {
+                    let inner = automata
+                        .pop()
+                        .expect("negated compiled automaton is present");
+                    automata.push(inner.complement());
+                }
+            }
+        }
+        automata
+            .pop()
+            .expect("the root predicate produces one compiled automaton")
     }
 }
 
@@ -707,8 +1308,176 @@ impl<A: BooleanAlgebra> BooleanAlgebra for TreeAlgebra<A> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
     use super::super::{IntervalAlgebra, IntervalPred};
     use super::*;
+    use proptest::prelude::*;
+
+    #[derive(Clone, Debug)]
+    struct CountingBooleanAlgebra {
+        evaluations: Arc<AtomicUsize>,
+    }
+
+    impl BooleanAlgebra for CountingBooleanAlgebra {
+        type Predicate = bool;
+        type Domain = ();
+
+        fn true_pred(&self) -> Self::Predicate {
+            true
+        }
+
+        fn false_pred(&self) -> Self::Predicate {
+            false
+        }
+
+        fn and(&self, left: &Self::Predicate, right: &Self::Predicate) -> Self::Predicate {
+            *left && *right
+        }
+
+        fn or(&self, left: &Self::Predicate, right: &Self::Predicate) -> Self::Predicate {
+            *left || *right
+        }
+
+        fn not(&self, predicate: &Self::Predicate) -> Self::Predicate {
+            !predicate
+        }
+
+        fn is_satisfiable(&self, predicate: &Self::Predicate) -> bool {
+            *predicate
+        }
+
+        fn witness(&self, predicate: &Self::Predicate) -> Option<Self::Domain> {
+            predicate.then_some(())
+        }
+
+        fn evaluate(&self, predicate: &Self::Predicate, _element: &Self::Domain) -> bool {
+            self.evaluations.fetch_add(1, Ordering::Relaxed);
+            *predicate
+        }
+    }
+
+    fn reference_run<A: BooleanAlgebra>(
+        automaton: &SymbolicTreeAutomaton<A>,
+        term: &SymTerm<A::Domain>,
+    ) -> HashSet<usize> {
+        let child_states: Vec<_> = term
+            .children
+            .iter()
+            .map(|child| reference_run(automaton, child))
+            .collect();
+        let mut reached = HashSet::new();
+        for transition in &automaton.transitions {
+            if transition.constructor != term.constructor
+                || transition.child_states.len() != term.children.len()
+            {
+                continue;
+            }
+            if !automaton.payload_matches(&transition.payload_guard, &term.payload) {
+                continue;
+            }
+            if transition
+                .child_states
+                .iter()
+                .zip(&child_states)
+                .all(|(state, set)| set.contains(state))
+            {
+                reached.insert(transition.target);
+            }
+        }
+        reached
+    }
+
+    fn structural_term_strategy() -> impl Strategy<Value = SymTerm<i64>> {
+        Just(SymTerm::constant("L")).prop_recursive(4, 48, 2, |child| {
+            prop_oneof![
+                child
+                    .clone()
+                    .prop_map(|term| SymTerm::node("U", vec![term])),
+                (child.clone(), child)
+                    .prop_map(|(left, right)| SymTerm::node("B", vec![left, right])),
+            ]
+        })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(512))]
+
+        #[test]
+        fn tree_run_refines_stable_transition_scan(
+            num_states in 1usize..8,
+            transition_specs in prop::collection::vec((0u8..3, 0usize..8, 0usize..8, 0usize..8), 0..48),
+            accepting in prop::collection::vec(0usize..8, 0..8),
+            term in structural_term_strategy(),
+        ) {
+            let mut automaton = SymbolicTreeAutomaton::new(IntervalAlgebra::new(0, 1));
+            automaton.register("L", 0);
+            automaton.register("U", 1);
+            automaton.register("B", 2);
+            for _ in 0..num_states {
+                automaton.add_state();
+            }
+            for state in accepting {
+                automaton.set_accepting(state % num_states);
+            }
+            for (constructor, first, second, target) in transition_specs {
+                let (constructor, child_states) = match constructor {
+                    0 => ("L", Vec::new()),
+                    1 => ("U", vec![first % num_states]),
+                    _ => ("B", vec![first % num_states, second % num_states]),
+                };
+                automaton.add_transition(TreeTrans {
+                    constructor: constructor.to_owned(),
+                    payload_guard: None,
+                    child_states,
+                    target: target % num_states,
+                });
+            }
+            prop_assert_eq!(automaton.run(&term), reference_run(&automaton, &term));
+        }
+    }
+
+    #[test]
+    fn deterministic_unary_run_uses_one_guard_probe_per_node() {
+        const DEPTH: usize = 256;
+
+        let evaluations = Arc::new(AtomicUsize::new(0));
+        let mut automaton = SymbolicTreeAutomaton::new(CountingBooleanAlgebra {
+            evaluations: Arc::clone(&evaluations),
+        });
+        automaton.register("L", 0);
+        automaton.register("U", 1);
+        for _ in 0..=DEPTH {
+            automaton.add_state();
+        }
+        automaton.set_accepting(DEPTH);
+        automaton.add_transition(TreeTrans {
+            constructor: "L".to_owned(),
+            payload_guard: Some(true),
+            child_states: Vec::new(),
+            target: 0,
+        });
+        for state in 1..=DEPTH {
+            automaton.add_transition(TreeTrans {
+                constructor: "U".to_owned(),
+                payload_guard: Some(true),
+                child_states: vec![state - 1],
+                target: state,
+            });
+        }
+
+        let mut term = SymTerm::leaf("L", ());
+        for _ in 0..DEPTH {
+            term = SymTerm {
+                constructor: "U".to_owned(),
+                payload: Some(()),
+                children: vec![term],
+            };
+        }
+        assert!(automaton.accepts(&term));
+        assert_eq!(evaluations.load(Ordering::Relaxed), DEPTH + 1);
+    }
 
     // A tiny term language: Lit[int] (scalar leaf) and Pair(a, b) (binary).
     fn lit(n: i64) -> SymTerm<i64> {

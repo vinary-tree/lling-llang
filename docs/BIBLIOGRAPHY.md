@@ -17,7 +17,7 @@ fabricate a DOI**.
 - <a id="ref-mohri2002"></a>**[Mohri 2002]** Mohri, M., Pereira, F., & Riley, M. (2002).
   *Weighted Finite-State Transducers in Speech Recognition.* Computer Speech &
   Language 16(1):69–88.
-  [doi:10.1006/csla.2001.0184](https://doi.org/10.1006/csla.2001.0184)
+  [https://doi.org/10.1006/csla.2001.0184](https://doi.org/10.1006/csla.2001.0184)
   *(DOI re-verified 2026-08-09: HTTP 200 via doi.org; Crossref metadata matches.)*
 - <a id="ref-mohri1997"></a>**[Mohri 1997]** Mohri, M. (1997).
   *Finite-State Transducers in Language and Speech Processing.* Computational
@@ -26,12 +26,12 @@ fabricate a DOI**.
 - <a id="ref-mohri2009"></a>**[Mohri 2009]** Mohri, M. (2009).
   *Weighted Automata Algorithms.* In *Handbook of Weighted Automata*, pp. 213–254.
   Springer.
-  [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)
+  [https://doi.org/10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)
   *(DOI re-verified 2026-08-09: HTTP 200 via doi.org; Crossref metadata matches.)*
 - <a id="ref-earley1970"></a>**[Earley 1970]** Earley, J. (1970).
   *An Efficient Context-Free Parsing Algorithm.* Communications of the ACM
   13(2):94–102.
-  [doi:10.1145/362007.362035](https://doi.org/10.1145/362007.362035)
+  [https://doi.org/10.1145/362007.362035](https://doi.org/10.1145/362007.362035)
 - <a id="ref-goodman1999"></a>**[Goodman 1999]** Goodman, J. (1999).
   *Semiring Parsing.* Computational Linguistics 25(4):573–605.
   [ACL J99-4004](https://aclanthology.org/J99-4004/)
@@ -41,22 +41,22 @@ fabricate a DOI**.
 - <a id="ref-graves2006"></a>**[Graves 2006]** Graves, A., Fernández, S., Gomez, F.,
   & Schmidhuber, J. (2006). *Connectionist Temporal Classification: Labelling
   Unsegmented Sequence Data with Recurrent Neural Networks.* ICML '06:369–376.
-  [doi:10.1145/1143844.1143891](https://doi.org/10.1145/1143844.1143891)
+  [https://doi.org/10.1145/1143844.1143891](https://doi.org/10.1145/1143844.1143891)
 - <a id="ref-graves2012"></a>**[Graves 2012]** Graves, A. (2012).
   *Sequence Transduction with Recurrent Neural Networks.*
   [arXiv:1211.3711](https://arxiv.org/abs/1211.3711)
 - <a id="ref-miao2015"></a>**[Miao 2015]** Miao, Y., Gowayyed, M., & Metze, F. (2015).
   *EESEN: End-to-End Speech Recognition using Deep RNN Models and WFST-based
   Decoding.* ASRU 2015.
-  [doi:10.1109/ASRU.2015.7404790](https://doi.org/10.1109/ASRU.2015.7404790)
+  [https://doi.org/10.1109/ASRU.2015.7404790](https://doi.org/10.1109/ASRU.2015.7404790)
 - <a id="ref-laptev2022"></a>**[Laptev 2022]** Laptev, A., Majumdar, S., &
   Ginsburg, B. (2022). *CTC Variations Through New WFST Topologies.* Interspeech
   2022:1041–1045.
-  [doi:10.21437/Interspeech.2022-10854](https://doi.org/10.21437/Interspeech.2022-10854)
+  [https://doi.org/10.21437/Interspeech.2022-10854](https://doi.org/10.21437/Interspeech.2022-10854)
 - <a id="ref-povey2016"></a>**[Povey 2016]** Povey, D., Peddinti, V., Galvez, D.,
   et al. (2016). *Purely Sequence-Trained Neural Networks for ASR Based on
   Lattice-Free MMI.* Interspeech 2016:2751–2755.
-  [doi:10.21437/Interspeech.2016-595](https://doi.org/10.21437/Interspeech.2016-595)
+  [https://doi.org/10.21437/Interspeech.2016-595](https://doi.org/10.21437/Interspeech.2016-595)
 - <a id="ref-tian2022"></a>**[Tian 2022]** Tian, J., Yu, J., Weng, C., Zou, Y., &
   Yu, D. (2022). *Integrating Lattice-Free MMI into End-to-End Speech Recognition.*
   [arXiv:2203.15614](https://arxiv.org/abs/2203.15614)
@@ -74,7 +74,7 @@ fabricate a DOI**.
 - <a id="ref-braun2020"></a>**[Braun 2020]** Braun, H., Luitjens, J., Leary, R.,
   Kaldewey, T., & Galvez, D. (2020). *GPU-Accelerated Viterbi Exact Lattice Decoder
   for Batched Online and Offline Speech Recognition.* ICASSP 2020:7874–7878.
-  [doi:10.1109/ICASSP40776.2020.9054099](https://doi.org/10.1109/ICASSP40776.2020.9054099)
+  [https://doi.org/10.1109/ICASSP40776.2020.9054099](https://doi.org/10.1109/ICASSP40776.2020.9054099)
 
 ## Online learning & text normalization
 
@@ -94,10 +94,36 @@ and the scalar-WFST resource-layer documentation.
 - <a id="ref-collins1960"></a>**[Collins 1960]** Collins, G. E. (1960).
   *A Method for Overlapping and Erasure of Lists.* Communications of the ACM
   3(12):655–657.
-  [doi:10.1145/367487.367501](https://doi.org/10.1145/367487.367501)
+  [https://doi.org/10.1145/367487.367501](https://doi.org/10.1145/367487.367501)
   — the original reference-counting scheme; the retain/release discipline of
   `VtResource` handles. *(DOI verified 2026-08-09: resolves via doi.org to the
   ACM Digital Library; Crossref metadata matches.)*
+
+## Stack machines, verification, and testing
+
+References backing the stack-safe execution architecture
+([`architecture/stack-safety.md`](architecture/stack-safety.md)).
+
+- <a id="ref-reynolds1972"></a>**[Reynolds 1972]** Reynolds, J. C. (1972).
+  *Definitional Interpreters for Higher-Order Programming Languages.*
+  Proceedings of the 25th ACM National Conference, volume 2:717–740.
+  [https://doi.org/10.1145/800194.805852](https://doi.org/10.1145/800194.805852)
+- <a id="ref-danvy2001"></a>**[Danvy & Nielsen 2001]** Danvy, O., & Nielsen,
+  L. R. (2001). *Defunctionalization at Work.* BRICS Report Series 8(23).
+  [https://doi.org/10.7146/brics.v8i23.21684](https://doi.org/10.7146/brics.v8i23.21684)
+- <a id="ref-bouajjani1997"></a>**[Bouajjani, Esparza & Maler 1997]**
+  Bouajjani, A., Esparza, J., & Maler, O. (1997). *Reachability Analysis of
+  Pushdown Automata: Application to Model-Checking.* CONCUR 1997, LNCS
+  1243:135–150.
+  [https://doi.org/10.1007/3-540-63141-0_10](https://doi.org/10.1007/3-540-63141-0_10)
+- <a id="ref-tarjan1972"></a>**[Tarjan 1972]** Tarjan, R. E. (1972).
+  *Depth-First Search and Linear Graph Algorithms.* SIAM Journal on Computing
+  1(2):146–160.
+  [https://doi.org/10.1137/0201010](https://doi.org/10.1137/0201010)
+- <a id="ref-claessen2000"></a>**[Claessen & Hughes 2000]** Claessen, K., &
+  Hughes, J. (2000). *QuickCheck: A Lightweight Tool for Random Testing of
+  Haskell Programs.* ACM SIGPLAN Notices 35(9):268–279.
+  [https://doi.org/10.1145/357766.351266](https://doi.org/10.1145/357766.351266)
 
 ---
 
@@ -112,17 +138,17 @@ These support specific module docs; each is verified before inclusion.
 - <a id="ref-mohri2000"></a>**[Mohri 2000]** Mohri, M. (2000).
   *Minimization Algorithms for Sequential Transducers.* Theoretical Computer
   Science 234(1–2):177–201.
-  [doi:10.1016/S0304-3975(98)00115-7](https://doi.org/10.1016/S0304-3975(98)00115-7)
+  [https://doi.org/10.1016/S0304-3975(98)00115-7](https://doi.org/10.1016/S0304-3975(98)00115-7)
   — cited by [`docs/advanced/subsequential-transducers.md`](advanced/subsequential-transducers.md).
 - <a id="ref-fulop2009"></a>**[Fülöp & Vogler 2009]** Fülöp, Z., & Vogler, H. (2009).
   *Weighted Tree Automata and Tree Transducers.* In *Handbook of Weighted Automata*,
   pp. 313–403. Springer.
-  [doi:10.1007/978-3-642-01492-5_9](https://doi.org/10.1007/978-3-642-01492-5_9)
+  [https://doi.org/10.1007/978-3-642-01492-5_9](https://doi.org/10.1007/978-3-642-01492-5_9)
   — cited by [`docs/transducers/tree-transducers.md`](transducers/tree-transducers.md).
 - <a id="ref-allauzen2007"></a>**[Allauzen 2007]** Allauzen, C., Riley, M.,
   Schalkwyk, J., Skut, W., & Mohri, M. (2007). *OpenFst: A General and Efficient
   Weighted Finite-State Transducer Library.* CIAA 2007, LNCS 4783:11–23.
-  [doi:10.1007/978-3-540-76336-9_3](https://doi.org/10.1007/978-3-540-76336-9_3)
+  [https://doi.org/10.1007/978-3-540-76336-9_3](https://doi.org/10.1007/978-3-540-76336-9_3)
   — cited by composition / determinization docs and the resource-ABI docs.
   *(DOI re-verified 2026-08-09: HTTP 200 via doi.org; Crossref metadata matches
   the CIAA 2007 chapter.)*
@@ -130,12 +156,12 @@ These support specific module docs; each is verified before inclusion.
   Wang, Y., Xie, L., & Khudanpur, S. (2021). *LET-Decoder: A WFST-Based
   Lazy-Evaluation Token-Group Decoder with Exact Lattice Generation.* IEEE Signal
   Processing Letters 28:703–707.
-  [doi:10.1109/LSP.2021.3067220](https://doi.org/10.1109/LSP.2021.3067220)
+  [https://doi.org/10.1109/LSP.2021.3067220](https://doi.org/10.1109/LSP.2021.3067220)
   — cited by [`docs/optimization/token-grouping.md`](optimization/token-grouping.md)
   and [`docs/advanced/beam-optimization.md`](advanced/beam-optimization.md).
 - <a id="ref-kahn1962"></a>**[Kahn 1962]** Kahn, A. B. (1962). *Topological Sorting
   of Large Networks.* Communications of the ACM 5(11):558–562.
-  [doi:10.1145/368996.369025](https://doi.org/10.1145/368996.369025)
+  [https://doi.org/10.1145/368996.369025](https://doi.org/10.1145/368996.369025)
   — cited by [`docs/algorithms/topological-sort.md`](algorithms/topological-sort.md).
 - <a id="ref-huang2005"></a>**[Huang & Chiang 2005]** Huang, L., & Chiang, D. (2005).
   *Better k-best Parsing.* IWPT 2005:53–64.

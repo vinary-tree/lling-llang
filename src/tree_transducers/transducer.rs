@@ -167,47 +167,35 @@ where
     ///
     /// Returns all possible output trees with their weights.
     fn transduce(&self, input: &Tree<L>) -> Vec<(Tree<L>, W)> {
-        self.transduce_from_state(self.start(), input)
+        run_transducer_machine(
+            self,
+            MachineTask::State {
+                state: self.start(),
+                input,
+            },
+        )
+        .expect("a state task always produces a result vector")
     }
 
     /// Apply the transducer starting from a specific state.
     fn transduce_from_state(&self, state: StateId, input: &Tree<L>) -> Vec<(Tree<L>, W)> {
-        let mut results = Vec::new();
-
-        // Find applicable rules
-        for rule in self.rules(state, input.label()) {
-            // Check arity matches
-            if rule.input_arity != input.arity() {
-                continue;
-            }
-
-            // Try to apply this rule
-            if let Some(outputs) = self.apply_rule(rule, input) {
-                results.extend(outputs);
-            }
-        }
-
-        // If state is final and input is a leaf, we might be done
-        if self.is_final(state) && input.is_leaf() && results.is_empty() {
-            results.push((input.clone(), self.final_weight(state)));
-        }
-
-        results
+        run_transducer_machine(self, MachineTask::State { state, input })
+            .expect("a state task always produces a result vector")
     }
 
     /// Apply a single rule to an input tree.
     fn apply_rule(&self, rule: &TreeRule<L, W>, input: &Tree<L>) -> Option<Vec<(Tree<L>, W)>> {
-        let outputs = self.instantiate_output_pattern(&rule.output_pattern, input)?;
-
-        Some(
-            outputs
-                .into_iter()
-                .map(|(output, child_weight)| {
-                    let weight = rule.weight.clone().times(&child_weight);
-                    (output, weight)
-                })
-                .collect(),
-        )
+        let mut outputs = run_transducer_machine(
+            self,
+            MachineTask::Pattern {
+                pattern: &rule.output_pattern,
+                input,
+            },
+        )?;
+        for (_, child_weight) in &mut outputs {
+            *child_weight = rule.weight.clone().times(child_weight);
+        }
+        Some(outputs)
     }
 
     /// Instantiate an output pattern against an input tree.
@@ -216,33 +204,185 @@ where
         pattern: &TreePattern<L>,
         input: &Tree<L>,
     ) -> Option<Vec<(Tree<L>, W)>> {
-        let mut child_outputs: Vec<Vec<(Tree<L>, W)>> = Vec::with_capacity(pattern.children.len());
+        run_transducer_machine(self, MachineTask::Pattern { pattern, input })
+    }
+}
 
-        for child in &pattern.children {
-            let outputs = match child {
-                TreeChild::Variable { state, var_index } => {
-                    let child_input = input.children().get(*var_index)?;
-                    let outputs = self.transduce_from_state(*state, child_input);
-                    if outputs.is_empty() {
-                        return None;
+type WeightedTrees<L, W> = Vec<(Tree<L>, W)>;
+
+struct StateFrame<'a, L, W: Semiring> {
+    state: StateId,
+    input: &'a Tree<L>,
+    rules: Vec<&'a TreeRule<L, W>>,
+    next_rule: usize,
+    results: WeightedTrees<L, W>,
+}
+
+struct PatternFrame<'a, L, W: Semiring> {
+    pattern: &'a TreePattern<L>,
+    input: &'a Tree<L>,
+    next_child: usize,
+    child_outputs: Vec<WeightedTrees<L, W>>,
+}
+
+enum MachineTask<'a, L, W: Semiring> {
+    State {
+        state: StateId,
+        input: &'a Tree<L>,
+    },
+    Pattern {
+        pattern: &'a TreePattern<L>,
+        input: &'a Tree<L>,
+    },
+    ContinueState(StateFrame<'a, L, W>),
+    ContinuePattern(PatternFrame<'a, L, W>),
+}
+
+enum Continuation<'a, L, W: Semiring> {
+    StateRule {
+        frame: StateFrame<'a, L, W>,
+        rule_weight: W,
+    },
+    PatternChild(PatternFrame<'a, L, W>),
+}
+
+/// Execute the mutually recursive transducer equations as a specialized
+/// defunctionalized pushdown automaton.  Each transition either consumes a rule,
+/// consumes a pattern child, or returns across one explicit continuation frame.
+fn run_transducer_machine<'a, T, L, W>(
+    transducer: &'a T,
+    root: MachineTask<'a, L, W>,
+) -> Option<WeightedTrees<L, W>>
+where
+    T: WeightedTreeTransducer<L, W>,
+    L: Clone + Eq + Hash + Send + Sync,
+    W: Semiring + Clone,
+{
+    let mut task = Some(root);
+    let mut returned = None;
+    let mut continuations = Vec::new();
+
+    loop {
+        if let Some(current) = task.take() {
+            match current {
+                MachineTask::State { state, input } => {
+                    task = Some(MachineTask::ContinueState(StateFrame {
+                        state,
+                        input,
+                        rules: transducer.rules(state, input.label()),
+                        next_rule: 0,
+                        results: Vec::new(),
+                    }));
+                }
+                MachineTask::Pattern { pattern, input } => {
+                    task = Some(MachineTask::ContinuePattern(PatternFrame {
+                        pattern,
+                        input,
+                        next_child: 0,
+                        child_outputs: Vec::with_capacity(pattern.children.len()),
+                    }));
+                }
+                MachineTask::ContinueState(mut frame) => {
+                    let mut applicable = None;
+                    while let Some(rule) = frame.rules.get(frame.next_rule).copied() {
+                        frame.next_rule += 1;
+                        if rule.input_arity == frame.input.arity() {
+                            applicable = Some(rule);
+                            break;
+                        }
                     }
-                    outputs
+
+                    if let Some(rule) = applicable {
+                        let input = frame.input;
+                        continuations.push(Continuation::StateRule {
+                            frame,
+                            rule_weight: rule.weight.clone(),
+                        });
+                        task = Some(MachineTask::Pattern {
+                            pattern: &rule.output_pattern,
+                            input,
+                        });
+                    } else {
+                        if transducer.is_final(frame.state)
+                            && frame.input.is_leaf()
+                            && frame.results.is_empty()
+                        {
+                            frame
+                                .results
+                                .push((frame.input.clone(), transducer.final_weight(frame.state)));
+                        }
+                        returned = Some(Some(frame.results));
+                    }
                 }
-                TreeChild::Subtree(subpattern) => {
-                    self.instantiate_output_pattern(subpattern, input)?
+                MachineTask::ContinuePattern(mut frame) => {
+                    if let Some(child) = frame.pattern.children.get(frame.next_child) {
+                        frame.next_child += 1;
+                        match child {
+                            TreeChild::Variable { state, var_index } => {
+                                if let Some(child_input) = frame.input.children().get(*var_index) {
+                                    continuations.push(Continuation::PatternChild(frame));
+                                    task = Some(MachineTask::State {
+                                        state: *state,
+                                        input: child_input,
+                                    });
+                                } else {
+                                    returned = Some(None);
+                                }
+                            }
+                            TreeChild::Subtree(subpattern) => {
+                                let input = frame.input;
+                                continuations.push(Continuation::PatternChild(frame));
+                                task = Some(MachineTask::Pattern {
+                                    pattern: subpattern,
+                                    input,
+                                });
+                            }
+                        }
+                    } else {
+                        let combinations = cartesian_product(frame.child_outputs);
+                        let mut results = Vec::with_capacity(combinations.len());
+                        for (children, child_weight) in combinations {
+                            results.push((
+                                Tree::node(frame.pattern.symbol.clone(), children),
+                                child_weight,
+                            ));
+                        }
+                        returned = Some(Some(results));
+                    }
                 }
-            };
-            child_outputs.push(outputs);
+            }
+            continue;
         }
 
-        let combinations = cartesian_product(child_outputs);
-        let mut results = Vec::with_capacity(combinations.len());
-        for (children, child_weight) in combinations {
-            let output = Tree::node(pattern.symbol.clone(), children);
-            results.push((output, child_weight));
+        let value = returned
+            .take()
+            .expect("a completed machine task always returns one value");
+        let Some(continuation) = continuations.pop() else {
+            return value;
+        };
+        match continuation {
+            Continuation::StateRule {
+                mut frame,
+                rule_weight,
+            } => {
+                if let Some(outputs) = value {
+                    frame.results.reserve(outputs.len());
+                    frame
+                        .results
+                        .extend(outputs.into_iter().map(|(tree, child_weight)| {
+                            (tree, rule_weight.clone().times(&child_weight))
+                        }));
+                }
+                task = Some(MachineTask::ContinueState(frame));
+            }
+            Continuation::PatternChild(mut frame) => match value {
+                Some(outputs) if !outputs.is_empty() => {
+                    frame.child_outputs.push(outputs);
+                    task = Some(MachineTask::ContinuePattern(frame));
+                }
+                Some(_) | None => returned = Some(None),
+            },
         }
-
-        Some(results)
     }
 }
 
@@ -265,7 +405,22 @@ fn cartesian_product<L: Clone, W: Semiring + Clone>(
 
     let mut result = vec![(Vec::new(), W::one())];
 
-    for item_vec in items {
+    for mut item_vec in items {
+        // The overwhelmingly common deterministic case has one accumulated
+        // prefix and one choice.  Move both trees instead of cloning the entire
+        // already-built output subtree at every input level.
+        if result.len() == 1 && item_vec.len() == 1 {
+            let (mut prefix, prefix_weight) = result
+                .pop()
+                .expect("the singleton prefix was length-checked");
+            let (item, item_weight) = item_vec
+                .pop()
+                .expect("the singleton choice was length-checked");
+            prefix.push(item);
+            result.push((prefix, prefix_weight.times(&item_weight)));
+            continue;
+        }
+
         // The output of this round is exactly `result × item_vec`; preallocate it.
         let mut new_result = Vec::with_capacity(result.len().saturating_mul(item_vec.len()));
 
@@ -404,7 +559,8 @@ fn validate_pattern_states<L>(
     input_arity: usize,
     num_states: usize,
 ) -> Result<(), TreeTransducerError> {
-    for child in &pattern.children {
+    let mut pending: Vec<&TreeChild<L>> = pattern.children.iter().rev().collect();
+    while let Some(child) = pending.pop() {
         match child {
             TreeChild::Variable { state, var_index } => {
                 if *state as usize >= num_states {
@@ -421,7 +577,7 @@ fn validate_pattern_states<L>(
                 }
             }
             TreeChild::Subtree(subtree) => {
-                validate_pattern_states(subtree, input_arity, num_states)?;
+                pending.extend(subtree.children.iter().rev());
             }
         }
     }
@@ -490,6 +646,59 @@ where
 mod tests {
     use super::*;
     use crate::semiring::TropicalWeight;
+    use proptest::prelude::*;
+
+    const DEEP_PATTERN_DEPTH: usize = 100_000;
+    const SMALL_NATIVE_STACK: usize = 256 * 1024;
+
+    fn nested_variable_pattern(
+        depth: usize,
+        state: StateId,
+        var_index: usize,
+    ) -> TreePattern<&'static str> {
+        let mut pattern = TreePattern::new("Leaf", vec![TreeChild::variable(state, var_index)]);
+        for _ in 0..depth {
+            pattern = TreePattern::new("Node", vec![TreeChild::subtree(pattern)]);
+        }
+        pattern
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(512))]
+
+        #[test]
+        fn checked_rule_validation_refines_recursive_state_and_index_rules(
+            depth in 0usize..128,
+            variable_state in 0u32..4,
+            var_index in 0usize..4,
+        ) {
+            let mut transducer: VectorTreeTransducer<&str, TropicalWeight> =
+                VectorTreeTransducer::new();
+            transducer.add_state();
+            transducer.add_state();
+            let result = transducer.try_add_rule(TreeRule::new(
+                0,
+                "Input",
+                2,
+                nested_variable_pattern(depth, variable_state, var_index),
+                TropicalWeight::one(),
+            ));
+            let expected = if variable_state >= 2 {
+                Err(TreeTransducerError::InvalidVariableState {
+                    state: variable_state,
+                    num_states: 2,
+                })
+            } else if var_index >= 2 {
+                Err(TreeTransducerError::InvalidVariableIndex {
+                    var_index,
+                    input_arity: 2,
+                })
+            } else {
+                Ok(())
+            };
+            prop_assert_eq!(result, expected);
+        }
+    }
 
     fn make_simple_transducer() -> VectorTreeTransducer<&'static str, TropicalWeight> {
         let mut tt = VectorTreeTransducer::new();
@@ -618,6 +827,33 @@ mod tests {
             })
         );
         assert_eq!(tt.num_rules(), 0);
+    }
+
+    #[test]
+    fn deep_checked_rule_validation_uses_constant_native_stack() {
+        std::thread::Builder::new()
+            .name("deep-tree-pattern-validation".to_owned())
+            .stack_size(SMALL_NATIVE_STACK)
+            .spawn(|| {
+                let mut transducer: VectorTreeTransducer<&str, TropicalWeight> =
+                    VectorTreeTransducer::new();
+                transducer.add_state();
+                let rule = TreeRule::new(
+                    0,
+                    "Input",
+                    1,
+                    nested_variable_pattern(DEEP_PATTERN_DEPTH, 0, 0),
+                    TropicalWeight::one(),
+                );
+                transducer
+                    .try_add_rule(rule)
+                    .expect("the deep pattern contains only a valid variable");
+                assert_eq!(transducer.num_rules(), 1);
+                drop(transducer);
+            })
+            .expect("the bounded-stack pattern-validation worker must spawn")
+            .join()
+            .expect("pattern validation and lifecycle must not overflow the native stack");
     }
 
     #[test]

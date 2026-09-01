@@ -47,7 +47,7 @@
 use std::collections::VecDeque;
 use std::fmt;
 
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 
 // ══════════════════════════════════════════════════════════════════════════════
 // LogicStream — Fair backtracking search stream
@@ -67,6 +67,8 @@ enum Branch<T> {
     Ready(T),
     /// A suspended computation returning zero or more results.
     Suspended(Box<dyn FnOnce() -> BranchResult<T> + Send>),
+    /// A state machine that produces one deferred result per scheduling turn.
+    LazyIterator(Box<dyn Iterator<Item = T> + Send>),
 }
 
 /// Fair backtracking search stream.
@@ -117,6 +119,13 @@ impl<T: Send + 'static> LogicStream<T> {
         LogicStream { branches }
     }
 
+    /// Create a stream backed by a lazy, heap-resident iterator machine.
+    fn from_lazy_iter(iter: impl Iterator<Item = T> + Send + 'static) -> Self {
+        let mut branches = VecDeque::with_capacity(1);
+        branches.push_back(Branch::LazyIterator(Box::new(iter)));
+        LogicStream { branches }
+    }
+
     /// Create a stream from a suspended computation.
     pub fn suspend(f: impl FnOnce() -> LogicStream<T> + Send + 'static) -> Self {
         let mut branches = VecDeque::with_capacity(1);
@@ -150,6 +159,15 @@ impl<T: Send + 'static> LogicStream<T> {
                     let BranchResult::Fork(more) = f();
                     for branch in more {
                         self.branches.push_back(branch);
+                    }
+                }
+                Branch::LazyIterator(mut iterator) => {
+                    if let Some(value) = iterator.next() {
+                        // Enqueue rather than return directly: this is exactly
+                        // the same scheduling point as a suspension that forks
+                        // into one ready value and its residual machine.
+                        self.branches.push_back(Branch::Ready(value));
+                        self.branches.push_back(Branch::LazyIterator(iterator));
                     }
                 }
             }
@@ -234,6 +252,13 @@ impl<T: Send + 'static> LogicStream<T> {
                             result
                         }
                     }
+                }
+                Branch::LazyIterator(iterator) => {
+                    let mut result = LogicStream::<U>::empty();
+                    for value in iterator {
+                        result = result.interleave(f(value));
+                    }
+                    result
                 }
             };
             accumulated = accumulated.interleave(stream);
@@ -481,7 +506,6 @@ pub trait ConstraintTheory: Clone + fmt::Debug + Send + Sync + 'static {
 ///
 /// - Gap 3 in `docs/design/predicated-types.md` §22
 /// - Strategy 3 (LogicT evaluation) selected for composability
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QuantifiedFormula {
     /// Atomic relation query: `R(args)` — checks Ascent fixpoint.
     Atom {
@@ -508,6 +532,252 @@ pub enum QuantifiedFormula {
         domain: QuantifiedDomain,
         body: Box<QuantifiedFormula>,
     },
+}
+
+impl Clone for QuantifiedFormula {
+    fn clone(&self) -> Self {
+        enum Task<'a> {
+            Clone(&'a QuantifiedFormula),
+            And,
+            Or,
+            Not,
+            Implies,
+            ForAll(&'a str, &'a QuantifiedDomain),
+            Exists(&'a str, &'a QuantifiedDomain),
+        }
+        let mut tasks = vec![Task::Clone(self)];
+        let mut values = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Clone(formula) => match formula {
+                    QuantifiedFormula::Atom { relation, args } => {
+                        values.push(QuantifiedFormula::Atom {
+                            relation: relation.clone(),
+                            args: args.clone(),
+                        });
+                    }
+                    QuantifiedFormula::And(left, right) => {
+                        tasks.push(Task::And);
+                        tasks.push(Task::Clone(right));
+                        tasks.push(Task::Clone(left));
+                    }
+                    QuantifiedFormula::Or(left, right) => {
+                        tasks.push(Task::Or);
+                        tasks.push(Task::Clone(right));
+                        tasks.push(Task::Clone(left));
+                    }
+                    QuantifiedFormula::Not(inner) => {
+                        tasks.push(Task::Not);
+                        tasks.push(Task::Clone(inner));
+                    }
+                    QuantifiedFormula::Implies(left, right) => {
+                        tasks.push(Task::Implies);
+                        tasks.push(Task::Clone(right));
+                        tasks.push(Task::Clone(left));
+                    }
+                    QuantifiedFormula::ForAll { var, domain, body } => {
+                        tasks.push(Task::ForAll(var, domain));
+                        tasks.push(Task::Clone(body));
+                    }
+                    QuantifiedFormula::Exists { var, domain, body } => {
+                        tasks.push(Task::Exists(var, domain));
+                        tasks.push(Task::Clone(body));
+                    }
+                },
+                Task::And | Task::Or | Task::Implies => {
+                    let right = values.pop().expect("right quantified clone is present");
+                    let left = values.pop().expect("left quantified clone is present");
+                    values.push(match task {
+                        Task::And => QuantifiedFormula::And(Box::new(left), Box::new(right)),
+                        Task::Or => QuantifiedFormula::Or(Box::new(left), Box::new(right)),
+                        Task::Implies => {
+                            QuantifiedFormula::Implies(Box::new(left), Box::new(right))
+                        }
+                        _ => unreachable!("binary quantified clone task is known"),
+                    });
+                }
+                Task::Not => {
+                    let inner = values.pop().expect("negated quantified clone is present");
+                    values.push(QuantifiedFormula::Not(Box::new(inner)));
+                }
+                Task::ForAll(var, domain) | Task::Exists(var, domain) => {
+                    let body = values.pop().expect("quantified body clone is present");
+                    values.push(if matches!(task, Task::ForAll(_, _)) {
+                        QuantifiedFormula::ForAll {
+                            var: var.to_string(),
+                            domain: domain.clone(),
+                            body: Box::new(body),
+                        }
+                    } else {
+                        QuantifiedFormula::Exists {
+                            var: var.to_string(),
+                            domain: domain.clone(),
+                            body: Box::new(body),
+                        }
+                    });
+                }
+            }
+        }
+        values
+            .pop()
+            .expect("the root quantified formula produces one clone")
+    }
+}
+
+impl PartialEq for QuantifiedFormula {
+    fn eq(&self, other: &Self) -> bool {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (
+                    QuantifiedFormula::Atom {
+                        relation: lr,
+                        args: la,
+                    },
+                    QuantifiedFormula::Atom {
+                        relation: rr,
+                        args: ra,
+                    },
+                ) if lr == rr && la == ra => {}
+                (QuantifiedFormula::And(ll, lr), QuantifiedFormula::And(rl, rr))
+                | (QuantifiedFormula::Or(ll, lr), QuantifiedFormula::Or(rl, rr))
+                | (QuantifiedFormula::Implies(ll, lr), QuantifiedFormula::Implies(rl, rr)) => {
+                    pending.push((lr, rr));
+                    pending.push((ll, rl));
+                }
+                (QuantifiedFormula::Not(left), QuantifiedFormula::Not(right)) => {
+                    pending.push((left, right));
+                }
+                (
+                    QuantifiedFormula::ForAll {
+                        var: lv,
+                        domain: ld,
+                        body: lb,
+                    },
+                    QuantifiedFormula::ForAll {
+                        var: rv,
+                        domain: rd,
+                        body: rb,
+                    },
+                )
+                | (
+                    QuantifiedFormula::Exists {
+                        var: lv,
+                        domain: ld,
+                        body: lb,
+                    },
+                    QuantifiedFormula::Exists {
+                        var: rv,
+                        domain: rd,
+                        body: rb,
+                    },
+                ) if lv == rv && ld == rd => pending.push((lb, rb)),
+                _ => return false,
+            }
+        }
+        true
+    }
+}
+
+impl Eq for QuantifiedFormula {}
+
+impl fmt::Debug for QuantifiedFormula {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        enum Event<'a> {
+            Formula(&'a QuantifiedFormula),
+            Text(&'static str),
+        }
+        let mut events = vec![Event::Formula(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Text(text) => write!(f, "{text}")?,
+                Event::Formula(formula) => match formula {
+                    QuantifiedFormula::Atom { relation, args } => {
+                        write!(f, "Atom {{ relation: {relation:?}, args: {args:?} }}")?;
+                    }
+                    QuantifiedFormula::And(left, right)
+                    | QuantifiedFormula::Or(left, right)
+                    | QuantifiedFormula::Implies(left, right) => {
+                        let name = match formula {
+                            QuantifiedFormula::And(_, _) => "And",
+                            QuantifiedFormula::Or(_, _) => "Or",
+                            QuantifiedFormula::Implies(_, _) => "Implies",
+                            _ => unreachable!("binary quantified variant is known"),
+                        };
+                        write!(f, "{name}(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Formula(right));
+                        events.push(Event::Text(", "));
+                        events.push(Event::Formula(left));
+                    }
+                    QuantifiedFormula::Not(inner) => {
+                        write!(f, "Not(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Formula(inner));
+                    }
+                    QuantifiedFormula::ForAll { var, domain, body }
+                    | QuantifiedFormula::Exists { var, domain, body } => {
+                        write!(
+                            f,
+                            "{} {{ var: {var:?}, domain: {domain:?}, body: ",
+                            if matches!(formula, QuantifiedFormula::ForAll { .. }) {
+                                "ForAll"
+                            } else {
+                                "Exists"
+                            }
+                        )?;
+                        events.push(Event::Text(" }"));
+                        events.push(Event::Formula(body));
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Drop for QuantifiedFormula {
+    fn drop(&mut self) {
+        fn drain(formula: &mut QuantifiedFormula, pending: &mut Vec<QuantifiedFormula>) {
+            match formula {
+                QuantifiedFormula::And(left, right)
+                | QuantifiedFormula::Or(left, right)
+                | QuantifiedFormula::Implies(left, right) => {
+                    pending.push(std::mem::replace(
+                        &mut **right,
+                        QuantifiedFormula::Atom {
+                            relation: String::new(),
+                            args: Vec::new(),
+                        },
+                    ));
+                    pending.push(std::mem::replace(
+                        &mut **left,
+                        QuantifiedFormula::Atom {
+                            relation: String::new(),
+                            args: Vec::new(),
+                        },
+                    ));
+                }
+                QuantifiedFormula::Not(inner)
+                | QuantifiedFormula::ForAll { body: inner, .. }
+                | QuantifiedFormula::Exists { body: inner, .. } => {
+                    pending.push(std::mem::replace(
+                        &mut **inner,
+                        QuantifiedFormula::Atom {
+                            relation: String::new(),
+                            args: Vec::new(),
+                        },
+                    ));
+                }
+                QuantifiedFormula::Atom { .. } => {}
+            }
+        }
+        let mut pending = Vec::new();
+        drain(self, &mut pending);
+        while let Some(mut formula) = pending.pop() {
+            drain(&mut formula, &mut pending);
+        }
+    }
 }
 
 /// Domain specification for quantified variables.
@@ -589,41 +859,46 @@ impl QuantifiedFormula {
     /// Collect all free variables referenced in this formula (not bound by a quantifier).
     pub fn free_vars(&self) -> std::collections::HashSet<String> {
         let mut free = std::collections::HashSet::new();
-        self.collect_free_vars(&mut free, &std::collections::HashSet::new());
-        free
-    }
-
-    fn collect_free_vars(
-        &self,
-        free: &mut std::collections::HashSet<String>,
-        bound: &std::collections::HashSet<String>,
-    ) {
-        match self {
-            QuantifiedFormula::Atom { args, .. } => {
-                for arg in args {
-                    if let QuantifiedArg::Var(v) = arg {
-                        if !bound.contains(v) {
-                            free.insert(v.clone());
-                        }
+        enum Task<'a> {
+            Visit(&'a QuantifiedFormula),
+            ExitBinding(&'a str, bool),
+        }
+        let mut bound = std::collections::HashSet::new();
+        let mut tasks = vec![Task::Visit(self)];
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::ExitBinding(var, was_present) => {
+                    if !was_present {
+                        bound.remove(var);
                     }
                 }
-            }
-            QuantifiedFormula::And(a, b)
-            | QuantifiedFormula::Or(a, b)
-            | QuantifiedFormula::Implies(a, b) => {
-                a.collect_free_vars(free, bound);
-                b.collect_free_vars(free, bound);
-            }
-            QuantifiedFormula::Not(inner) => {
-                inner.collect_free_vars(free, bound);
-            }
-            QuantifiedFormula::ForAll { var, body, .. }
-            | QuantifiedFormula::Exists { var, body, .. } => {
-                let mut inner_bound = bound.clone();
-                inner_bound.insert(var.clone());
-                body.collect_free_vars(free, &inner_bound);
+                Task::Visit(formula) => match formula {
+                    QuantifiedFormula::Atom { args, .. } => {
+                        for arg in args {
+                            if let QuantifiedArg::Var(var) = arg {
+                                if !bound.contains(var) {
+                                    free.insert(var.clone());
+                                }
+                            }
+                        }
+                    }
+                    QuantifiedFormula::And(left, right)
+                    | QuantifiedFormula::Or(left, right)
+                    | QuantifiedFormula::Implies(left, right) => {
+                        tasks.push(Task::Visit(right));
+                        tasks.push(Task::Visit(left));
+                    }
+                    QuantifiedFormula::Not(inner) => tasks.push(Task::Visit(inner)),
+                    QuantifiedFormula::ForAll { var, body, .. }
+                    | QuantifiedFormula::Exists { var, body, .. } => {
+                        let was_present = !bound.insert(var.clone());
+                        tasks.push(Task::ExitBinding(var, was_present));
+                        tasks.push(Task::Visit(body));
+                    }
+                },
             }
         }
+        free
     }
 }
 
@@ -641,28 +916,60 @@ impl QuantifiedArg {
 
 impl fmt::Display for QuantifiedFormula {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            QuantifiedFormula::Atom { relation, args } => {
-                write!(f, "{}(", relation)?;
-                for (i, arg) in args.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
+        enum Event<'a> {
+            Formula(&'a QuantifiedFormula),
+            Text(&'static str),
+        }
+        let mut events = vec![Event::Formula(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Text(text) => write!(f, "{text}")?,
+                Event::Formula(formula) => match formula {
+                    QuantifiedFormula::Atom { relation, args } => {
+                        write!(f, "{relation}(")?;
+                        for (index, arg) in args.iter().enumerate() {
+                            if index > 0 {
+                                write!(f, ", ")?;
+                            }
+                            write!(f, "{arg}")?;
+                        }
+                        write!(f, ")")?;
                     }
-                    write!(f, "{}", arg)?;
-                }
-                write!(f, ")")
-            }
-            QuantifiedFormula::And(a, b) => write!(f, "({} ∧ {})", a, b),
-            QuantifiedFormula::Or(a, b) => write!(f, "({} ∨ {})", a, b),
-            QuantifiedFormula::Not(inner) => write!(f, "¬{}", inner),
-            QuantifiedFormula::Implies(a, b) => write!(f, "({} ⇒ {})", a, b),
-            QuantifiedFormula::ForAll { var, domain, body } => {
-                write!(f, "∀{} ∈ {}. {}", var, domain, body)
-            }
-            QuantifiedFormula::Exists { var, domain, body } => {
-                write!(f, "∃{} ∈ {}. {}", var, domain, body)
+                    QuantifiedFormula::And(left, right)
+                    | QuantifiedFormula::Or(left, right)
+                    | QuantifiedFormula::Implies(left, right) => {
+                        write!(f, "(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Formula(right));
+                        events.push(Event::Text(match formula {
+                            QuantifiedFormula::And(_, _) => " ∧ ",
+                            QuantifiedFormula::Or(_, _) => " ∨ ",
+                            QuantifiedFormula::Implies(_, _) => " ⇒ ",
+                            _ => unreachable!("binary quantified variant is known"),
+                        }));
+                        events.push(Event::Formula(left));
+                    }
+                    QuantifiedFormula::Not(inner) => {
+                        write!(f, "¬")?;
+                        events.push(Event::Formula(inner));
+                    }
+                    QuantifiedFormula::ForAll { var, domain, body }
+                    | QuantifiedFormula::Exists { var, domain, body } => {
+                        write!(
+                            f,
+                            "{}{var} ∈ {domain}. ",
+                            if matches!(formula, QuantifiedFormula::ForAll { .. }) {
+                                "∀"
+                            } else {
+                                "∃"
+                            }
+                        )?;
+                        events.push(Event::Formula(body));
+                    }
+                },
             }
         }
+        Ok(())
     }
 }
 
@@ -750,65 +1057,130 @@ where
     F: Fn(&str, &[String]) -> bool,
     G: Fn(&str) -> Vec<Vec<String>>,
 {
-    match formula {
-        QuantifiedFormula::Atom { relation, args } => {
-            let resolved: Vec<String> = args
-                .iter()
-                .map(|arg| match arg {
-                    QuantifiedArg::Var(v) => env
-                        .get(v)
-                        .cloned()
-                        .unwrap_or_else(|| panic!("unbound variable '{}' in formula", v)),
-                    QuantifiedArg::Constant(c) => c.clone(),
-                })
-                .collect();
-            relation_query(relation, &resolved)
-        }
-
-        QuantifiedFormula::And(a, b) => {
-            evaluate_quantified(a, env, relation_query, domain_enumerate, bound)
-                && evaluate_quantified(b, env, relation_query, domain_enumerate, bound)
-        }
-
-        QuantifiedFormula::Or(a, b) => {
-            evaluate_quantified(a, env, relation_query, domain_enumerate, bound)
-                || evaluate_quantified(b, env, relation_query, domain_enumerate, bound)
-        }
-
-        QuantifiedFormula::Not(inner) => {
-            !evaluate_quantified(inner, env, relation_query, domain_enumerate, bound)
-        }
-
-        QuantifiedFormula::Implies(a, b) => {
-            !evaluate_quantified(a, env, relation_query, domain_enumerate, bound)
-                || evaluate_quantified(b, env, relation_query, domain_enumerate, bound)
-        }
-
-        QuantifiedFormula::ForAll { var, domain, body } => {
-            let tuples = enumerate_domain(domain, domain_enumerate, bound);
-            tuples.iter().all(|tuple| {
-                // For single-column domains, bind the variable to the first element.
-                // For multi-column domains, bind var to the first column
-                // (projection — the common case for quantified guards).
-                let mut inner_env = env.clone();
-                if let Some(val) = tuple.first() {
-                    inner_env.insert(var.clone(), val.clone());
+    type Env = std::collections::HashMap<String, String>;
+    enum Frame<'a> {
+        Eval(&'a QuantifiedFormula, Env),
+        Not,
+        AndRight(&'a QuantifiedFormula, Env),
+        OrRight(&'a QuantifiedFormula, Env),
+        ImpliesRight(&'a QuantifiedFormula, Env),
+        Quantifier {
+            var: &'a str,
+            body: &'a QuantifiedFormula,
+            remaining: std::vec::IntoIter<Vec<String>>,
+            base_env: Env,
+            universal: bool,
+        },
+    }
+    let mut frames = vec![Frame::Eval(formula, env.clone())];
+    let mut result = None;
+    while let Some(frame) = frames.pop() {
+        match frame {
+            Frame::Eval(current, current_env) => match current {
+                QuantifiedFormula::Atom { relation, args } => {
+                    let resolved: Vec<String> = args
+                        .iter()
+                        .map(|arg| match arg {
+                            QuantifiedArg::Var(var) => current_env
+                                .get(var)
+                                .cloned()
+                                .unwrap_or_else(|| panic!("unbound variable '{}' in formula", var)),
+                            QuantifiedArg::Constant(constant) => constant.clone(),
+                        })
+                        .collect();
+                    result = Some(relation_query(relation, &resolved));
                 }
-                evaluate_quantified(body, &inner_env, relation_query, domain_enumerate, bound)
-            })
-        }
-
-        QuantifiedFormula::Exists { var, domain, body } => {
-            let tuples = enumerate_domain(domain, domain_enumerate, bound);
-            tuples.iter().any(|tuple| {
-                let mut inner_env = env.clone();
-                if let Some(val) = tuple.first() {
-                    inner_env.insert(var.clone(), val.clone());
+                QuantifiedFormula::And(left, right) => {
+                    frames.push(Frame::AndRight(right, current_env.clone()));
+                    frames.push(Frame::Eval(left, current_env));
                 }
-                evaluate_quantified(body, &inner_env, relation_query, domain_enumerate, bound)
-            })
+                QuantifiedFormula::Or(left, right) => {
+                    frames.push(Frame::OrRight(right, current_env.clone()));
+                    frames.push(Frame::Eval(left, current_env));
+                }
+                QuantifiedFormula::Not(inner) => {
+                    frames.push(Frame::Not);
+                    frames.push(Frame::Eval(inner, current_env));
+                }
+                QuantifiedFormula::Implies(left, right) => {
+                    frames.push(Frame::ImpliesRight(right, current_env.clone()));
+                    frames.push(Frame::Eval(left, current_env));
+                }
+                QuantifiedFormula::ForAll { var, domain, body }
+                | QuantifiedFormula::Exists { var, domain, body } => {
+                    let universal = matches!(current, QuantifiedFormula::ForAll { .. });
+                    let mut remaining =
+                        enumerate_domain(domain, domain_enumerate, bound).into_iter();
+                    if let Some(tuple) = remaining.next() {
+                        let mut inner_env = current_env.clone();
+                        if let Some(value) = tuple.first() {
+                            inner_env.insert(var.clone(), value.clone());
+                        }
+                        frames.push(Frame::Quantifier {
+                            var,
+                            body,
+                            remaining,
+                            base_env: current_env,
+                            universal,
+                        });
+                        frames.push(Frame::Eval(body, inner_env));
+                    } else {
+                        result = Some(universal);
+                    }
+                }
+            },
+            Frame::Not => result = Some(!result.take().expect("negated formula is evaluated")),
+            Frame::AndRight(right, env) => {
+                if result.take().expect("left conjunction is evaluated") {
+                    frames.push(Frame::Eval(right, env));
+                } else {
+                    result = Some(false);
+                }
+            }
+            Frame::OrRight(right, env) => {
+                if result.take().expect("left disjunction is evaluated") {
+                    result = Some(true);
+                } else {
+                    frames.push(Frame::Eval(right, env));
+                }
+            }
+            Frame::ImpliesRight(right, env) => {
+                if result.take().expect("implication antecedent is evaluated") {
+                    frames.push(Frame::Eval(right, env));
+                } else {
+                    result = Some(true);
+                }
+            }
+            Frame::Quantifier {
+                var,
+                body,
+                mut remaining,
+                base_env,
+                universal,
+            } => {
+                let value = result.take().expect("quantifier body is evaluated");
+                if (universal && !value) || (!universal && value) {
+                    result = Some(value);
+                } else if let Some(tuple) = remaining.next() {
+                    let mut inner_env = base_env.clone();
+                    if let Some(value) = tuple.first() {
+                        inner_env.insert(var.to_string(), value.clone());
+                    }
+                    frames.push(Frame::Quantifier {
+                        var,
+                        body,
+                        remaining,
+                        base_env,
+                        universal,
+                    });
+                    frames.push(Frame::Eval(body, inner_env));
+                } else {
+                    result = Some(universal);
+                }
+            }
         }
     }
+    result.expect("the root quantified formula produces one Boolean result")
 }
 
 /// Enumerate tuples from a domain, respecting bounds for T3 safety.
@@ -945,164 +1317,177 @@ where
     G: Fn(&str) -> Vec<Vec<String>>,
 {
     use QuantifiedFormula::*;
+    type Env = std::collections::HashMap<String, String>;
+    enum Frame<'a> {
+        Eval(&'a QuantifiedFormula, Env),
+        Not,
+        AndRight(&'a QuantifiedFormula, Env),
+        AndFinish(TriState),
+        OrRight(&'a QuantifiedFormula, Env),
+        OrFinish(TriState),
+        ImpliesRight(&'a QuantifiedFormula, Env),
+        ImpliesFinish(TriState),
+        Quantifier {
+            var: &'a str,
+            body: &'a QuantifiedFormula,
+            remaining: std::vec::IntoIter<Vec<String>>,
+            base_env: Env,
+            universal: bool,
+            had_unknown: bool,
+        },
+    }
 
-    // Defensive: keep the theory parameter exercised so the
-    // monomorphization actually emits theory-specific code paths.
-    let _ = theory.empty_store();
-
-    match formula {
-        Atom { relation, args } => {
-            let resolved: Vec<String> = args
-                .iter()
-                .map(|arg| match arg {
-                    QuantifiedArg::Var(v) => env
-                        .get(v)
-                        .cloned()
-                        .unwrap_or_else(|| panic!("unbound variable '{}' in formula", v)),
-                    QuantifiedArg::Constant(c) => c.clone(),
-                })
-                .collect();
-            relation_query(relation, &resolved).into()
-        }
-
-        And(a, b) => {
-            let ra = evaluate_quantified_with_theory(
-                a,
-                theory,
-                relation_query,
-                domain_enumerate,
-                env,
-                bound,
-            );
-            if ra == TriState::False {
-                return TriState::False;
-            }
-            let rb = evaluate_quantified_with_theory(
-                b,
-                theory,
-                relation_query,
-                domain_enumerate,
-                env,
-                bound,
-            );
-            ra.and(rb)
-        }
-
-        Or(a, b) => {
-            let ra = evaluate_quantified_with_theory(
-                a,
-                theory,
-                relation_query,
-                domain_enumerate,
-                env,
-                bound,
-            );
-            if ra == TriState::True {
-                return TriState::True;
-            }
-            let rb = evaluate_quantified_with_theory(
-                b,
-                theory,
-                relation_query,
-                domain_enumerate,
-                env,
-                bound,
-            );
-            ra.or(rb)
-        }
-
-        Not(inner) => evaluate_quantified_with_theory(
-            inner,
-            theory,
-            relation_query,
-            domain_enumerate,
-            env,
-            bound,
-        )
-        .not(),
-
-        Implies(a, b) => {
-            let ra = evaluate_quantified_with_theory(
-                a,
-                theory,
-                relation_query,
-                domain_enumerate,
-                env,
-                bound,
-            );
-            let rb = evaluate_quantified_with_theory(
-                b,
-                theory,
-                relation_query,
-                domain_enumerate,
-                env,
-                bound,
-            );
-            ra.implies(rb)
-        }
-
-        ForAll { var, domain, body } => {
-            let tuples = enumerate_domain(domain, domain_enumerate, bound);
-            if tuples.is_empty() {
-                return TriState::True; // ∀x ∈ ∅. φ ≡ ⊤
-            }
-            let mut had_unknown = false;
-            for tuple in &tuples {
-                let mut inner_env = env.clone();
-                if let Some(val) = tuple.first() {
-                    inner_env.insert(var.clone(), val.clone());
-                }
-                match evaluate_quantified_with_theory(
-                    body,
-                    theory,
-                    relation_query,
-                    domain_enumerate,
-                    &inner_env,
-                    bound,
-                ) {
-                    TriState::False => return TriState::False,
-                    TriState::Unknown => had_unknown = true,
-                    TriState::True => {}
+    let mut frames = vec![Frame::Eval(formula, env.clone())];
+    let mut result = None;
+    while let Some(frame) = frames.pop() {
+        match frame {
+            Frame::Eval(current, current_env) => {
+                // Preserve the recursive evaluator's one theory-store
+                // construction per visited formula node.
+                let _ = theory.empty_store();
+                match current {
+                    Atom { relation, args } => {
+                        let resolved: Vec<String> = args
+                            .iter()
+                            .map(|arg| match arg {
+                                QuantifiedArg::Var(var) => {
+                                    current_env.get(var).cloned().unwrap_or_else(|| {
+                                        panic!("unbound variable '{}' in formula", var)
+                                    })
+                                }
+                                QuantifiedArg::Constant(constant) => constant.clone(),
+                            })
+                            .collect();
+                        result = Some(relation_query(relation, &resolved).into());
+                    }
+                    And(left, right) => {
+                        frames.push(Frame::AndRight(right, current_env.clone()));
+                        frames.push(Frame::Eval(left, current_env));
+                    }
+                    Or(left, right) => {
+                        frames.push(Frame::OrRight(right, current_env.clone()));
+                        frames.push(Frame::Eval(left, current_env));
+                    }
+                    Not(inner) => {
+                        frames.push(Frame::Not);
+                        frames.push(Frame::Eval(inner, current_env));
+                    }
+                    Implies(left, right) => {
+                        frames.push(Frame::ImpliesRight(right, current_env.clone()));
+                        frames.push(Frame::Eval(left, current_env));
+                    }
+                    ForAll { var, domain, body } | Exists { var, domain, body } => {
+                        let universal = matches!(current, ForAll { .. });
+                        let mut remaining =
+                            enumerate_domain(domain, domain_enumerate, bound).into_iter();
+                        if let Some(tuple) = remaining.next() {
+                            let mut inner_env = current_env.clone();
+                            if let Some(value) = tuple.first() {
+                                inner_env.insert(var.clone(), value.clone());
+                            }
+                            frames.push(Frame::Quantifier {
+                                var,
+                                body,
+                                remaining,
+                                base_env: current_env,
+                                universal,
+                                had_unknown: false,
+                            });
+                            frames.push(Frame::Eval(body, inner_env));
+                        } else {
+                            result = Some(if universal {
+                                TriState::True
+                            } else {
+                                TriState::False
+                            });
+                        }
+                    }
                 }
             }
-            if had_unknown {
-                TriState::Unknown
-            } else {
-                TriState::True
+            Frame::Not => {
+                result = Some(result.take().expect("negated formula is evaluated").not());
             }
-        }
-
-        Exists { var, domain, body } => {
-            let tuples = enumerate_domain(domain, domain_enumerate, bound);
-            if tuples.is_empty() {
-                return TriState::False; // ∃x ∈ ∅. φ ≡ ⊥
-            }
-            let mut had_unknown = false;
-            for tuple in &tuples {
-                let mut inner_env = env.clone();
-                if let Some(val) = tuple.first() {
-                    inner_env.insert(var.clone(), val.clone());
-                }
-                match evaluate_quantified_with_theory(
-                    body,
-                    theory,
-                    relation_query,
-                    domain_enumerate,
-                    &inner_env,
-                    bound,
-                ) {
-                    TriState::True => return TriState::True,
-                    TriState::Unknown => had_unknown = true,
-                    TriState::False => {}
+            Frame::AndRight(right, env) => {
+                let left = result.take().expect("left conjunction is evaluated");
+                if left == TriState::False {
+                    result = Some(TriState::False);
+                } else {
+                    frames.push(Frame::AndFinish(left));
+                    frames.push(Frame::Eval(right, env));
                 }
             }
-            if had_unknown {
-                TriState::Unknown
-            } else {
-                TriState::False
+            Frame::AndFinish(left) => {
+                let right = result.take().expect("right conjunction is evaluated");
+                result = Some(left.and(right));
+            }
+            Frame::OrRight(right, env) => {
+                let left = result.take().expect("left disjunction is evaluated");
+                if left == TriState::True {
+                    result = Some(TriState::True);
+                } else {
+                    frames.push(Frame::OrFinish(left));
+                    frames.push(Frame::Eval(right, env));
+                }
+            }
+            Frame::OrFinish(left) => {
+                let right = result.take().expect("right disjunction is evaluated");
+                result = Some(left.or(right));
+            }
+            Frame::ImpliesRight(right, env) => {
+                let left = result.take().expect("implication antecedent is evaluated");
+                frames.push(Frame::ImpliesFinish(left));
+                frames.push(Frame::Eval(right, env));
+            }
+            Frame::ImpliesFinish(left) => {
+                let right = result.take().expect("implication consequent is evaluated");
+                result = Some(left.implies(right));
+            }
+            Frame::Quantifier {
+                var,
+                body,
+                mut remaining,
+                base_env,
+                universal,
+                mut had_unknown,
+            } => {
+                let value = result.take().expect("quantifier body is evaluated");
+                let decisive = if universal {
+                    value == TriState::False
+                } else {
+                    value == TriState::True
+                };
+                if decisive {
+                    result = Some(value);
+                } else {
+                    had_unknown |= value == TriState::Unknown;
+                    if let Some(tuple) = remaining.next() {
+                        let mut inner_env = base_env.clone();
+                        if let Some(value) = tuple.first() {
+                            inner_env.insert(var.to_string(), value.clone());
+                        }
+                        frames.push(Frame::Quantifier {
+                            var,
+                            body,
+                            remaining,
+                            base_env,
+                            universal,
+                            had_unknown,
+                        });
+                        frames.push(Frame::Eval(body, inner_env));
+                    } else {
+                        result = Some(if had_unknown {
+                            TriState::Unknown
+                        } else if universal {
+                            TriState::True
+                        } else {
+                            TriState::False
+                        });
+                    }
+                }
             }
         }
     }
+    result.expect("the root quantified formula produces one theory-guided result")
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1114,7 +1499,6 @@ where
 /// This is the `Predicate` type used by `TheoryAlgebra<T>` in its
 /// `BooleanAlgebra` implementation. It wraps theory-specific constraints
 /// in a standard Boolean AST.
-#[derive(Clone, Debug)]
 pub enum TheoryPred<T: ConstraintTheory> {
     /// Always true (unconstrained).
     True,
@@ -1130,20 +1514,82 @@ pub enum TheoryPred<T: ConstraintTheory> {
     Not(Box<TheoryPred<T>>),
 }
 
+impl<T: ConstraintTheory> Clone for TheoryPred<T> {
+    fn clone(&self) -> Self {
+        enum Task<'a, T: ConstraintTheory> {
+            Clone(&'a TheoryPred<T>),
+            And,
+            Or,
+            Not,
+        }
+        let mut tasks = vec![Task::Clone(self)];
+        let mut values = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Clone(predicate) => match predicate {
+                    TheoryPred::True => values.push(TheoryPred::True),
+                    TheoryPred::False => values.push(TheoryPred::False),
+                    TheoryPred::Atom(constraint) => {
+                        values.push(TheoryPred::Atom(constraint.clone()));
+                    }
+                    TheoryPred::And(left, right) => {
+                        tasks.push(Task::And);
+                        tasks.push(Task::Clone(right));
+                        tasks.push(Task::Clone(left));
+                    }
+                    TheoryPred::Or(left, right) => {
+                        tasks.push(Task::Or);
+                        tasks.push(Task::Clone(right));
+                        tasks.push(Task::Clone(left));
+                    }
+                    TheoryPred::Not(inner) => {
+                        tasks.push(Task::Not);
+                        tasks.push(Task::Clone(inner));
+                    }
+                },
+                Task::And | Task::Or => {
+                    let right = values.pop().expect("right theory clone is present");
+                    let left = values.pop().expect("left theory clone is present");
+                    values.push(if matches!(task, Task::And) {
+                        TheoryPred::And(Box::new(left), Box::new(right))
+                    } else {
+                        TheoryPred::Or(Box::new(left), Box::new(right))
+                    });
+                }
+                Task::Not => {
+                    let inner = values.pop().expect("negated theory clone is present");
+                    values.push(TheoryPred::Not(Box::new(inner)));
+                }
+            }
+        }
+        values
+            .pop()
+            .expect("the root theory predicate produces one clone")
+    }
+}
+
 impl<T: ConstraintTheory> PartialEq for TheoryPred<T>
 where
     T::Constraint: PartialEq,
 {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (TheoryPred::True, TheoryPred::True) => true,
-            (TheoryPred::False, TheoryPred::False) => true,
-            (TheoryPred::Atom(a), TheoryPred::Atom(b)) => a == b,
-            (TheoryPred::And(a1, a2), TheoryPred::And(b1, b2)) => a1 == b1 && a2 == b2,
-            (TheoryPred::Or(a1, a2), TheoryPred::Or(b1, b2)) => a1 == b1 && a2 == b2,
-            (TheoryPred::Not(a), TheoryPred::Not(b)) => a == b,
-            _ => false,
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (TheoryPred::True, TheoryPred::True) | (TheoryPred::False, TheoryPred::False) => {}
+                (TheoryPred::Atom(left), TheoryPred::Atom(right)) if left == right => {}
+                (TheoryPred::And(ll, lr), TheoryPred::And(rl, rr))
+                | (TheoryPred::Or(ll, lr), TheoryPred::Or(rl, rr)) => {
+                    pending.push((lr, rr));
+                    pending.push((ll, rl));
+                }
+                (TheoryPred::Not(left), TheoryPred::Not(right)) => {
+                    pending.push((left, right));
+                }
+                _ => return false,
+            }
         }
+        true
     }
 }
 
@@ -1153,16 +1599,85 @@ impl<T: ConstraintTheory> Hash for TheoryPred<T>
 where
     T::Constraint: Hash,
 {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
-        match self {
-            TheoryPred::True | TheoryPred::False => {}
-            TheoryPred::Atom(c) => c.hash(state),
-            TheoryPred::And(a, b) | TheoryPred::Or(a, b) => {
-                a.hash(state);
-                b.hash(state);
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut pending = vec![self];
+        while let Some(predicate) = pending.pop() {
+            std::mem::discriminant(predicate).hash(state);
+            match predicate {
+                TheoryPred::True | TheoryPred::False => {}
+                TheoryPred::Atom(constraint) => constraint.hash(state),
+                TheoryPred::And(left, right) | TheoryPred::Or(left, right) => {
+                    pending.push(right);
+                    pending.push(left);
+                }
+                TheoryPred::Not(inner) => pending.push(inner),
             }
-            TheoryPred::Not(a) => a.hash(state),
+        }
+    }
+}
+
+impl<T: ConstraintTheory> fmt::Debug for TheoryPred<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        enum Event<'a, T: ConstraintTheory> {
+            Pred(&'a TheoryPred<T>),
+            Text(&'static str),
+        }
+        let mut events = vec![Event::Pred(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Text(text) => write!(f, "{text}")?,
+                Event::Pred(predicate) => match predicate {
+                    TheoryPred::True => write!(f, "True")?,
+                    TheoryPred::False => write!(f, "False")?,
+                    TheoryPred::Atom(constraint) => write!(f, "Atom({constraint:?})")?,
+                    TheoryPred::And(left, right) | TheoryPred::Or(left, right) => {
+                        write!(
+                            f,
+                            "{}(",
+                            if matches!(predicate, TheoryPred::And(_, _)) {
+                                "And"
+                            } else {
+                                "Or"
+                            }
+                        )?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Pred(right));
+                        events.push(Event::Text(", "));
+                        events.push(Event::Pred(left));
+                    }
+                    TheoryPred::Not(inner) => {
+                        write!(f, "Not(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Pred(inner));
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<T: ConstraintTheory> Drop for TheoryPred<T> {
+    fn drop(&mut self) {
+        fn drain<T: ConstraintTheory>(
+            predicate: &mut TheoryPred<T>,
+            pending: &mut Vec<TheoryPred<T>>,
+        ) {
+            match predicate {
+                TheoryPred::And(left, right) | TheoryPred::Or(left, right) => {
+                    pending.push(std::mem::replace(&mut **right, TheoryPred::True));
+                    pending.push(std::mem::replace(&mut **left, TheoryPred::True));
+                }
+                TheoryPred::Not(inner) => {
+                    pending.push(std::mem::replace(&mut **inner, TheoryPred::True));
+                }
+                TheoryPred::True | TheoryPred::False | TheoryPred::Atom(_) => {}
+            }
+        }
+        let mut pending = Vec::new();
+        drain(self, &mut pending);
+        while let Some(mut predicate) = pending.pop() {
+            drain(&mut predicate, &mut pending);
         }
     }
 }
@@ -1207,75 +1722,103 @@ impl<T: ConstraintTheory> TheoryAlgebra<T> {
         T::Store: Send + 'static,
         T::Constraint: Send + 'static,
     {
-        match pred {
-            TheoryPred::True => LogicStream::unit(store.clone()),
-            TheoryPred::False => LogicStream::empty(),
-            TheoryPred::Atom(c) => match self.theory.propagate(store, c) {
-                Some(new_store) => LogicStream::unit(new_store),
-                None => LogicStream::empty(),
+        enum Task<'a, T: ConstraintTheory>
+        where
+            T::Store: Send + 'static,
+        {
+            Eval(&'a TheoryPred<T>, T::Store, bool),
+            Or,
+            AndStart(&'a TheoryPred<T>, bool),
+            AndContinue {
+                right: &'a TheoryPred<T>,
+                negated: bool,
+                remaining: std::vec::IntoIter<T::Store>,
+                accumulated: LogicStream<T::Store>,
             },
-            TheoryPred::And(a, b) => {
-                let a_stores = self.collect_constraints(a, store);
-                let b_pred = (**b).clone();
-                let algebra_clone = self.clone();
-                a_stores.fair_conjoin(move |s| algebra_clone.collect_constraints(&b_pred, &s))
-            }
-            TheoryPred::Or(a, b) => {
-                let a_stores = self.collect_constraints(a, store);
-                let b_stores = self.collect_constraints(b, store);
-                a_stores.interleave(b_stores)
-            }
-            TheoryPred::Not(inner) => {
-                // Negation in the constraint theory context is subtle.
-                // NOT(P) is satisfiable iff P is not a tautology.
-                // Since ConstraintTheory only supports forward propagation,
-                // we can't directly negate constraints. Instead, we handle
-                // negation structurally:
-                //
-                // For compound predicates, push negation inward (De Morgan):
-                //   NOT(A AND B) = NOT(A) OR NOT(B)
-                //   NOT(A OR B) = NOT(A) AND NOT(B)
-                //   NOT(NOT(A)) = A
-                //   NOT(True) = False, NOT(False) = True
-                //
-                // For atomic predicates NOT(Atom(c)), we return the store
-                // unchanged — the negation is tracked structurally in the
-                // TheoryPred and checked via evaluate() at witness time.
-                match inner.as_ref() {
-                    TheoryPred::True => LogicStream::empty(),
-                    TheoryPred::False => LogicStream::unit(store.clone()),
-                    TheoryPred::Not(inner2) => self.collect_constraints(inner2, store),
-                    TheoryPred::And(a, b) => {
-                        // NOT(A AND B) = NOT(A) OR NOT(B)
-                        let not_a = TheoryPred::Not(a.clone());
-                        let not_b = TheoryPred::Not(b.clone());
-                        let a_stores = self.collect_constraints(&not_a, store);
-                        let b_stores = self.collect_constraints(&not_b, store);
-                        a_stores.interleave(b_stores)
+        }
+        let mut tasks = vec![Task::Eval(pred, store.clone(), false)];
+        let mut values: Vec<LogicStream<T::Store>> = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Eval(predicate, current_store, negated) => match predicate {
+                    TheoryPred::True => values.push(if negated {
+                        LogicStream::empty()
+                    } else {
+                        LogicStream::unit(current_store)
+                    }),
+                    TheoryPred::False => values.push(if negated {
+                        LogicStream::unit(current_store)
+                    } else {
+                        LogicStream::empty()
+                    }),
+                    TheoryPred::Atom(constraint) => values.push(if negated {
+                        LogicStream::unit(current_store)
+                    } else {
+                        match self.theory.propagate(&current_store, constraint) {
+                            Some(next_store) => LogicStream::unit(next_store),
+                            None => LogicStream::empty(),
+                        }
+                    }),
+                    TheoryPred::And(left, right) | TheoryPred::Or(left, right) => {
+                        let conjunction = matches!(predicate, TheoryPred::And(_, _)) != negated;
+                        if conjunction {
+                            tasks.push(Task::AndStart(right, negated));
+                            tasks.push(Task::Eval(left, current_store, negated));
+                        } else {
+                            tasks.push(Task::Or);
+                            tasks.push(Task::Eval(right, current_store.clone(), negated));
+                            tasks.push(Task::Eval(left, current_store, negated));
+                        }
                     }
-                    TheoryPred::Or(a, b) => {
-                        // NOT(A OR B) = NOT(A) AND NOT(B)
-                        let not_a = TheoryPred::Not(a.clone());
-                        let not_b = TheoryPred::Not(b.clone());
-                        let not_a_stores = self.collect_constraints(&not_a, store);
-                        let not_b_pred = not_b;
-                        let algebra_clone = self.clone();
-                        not_a_stores.fair_conjoin(move |s| {
-                            algebra_clone.collect_constraints(&not_b_pred, &s)
-                        })
+                    TheoryPred::Not(inner) => {
+                        tasks.push(Task::Eval(inner, current_store, !negated));
                     }
-                    TheoryPred::Atom(_) => {
-                        // For atomic negation NOT(c), we can't propagate the
-                        // negation through the theory. Instead, return the
-                        // store as-is — satisfiability of NOT(Atom(c)) is
-                        // determined by whether there exists a witness in
-                        // the store's domain that doesn't satisfy c.
-                        // The store is unconstrained w.r.t. the negation.
-                        LogicStream::unit(store.clone())
+                },
+                Task::Or => {
+                    let right = values.pop().expect("right theory stream is present");
+                    let left = values.pop().expect("left theory stream is present");
+                    values.push(left.interleave(right));
+                }
+                Task::AndStart(right, negated) => {
+                    let left = values.pop().expect("left theory stream is present");
+                    let mut remaining = left.collect_all().into_iter();
+                    if let Some(first) = remaining.next() {
+                        tasks.push(Task::AndContinue {
+                            right,
+                            negated,
+                            remaining,
+                            accumulated: LogicStream::empty(),
+                        });
+                        tasks.push(Task::Eval(right, first, negated));
+                    } else {
+                        values.push(LogicStream::empty());
+                    }
+                }
+                Task::AndContinue {
+                    right,
+                    negated,
+                    mut remaining,
+                    accumulated,
+                } => {
+                    let current = values.pop().expect("right theory stream is present");
+                    let accumulated = accumulated.interleave(current);
+                    if let Some(next_store) = remaining.next() {
+                        tasks.push(Task::AndContinue {
+                            right,
+                            negated,
+                            remaining,
+                            accumulated,
+                        });
+                        tasks.push(Task::Eval(right, next_store, negated));
+                    } else {
+                        values.push(accumulated);
                     }
                 }
             }
         }
+        values
+            .pop()
+            .expect("the root theory predicate produces one stream")
     }
 }
 
@@ -1361,14 +1904,53 @@ where
     }
 
     fn evaluate(&self, pred: &Self::Predicate, elem: &Self::Domain) -> bool {
-        match pred {
-            TheoryPred::True => true,
-            TheoryPred::False => false,
-            TheoryPred::Atom(c) => self.theory.evaluate(c, elem),
-            TheoryPred::And(a, b) => self.evaluate(a, elem) && self.evaluate(b, elem),
-            TheoryPred::Or(a, b) => self.evaluate(a, elem) || self.evaluate(b, elem),
-            TheoryPred::Not(inner) => !self.evaluate(inner, elem),
+        enum Frame<'a, T: ConstraintTheory> {
+            Eval(&'a TheoryPred<T>),
+            Not,
+            AndRight(&'a TheoryPred<T>),
+            OrRight(&'a TheoryPred<T>),
         }
+        let mut frames = vec![Frame::Eval(pred)];
+        let mut result = None;
+        while let Some(frame) = frames.pop() {
+            match frame {
+                Frame::Eval(predicate) => match predicate {
+                    TheoryPred::True => result = Some(true),
+                    TheoryPred::False => result = Some(false),
+                    TheoryPred::Atom(constraint) => {
+                        result = Some(self.theory.evaluate(constraint, elem));
+                    }
+                    TheoryPred::And(left, right) => {
+                        frames.push(Frame::AndRight(right));
+                        frames.push(Frame::Eval(left));
+                    }
+                    TheoryPred::Or(left, right) => {
+                        frames.push(Frame::OrRight(right));
+                        frames.push(Frame::Eval(left));
+                    }
+                    TheoryPred::Not(inner) => {
+                        frames.push(Frame::Not);
+                        frames.push(Frame::Eval(inner));
+                    }
+                },
+                Frame::Not => result = Some(!result.take().expect("negated theory is evaluated")),
+                Frame::AndRight(right) => {
+                    if result.take().expect("left theory conjunction is evaluated") {
+                        frames.push(Frame::Eval(right));
+                    } else {
+                        result = Some(false);
+                    }
+                }
+                Frame::OrRight(right) => {
+                    if result.take().expect("left theory disjunction is evaluated") {
+                        result = Some(true);
+                    } else {
+                        frames.push(Frame::Eval(right));
+                    }
+                }
+            }
+        }
+        result.expect("the root theory predicate produces one result")
     }
 }
 
@@ -1397,15 +1979,394 @@ pub struct MultisetPartition<T: Clone + Eq + Hash> {
     pub selected_count: usize,
 }
 
+/// One persistent choice in a partition path.
+///
+/// Choices form a flat, parent-linked arena.  A branch therefore costs one
+/// compact record and shares its complete prefix with sibling branches.
+#[derive(Clone, Copy)]
+struct MultisetChoice {
+    parent: Option<usize>,
+    item_index: usize,
+    quantity: usize,
+}
+
+/// Heap-resident expression interpreted by [`MultisetPartitionGenerator`].
+///
+/// `QuantityFold` finds the first nonempty quantity branch in ascending order.
+/// After that branch yields, `ReverseFold` represents the formally verified
+/// residual fold compactly: later quantities wrap the yielded branch's residual
+/// from greatest to least.  `Alternate` is the exact LogicT pull rule, while
+/// `Forward` removes semantically neutral empty/fold nodes without recursion.
+#[derive(Clone, Copy)]
+enum MultisetSchedule {
+    Empty,
+    Problem {
+        start: usize,
+        remaining: usize,
+        choice_tail: Option<usize>,
+    },
+    QuantityFold {
+        start: usize,
+        remaining: usize,
+        next_quantity: usize,
+        max_quantity: usize,
+        choice_tail: Option<usize>,
+    },
+    ReverseFold {
+        start: usize,
+        remaining: usize,
+        next_quantity: usize,
+        min_quantity: usize,
+        tail: usize,
+        choice_tail: Option<usize>,
+    },
+    Alternate {
+        left: usize,
+        right: usize,
+    },
+    Forward(usize),
+}
+
+#[derive(Clone, Copy)]
+enum MultisetPullFrame {
+    Alternate {
+        schedule: usize,
+        right: usize,
+    },
+    FirstQuantity {
+        schedule: usize,
+        start: usize,
+        remaining: usize,
+        quantity: usize,
+        max_quantity: usize,
+        choice_tail: Option<usize>,
+    },
+}
+
+/// Specialized lazy pull machine for multiset partitions.
+struct MultisetPartitionGenerator<T> {
+    items: Vec<(T, usize)>,
+    /// Saturating suffix totals make feasibility checks constant-time and
+    /// correct even when the mathematical multiplicity exceeds `usize::MAX`.
+    suffix_available: Vec<usize>,
+    requested: usize,
+    choices: Vec<MultisetChoice>,
+    schedule: Vec<MultisetSchedule>,
+    pull_frames: Vec<MultisetPullFrame>,
+    root: usize,
+}
+
+impl<T> MultisetPartitionGenerator<T>
+where
+    T: Clone + Eq + Hash,
+{
+    fn new(items: Vec<(T, usize)>, requested: usize) -> Self {
+        let mut suffix_available = vec![0usize; items.len() + 1];
+        for index in (0..items.len()).rev() {
+            suffix_available[index] = suffix_available[index + 1].saturating_add(items[index].1);
+        }
+
+        let schedule_capacity = items.len().saturating_mul(2).saturating_add(1);
+        let mut schedule = Vec::with_capacity(schedule_capacity);
+        schedule.push(MultisetSchedule::Problem {
+            start: 0,
+            remaining: requested,
+            choice_tail: None,
+        });
+
+        Self {
+            choices: Vec::with_capacity(items.len()),
+            pull_frames: Vec::with_capacity(items.len()),
+            items,
+            suffix_available,
+            requested,
+            schedule,
+            root: 0,
+        }
+    }
+
+    fn allocate_schedule(&mut self, schedule: MultisetSchedule) -> usize {
+        let index = self.schedule.len();
+        self.schedule.push(schedule);
+        index
+    }
+
+    fn allocate_quantity_branch(
+        &mut self,
+        start: usize,
+        remaining: usize,
+        quantity: usize,
+        choice_tail: Option<usize>,
+    ) -> usize {
+        let choice = self.choices.len();
+        self.choices.push(MultisetChoice {
+            parent: choice_tail,
+            item_index: start,
+            quantity,
+        });
+        self.allocate_schedule(MultisetSchedule::Problem {
+            start: start + 1,
+            remaining: remaining - quantity,
+            choice_tail: Some(choice),
+        })
+    }
+
+    /// Materialize one terminal choice path in the historical vector order.
+    ///
+    /// The recursive implementation appended processed items while unwinding.
+    /// Consequently selected items occur from deepest to shallowest.  Each
+    /// positive processed remainder triggered a stable count sort; all repeated
+    /// sorts are equivalent to one stable sort of the suffix followed by that
+    /// same deepest-to-shallowest prefix.
+    fn materialize(&self, start: usize, mut choice_tail: Option<usize>) -> MultisetPartition<T> {
+        let mut selected = Vec::with_capacity(start.min(self.requested));
+        let mut remainder = Vec::with_capacity(self.items.len());
+        remainder.extend(
+            self.items[start..]
+                .iter()
+                .filter(|(_, count)| *count > 0)
+                .cloned(),
+        );
+
+        let mut selected_count = 0usize;
+        let mut sort_remainder = false;
+        while let Some(choice_index) = choice_tail {
+            let choice = self.choices[choice_index];
+            let (element, source_count) = &self.items[choice.item_index];
+            debug_assert!(choice.quantity <= *source_count);
+
+            if choice.quantity > 0 {
+                selected.push((element.clone(), choice.quantity));
+                selected_count += choice.quantity;
+            }
+
+            let leftover = source_count - choice.quantity;
+            if leftover > 0 {
+                remainder.push((element.clone(), leftover));
+                sort_remainder = true;
+            }
+            choice_tail = choice.parent;
+        }
+
+        if sort_remainder {
+            // `sort_by` is stable, which preserves the recursive implementation's
+            // order among elements with equal remaining multiplicity.
+            remainder.sort_by(|lhs, rhs| lhs.1.cmp(&rhs.1));
+        }
+        debug_assert_eq!(selected_count, self.requested);
+
+        MultisetPartition {
+            selected,
+            remainder,
+            selected_count,
+        }
+    }
+
+    /// Pull one result while mutating every visited node to its residual stream.
+    fn pull_one(&mut self) -> Option<MultisetPartition<T>> {
+        self.pull_frames.clear();
+        let mut current = self.root;
+
+        'descend: loop {
+            let outcome = loop {
+                match self.schedule[current] {
+                    MultisetSchedule::Empty => break None,
+                    MultisetSchedule::Forward(target) => current = target,
+                    MultisetSchedule::Problem {
+                        start,
+                        remaining,
+                        choice_tail,
+                    } => {
+                        if remaining == 0 {
+                            let partition = self.materialize(start, choice_tail);
+                            self.schedule[current] = MultisetSchedule::Empty;
+                            break Some(partition);
+                        }
+
+                        if start >= self.items.len() || self.suffix_available[start] < remaining {
+                            self.schedule[current] = MultisetSchedule::Empty;
+                            break None;
+                        }
+
+                        let count = self.items[start].1;
+                        let max_quantity = count.min(remaining);
+                        let min_quantity =
+                            remaining.saturating_sub(self.suffix_available[start + 1]);
+                        debug_assert!(min_quantity <= max_quantity);
+                        self.schedule[current] = MultisetSchedule::QuantityFold {
+                            start,
+                            remaining,
+                            next_quantity: min_quantity,
+                            max_quantity,
+                            choice_tail,
+                        };
+                    }
+                    MultisetSchedule::QuantityFold {
+                        start,
+                        remaining,
+                        next_quantity,
+                        max_quantity,
+                        choice_tail,
+                    } => {
+                        if next_quantity > max_quantity {
+                            self.schedule[current] = MultisetSchedule::Empty;
+                            break None;
+                        }
+                        let branch = self.allocate_quantity_branch(
+                            start,
+                            remaining,
+                            next_quantity,
+                            choice_tail,
+                        );
+                        self.pull_frames.push(MultisetPullFrame::FirstQuantity {
+                            schedule: current,
+                            start,
+                            remaining,
+                            quantity: next_quantity,
+                            max_quantity,
+                            choice_tail,
+                        });
+                        current = branch;
+                    }
+                    MultisetSchedule::ReverseFold {
+                        start,
+                        remaining,
+                        next_quantity,
+                        min_quantity,
+                        tail,
+                        choice_tail,
+                    } => {
+                        if next_quantity < min_quantity {
+                            self.schedule[current] = MultisetSchedule::Forward(tail);
+                            current = tail;
+                            continue;
+                        }
+
+                        let branch = self.allocate_quantity_branch(
+                            start,
+                            remaining,
+                            next_quantity,
+                            choice_tail,
+                        );
+                        let residual = if next_quantity == min_quantity {
+                            tail
+                        } else {
+                            self.allocate_schedule(MultisetSchedule::ReverseFold {
+                                start,
+                                remaining,
+                                next_quantity: next_quantity - 1,
+                                min_quantity,
+                                tail,
+                                choice_tail,
+                            })
+                        };
+                        self.schedule[current] = MultisetSchedule::Alternate {
+                            left: branch,
+                            right: residual,
+                        };
+                    }
+                    MultisetSchedule::Alternate { left, right } => {
+                        self.pull_frames.push(MultisetPullFrame::Alternate {
+                            schedule: current,
+                            right,
+                        });
+                        current = left;
+                    }
+                }
+            };
+
+            let outcome = outcome;
+            loop {
+                let Some(frame) = self.pull_frames.pop() else {
+                    return outcome;
+                };
+
+                match frame {
+                    MultisetPullFrame::Alternate { schedule, right } => {
+                        if outcome.is_some() {
+                            // Pull(Alternate(left, right)) rotates to
+                            // Alternate(right, residual(left)).
+                            self.schedule[schedule] = MultisetSchedule::Alternate {
+                                left: right,
+                                right: current,
+                            };
+                            current = schedule;
+                        } else {
+                            // An exhausted left operand is neutral.  Pull the
+                            // right operand before returning to any outer frame.
+                            self.schedule[schedule] = MultisetSchedule::Forward(right);
+                            current = right;
+                            continue 'descend;
+                        }
+                    }
+                    MultisetPullFrame::FirstQuantity {
+                        schedule,
+                        start,
+                        remaining,
+                        quantity,
+                        max_quantity,
+                        choice_tail,
+                    } => {
+                        if outcome.is_some() {
+                            self.schedule[schedule] = if quantity == max_quantity {
+                                MultisetSchedule::Forward(current)
+                            } else {
+                                MultisetSchedule::ReverseFold {
+                                    start,
+                                    remaining,
+                                    next_quantity: max_quantity,
+                                    min_quantity: quantity + 1,
+                                    tail: current,
+                                    choice_tail,
+                                }
+                            };
+                            current = schedule;
+                        } else if quantity < max_quantity {
+                            self.schedule[schedule] = MultisetSchedule::QuantityFold {
+                                start,
+                                remaining,
+                                next_quantity: quantity + 1,
+                                max_quantity,
+                                choice_tail,
+                            };
+                            current = schedule;
+                            continue 'descend;
+                        } else {
+                            self.schedule[schedule] = MultisetSchedule::Empty;
+                            current = schedule;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl<T> Iterator for MultisetPartitionGenerator<T>
+where
+    T: Clone + Eq + Hash,
+{
+    type Item = MultisetPartition<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.pull_one()
+    }
+}
+
 /// Lazily enumerate all ways to select exactly `k` elements (with multiplicity)
 /// from a multiset represented as `(element, count)` pairs.
 ///
-/// The algorithm proceeds recursively over distinct elements, choosing how many
-/// copies of each element to include in the selection (0..=min(count, remaining_k)).
-/// Duplicate-free enumeration is guaranteed because elements at index `i` are never
-/// reconsidered after advancing to index `i+1`.
+/// A flat, heap-resident pull machine advances over distinct elements and chooses
+/// how many copies of each element to include in the selection
+/// (`0..=min(count, remaining_k)`). Duplicate-free enumeration is guaranteed
+/// because an element at index `i` is never reconsidered after advancing to
+/// index `i+1`.
 ///
-/// Results are combined via `interleave()` for fair exploration across branches.
+/// Results have exactly the historical left-folded `interleave()` order. Quantity
+/// intervals and their residual folds remain compact until pulled, so requesting a
+/// bounded prefix does not enumerate or allocate all quantity branches. Logical
+/// input depth is represented only in contiguous heap arenas; native call depth is
+/// constant.
 ///
 /// # Arguments
 ///
@@ -1425,94 +2386,7 @@ pub fn multiset_partitions<T>(items: &[(T, usize)], k: usize) -> LogicStream<Mul
 where
     T: Clone + Eq + Hash + Send + 'static,
 {
-    // Owned copy for the recursive helper
-    let items_owned: Vec<(T, usize)> = items.to_vec();
-    multiset_partitions_rec(&items_owned, 0, k)
-}
-
-/// Recursive helper: enumerate partitions starting from `items[start..]` with
-/// `remaining` elements left to select.
-fn multiset_partitions_rec<T>(
-    items: &[(T, usize)],
-    start: usize,
-    remaining: usize,
-) -> LogicStream<MultisetPartition<T>>
-where
-    T: Clone + Eq + Hash + Send + 'static,
-{
-    // Base case: nothing left to select → yield one partition with empty selection
-    if remaining == 0 {
-        let remainder: Vec<(T, usize)> = items[start..]
-            .iter()
-            .filter(|(_, c)| *c > 0)
-            .cloned()
-            .collect();
-        return LogicStream::unit(MultisetPartition {
-            selected: Vec::new(),
-            remainder,
-            selected_count: 0,
-        });
-    }
-
-    // Base case: no more elements to draw from → impossible to select `remaining`
-    if start >= items.len() {
-        return LogicStream::empty();
-    }
-
-    // Check if total available count from items[start..] is sufficient
-    let available: usize = items[start..].iter().map(|(_, c)| c).sum();
-    if available < remaining {
-        return LogicStream::empty();
-    }
-
-    let (elem, count) = items[start].clone();
-    let max_take = count.min(remaining);
-
-    // Branch: try taking q copies of items[start], for q in 0..=max_take
-    // We build all sub-streams eagerly and interleave them for fairness.
-    let mut accumulated = LogicStream::<MultisetPartition<T>>::empty();
-
-    for q in 0..=max_take {
-        // Build a modified items slice where items[start] has count reduced by q
-        let items_clone = items.to_vec();
-        let elem_clone = elem.clone();
-
-        let sub = multiset_partitions_rec(&items_clone, start + 1, remaining - q);
-
-        // Merge this element's contribution into each sub-partition
-        let merged = if q == 0 {
-            // Taking 0 of this element: just pass remainder through,
-            // but include the full count of this element in remainders
-            let elem_for_closure = elem_clone.clone();
-            let count_for_closure = count;
-            sub.map(move |mut p| {
-                if count_for_closure > 0 {
-                    p.remainder
-                        .push((elem_for_closure.clone(), count_for_closure));
-                    // Sort remainder for stable ordering
-                    p.remainder.sort_by(|a, b| a.1.cmp(&b.1));
-                }
-                p
-            })
-        } else {
-            // Taking q of this element: add to selected, put leftover in remainder
-            let leftover = count - q;
-            let elem_for_closure = elem_clone.clone();
-            sub.map(move |mut p| {
-                p.selected.push((elem_for_closure.clone(), q));
-                p.selected_count += q;
-                if leftover > 0 {
-                    p.remainder.push((elem_for_closure.clone(), leftover));
-                    p.remainder.sort_by(|a, b| a.1.cmp(&b.1));
-                }
-                p
-            })
-        };
-
-        accumulated = accumulated.interleave(merged);
-    }
-
-    accumulated
+    LogicStream::from_lazy_iter(MultisetPartitionGenerator::new(items.to_vec(), k))
 }
 
 /// Convenience function: eagerly collect up to `bound` multiset partitions.
@@ -1539,6 +2413,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     // ── LogicStream core tests ──────────────────────────────────────────
 
@@ -2502,6 +3377,165 @@ mod tests {
     /// Helper: compute total element count in a partition's selected or remainder.
     fn total_count<T: Clone + Eq + Hash>(pairs: &[(T, usize)]) -> usize {
         pairs.iter().map(|(_, c)| c).sum()
+    }
+
+    /// Independent, bounded recursive specification of the historical stream.
+    ///
+    /// This remains test-only: its native recursion is useful as a transparent
+    /// shallow oracle, but it is never reachable from production code or deep
+    /// acceptance tests.
+    fn multiset_partitions_recursive_reference<T>(
+        items: &[(T, usize)],
+        start: usize,
+        remaining: usize,
+    ) -> Vec<MultisetPartition<T>>
+    where
+        T: Clone + Eq + Hash,
+    {
+        if remaining == 0 {
+            return vec![MultisetPartition {
+                selected: Vec::new(),
+                remainder: items[start..]
+                    .iter()
+                    .filter(|(_, count)| *count > 0)
+                    .cloned()
+                    .collect(),
+                selected_count: 0,
+            }];
+        }
+
+        if start >= items.len()
+            || items[start..].iter().map(|(_, count)| count).sum::<usize>() < remaining
+        {
+            return Vec::new();
+        }
+
+        let (element, count) = items[start].clone();
+        let mut accumulated = Vec::new();
+        for quantity in 0..=count.min(remaining) {
+            let mut branch =
+                multiset_partitions_recursive_reference(items, start + 1, remaining - quantity);
+            for partition in &mut branch {
+                if quantity > 0 {
+                    partition.selected.push((element.clone(), quantity));
+                    partition.selected_count += quantity;
+                }
+
+                let leftover = count - quantity;
+                if leftover > 0 {
+                    partition.remainder.push((element.clone(), leftover));
+                    partition.remainder.sort_by(|lhs, rhs| lhs.1.cmp(&rhs.1));
+                }
+            }
+            accumulated = reference_interleave(accumulated, branch);
+        }
+        accumulated
+    }
+
+    /// Pure list interpretation of `LogicStream::interleave` for the oracle.
+    fn reference_interleave<T>(left: Vec<T>, right: Vec<T>) -> Vec<T> {
+        let mut result = Vec::with_capacity(left.len() + right.len());
+        let mut left = left.into_iter();
+        let mut right = right.into_iter();
+        loop {
+            match (left.next(), right.next()) {
+                (Some(lhs), Some(rhs)) => {
+                    result.push(lhs);
+                    result.push(rhs);
+                }
+                (Some(lhs), None) => {
+                    result.push(lhs);
+                    result.extend(left);
+                    break;
+                }
+                (None, Some(rhs)) => {
+                    result.push(rhs);
+                    result.extend(right);
+                    break;
+                }
+                (None, None) => break,
+            }
+        }
+        result
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(512))]
+
+        /// The iterative implementation must preserve the historical stream's
+        /// exact value order as well as every formally proved conservation law.
+        #[test]
+        fn multiset_partitions_match_recursive_reference_and_invariants(
+            counts in prop::collection::vec(0usize..=3, 0..=6),
+            requested in 0usize..=20,
+        ) {
+            let items: Vec<(u8, usize)> = counts
+                .into_iter()
+                .enumerate()
+                .map(|(index, count)| (index as u8, count))
+                .collect();
+            let expected = multiset_partitions_recursive_reference(&items, 0, requested);
+            let actual = multiset_partitions(&items, requested).collect_all();
+
+            prop_assert_eq!(&actual, &expected);
+            let available: usize = items.iter().map(|(_, count)| count).sum();
+            if requested > available {
+                prop_assert!(actual.is_empty());
+            }
+
+            for partition in &actual {
+                prop_assert_eq!(partition.selected_count, requested);
+                prop_assert_eq!(total_count(&partition.selected), requested);
+                prop_assert!(partition.selected.iter().all(|(_, count)| *count > 0));
+                prop_assert!(partition.remainder.iter().all(|(_, count)| *count > 0));
+
+                for (element, source_count) in &items {
+                    let selected_count: usize = partition.selected
+                        .iter()
+                        .filter(|(candidate, _)| candidate == element)
+                        .map(|(_, count)| count)
+                        .sum();
+                    let remainder_count: usize = partition.remainder
+                        .iter()
+                        .filter(|(candidate, _)| candidate == element)
+                        .map(|(_, count)| count)
+                        .sum();
+                    prop_assert_eq!(selected_count + remainder_count, *source_count);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn deep_multiset_partition_prefix_uses_constant_native_stack() {
+        const DEPTH: usize = 100_000;
+        const SMALL_NATIVE_STACK: usize = 256 * 1024;
+
+        std::thread::Builder::new()
+            .name("deep-multiset-partition".to_owned())
+            .stack_size(SMALL_NATIVE_STACK)
+            .spawn(|| {
+                let items: Vec<(u32, usize)> = (0..DEPTH as u32).map(|item| (item, 1)).collect();
+                let prefix = multiset_partitions(&items, 1).collect_bounded(1);
+                assert_eq!(prefix.len(), 1);
+                assert_eq!(prefix[0].selected, vec![((DEPTH - 1) as u32, 1)]);
+                assert_eq!(prefix[0].selected_count, 1);
+                assert_eq!(total_count(&prefix[0].remainder), DEPTH - 1);
+            })
+            .expect("small-stack worker must start")
+            .join()
+            .expect("multiset partition generation must be stack-safe");
+    }
+
+    #[test]
+    fn huge_multiplicity_prefix_keeps_quantity_interval_compact() {
+        let items = vec![('A', usize::MAX), ('B', usize::MAX)];
+        let prefix = multiset_partitions(&items, usize::MAX).collect_bounded(1);
+
+        assert_eq!(prefix.len(), 1);
+        assert_eq!(prefix[0].selected, vec![('B', usize::MAX)]);
+        assert_eq!(prefix[0].remainder, vec![('A', usize::MAX)]);
+        assert_eq!(prefix[0].selected_count, usize::MAX);
     }
 
     #[test]

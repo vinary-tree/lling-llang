@@ -472,108 +472,135 @@ impl MathTypeChecker {
 
     /// Unify two types, returning the unified type or error.
     pub fn unify(&mut self, t1: &MathType, t2: &MathType) -> Result<MathType, TypeError> {
-        match (t1, t2) {
-            // Same types unify to themselves
-            (a, b) if a == b => Ok(a.clone()),
-
-            // Type variables unify with anything
-            (MathType::TypeVar(_), t) | (t, MathType::TypeVar(_)) => Ok(t.clone()),
-
-            // Unknown unifies with anything
-            (MathType::Unknown, t) | (t, MathType::Unknown) => Ok(t.clone()),
-
-            // Variable can be Number
-            (MathType::Variable, MathType::Number) | (MathType::Number, MathType::Variable) => {
-                Ok(MathType::Number)
-            }
-
-            // Function types must have matching arities
-            (
-                MathType::Function {
-                    arity: a1,
-                    domain: d1,
-                    codomain: c1,
-                },
-                MathType::Function {
-                    arity: a2,
-                    domain: d2,
-                    codomain: c2,
-                },
-            ) if a1 == a2 && d1.len() == d2.len() => {
-                let mut unified_domain = Vec::with_capacity(d1.len());
-                for (t1, t2) in d1.iter().zip(d2.iter()) {
-                    unified_domain.push(self.unify(t1, t2)?);
-                }
-                let unified_codomain = self.unify(c1, c2)?;
-                Ok(MathType::Function {
-                    arity: *a1,
-                    domain: unified_domain,
-                    codomain: Box::new(unified_codomain),
-                })
-            }
-
-            // Vectors unify element-wise
-            (
-                MathType::Vector {
-                    element: e1,
-                    dimension: d1,
-                },
-                MathType::Vector {
-                    element: e2,
-                    dimension: d2,
-                },
-            ) => {
-                let unified_elem = self.unify(e1, e2)?;
-                let dimension = match (d1, d2) {
-                    (Some(n1), Some(n2)) if n1 == n2 => Some(*n1),
-                    (Some(_), Some(_)) => {
-                        return Err(TypeError::new(
-                            TypeErrorKind::TypeMismatch,
-                            "Vector dimension mismatch",
-                        ));
-                    }
-                    (d, None) | (None, d) => *d,
-                };
-                Ok(MathType::Vector {
-                    element: Box::new(unified_elem),
-                    dimension,
-                })
-            }
-
-            // Matrices unify element-wise
-            (
-                MathType::Matrix {
-                    element: e1,
-                    dimensions: d1,
-                },
-                MathType::Matrix {
-                    element: e2,
-                    dimensions: d2,
-                },
-            ) => {
-                let unified_elem = self.unify(e1, e2)?;
-                let dimensions = match (d1, d2) {
-                    (Some((r1, c1)), Some((r2, c2))) if r1 == r2 && c1 == c2 => Some((*r1, *c1)),
-                    (Some(_), Some(_)) => {
-                        return Err(TypeError::new(
-                            TypeErrorKind::TypeMismatch,
-                            "Matrix dimension mismatch",
-                        ));
-                    }
-                    (d, None) | (None, d) => *d,
-                };
-                Ok(MathType::Matrix {
-                    element: Box::new(unified_elem),
-                    dimensions,
-                })
-            }
-
-            // Otherwise, types don't unify
-            _ => Err(TypeError::new(
-                TypeErrorKind::TypeMismatch,
-                format!("Cannot unify {} with {}", t1, t2),
-            )),
+        enum Task<'a> {
+            Unify(&'a MathType, &'a MathType),
+            Function(Arity, usize),
+            Vector(Option<usize>, Option<usize>),
+            Matrix(Option<(usize, usize)>, Option<(usize, usize)>),
         }
+
+        let _ = self;
+        let mut tasks = vec![Task::Unify(t1, t2)];
+        let mut values = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Unify(left, right) => match (left, right) {
+                    (a, b) if a == b => values.push(a.clone()),
+                    (MathType::TypeVar(_), value) | (value, MathType::TypeVar(_)) => {
+                        values.push(value.clone());
+                    }
+                    (MathType::Unknown, value) | (value, MathType::Unknown) => {
+                        values.push(value.clone());
+                    }
+                    (MathType::Variable, MathType::Number)
+                    | (MathType::Number, MathType::Variable) => values.push(MathType::Number),
+                    (
+                        MathType::Function {
+                            arity: left_arity,
+                            domain: left_domain,
+                            codomain: left_codomain,
+                        },
+                        MathType::Function {
+                            arity: right_arity,
+                            domain: right_domain,
+                            codomain: right_codomain,
+                        },
+                    ) if left_arity == right_arity && left_domain.len() == right_domain.len() => {
+                        tasks.push(Task::Function(*left_arity, left_domain.len()));
+                        tasks.push(Task::Unify(left_codomain, right_codomain));
+                        tasks.extend(
+                            left_domain
+                                .iter()
+                                .zip(right_domain)
+                                .rev()
+                                .map(|(left, right)| Task::Unify(left, right)),
+                        );
+                    }
+                    (
+                        MathType::Vector {
+                            element: left,
+                            dimension: left_dimension,
+                        },
+                        MathType::Vector {
+                            element: right,
+                            dimension: right_dimension,
+                        },
+                    ) => {
+                        tasks.push(Task::Vector(*left_dimension, *right_dimension));
+                        tasks.push(Task::Unify(left, right));
+                    }
+                    (
+                        MathType::Matrix {
+                            element: left,
+                            dimensions: left_dimensions,
+                        },
+                        MathType::Matrix {
+                            element: right,
+                            dimensions: right_dimensions,
+                        },
+                    ) => {
+                        tasks.push(Task::Matrix(*left_dimensions, *right_dimensions));
+                        tasks.push(Task::Unify(left, right));
+                    }
+                    _ => {
+                        return Err(TypeError::new(
+                            TypeErrorKind::TypeMismatch,
+                            format!("Cannot unify {left} with {right}"),
+                        ));
+                    }
+                },
+                Task::Function(arity, domain_len) => {
+                    let codomain = values.pop().expect("unified function codomain is present");
+                    let first = values
+                        .len()
+                        .checked_sub(domain_len)
+                        .expect("all unified function domains are present");
+                    let domain = values.split_off(first);
+                    values.push(MathType::Function {
+                        arity,
+                        domain,
+                        codomain: Box::new(codomain),
+                    });
+                }
+                Task::Vector(left, right) => {
+                    let element = values.pop().expect("unified vector element is present");
+                    let dimension = match (left, right) {
+                        (Some(left), Some(right)) if left == right => Some(left),
+                        (Some(_), Some(_)) => {
+                            return Err(TypeError::new(
+                                TypeErrorKind::TypeMismatch,
+                                "Vector dimension mismatch",
+                            ));
+                        }
+                        (dimension, None) | (None, dimension) => dimension,
+                    };
+                    values.push(MathType::Vector {
+                        element: Box::new(element),
+                        dimension,
+                    });
+                }
+                Task::Matrix(left, right) => {
+                    let element = values.pop().expect("unified matrix element is present");
+                    let dimensions = match (left, right) {
+                        (Some(left), Some(right)) if left == right => Some(left),
+                        (Some(_), Some(_)) => {
+                            return Err(TypeError::new(
+                                TypeErrorKind::TypeMismatch,
+                                "Matrix dimension mismatch",
+                            ));
+                        }
+                        (dimensions, None) | (None, dimensions) => dimensions,
+                    };
+                    values.push(MathType::Matrix {
+                        element: Box::new(element),
+                        dimensions,
+                    });
+                }
+            }
+        }
+        Ok(values
+            .pop()
+            .expect("the root unification produces one type"))
     }
 
     /// Check if a \frac has valid arguments.

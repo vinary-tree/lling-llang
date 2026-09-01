@@ -391,7 +391,6 @@ pub struct JsonSchemaConstraint {
 }
 
 /// JSON type for schema constraints.
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JsonType {
     /// String type.
     String,
@@ -409,6 +408,96 @@ pub enum JsonType {
     Object,
     /// Any type.
     Any,
+}
+
+impl Clone for JsonType {
+    fn clone(&self) -> Self {
+        let mut arrays = 0usize;
+        let mut current = self;
+        while let JsonType::Array(inner) = current {
+            arrays += 1;
+            current = inner;
+        }
+        let mut cloned = match current {
+            JsonType::String => JsonType::String,
+            JsonType::Number => JsonType::Number,
+            JsonType::Integer => JsonType::Integer,
+            JsonType::Boolean => JsonType::Boolean,
+            JsonType::Null => JsonType::Null,
+            JsonType::Object => JsonType::Object,
+            JsonType::Any => JsonType::Any,
+            JsonType::Array(_) => unreachable!("array spine was consumed"),
+        };
+        for _ in 0..arrays {
+            cloned = JsonType::Array(Box::new(cloned));
+        }
+        cloned
+    }
+}
+
+impl PartialEq for JsonType {
+    fn eq(&self, other: &Self) -> bool {
+        let mut left = self;
+        let mut right = other;
+        loop {
+            match (left, right) {
+                (JsonType::Array(left_inner), JsonType::Array(right_inner)) => {
+                    left = left_inner;
+                    right = right_inner;
+                }
+                (JsonType::String, JsonType::String)
+                | (JsonType::Number, JsonType::Number)
+                | (JsonType::Integer, JsonType::Integer)
+                | (JsonType::Boolean, JsonType::Boolean)
+                | (JsonType::Null, JsonType::Null)
+                | (JsonType::Object, JsonType::Object)
+                | (JsonType::Any, JsonType::Any) => return true,
+                _ => return false,
+            }
+        }
+    }
+}
+
+impl Eq for JsonType {}
+
+impl std::fmt::Debug for JsonType {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut arrays = 0usize;
+        let mut current = self;
+        while let JsonType::Array(inner) = current {
+            formatter.write_str("Array(")?;
+            arrays += 1;
+            current = inner;
+        }
+        formatter.write_str(match current {
+            JsonType::String => "String",
+            JsonType::Number => "Number",
+            JsonType::Integer => "Integer",
+            JsonType::Boolean => "Boolean",
+            JsonType::Null => "Null",
+            JsonType::Object => "Object",
+            JsonType::Any => "Any",
+            JsonType::Array(_) => unreachable!("array spine was consumed"),
+        })?;
+        for _ in 0..arrays {
+            formatter.write_str(")")?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for JsonType {
+    fn drop(&mut self) {
+        let mut pending = Vec::new();
+        if let JsonType::Array(inner) = self {
+            pending.push(std::mem::replace(&mut **inner, JsonType::Any));
+        }
+        while let Some(mut value) = pending.pop() {
+            if let JsonType::Array(inner) = &mut value {
+                pending.push(std::mem::replace(&mut **inner, JsonType::Any));
+            }
+        }
+    }
 }
 
 impl JsonSchemaConstraint {

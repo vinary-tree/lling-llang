@@ -1,7 +1,7 @@
 //! Tree data structures for tree transducers.
 
-use std::fmt::{self, Display};
-use std::hash::Hash;
+use std::fmt::{self, Debug, Display};
+use std::hash::{Hash, Hasher};
 
 /// A tree node with a label and children.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -13,7 +13,6 @@ pub struct TreeNode<L> {
 }
 
 /// A tree structure for tree transducers.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Tree<L>(pub TreeNode<L>);
 
 impl<L> Tree<L> {
@@ -57,16 +56,24 @@ impl<L> Tree<L> {
 
     /// Get the depth of the tree.
     pub fn depth(&self) -> usize {
-        if self.is_leaf() {
-            1
-        } else {
-            1 + self.children().iter().map(|c| c.depth()).max().unwrap_or(0)
+        let mut maximum = 0usize;
+        let mut pending = vec![(self, 1usize)];
+        while let Some((node, depth)) = pending.pop() {
+            maximum = maximum.max(depth);
+            pending.extend(node.children().iter().rev().map(|child| (child, depth + 1)));
         }
+        maximum
     }
 
     /// Get the total number of nodes in the tree.
     pub fn size(&self) -> usize {
-        1 + self.children().iter().map(|c| c.size()).sum::<usize>()
+        let mut size = 0usize;
+        let mut pending = vec![self];
+        while let Some(node) = pending.pop() {
+            size += 1;
+            pending.extend(node.children().iter().rev());
+        }
+        size
     }
 
     /// Map a function over all labels.
@@ -74,10 +81,52 @@ impl<L> Tree<L> {
     where
         F: Fn(&L) -> M,
     {
-        Tree::node(
-            f(&self.0.label),
-            self.children().iter().map(|c| c.map(f)).collect(),
-        )
+        struct Frame<'a, L, M> {
+            source: &'a Tree<L>,
+            next_child: usize,
+            mapped_label: Option<M>,
+            mapped_children: Vec<Tree<M>>,
+        }
+
+        impl<'a, L, M> Frame<'a, L, M> {
+            fn new<F>(source: &'a Tree<L>, f: &F) -> Self
+            where
+                F: Fn(&L) -> M,
+            {
+                Self {
+                    source,
+                    next_child: 0,
+                    mapped_label: Some(f(source.label())),
+                    mapped_children: Vec::with_capacity(source.arity()),
+                }
+            }
+        }
+
+        let mut frames = vec![Frame::new(self, f)];
+        loop {
+            let frame = frames
+                .last_mut()
+                .expect("the root mapping frame remains until a result is produced");
+            if let Some(child) = frame.source.children().get(frame.next_child) {
+                frame.next_child += 1;
+                frames.push(Frame::new(child, f));
+                continue;
+            }
+
+            let mut completed = frames.pop().expect("a completed mapping frame is present");
+            let mapped = Tree::node(
+                completed
+                    .mapped_label
+                    .take()
+                    .expect("each mapping frame owns one mapped label"),
+                completed.mapped_children,
+            );
+            if let Some(parent) = frames.last_mut() {
+                parent.mapped_children.push(mapped);
+            } else {
+                return mapped;
+            }
+        }
     }
 
     /// Iterate over all nodes in pre-order.
@@ -91,16 +140,11 @@ impl<L: Clone> Tree<L> {
     ///
     /// The path is a sequence of child indices.
     pub fn subtree(&self, path: &[usize]) -> Option<Tree<L>> {
-        if path.is_empty() {
-            return Some(self.clone());
+        let mut node = self;
+        for &child_index in path {
+            node = node.children().get(child_index)?;
         }
-
-        let first = path[0];
-        if first >= self.arity() {
-            return None;
-        }
-
-        self.children()[first].subtree(&path[1..])
+        Some(node.clone())
     }
 
     /// Replace the subtree at the given path.
@@ -109,32 +153,139 @@ impl<L: Clone> Tree<L> {
             return Some(replacement);
         }
 
-        let first = path[0];
-        if first >= self.arity() {
-            return None;
+        let mut ancestors = Vec::with_capacity(path.len());
+        let mut node = self;
+        for &child_index in path {
+            if child_index >= node.arity() {
+                return None;
+            }
+            ancestors.push((node, child_index));
+            node = &node.children()[child_index];
         }
 
-        let mut new_children = self.children().to_vec();
-        new_children[first] = self.children()[first].replace(&path[1..], replacement)?;
+        let mut rebuilt = Some(replacement);
+        while let Some((ancestor, replaced_index)) = ancestors.pop() {
+            let mut children = Vec::with_capacity(ancestor.arity());
+            for (index, child) in ancestor.children().iter().enumerate() {
+                if index == replaced_index {
+                    children.push(
+                        rebuilt
+                            .take()
+                            .expect("exactly one child is replaced at each path level"),
+                    );
+                } else {
+                    children.push(child.clone());
+                }
+            }
+            rebuilt = Some(Tree::node(ancestor.label().clone(), children));
+        }
+        rebuilt
+    }
+}
 
-        Some(Tree::node(self.label().clone(), new_children))
+impl<L: Clone> Clone for Tree<L> {
+    fn clone(&self) -> Self {
+        self.map(&L::clone)
+    }
+}
+
+impl<L: PartialEq> PartialEq for Tree<L> {
+    fn eq(&self, other: &Self) -> bool {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            if left.label() != right.label() || left.arity() != right.arity() {
+                return false;
+            }
+            pending.extend(left.children().iter().zip(right.children()).rev());
+        }
+        true
+    }
+}
+
+impl<L: Eq> Eq for Tree<L> {}
+
+impl<L: Hash> Hash for Tree<L> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut pending = vec![self];
+        while let Some(node) = pending.pop() {
+            node.label().hash(state);
+            node.arity().hash(state);
+            pending.extend(node.children().iter().rev());
+        }
+    }
+}
+
+impl<L: Debug> Debug for Tree<L> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        enum Event<'a, L> {
+            Node(&'a Tree<L>),
+            Children(&'a [Tree<L>], usize),
+        }
+
+        let mut events = vec![Event::Node(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Node(node) => {
+                    write!(f, "Tree(TreeNode {{ label: {:?}, children: [", node.label())?;
+                    events.push(Event::Children(node.children(), 0));
+                }
+                Event::Children(children, index) => {
+                    if index == children.len() {
+                        write!(f, "] }})")?;
+                    } else {
+                        if index > 0 {
+                            write!(f, ", ")?;
+                        }
+                        events.push(Event::Children(children, index + 1));
+                        events.push(Event::Node(&children[index]));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<L> Drop for Tree<L> {
+    fn drop(&mut self) {
+        let mut pending = std::mem::take(&mut self.0.children);
+        while let Some(mut child) = pending.pop() {
+            pending.append(&mut child.0.children);
+        }
     }
 }
 
 impl<L: Display> Display for Tree<L> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.is_leaf() {
-            write!(f, "{}", self.label())
-        } else {
-            write!(f, "{}(", self.label())?;
-            for (i, child) in self.children().iter().enumerate() {
-                if i > 0 {
-                    write!(f, ", ")?;
-                }
-                write!(f, "{}", child)?;
-            }
-            write!(f, ")")
+        enum Event<'a, L> {
+            Node(&'a Tree<L>),
+            Children(&'a [Tree<L>], usize),
         }
+
+        let mut events = vec![Event::Node(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Node(node) => {
+                    write!(f, "{}", node.label())?;
+                    if !node.is_leaf() {
+                        write!(f, "(")?;
+                        events.push(Event::Children(node.children(), 0));
+                    }
+                }
+                Event::Children(children, index) => {
+                    if index == children.len() {
+                        write!(f, ")")?;
+                    } else {
+                        if index > 0 {
+                            write!(f, ", ")?;
+                        }
+                        events.push(Event::Children(children, index + 1));
+                        events.push(Event::Node(&children[index]));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -167,6 +318,44 @@ impl<'a, L> Iterator for PreorderIterator<'a, L> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    const DEEP_TREE_PATH: usize = 100_000;
+    const SMALL_NATIVE_STACK: usize = 256 * 1024;
+
+    fn unary_tree(edge_depth: usize) -> Tree<usize> {
+        let mut tree = Tree::leaf(0);
+        for label in 1..=edge_depth {
+            tree = Tree::node(label, vec![tree]);
+        }
+        tree
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(512))]
+
+        #[test]
+        fn subtree_and_replace_refine_unary_path_semantics(
+            (edge_depth, path_depth) in (0usize..128).prop_flat_map(|edge_depth| {
+                (Just(edge_depth), 0usize..=edge_depth)
+            }),
+        ) {
+            let tree = unary_tree(edge_depth);
+            let path = vec![0; path_depth];
+            let subtree = tree.subtree(&path).expect("the unary path is valid");
+            prop_assert_eq!(*subtree.label(), edge_depth - path_depth);
+
+            let replacement_label = edge_depth + 1;
+            let replaced = tree
+                .replace(&path, Tree::leaf(replacement_label))
+                .expect("the unary replacement path is valid");
+            let inserted = replaced
+                .subtree(&path)
+                .expect("the replaced path remains valid");
+            prop_assert_eq!(*inserted.label(), replacement_label);
+            prop_assert_eq!(replaced.depth(), path_depth + 1);
+        }
+    }
 
     #[test]
     fn test_leaf_creation() {
@@ -257,6 +446,36 @@ mod tests {
             .replace(&[0], Tree::leaf("PP"))
             .expect("tree_transducers/tree.rs: required value was None/Err");
         assert_eq!(replaced.children()[0].label(), &"PP");
+    }
+
+    #[test]
+    fn deep_subtree_and_replace_use_constant_native_stack() {
+        std::thread::Builder::new()
+            .name("deep-tree-path".to_owned())
+            .stack_size(SMALL_NATIVE_STACK)
+            .spawn(|| {
+                let tree = unary_tree(DEEP_TREE_PATH);
+                let path = vec![0; DEEP_TREE_PATH];
+                let subtree = tree.subtree(&path).expect("the deep unary path is valid");
+                assert_eq!(*subtree.label(), 0);
+                let replaced = tree
+                    .replace(&path, Tree::leaf(DEEP_TREE_PATH + 1))
+                    .expect("the deep unary replacement path is valid");
+                assert_eq!(replaced.depth(), DEEP_TREE_PATH + 1);
+                assert_eq!(
+                    *replaced
+                        .subtree(&path)
+                        .expect("the replacement is present")
+                        .label(),
+                    DEEP_TREE_PATH + 1,
+                );
+                drop(replaced);
+                drop(subtree);
+                drop(tree);
+            })
+            .expect("the bounded-stack tree-path worker must spawn")
+            .join()
+            .expect("tree path operations and lifecycle must not overflow the native stack");
     }
 
     #[test]

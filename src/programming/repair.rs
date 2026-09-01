@@ -68,7 +68,6 @@ impl SyntaxRepairCosts {
 }
 
 /// Action taken to repair syntax.
-#[derive(Debug, Clone, PartialEq)]
 pub enum RepairAction {
     /// No repair needed.
     NoOp,
@@ -95,82 +94,234 @@ pub enum RepairAction {
     Multiple(Vec<RepairAction>),
 }
 
-impl RepairAction {
-    /// Get the cost of this action based on costs.
-    pub fn cost(&self, costs: &SyntaxRepairCosts) -> f64 {
-        match self {
-            RepairAction::NoOp => 0.0,
-            RepairAction::Insert { text, .. } => {
-                if is_punctuation(text) {
-                    costs.missing_punctuation
-                } else {
-                    costs.insert
-                }
-            }
-            RepairAction::Delete { .. } => costs.delete,
-            RepairAction::Replace { replacement, .. } => {
-                if replacement.len() <= 2 {
-                    costs.typo_fix
-                } else {
-                    costs.substitute
-                }
-            }
-            RepairAction::Multiple(actions) => actions.iter().map(|a| a.cost(costs)).sum(),
+impl Clone for RepairAction {
+    fn clone(&self) -> Self {
+        enum Task<'a> {
+            Clone(&'a RepairAction),
+            Multiple(usize),
         }
-    }
-
-    /// Apply this action to source text.
-    pub fn apply(&self, source: &str) -> String {
-        match self {
-            RepairAction::NoOp => source.to_string(),
-            RepairAction::Insert { position, text } => {
-                let mut result = String::with_capacity(source.len() + text.len());
-                result.push_str(&source[..position.byte_offset.min(source.len())]);
-                result.push_str(text);
-                result.push_str(&source[position.byte_offset.min(source.len())..]);
-                result
-            }
-            RepairAction::Delete { range } => {
-                let mut result = String::with_capacity(source.len());
-                result.push_str(&source[..range.start.byte_offset.min(source.len())]);
-                result.push_str(&source[range.end.byte_offset.min(source.len())..]);
-                result
-            }
-            RepairAction::Replace { range, replacement } => {
-                let mut result = String::with_capacity(source.len() + replacement.len());
-                result.push_str(&source[..range.start.byte_offset.min(source.len())]);
-                result.push_str(replacement);
-                result.push_str(&source[range.end.byte_offset.min(source.len())..]);
-                result
-            }
-            RepairAction::Multiple(actions) => {
-                // Apply actions in reverse order (later positions first)
-                // to maintain correct offsets
-                let mut sorted_actions: Vec<_> = actions.iter().collect();
-                sorted_actions.sort_by(|a, b| {
-                    let pos_a = action_position(a);
-                    let pos_b = action_position(b);
-                    pos_b.cmp(&pos_a)
-                });
-
-                let mut result = source.to_string();
-                for action in sorted_actions {
-                    result = action.apply(&result);
+        let mut tasks = vec![Task::Clone(self)];
+        let mut values = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Clone(action) => match action {
+                    RepairAction::NoOp => values.push(RepairAction::NoOp),
+                    RepairAction::Insert { position, text } => {
+                        values.push(RepairAction::Insert {
+                            position: *position,
+                            text: text.clone(),
+                        });
+                    }
+                    RepairAction::Delete { range } => {
+                        values.push(RepairAction::Delete { range: *range });
+                    }
+                    RepairAction::Replace { range, replacement } => {
+                        values.push(RepairAction::Replace {
+                            range: *range,
+                            replacement: replacement.clone(),
+                        });
+                    }
+                    RepairAction::Multiple(actions) => {
+                        tasks.push(Task::Multiple(actions.len()));
+                        tasks.extend(actions.iter().rev().map(Task::Clone));
+                    }
+                },
+                Task::Multiple(count) => {
+                    let first = values
+                        .len()
+                        .checked_sub(count)
+                        .expect("all nested actions are cloned before their group");
+                    let actions = values.split_off(first);
+                    values.push(RepairAction::Multiple(actions));
                 }
-                result
+            }
+        }
+        values.pop().expect("the root action produces one clone")
+    }
+}
+
+impl PartialEq for RepairAction {
+    fn eq(&self, other: &Self) -> bool {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (RepairAction::NoOp, RepairAction::NoOp) => {}
+                (
+                    RepairAction::Insert {
+                        position: lp,
+                        text: lt,
+                    },
+                    RepairAction::Insert {
+                        position: rp,
+                        text: rt,
+                    },
+                ) if lp == rp && lt == rt => {}
+                (RepairAction::Delete { range: left }, RepairAction::Delete { range: right })
+                    if left == right => {}
+                (
+                    RepairAction::Replace {
+                        range: lr,
+                        replacement: lv,
+                    },
+                    RepairAction::Replace {
+                        range: rr,
+                        replacement: rv,
+                    },
+                ) if lr == rr && lv == rv => {}
+                (RepairAction::Multiple(left), RepairAction::Multiple(right))
+                    if left.len() == right.len() =>
+                {
+                    pending.extend(left.iter().zip(right).rev());
+                }
+                _ => return false,
+            }
+        }
+        true
+    }
+}
+
+impl fmt::Debug for RepairAction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        enum Event<'a> {
+            Action(&'a RepairAction),
+            Multiple(&'a [RepairAction], usize),
+        }
+        let mut events = vec![Event::Action(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Action(action) => match action {
+                    RepairAction::NoOp => write!(f, "NoOp")?,
+                    RepairAction::Insert { position, text } => {
+                        write!(f, "Insert {{ position: {position:?}, text: {text:?} }}")?;
+                    }
+                    RepairAction::Delete { range } => {
+                        write!(f, "Delete {{ range: {range:?} }}")?;
+                    }
+                    RepairAction::Replace { range, replacement } => write!(
+                        f,
+                        "Replace {{ range: {range:?}, replacement: {replacement:?} }}"
+                    )?,
+                    RepairAction::Multiple(actions) => {
+                        write!(f, "Multiple([")?;
+                        events.push(Event::Multiple(actions, 0));
+                    }
+                },
+                Event::Multiple(actions, index) => {
+                    if index == actions.len() {
+                        write!(f, "])")?;
+                    } else {
+                        if index > 0 {
+                            write!(f, ", ")?;
+                        }
+                        events.push(Event::Multiple(actions, index + 1));
+                        events.push(Event::Action(&actions[index]));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Drop for RepairAction {
+    fn drop(&mut self) {
+        let mut pending = Vec::new();
+        if let RepairAction::Multiple(actions) = self {
+            pending.append(actions);
+        }
+        while let Some(mut action) = pending.pop() {
+            if let RepairAction::Multiple(actions) = &mut action {
+                pending.append(actions);
             }
         }
     }
 }
 
-fn action_position(action: &RepairAction) -> usize {
-    match action {
-        RepairAction::NoOp => 0,
-        RepairAction::Insert { position, .. } => position.byte_offset,
-        RepairAction::Delete { range } => range.start.byte_offset,
-        RepairAction::Replace { range, .. } => range.start.byte_offset,
-        RepairAction::Multiple(actions) => actions.iter().map(action_position).max().unwrap_or(0),
+impl RepairAction {
+    /// Get the cost of this action based on costs.
+    pub fn cost(&self, costs: &SyntaxRepairCosts) -> f64 {
+        let mut total = 0.0;
+        let mut pending = vec![self];
+        while let Some(action) = pending.pop() {
+            total += match action {
+                RepairAction::NoOp | RepairAction::Multiple(_) => 0.0,
+                RepairAction::Insert { text, .. } => {
+                    if is_punctuation(text) {
+                        costs.missing_punctuation
+                    } else {
+                        costs.insert
+                    }
+                }
+                RepairAction::Delete { .. } => costs.delete,
+                RepairAction::Replace { replacement, .. } => {
+                    if replacement.len() <= 2 {
+                        costs.typo_fix
+                    } else {
+                        costs.substitute
+                    }
+                }
+            };
+            if let RepairAction::Multiple(actions) = action {
+                pending.extend(actions.iter().rev());
+            }
+        }
+        total
     }
+
+    /// Apply this action to source text.
+    pub fn apply(&self, source: &str) -> String {
+        let mut result = source.to_string();
+        let mut pending = vec![self];
+        while let Some(action) = pending.pop() {
+            match action {
+                RepairAction::NoOp => {}
+                RepairAction::Insert { position, text } => {
+                    let offset = position.byte_offset.min(result.len());
+                    let mut next = String::with_capacity(result.len() + text.len());
+                    next.push_str(&result[..offset]);
+                    next.push_str(text);
+                    next.push_str(&result[offset..]);
+                    result = next;
+                }
+                RepairAction::Delete { range } => {
+                    let mut next = String::with_capacity(result.len());
+                    next.push_str(&result[..range.start.byte_offset.min(result.len())]);
+                    next.push_str(&result[range.end.byte_offset.min(result.len())..]);
+                    result = next;
+                }
+                RepairAction::Replace { range, replacement } => {
+                    let mut next = String::with_capacity(result.len() + replacement.len());
+                    next.push_str(&result[..range.start.byte_offset.min(result.len())]);
+                    next.push_str(replacement);
+                    next.push_str(&result[range.end.byte_offset.min(result.len())..]);
+                    result = next;
+                }
+                RepairAction::Multiple(actions) => {
+                    let mut sorted: Vec<_> = actions.iter().collect();
+                    sorted
+                        .sort_by(|left, right| action_position(right).cmp(&action_position(left)));
+                    pending.extend(sorted.into_iter().rev());
+                }
+            }
+        }
+        result
+    }
+}
+
+fn action_position(action: &RepairAction) -> usize {
+    let mut maximum = 0usize;
+    let mut pending = vec![action];
+    while let Some(current) = pending.pop() {
+        match current {
+            RepairAction::NoOp => {}
+            RepairAction::Insert { position, .. } => maximum = maximum.max(position.byte_offset),
+            RepairAction::Delete { range } | RepairAction::Replace { range, .. } => {
+                maximum = maximum.max(range.start.byte_offset);
+            }
+            RepairAction::Multiple(actions) => pending.extend(actions.iter()),
+        }
+    }
+    maximum
 }
 
 fn is_punctuation(text: &str) -> bool {
@@ -179,28 +330,41 @@ fn is_punctuation(text: &str) -> bool {
 
 impl Display for RepairAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RepairAction::NoOp => write!(f, "no-op"),
-            RepairAction::Insert { position, text } => {
-                write!(f, "insert '{}' at {}", text, position)
-            }
-            RepairAction::Delete { range } => {
-                write!(f, "delete {}", range)
-            }
-            RepairAction::Replace { range, replacement } => {
-                write!(f, "replace {} with '{}'", range, replacement)
-            }
-            RepairAction::Multiple(actions) => {
-                write!(f, "[")?;
-                for (i, a) in actions.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
+        enum Event<'a> {
+            Action(&'a RepairAction),
+            List(&'a [RepairAction], usize),
+        }
+        let mut events = vec![Event::Action(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Action(action) => match action {
+                    RepairAction::NoOp => write!(f, "no-op")?,
+                    RepairAction::Insert { position, text } => {
+                        write!(f, "insert '{}' at {}", text, position)?;
                     }
-                    write!(f, "{}", a)?;
+                    RepairAction::Delete { range } => write!(f, "delete {}", range)?,
+                    RepairAction::Replace { range, replacement } => {
+                        write!(f, "replace {} with '{}'", range, replacement)?;
+                    }
+                    RepairAction::Multiple(actions) => {
+                        write!(f, "[")?;
+                        events.push(Event::List(actions, 0));
+                    }
+                },
+                Event::List(actions, index) => {
+                    if index == actions.len() {
+                        write!(f, "]")?;
+                    } else {
+                        if index > 0 {
+                            write!(f, ", ")?;
+                        }
+                        events.push(Event::List(actions, index + 1));
+                        events.push(Event::Action(&actions[index]));
+                    }
                 }
-                write!(f, "]")
             }
         }
+        Ok(())
     }
 }
 
@@ -380,15 +544,19 @@ pub struct RepairCandidate {
 impl RepairCandidate {
     /// Create a new repair candidate.
     pub fn new(action: RepairAction, cost: f64, rule_description: String) -> Self {
-        let position = match &action {
-            RepairAction::Insert { position, .. } => *position,
-            RepairAction::Delete { range } => range.start,
-            RepairAction::Replace { range, .. } => range.start,
-            RepairAction::Multiple(actions) => actions
-                .first()
-                .map(|a| RepairCandidate::new(a.clone(), 0.0, String::new()).position)
-                .unwrap_or_default(),
-            RepairAction::NoOp => Position::default(),
+        let mut first = &action;
+        let position = loop {
+            match first {
+                RepairAction::Insert { position, .. } => break *position,
+                RepairAction::Delete { range } | RepairAction::Replace { range, .. } => {
+                    break range.start;
+                }
+                RepairAction::Multiple(actions) => match actions.first() {
+                    Some(action) => first = action,
+                    None => break Position::default(),
+                },
+                RepairAction::NoOp => break Position::default(),
+            }
         };
 
         Self {
@@ -789,20 +957,30 @@ impl<W: Semiring + Clone> SyntaxRepairTransducer<W> {
 
     /// Get the byte range affected by an action.
     fn action_range(&self, action: &RepairAction) -> (usize, usize) {
-        match action {
-            RepairAction::NoOp => (0, 0),
-            RepairAction::Insert { position, .. } => (position.byte_offset, position.byte_offset),
-            RepairAction::Delete { range } => (range.start.byte_offset, range.end.byte_offset),
-            RepairAction::Replace { range, .. } => (range.start.byte_offset, range.end.byte_offset),
-            RepairAction::Multiple(actions) => {
-                let starts: Vec<_> = actions.iter().map(|a| self.action_range(a).0).collect();
-                let ends: Vec<_> = actions.iter().map(|a| self.action_range(a).1).collect();
-                (
-                    starts.into_iter().min().unwrap_or(0),
-                    ends.into_iter().max().unwrap_or(0),
-                )
+        let mut minimum = usize::MAX;
+        let mut maximum = 0usize;
+        let mut pending = vec![action];
+        while let Some(current) = pending.pop() {
+            let range = match current {
+                RepairAction::NoOp => Some((0, 0)),
+                RepairAction::Insert { position, .. } => {
+                    Some((position.byte_offset, position.byte_offset))
+                }
+                RepairAction::Delete { range } | RepairAction::Replace { range, .. } => {
+                    Some((range.start.byte_offset, range.end.byte_offset))
+                }
+                RepairAction::Multiple(actions) if actions.is_empty() => Some((0, 0)),
+                RepairAction::Multiple(actions) => {
+                    pending.extend(actions.iter());
+                    None
+                }
+            };
+            if let Some((start, end)) = range {
+                minimum = minimum.min(start);
+                maximum = maximum.max(end);
             }
         }
+        (if minimum == usize::MAX { 0 } else { minimum }, maximum)
     }
 }
 
@@ -848,6 +1026,20 @@ impl<W: Semiring + Clone> Default for SyntaxRepairTransducer<W> {
 mod tests {
     use super::*;
     use crate::semiring::TropicalWeight;
+
+    const DEEP_REPAIR_ACTION_DEPTH: usize = 100_000;
+    const SMALL_NATIVE_STACK: usize = 256 * 1024;
+
+    fn nested_repair_action(depth: usize, position: Position) -> RepairAction {
+        let mut action = RepairAction::Insert {
+            position,
+            text: "x".to_owned(),
+        };
+        for _ in 0..depth {
+            action = RepairAction::Multiple(vec![action]);
+        }
+        action
+    }
 
     #[test]
     fn test_repair_costs_default() {
@@ -1126,12 +1318,110 @@ mod tests {
         assert_eq!(selected.len(), 2);
     }
 
+    #[test]
+    fn deep_repair_candidate_and_range_use_constant_native_stack() {
+        std::thread::Builder::new()
+            .name("deep-repair-action".to_owned())
+            .stack_size(SMALL_NATIVE_STACK)
+            .spawn(|| {
+                let position = Position::new(7, 11, 13);
+                let action = nested_repair_action(DEEP_REPAIR_ACTION_DEPTH, position);
+                let transducer: SyntaxRepairTransducer<TropicalWeight> =
+                    SyntaxRepairTransducer::new();
+                assert_eq!(
+                    transducer.action_range(&action),
+                    (position.byte_offset, position.byte_offset),
+                );
+                let candidate = RepairCandidate::new(action, 0.25, "deep".to_owned());
+                assert_eq!(candidate.position, position);
+                drop(candidate);
+            })
+            .expect("the bounded-stack repair worker must spawn")
+            .join()
+            .expect("repair action traversal and lifecycle must not overflow the native stack");
+    }
+
     mod property_tests {
         use super::*;
         use proptest::prelude::*;
 
+        fn repair_action_strategy() -> BoxedStrategy<RepairAction> {
+            let leaf = prop_oneof![
+                Just(RepairAction::NoOp),
+                (0usize..256).prop_map(|offset| RepairAction::Insert {
+                    position: Position::new(0, offset, offset),
+                    text: "x".to_owned(),
+                }),
+                (0usize..256, 0usize..32).prop_map(|(start, width)| {
+                    RepairAction::Delete {
+                        range: Range::new(
+                            Position::new(0, start, start),
+                            Position::new(0, start + width, start + width),
+                        ),
+                    }
+                }),
+                (0usize..256, 0usize..32).prop_map(|(start, width)| {
+                    RepairAction::Replace {
+                        range: Range::new(
+                            Position::new(0, start, start),
+                            Position::new(0, start + width, start + width),
+                        ),
+                        replacement: "r".to_owned(),
+                    }
+                }),
+            ];
+            leaf.prop_recursive(6, 192, 4, |inner| {
+                prop::collection::vec(inner, 0..=4).prop_map(RepairAction::Multiple)
+            })
+            .boxed()
+        }
+
+        fn recursive_first_position(action: &RepairAction) -> Position {
+            match action {
+                RepairAction::Insert { position, .. } => *position,
+                RepairAction::Delete { range } | RepairAction::Replace { range, .. } => range.start,
+                RepairAction::Multiple(actions) => actions
+                    .first()
+                    .map(recursive_first_position)
+                    .unwrap_or_default(),
+                RepairAction::NoOp => Position::default(),
+            }
+        }
+
+        fn recursive_action_range(action: &RepairAction) -> (usize, usize) {
+            match action {
+                RepairAction::NoOp => (0, 0),
+                RepairAction::Insert { position, .. } => {
+                    (position.byte_offset, position.byte_offset)
+                }
+                RepairAction::Delete { range } | RepairAction::Replace { range, .. } => {
+                    (range.start.byte_offset, range.end.byte_offset)
+                }
+                RepairAction::Multiple(actions) if actions.is_empty() => (0, 0),
+                RepairAction::Multiple(actions) => actions
+                    .iter()
+                    .map(recursive_action_range)
+                    .fold((usize::MAX, 0), |(minimum, maximum), (start, end)| {
+                        (minimum.min(start), maximum.max(end))
+                    }),
+            }
+        }
+
         proptest! {
-            #![proptest_config(ProptestConfig::with_cases(48))]
+            #![proptest_config(ProptestConfig::with_cases(512))]
+
+            #[test]
+            fn repair_candidate_and_range_refine_recursive_oracles(
+                action in repair_action_strategy(),
+            ) {
+                let expected_position = recursive_first_position(&action);
+                let expected_range = recursive_action_range(&action);
+                let transducer: SyntaxRepairTransducer<TropicalWeight> =
+                    SyntaxRepairTransducer::new();
+                prop_assert_eq!(transducer.action_range(&action), expected_range);
+                let candidate = RepairCandidate::new(action, 0.5, "property".to_owned());
+                prop_assert_eq!(candidate.position, expected_position);
+            }
 
             /// NoOp.apply(s) == s for any source.
             #[test]

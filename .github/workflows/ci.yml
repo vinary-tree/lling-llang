@@ -15,20 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # --all-features enables the optional interop/liblevenshtein/libdictenstein/
-      # llattice path dependencies, which Cargo resolves from sibling directories
-      # of this checkout. Clone them next to the workspace exactly like the local
-      # layout, or every --all-features step below fails to resolve the graph on a
-      # clean runner. (Release workflows pin exact tags instead.)
-      - name: Checkout dev sibling crates
-        shell: bash
-        run: |
-          set -euo pipefail
-          parent="$(dirname "$GITHUB_WORKSPACE")"
-          for repo in llattice libdictenstein liblevenshtein-rust; do
-            git clone --depth 1 --branch master \
-              "https://github.com/vinary-tree/$repo.git" "$parent/$repo"
-          done
+      # All Rust dependencies in the vinary-tree release family are exact
+      # crates.io dependencies, so a clean checkout has one coherent source
+      # identity for every shared trait crate.
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -58,11 +47,9 @@ jobs:
   # metrics, round trip + arc paging law, lazy-composition correspondence,
   # concurrent composition stress) plus the binding-surface drift gate.
   #
-  # Only vinary-tree-interop is COMPILED under these features, but Cargo
-  # must still read every path dependency's manifest to resolve the graph,
-  # so the in-development sibling crates are cloned next to the workspace
-  # exactly like the local checkout layout (release workflows pin exact
-  # tags instead — see release-bindings.yml).
+  # vinary-tree-interop is compiled from the exact crates.io release. The C guide
+  # also compiles against its standalone header, so CI checks out that repository
+  # next to the workspace. Release workflows pin the exact tag.
   # ---------------------------------------------------------------------
   ffi:
     name: FFI and bindings
@@ -75,10 +62,8 @@ jobs:
         run: |
           set -euo pipefail
           parent="$(dirname "$GITHUB_WORKSPACE")"
-          for repo in llattice libdictenstein liblevenshtein-rust; do
-            git clone --depth 1 --branch master \
-              "https://github.com/vinary-tree/$repo.git" "$parent/$repo"
-          done
+          git clone --depth 1 --branch master \
+            https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -99,7 +84,7 @@ jobs:
         run: |
           cargo build --no-default-features --features ffi
           cc -std=c17 -Wall -Wextra -Werror \
-            -Iinclude -I../liblevenshtein-rust/vinary-tree-interop/include \
+            -Iinclude -I../vinary-tree-interop/include \
             bindings/c/examples/compose_demo.c \
             -Ltarget/debug -llling_llang \
             -Wl,-rpath,"$PWD/target/debug" \
@@ -120,33 +105,21 @@ jobs:
   # Dynamic-analysis gate (wave W8): the ffi + test-utils integration
   # suites run under AddressSanitizer (+ LeakSanitizer) and ThreadSanitizer
   # via nightly `-Zbuild-std`, which rebuilds std -- and every dependency,
-  # including the sibling vinary-tree-interop crate at the ABI boundary --
+  # including the registry-resolved vinary-tree-interop crate at the ABI boundary --
   # with the sanitizer runtime. This catches, at machine level, the classes
   # of defect safe Rust and catch_unwind cannot: use-after-free, OOB,
   # leaked retained provider snapshots (LeakSanitizer is the backstop for
   # the LLING-B5/B6 retain-ledger fixes), and data races across the
   # composition call gate (ffi_concurrent_composition_stress).
   #
-  # Only vinary-tree-interop is COMPILED under these features, but Cargo
-  # must still read every path dependency's manifest to resolve the graph,
-  # so the in-development sibling crates are cloned next to the workspace
-  # exactly like the ffi job (release workflows pin exact tags instead).
+  # Every sanitizer dependency is resolved from the locked registry graph; no
+  # sibling source checkout is required.
   # ---------------------------------------------------------------------
   sanitizers:
     name: Sanitizers (ASan/TSan)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-
-      - name: Checkout dev sibling crates
-        shell: bash
-        run: |
-          set -euo pipefail
-          parent="$(dirname "$GITHUB_WORKSPACE")"
-          for repo in llattice libdictenstein liblevenshtein-rust; do
-            git clone --depth 1 --branch master \
-              "https://github.com/vinary-tree/$repo.git" "$parent/$repo"
-          done
 
       - name: Install nightly toolchain with rust-src
         uses: dtolnay/rust-toolchain@nightly

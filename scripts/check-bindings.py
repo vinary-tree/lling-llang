@@ -34,6 +34,7 @@ repository.
 Usage:
   python3 scripts/check-bindings.py          # human-readable report
   python3 scripts/check-bindings.py --json   # machine-readable report
+  python3 scripts/check-bindings.py --self-test-stack-safety
 
 Exit status: 0 = all checks pass, 1 = at least one failure, 2 = usage or
 model-loading error.
@@ -43,8 +44,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
 import sys
+import threading
 import tomllib
 from pathlib import Path
 
@@ -122,14 +125,91 @@ def camel_to_screaming(name: str) -> str:
 
 
 def walk_export_targets(value: object) -> list[str]:
+    targets: list[str] = []
+    pending = [value]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, str):
+            targets.append(current)
+        elif isinstance(current, dict):
+            pending.extend(reversed(current.values()))
+    return targets
+
+
+def recursive_walk_export_targets_reference(value: object) -> list[str]:
+    """Bounded test-only specification for export-target traversal."""
     if isinstance(value, str):
         return [value]
     if isinstance(value, dict):
         targets: list[str] = []
         for nested in value.values():
-            targets.extend(walk_export_targets(nested))
+            targets.extend(recursive_walk_export_targets_reference(nested))
         return targets
     return []
+
+
+def generated_export_value(generator: random.Random, depth: int) -> object:
+    """Generate a bounded JSON-like export value with deterministic entropy."""
+    choice = generator.randrange(4 if depth else 3)
+    if choice == 0:
+        return f"./target-{generator.randrange(32)}.js"
+    if choice == 1:
+        return generator.randrange(1024)
+    if choice == 2:
+        return None
+    return {
+        f"condition-{index}": generated_export_value(generator, depth - 1)
+        for index in range(generator.randrange(5))
+    }
+
+
+def self_test_stack_safety() -> int:
+    """Check ordered refinement and 100,000-level bounded-stack traversal."""
+    generator = random.Random(0x11_1A_6B)
+    for case in range(4096):
+        value = generated_export_value(generator, case % 9)
+        expected = recursive_walk_export_targets_reference(value)
+        actual = walk_export_targets(value)
+        if actual != expected:
+            raise AssertionError(
+                f"export traversal mismatch in generated case {case}: "
+                f"expected {expected!r}, got {actual!r}"
+            )
+
+    failures: list[BaseException] = []
+
+    def deep_worker() -> None:
+        try:
+            value: object = "./deep-target.js"
+            for _ in range(100_000):
+                value = {"default": value}
+            if walk_export_targets(value) != ["./deep-target.js"]:
+                raise AssertionError("deep export traversal changed its leaf or order")
+
+            # Dismantle the synthetic ownership chain iteratively so this test
+            # measures the traversal rather than CPython container finalization.
+            while isinstance(value, dict) and value:
+                nested = next(iter(value.values()))
+                value.clear()
+                value = nested
+        except BaseException as error:  # propagate worker failures to the caller
+            failures.append(error)
+
+    previous_stack_size = threading.stack_size()
+    threading.stack_size(256 * 1024)
+    try:
+        worker = threading.Thread(target=deep_worker, name="deep-binding-export-walk")
+        worker.start()
+        worker.join()
+    finally:
+        threading.stack_size(previous_stack_size)
+    if failures:
+        raise failures[0]
+
+    print(
+        "check-bindings: 4096 ordered properties and 100,000-level/256-KiB traversal verified"
+    )
+    return 0
 
 
 def publishable_files() -> list[Path]:
@@ -154,7 +234,15 @@ def publishable_files() -> list[Path]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument("--json", action="store_true", help="emit a JSON report")
+    parser.add_argument(
+        "--self-test-stack-safety",
+        action="store_true",
+        help="run ordered-refinement and bounded-stack traversal controls",
+    )
     arguments = parser.parse_args()
+
+    if arguments.self_test_stack_safety:
+        return self_test_stack_safety()
 
     if not MODEL_PATH.is_file():
         print(
@@ -221,7 +309,9 @@ def main() -> int:
             failures.append("bindings/api.json cFunctions contains duplicate names")
         for name in sorted(modeled):
             if not re.fullmatch(r"lling_[a-z0-9_]+", name):
-                failures.append(f"modeled symbol {name!r} does not use the lling_ prefix")
+                failures.append(
+                    f"modeled symbol {name!r} does not use the lling_ prefix"
+                )
         info["modeled_symbols"] = len(modeled)
 
         ffi_source = read(FFI_PATH)
@@ -258,38 +348,56 @@ def main() -> int:
                 f"include/lling_llang.hpp references undeclared symbols: {sorted(undeclared)}"
             )
 
-    report.run("symbol parity (api.json == ffi.rs == header; hpp subset)", symbol_parity)
+    report.run(
+        "symbol parity (api.json == ffi.rs == header; hpp subset)", symbol_parity
+    )
 
     # ── 2. enum + ABI/API constant parity ────────────────────────────────────
     def enum_parity(failures: list[str], info: dict[str, object]) -> None:
         status = model.get("enums", {}).get("status", {})
-        modeled = {str(name): int(value) for name, value in status.get("values", {}).items()}
-        if status.get("cType") != "LlingStatus" or status.get("cPrefix") != "LLING_STATUS_":
+        modeled = {
+            str(name): int(value) for name, value in status.get("values", {}).items()
+        }
+        if (
+            status.get("cType") != "LlingStatus"
+            or status.get("cPrefix") != "LLING_STATUS_"
+        ):
             failures.append("status enum model must name LlingStatus / LLING_STATUS_")
 
         ffi_source = read(FFI_PATH)
-        enum_match = re.search(r"pub\s+enum\s+LlingStatus\s*\{(.*?)\n\}", ffi_source, re.DOTALL)
+        enum_match = re.search(
+            r"pub\s+enum\s+LlingStatus\s*\{(.*?)\n\}", ffi_source, re.DOTALL
+        )
         if enum_match is None:
             failures.append("src/ffi.rs does not define pub enum LlingStatus")
             return
         rust_values = {
             camel_to_screaming(name): int(value)
             for name, value in re.findall(
-                r"^\s*([A-Z][A-Za-z0-9]*)\s*=\s*(\d+)\s*,", enum_match.group(1), re.MULTILINE
+                r"^\s*([A-Z][A-Za-z0-9]*)\s*=\s*(\d+)\s*,",
+                enum_match.group(1),
+                re.MULTILINE,
             )
         }
         info["rust_variants"] = len(rust_values)
         if rust_values != modeled:
-            failures.append(f"LlingStatus model/ffi.rs mismatch: model={modeled}, ffi={rust_values}")
+            failures.append(
+                f"LlingStatus model/ffi.rs mismatch: model={modeled}, ffi={rust_values}"
+            )
         if not re.search(
-            r"#\[repr\(u32\)\]\s*(?:#\[[^\]]*\]\s*)*pub\s+enum\s+LlingStatus", ffi_source
+            r"#\[repr\(u32\)\]\s*(?:#\[[^\]]*\]\s*)*pub\s+enum\s+LlingStatus",
+            ffi_source,
         ):
             failures.append("LlingStatus must remain #[repr(u32)]")
 
         header = read(HEADER_PATH)
-        header_enum = re.search(r"typedef\s+enum\s+LlingStatus\s*\{(.*?)\}", header, re.DOTALL)
+        header_enum = re.search(
+            r"typedef\s+enum\s+LlingStatus\s*\{(.*?)\}", header, re.DOTALL
+        )
         if header_enum is None:
-            failures.append("include/lling_llang.h does not declare typedef enum LlingStatus")
+            failures.append(
+                "include/lling_llang.h does not declare typedef enum LlingStatus"
+            )
             return
         header_values = {
             name: int(value)
@@ -354,7 +462,9 @@ def main() -> int:
         for subpath, target in exports.items():
             for relative in walk_export_targets(target):
                 if not (JS_ROOT / relative).resolve().is_file():
-                    failures.append(f"export {subpath!r} target does not exist: {relative}")
+                    failures.append(
+                        f"export {subpath!r} target does not exist: {relative}"
+                    )
                 else:
                     resolved += 1
         info["export_targets_resolved"] = resolved
@@ -377,7 +487,9 @@ def main() -> int:
         # Value-export consistency across the typed and runtime facades.
         expected_exports = set(js_model.get("facadeExports", []))
         dts = read(JS_ROOT / "index.d.ts")
-        dts_values = set(re.findall(r"^export\s+(?:const|function)\s+(\w+)", dts, re.MULTILINE))
+        dts_values = set(
+            re.findall(r"^export\s+(?:const|function)\s+(\w+)", dts, re.MULTILINE)
+        )
         if dts_values != expected_exports:
             failures.append(
                 f"index.d.ts value exports {sorted(dts_values)} != modeled {sorted(expected_exports)}"
@@ -392,7 +504,11 @@ def main() -> int:
         }
         for relative, runtime_import in runtime_imports.items():
             source = read(JS_ROOT / relative)
-            named = set(re.findall(r"^export\s+(?:const|function)\s+(\w+)", source, re.MULTILINE))
+            named = set(
+                re.findall(
+                    r"^export\s+(?:const|function)\s+(\w+)", source, re.MULTILINE
+                )
+            )
             if named != expected_exports:
                 failures.append(
                     f"{relative} exports {sorted(named)} != modeled {sorted(expected_exports)}"
@@ -400,7 +516,9 @@ def main() -> int:
             if "export default" not in source:
                 failures.append(f"{relative} lacks a default export")
             if runtime_import not in source:
-                failures.append(f"{relative} must import the umbrella runtime {runtime_import}")
+                failures.append(
+                    f"{relative} must import the umbrella runtime {runtime_import}"
+                )
             for guard in ("assertSameRuntime", "assertWfstResource"):
                 if guard not in source:
                     failures.append(f"{relative} lacks the {guard} guard")
@@ -408,7 +526,9 @@ def main() -> int:
         cjs = read(JS_ROOT / "facades" / "native.cjs")
         exports_match = re.search(r"module\.exports\s*=\s*\{([^}]*)\}", cjs)
         if exports_match is None:
-            failures.append("facades/native.cjs does not assign a module.exports object")
+            failures.append(
+                "facades/native.cjs does not assign a module.exports object"
+            )
         else:
             cjs_names = set()
             for entry in exports_match.group(1).split(","):
@@ -418,14 +538,18 @@ def main() -> int:
                 cjs_names.add(entry.split(":", 1)[0].strip())
             missing = (expected_exports | {"default"}) - cjs_names
             if missing:
-                failures.append(f"facades/native.cjs exports are missing {sorted(missing)}")
+                failures.append(
+                    f"facades/native.cjs exports are missing {sorted(missing)}"
+                )
         for relative in ("facades/typescript.mjs", "facades/clojurescript.mjs"):
             source = read(JS_ROOT / relative)
             if (
                 'export * from "./native.mjs"' not in source
                 or 'export { default } from "./native.mjs"' not in source
             ):
-                failures.append(f"{relative} must re-export ./native.mjs (names and default)")
+                failures.append(
+                    f"{relative} must re-export ./native.mjs (names and default)"
+                )
         for relative in ("facades/typescript.cjs", "facades/clojurescript.cjs"):
             source = read(JS_ROOT / relative)
             if 'module.exports = require("./native.cjs")' not in source:
@@ -439,15 +563,19 @@ def main() -> int:
                 "ClojureScript facade mismatch: "
                 f"missing={sorted(modeled_cljs - defns)}, unmodeled={sorted(defns - modeled_cljs)}"
             )
-        if f'(ns {js_model.get("cljsNamespace")}' not in cljs:
+        if f"(ns {js_model.get('cljsNamespace')}" not in cljs:
             failures.append(
                 f"ClojureScript facade must declare (ns {js_model.get('cljsNamespace')} ...)"
             )
         native_references = set(re.findall(r"\(native/(\w+)", cljs))
         stray = native_references - expected_exports
         if stray:
-            failures.append(f"ClojureScript facade calls unexported native names: {sorted(stray)}")
-        dts_members = set(re.findall(r"^\s+(?:readonly\s+)?(\w+)\s*\(", dts, re.MULTILINE))
+            failures.append(
+                f"ClojureScript facade calls unexported native names: {sorted(stray)}"
+            )
+        dts_members = set(
+            re.findall(r"^\s+(?:readonly\s+)?(\w+)\s*\(", dts, re.MULTILINE)
+        )
         method_references = set(re.findall(r"\(\.(\w+)\s", cljs))
         unknown = method_references - dts_members
         if unknown:
@@ -495,7 +623,9 @@ def main() -> int:
             scanned += 1
             for identity in forbidden_identities:
                 if identity in lowered:
-                    failures.append(f"unrelated identity {identity!r} in {path.relative_to(ROOT)}")
+                    failures.append(
+                        f"unrelated identity {identity!r} in {path.relative_to(ROOT)}"
+                    )
             for pattern in forbidden_symbols:
                 if pattern.search(source):
                     failures.append(
