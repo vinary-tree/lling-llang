@@ -1,0 +1,17 @@
+[package]
+name = "documentation-required-red"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[[test]]
+name = "documentation"
+path = "../../neutral_foundations/tests/documentation.rs"
+
+[dependencies]
+vinary-doc-lint = { path = "../../../../../vinary-doc-lint/crates/vinary-doc-lint" }
+
+[dev-dependencies]
+proptest = "1.9"

@@ -12,6 +12,98 @@ fabricate a DOI**.
 
 ---
 
+## Category theory and formal verification
+
+- <a id="ref-maclane1998"></a>**[Mac Lane 1998]** Mac Lane, S. (1998).
+  *Categories for the Working Mathematician*, 2nd ed. Graduate Texts in
+  Mathematics 5. Springer.
+  [https://doi.org/10.1007/978-1-4757-4721-8](https://doi.org/10.1007/978-1-4757-4721-8)
+  *(DOI re-verified 2026-08-27 against Springer metadata for the second edition.)*
+- <a id="ref-lamport2002"></a>**[Lamport 2002]** Lamport, L. (2002).
+  *Specifying Systems: The TLA+ Language and Tools for Hardware and Software
+  Engineers.* Addison-Wesley.
+  [Author-maintained book page](https://lamport.org/tla/book.html)
+  *(Existence and edition re-verified 2026-08-27; no DOI is minted.)*
+- <a id="ref-delmas2026"></a>**[Delmas et al. 2026]** Delmas, R., Hassan, Z.,
+  Hu, Q., et al. (2026). *Kani: A Model Checker for Rust.* ASE 2026 Industry
+  Showcase Track.
+  [https://doi.org/10.48550/arXiv.2607.01504](https://doi.org/10.48550/arXiv.2607.01504)
+  *(DataCite DOI and venue metadata re-verified 2026-08-27.)*
+- <a id="ref-rfc8785"></a>**[Rundgren, Jordan & Erdtman 2020]** Rundgren, A.,
+  Jordan, B., & Erdtman, S. (2020). *JSON Canonicalization Scheme (JCS).* RFC
+  8785. Internet Engineering Task Force.
+  [https://doi.org/10.17487/RFC8785](https://doi.org/10.17487/RFC8785)
+  *(RFC and DOI metadata re-verified 2026-08-30.)*
+
+## Program analysis and graph algorithms
+
+- <a id="ref-paige-tarjan1987"></a>**[Paige & Tarjan 1987]** Paige, R., &
+  Tarjan, R. E. (1987). *Three Partition Refinement Algorithms.* SIAM Journal
+  on Computing 16(6):973–989.
+  [https://doi.org/10.1137/0216062](https://doi.org/10.1137/0216062)
+  *(DOI and SIAM metadata re-verified 2026-08-30.)*
+- <a id="ref-valmari2010"></a>**[Valmari 2010]** Valmari, A. (2010).
+  *Simple Bisimilarity Minimization in O(m log n) Time.* Fundamenta
+  Informaticae 105(3):319–339.
+  [https://doi.org/10.3233/FI-2010-369](https://doi.org/10.3233/FI-2010-369)
+  *(DOI and IOS Press metadata re-verified 2026-08-30.)*
+- <a id="ref-fernandez1990"></a>**[Fernandez 1990]** Fernandez, J.-C. (1990).
+  *An Implementation of an Efficient Algorithm for Bisimulation
+  Equivalence.* Science of Computer Programming 13(2–3):219–236.
+  [https://doi.org/10.1016/0167-6423(90)90071-K](https://doi.org/10.1016/0167-6423(90)90071-K)
+  *(DOI and Elsevier metadata re-verified 2026-08-30.)*
+- <a id="ref-groote2021"></a>**[Groote, Martens & de Vink 2021]** Groote,
+  J. F., Martens, J. J. A. K., & de Vink, E. P. (2021). *Lower Bounds for
+  Bisimulation by Partition Refinement.* CONCUR 2021, Article 31.
+  [https://doi.org/10.4230/LIPIcs.CONCUR.2021.31](https://doi.org/10.4230/LIPIcs.CONCUR.2021.31)
+  *(DOI and Dagstuhl metadata re-verified 2026-08-30.)*
+- <a id="ref-wissmann2022"></a>**[Wißmann, Milius & Schröder 2022]**
+  Wißmann, T., Milius, S., & Schröder, L. (2022). *Quasilinear-Time
+  Computation of Generic Modal Witnesses for Behavioural Inequivalence.*
+  Logical Methods in Computer Science 18(4), Article 6.
+  [https://doi.org/10.46298/LMCS-18(4:6)2022](https://doi.org/10.46298/LMCS-18(4:6)2022)
+  *(DOI and LMCS metadata re-verified 2026-08-30.)*
+- <a id="ref-mokhov2018"></a>**[Mokhov, Mitchell & Peyton Jones 2018]**
+  Mokhov, A., Mitchell, N., & Peyton Jones, S. (2018). *Build Systems à la
+  Carte.* Proceedings of the ACM on Programming Languages 2 (ICFP), Article 79.
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F3236774)
+  *(DOI and publisher metadata re-verified 2026-08-30.)*
+- <a id="ref-green2007"></a>**[Green, Karvounarakis & Tannen 2007]** Green,
+  T. J., Karvounarakis, G., & Tannen, V. (2007). *Provenance Semirings.*
+  PODS '07:31–40.
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F1265530.1265535)
+  *(DOI and ACM/Crossref metadata re-verified 2026-08-30.)*
+- <a id="ref-jordan2016"></a>**[Jordan, Scholz & Subotić 2016]** Jordan, H.,
+  Scholz, B., & Subotić, P. (2016). *Soufflé: On Synthesis of Program
+  Analyzers.* CAV 2016:422–430.
+  [https://doi.org/10.1007/978-3-319-41540-6_23](https://doi.org/10.1007/978-3-319-41540-6_23)
+  *(DOI and Springer metadata re-verified 2026-08-30.)*
+- <a id="ref-nist1804"></a>**[NIST 2015]** National Institute of Standards
+  and Technology. (2015). *Secure Hash Standard (SHS).* FIPS PUB 180-4.
+  [Official NIST FIPS 180-4 publication](https://csrc.nist.gov/files/pubs/fips/180-4/final/docs/fips180-4.pdf)
+  *(The official publication metadata was re-verified 2026-09-01.)*
+
+- <a id="ref-kildall1973"></a>**[Kildall 1973]** Kildall, G. A. (1973).
+  *A Unified Approach to Global Program Optimization.* POPL '73:194–206.
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F512927.512945)
+  *(DOI and ACM metadata re-verified 2026-08-29.)*
+- <a id="ref-cousot1977"></a>**[Cousot & Cousot 1977]** Cousot, P., &
+  Cousot, R. (1977). *Abstract Interpretation: A Unified Lattice Model for
+  Static Analysis of Programs by Construction or Approximation of Fixpoints.*
+  POPL '77:238–252.
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F512950.512973)
+  *(DOI and ACM metadata re-verified 2026-08-29.)*
+- <a id="ref-tarjan1972"></a>**[Tarjan 1972]** Tarjan, R. E. (1972).
+  *Depth-First Search and Linear Graph Algorithms.* SIAM Journal on Computing
+  1(2):146–160.
+  [https://doi.org/10.1137/0201010](https://doi.org/10.1137/0201010)
+  *(DOI and SIAM metadata re-verified 2026-08-29.)*
+- <a id="ref-reps1995"></a>**[Reps, Horwitz & Sagiv 1995]** Reps, T. W.,
+  Horwitz, S., & Sagiv, S. (1995). *Precise Interprocedural Dataflow Analysis
+  via Graph Reachability.* POPL '95:49–61.
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F199448.199462)
+  *(DOI and ACM metadata re-verified 2026-08-29.)*
+
 ## Weighted automata & parsing foundations
 
 - <a id="ref-mohri2002"></a>**[Mohri 2002]** Mohri, M., Pereira, F., & Riley, M. (2002).
@@ -31,7 +123,7 @@ fabricate a DOI**.
 - <a id="ref-earley1970"></a>**[Earley 1970]** Earley, J. (1970).
   *An Efficient Context-Free Parsing Algorithm.* Communications of the ACM
   13(2):94–102.
-  [https://doi.org/10.1145/362007.362035](https://doi.org/10.1145/362007.362035)
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F362007.362035)
 - <a id="ref-goodman1999"></a>**[Goodman 1999]** Goodman, J. (1999).
   *Semiring Parsing.* Computational Linguistics 25(4):573–605.
   [ACL J99-4004](https://aclanthology.org/J99-4004/)
@@ -41,7 +133,7 @@ fabricate a DOI**.
 - <a id="ref-graves2006"></a>**[Graves 2006]** Graves, A., Fernández, S., Gomez, F.,
   & Schmidhuber, J. (2006). *Connectionist Temporal Classification: Labelling
   Unsegmented Sequence Data with Recurrent Neural Networks.* ICML '06:369–376.
-  [https://doi.org/10.1145/1143844.1143891](https://doi.org/10.1145/1143844.1143891)
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F1143844.1143891)
 - <a id="ref-graves2012"></a>**[Graves 2012]** Graves, A. (2012).
   *Sequence Transduction with Recurrent Neural Networks.*
   [arXiv:1211.3711](https://arxiv.org/abs/1211.3711)
@@ -94,7 +186,7 @@ and the scalar-WFST resource-layer documentation.
 - <a id="ref-collins1960"></a>**[Collins 1960]** Collins, G. E. (1960).
   *A Method for Overlapping and Erasure of Lists.* Communications of the ACM
   3(12):655–657.
-  [https://doi.org/10.1145/367487.367501](https://doi.org/10.1145/367487.367501)
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F367487.367501)
   — the original reference-counting scheme; the retain/release discipline of
   `VtResource` handles. *(DOI verified 2026-08-09: resolves via doi.org to the
   ACM Digital Library; Crossref metadata matches.)*
@@ -107,7 +199,7 @@ References backing the stack-safe execution architecture
 - <a id="ref-reynolds1972"></a>**[Reynolds 1972]** Reynolds, J. C. (1972).
   *Definitional Interpreters for Higher-Order Programming Languages.*
   Proceedings of the 25th ACM National Conference, volume 2:717–740.
-  [https://doi.org/10.1145/800194.805852](https://doi.org/10.1145/800194.805852)
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F800194.805852)
 - <a id="ref-danvy2001"></a>**[Danvy & Nielsen 2001]** Danvy, O., & Nielsen,
   L. R. (2001). *Defunctionalization at Work.* BRICS Report Series 8(23).
   [https://doi.org/10.7146/brics.v8i23.21684](https://doi.org/10.7146/brics.v8i23.21684)
@@ -123,7 +215,7 @@ References backing the stack-safe execution architecture
 - <a id="ref-claessen2000"></a>**[Claessen & Hughes 2000]** Claessen, K., &
   Hughes, J. (2000). *QuickCheck: A Lightweight Tool for Random Testing of
   Haskell Programs.* ACM SIGPLAN Notices 35(9):268–279.
-  [https://doi.org/10.1145/357766.351266](https://doi.org/10.1145/357766.351266)
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F357766.351266)
 
 ---
 
@@ -161,7 +253,7 @@ These support specific module docs; each is verified before inclusion.
   and [`docs/advanced/beam-optimization.md`](advanced/beam-optimization.md).
 - <a id="ref-kahn1962"></a>**[Kahn 1962]** Kahn, A. B. (1962). *Topological Sorting
   of Large Networks.* Communications of the ACM 5(11):558–562.
-  [https://doi.org/10.1145/368996.369025](https://doi.org/10.1145/368996.369025)
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F368996.369025)
   — cited by [`docs/algorithms/topological-sort.md`](algorithms/topological-sort.md).
 - <a id="ref-huang2005"></a>**[Huang & Chiang 2005]** Huang, L., & Chiang, D. (2005).
   *Better k-best Parsing.* IWPT 2005:53–64.

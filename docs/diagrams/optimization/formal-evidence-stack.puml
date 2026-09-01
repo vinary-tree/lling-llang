@@ -1,0 +1,37 @@
+@startuml formal-evidence-stack
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #B71C1C
+skinparam ArrowThickness 1.4
+
+title <b>Formal evidence stack</b>\n<size:11><i>unbounded laws, bounded concurrency, dual countermodels, implementation refinement</i></size>
+
+rectangle "Normative contract\ntyped tapes · exact rewrite · plan DAG\nordered provenance · opaque ABI v1" as Contract #FCF3CF
+
+rectangle "Rocq 9.1\nunbounded constructive theorems\nzero admissions / zero axioms" as Rocq #FFCDD2
+rectangle "TLA+ / TLC\nfinite lifecycle and concurrency\npositive models + failing mutants" as TLA #FFCDD2
+rectangle "Z3\ndual satisfiability transcript\nintended laws + counterexamples" as Z3 #E1BEE7
+rectangle "Kani / CBMC\nbit-precise ownership harnesses\nthree bounded proofs" as Kani #E1BEE7
+
+rectangle "Verification gate\n4 GiB outer scope · 2 GiB Kani scope\nno swap · persistent target logs · timeouts" as Gate #C8E6C9
+rectangle "Rust implementation\nmust refine the verified contract" as Rust #BBDEFB
+
+Contract --> Rocq : denotational laws
+Contract --> TLA : temporal transitions
+Contract --> Z3 : consistency / independence
+Contract --> Kani : bounded ownership behavior
+Rocq --> Gate
+TLA --> Gate
+Z3 --> Gate
+Kani --> Gate
+Gate --> Rust : implementation permitted only\nafter formal gate succeeds
+
+legend right
+  |<#FCF3CF> normative contract |
+  |<#FFCDD2> theorem/model proof |
+  |<#E1BEE7> solver evidence |
+  |<#C8E6C9> resource-safe gate |
+  |<#BBDEFB> implementation refinement |
+endlegend
+@enduml

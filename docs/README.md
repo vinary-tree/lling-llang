@@ -146,6 +146,14 @@ phase-by-phase implementation ledger are frozen historical records — see
 | [Lookahead Tables](optimization/lookahead.md) | Pushing reachable weight to a pruning frontier |
 | [N-gram Back-off](optimization/ngram-backoff.md) | Back-off $`P(w \,\vert\, h) = \lambda \cdot \hat{P}(w \,\vert\, h) + (1 - \lambda) \cdot P(w \,\vert\, h')`$ |
 | [Token Grouping](optimization/token-grouping.md) | LET-Decoder lazy-evaluation token grouping |
+| [Categorical Optimizer Contract](optimization/categorical-optimizer-contract.md) | Typed morphisms, exact rewrite witnesses, fibers, local monoids, ownership boundaries, and performance consequences |
+| [Plan, Concurrency, and Provenance](optimization/plan-and-provenance.md) | Rank-certified DAG syntax, stack-safe wavefront execution, budgets, cancellation, ordered commit, and publication |
+| [Formal Verification](optimization/formal-verification.md) | Rocq, TLA+/TLC, Z3, and Kani evidence with finite bounds, negative controls, and reproduction |
+| [Certified Strong Bisimulation](optimization/certified-strong-bisimulation-contract.md) | Validated labelled semantics, Valmari refinement, replay certificates, modal witnesses, canonical output, stack safety, resource bounds, and 83 traced obligations |
+| [libcpg Dataflow, Graph, and Assurance Contract](optimization/libcpg-assurance-contract.md) | Lawful llattice v2 migration, exact libvgraph quotient semantics, stack/work bounds, and independently bound assurance evidence |
+| [libcpg Manifest and Durable-Fact Contract](optimization/libcpg-manifest-fact-contract.md) | Exact extractor manifests, durable fact identities, dense-index correspondence, source evidence, deterministic exports, cache invalidation, and adapter ownership |
+| [Provider-Neutral Boundary Contract](optimization/provider-boundary-contract.md) | Canonical artifact identity, non-promoting provider results, limitation propagation, independent guarantees, native ownership, and the optional one-way libcpg-to-lling-llang public-API boundary |
+| [Neutral Vinary Foundation Contract](optimization/neutral-vinary-foundation-contract.md) | RegresSpec-driven ownership, canonical/schema/content identity, neutral graphs, runtime and assurance gates, stack-safe concurrency, and 77 formally traced pre-implementation obligations |
 
 ### Archive
 

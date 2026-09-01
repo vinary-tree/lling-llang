@@ -1,0 +1,56 @@
+@startuml provider-boundary-architecture
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #37474F
+skinparam ArrowThickness 1.5
+skinparam componentStyle rectangle
+
+title <b>Provider-neutral architecture</b>\n<size:11><i>dependency arrows point from consumers to public providers</i></size>
+
+package "Independent product systems" #E3F2FD {
+  component "lling-llang\nindependent optimization system" as LlingLlang #FFF9C4
+  component "libcpg\nindependent analysis system" as Libcpg #BBDEFB
+  component "optional libcpg adapter\nconsumer-owned translation" as Adapter #D1C4E9
+}
+
+package "Provider-neutral foundations" #E8F5E9 {
+  component "vinary-runtime\nresult · artifact · cache" as Runtime #C8E6C9
+  component "vinary-assurance\nevidence · policy · guarantee" as Assurance #A5D6A7
+  component "vinary-canonical-json\ncanonical wire identity" as Canonical #81C784
+  component "vinary-analysis-graph\nneutral artifact graph" as Graph #66BB6A
+  component "libmorphism\ncomposition claims and law evidence" as Morphism #43A047
+}
+
+Adapter ..> LlingLlang : public, versioned API only
+Libcpg ..> Adapter : optional consumer ownership
+LlingLlang ..> Runtime : neutral contract
+Libcpg ..> Runtime : neutral contract
+Runtime ..> Canonical : canonical bytes
+Assurance ..> Runtime : bound artifacts/results
+Assurance ..> Canonical : canonical evidence
+Graph ..> Runtime : artifact references
+LlingLlang ..> Morphism : lawful composition vocabulary
+
+note bottom of LlingLlang
+  No dependency on libcpg.
+  No libcpg-owned internal state.
+end note
+
+note bottom of Adapter
+  Optional direction only:
+  libcpg consumer -> lling-llang public API.
+  No private access and no reverse edge.
+end note
+
+legend right
+  |<#FFF9C4> independent optimizer |
+  |<#BBDEFB> independent analyzer |
+  |<#D1C4E9> optional consumer adapter |
+  |<#C8E6C9> neutral runtime contract |
+  |<#A5D6A7> neutral assurance contract |
+  |<#81C784> canonical encoding |
+  |<#66BB6A> neutral artifact graph |
+  |<#43A047> morphism vocabulary |
+endlegend
+@enduml

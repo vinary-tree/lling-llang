@@ -1,0 +1,40 @@
+@startuml strong-bisimulation-flow
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #607D8B
+skinparam ArrowThickness 1.4
+skinparam activity {
+  BackgroundColor #C8E6C9
+  BorderColor #2E7D32
+  FontColor #102027
+  DiamondBackgroundColor #ECEFF1
+  DiamondBorderColor #455A64
+}
+
+title <b>Certified strong-bisimulation pipeline</b>\n<size:11>validated dense LTS · Valmari refinement · replay certificate · modal DAG</size>
+
+start
+:Raw labelled transition system\nstate count · arbitrary <b>u32</b> labels\ntransitions · initial colors; <<#BBDEFB>>
+if (Every source and target is in range?\nColor vector has exact length?) then (yes)
+  :Canonicalize labels with fixed-width radix passes\nsort and deduplicate set-valued transitions; <<#B2DFDB>>
+else (no)
+  :Return typed validation error\nwithout indexing malformed data; <<#FFCDD2>>
+  stop
+endif
+:Build forward and reverse CSR\nplus refinable state/transition partitions; <<#B2DFDB>>
+:Seed blocks by initial color\nseed splitter worklist; <<#C8E6C9>>
+while (Splitter worklist nonempty?) is (yes)
+  :Count predecessors by action and block\nusing explicit arrays; <<#C8E6C9>>
+  :Split affected state and transition blocks\nqueue only the smaller half; <<#C8E6C9>>
+  :Append safe split and shared modal nodes\nto replay and witness DAGs; <<#E1BEE7>>
+endwhile (no)
+:Assign canonical block IDs\nin increasing state order; <<#C8E6C9>>
+:Independently replay every split\nand check final stability; <<#FFCDD2>>
+if (Queried states share a block?) then (yes)
+  :Return canonical relation\nand replay certificate; <<#BBDEFB>>
+else (no)
+  :Return an oriented distinguishing formula DAG\nevaluated by an explicit pushdown machine; <<#E1BEE7>>
+endif
+stop
+@enduml

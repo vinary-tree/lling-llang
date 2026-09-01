@@ -1,0 +1,56 @@
+@startuml libcpg-evidence-lifecycle
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam ArrowColor #455A64
+skinparam ArrowThickness 1.5
+
+title <b>libcpg assurance-evidence lifecycle</b>\n<size:11><i>exact publication requires every immutable binding and independent guarantee</i></size>
+
+[*] --> Uncaptured
+state Uncaptured #ECEFF1
+state Captured #BBDEFB
+state Analyzed #B3E5FC
+state Guaranteed #FFE0B2
+state PublishedExact #C8E6C9
+state PublishedApproximate #FFF9C4
+state PublishedIncomplete #FFCCBC
+state Rejected #FFCDD2
+
+Uncaptured --> Captured : capture five-coordinate index
+Captured --> Analyzed : produce report + digest\nprecision + completeness
+Analyzed --> Guaranteed : attach trusted guarantee\nwith verifier relation
+
+Guaranteed --> Rejected : stale subject, snapshot,\nconfiguration, tool, or environment
+Guaranteed --> Rejected : digest mismatch, untrusted,\ndependent, or self-confirmed
+Guaranteed --> PublishedIncomplete : incomplete coverage
+Guaranteed --> PublishedApproximate : approximate precision\nwith complete coverage
+Guaranteed --> PublishedExact : exact + complete + fresh\nbound + trusted + independent
+
+PublishedExact --> [*]
+PublishedApproximate --> [*]
+PublishedIncomplete --> [*]
+Rejected --> [*]
+
+note right of Captured
+  Captured fields are immutable.
+  A later request change makes
+  the report stale; it does not
+  rewrite the capture.
+end note
+
+note right of PublishedExact
+  Distinct actor names alone
+  do not prove independence.
+end note
+
+legend right
+  |<#BBDEFB> immutable capture |
+  |<#B3E5FC> candidate analysis |
+  |<#FFE0B2> assurance validation |
+  |<#C8E6C9> exact publication |
+  |<#FFF9C4> approximate publication |
+  |<#FFCCBC> incomplete publication |
+  |<#FFCDD2> rejection |
+endlegend
+@enduml

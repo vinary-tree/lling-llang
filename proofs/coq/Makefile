@@ -1,11 +1,8 @@
 # lling-llang Coq/Rocq proofs Makefile
 #
-# Build with resource limiting (recommended):
-#   systemd-run --user --scope -p MemoryMax=4G -p MemorySwapMax=0 \
-#     -p CPUQuota=100% -p TasksMax=64 make -j1
-#
-# Build without resource limiting:
-#   make
+# The repository-level proofs/verify.sh wrapper supplies the mandatory local
+# 4 GiB RSS cap, disables swap, and serializes this build.  Direct CI use must
+# provide an equivalent runner-level memory limit.
 
 COQMAKEFILE = CoqMakefile
 COQMAKE = $(MAKE) -f $(COQMAKEFILE)
@@ -21,16 +18,18 @@ $(COQMAKEFILE): _CoqProject
 clean:
 	if [ -f $(COQMAKEFILE) ]; then $(COQMAKE) clean; fi
 	rm -f $(COQMAKEFILE) $(COQMAKEFILE).conf
-	rm -f *.glob *.vo *.vok *.vos *.aux
-	rm -f foundations/*.glob foundations/*.vo foundations/*.vok foundations/*.vos foundations/*.aux
-	rm -f wfst/*.glob wfst/*.vo wfst/*.vok wfst/*.vos wfst/*.aux
-	rm -f algorithms/*.glob algorithms/*.vo algorithms/*.vok algorithms/*.vos algorithms/*.aux
-	rm -f abi/*.glob abi/*.vo abi/*.vok abi/*.vos abi/*.aux
-	rm -f logict/*.glob logict/*.vo logict/*.vok logict/*.vos logict/*.aux
-	rm -f presburger/*.glob presburger/*.vo presburger/*.vok presburger/*.vos presburger/*.aux
-	rm -f sft/*.glob sft/*.vo sft/*.vok sft/*.vos sft/*.aux
-	rm -f symbolic_algebra/*.glob symbolic_algebra/*.vo symbolic_algebra/*.vok symbolic_algebra/*.vos symbolic_algebra/*.aux
-	rm -f stack_safety/*.glob stack_safety/*.vo stack_safety/*.vok stack_safety/*.vos stack_safety/*.aux
+	rm -f *.glob *.vo *.vok *.vos *.aux .*.aux .lia.cache .nia.cache .nra.cache
+	rm -f foundations/*.glob foundations/*.vo foundations/*.vok foundations/*.vos foundations/*.aux foundations/.*.aux
+	rm -f wfst/*.glob wfst/*.vo wfst/*.vok wfst/*.vos wfst/*.aux wfst/.*.aux
+	rm -f algorithms/*.glob algorithms/*.vo algorithms/*.vok algorithms/*.vos algorithms/*.aux algorithms/.*.aux
+	rm -f abi/*.glob abi/*.vo abi/*.vok abi/*.vos abi/*.aux abi/.*.aux
+	rm -f optimizer/*.glob optimizer/*.vo optimizer/*.vok optimizer/*.vos optimizer/*.aux optimizer/.*.aux
+	rm -f domain_integration/*.glob domain_integration/*.vo domain_integration/*.vok domain_integration/*.vos domain_integration/*.aux domain_integration/.*.aux
+	rm -f logict/*.glob logict/*.vo logict/*.vok logict/*.vos logict/*.aux logict/.*.aux
+	rm -f presburger/*.glob presburger/*.vo presburger/*.vok presburger/*.vos presburger/*.aux presburger/.*.aux
+	rm -f sft/*.glob sft/*.vo sft/*.vok sft/*.vos sft/*.aux sft/.*.aux
+	rm -f symbolic_algebra/*.glob symbolic_algebra/*.vo symbolic_algebra/*.vok symbolic_algebra/*.vos symbolic_algebra/*.aux symbolic_algebra/.*.aux
+	rm -f stack_safety/*.glob stack_safety/*.vo stack_safety/*.vok stack_safety/*.vos stack_safety/*.aux stack_safety/.*.aux
 
 force:
 	touch _CoqProject
@@ -39,9 +38,4 @@ force:
 # Check for Admitted proofs (CI integration)
 proof-check:
 	@echo "Checking for unchecked proof escapes..."
-	@if grep -REn "^[[:space:]]*(Admitted|Abort)\.|^[[:space:]]*(Axiom|Conjecture|Parameter)[[:space:]]|\badmit\.|True[[:space:]]*\(\*|True\." foundations wfst algorithms abi logict presburger sft symbolic_algebra stack_safety 2>/dev/null; then \
-		echo "ERROR: Found unchecked or vacuous proof escapes."; \
-		exit 1; \
-	else \
-		echo "No unchecked proof escapes found."; \
-	fi
+	@python3 ../../scripts/check-rocq-proof-escapes.py

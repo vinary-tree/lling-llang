@@ -1,0 +1,40 @@
+(** * Assumptions — audit selected optimizer and ABI theorems *)
+
+Require Import LlingLlang.optimizer.TapeSignatures.
+Require Import LlingLlang.optimizer.RewriteSemantics.
+Require Import LlingLlang.optimizer.PlanDag.
+Require Import LlingLlang.domain_integration.FuzzyReference.
+Require Import LlingLlang.domain_integration.TypedHclg.
+Require Import LlingLlang.domain_integration.DataflowMigration.
+Require Import LlingLlang.domain_integration.GraphQuotient.
+Require Import LlingLlang.domain_integration.EvidenceAssurance.
+Require Import LlingLlang.abi.OwnershipLifecycle.
+Require Import LlingLlang.algorithms.StrongBisimulation.
+
+Print Assumptions compose_morphism_associative.
+Print Assumptions equal_inputs_do_not_imply_compatibility.
+Print Assumptions publishable_exact_preserves_denotation.
+Print Assumptions well_formed_plan_is_acyclic.
+Print Assumptions certified_fuzzy_result_equals_reference.
+Print Assumptions stale_snapshot_can_drop_a_reference_member.
+Print Assumptions hclg_parenthesizations_are_equivalent.
+Print Assumptions dataflow_adapter_change_flag_is_exact.
+Print Assumptions completed_outputs_are_unique.
+Print Assumptions higher_budget_incomplete_implies_lower_budget_incomplete.
+Print Assumptions condensation_is_acyclic.
+Print Assumptions condensation_edges_commute_with_renaming.
+Print Assumptions validated_csr_import_is_strictly_linear.
+Print Assumptions certified_publication_equals_reference.
+Print Assumptions candidate_self_confirmation_is_rejected.
+Print Assumptions distinct_actor_names_do_not_establish_independence.
+Print Assumptions commit_rejects_out_of_order.
+Print Assumptions opaque_v1_clients_cannot_observe_private_layout.
+Print Assumptions accepted_relation_certificate_exact.
+Print Assumptions accepted_certificate_decides_with_witness.
+Print Assumptions validated_lts_cannot_contain_malformed_endpoint.
+Print Assumptions canonical_relation_matrix_invariant_under_injective_relabeling.
+Print Assumptions strict_refinement_terminates.
+Print Assumptions smaller_half_charge_is_logarithmic.
+Print Assumptions valid_account_work_is_quasilinear.
+Print Assumptions valid_account_core_heap_is_linear.
+Print Assumptions valid_account_has_constant_native_stack.

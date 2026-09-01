@@ -1,0 +1,17 @@
+[package]
+name = "libcpg-manifest-required-red"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[[test]]
+name = "libcpg-manifest"
+path = "../../libcpg_manifest/tests/libcpg.rs"
+
+[dependencies]
+libcpg = { path = "../../../../../libcpg" }
+
+[dev-dependencies]
+proptest = "1.9"
