@@ -57,13 +57,15 @@ and injective action relabeling cannot change the relation. Initial colors are
 observations: differently colored states never merge, even when both are
 deadlocked.
 
-Valmari's nondeterministic driver distinguishes three source categories for a
-transition cluster: every transition with the selected action reaches the
-target block, some do, or none do. The physical two-split sequence is justified
-by modal predicates rather than being misreported as a single predecessor
-split. `StrongBisimulation.v` proves that satisfaction of every formula in the
-certificate language is invariant under strong bisimilarity. It follows that
-both implementation-shaped splits preserve every bisimilar pair.
+Valmari's nondeterministic driver distinguishes three source categories within
+the current source-label subgroup: every guarded transition reaches the
+selected target region, some do, or none do. The subgroup guard records the
+target region represented by that transition group. Transitions outside that
+guard are irrelevant to confinement. The physical two-split sequence is
+justified by guarded modal predicates rather than being misreported as a
+single predecessor split. `StrongBisimulation.v` proves both predicates
+saturated under strong bisimilarity. It follows that both
+implementation-shaped splits preserve every bisimilar pair.
 
 ## Validated representation
 
@@ -173,15 +175,19 @@ container.
     touched_states <- reverse_csr predecessors selected by splitter
     touched_blocks <- count touched_states by current state block
     target_formula <- characteristic formula of splitter.target_block
-    reaches <- Diamond(splitter.action, target_formula)
+    group_guard <- characteristic formula of the current source-label subgroup
+    selected <- And(group_guard, target_formula)
+    guarded_remainder <- And(group_guard, Not(target_formula))
+    reaches <- Diamond(splitter.action, selected)
     confined <- And(reaches,
-                    Not(Diamond(splitter.action, Not(target_formula))))
+                    Not(Diamond(splitter.action, guarded_remainder)))
     for each touched block:
         split confined members from the remaining members in place
         split reaches members from non-reaching remaining members in place
         append both exact modal-safe splits to certificate
         append shared modal nodes that characterize the new blocks
         queue the smaller resulting subblock
+    refine the source-label subgroup guard into selected and guarded remainder
     update only transition blocks incident to changed state blocks
 ```
 

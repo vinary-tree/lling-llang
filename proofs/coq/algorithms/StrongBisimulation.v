@@ -448,6 +448,62 @@ Proof.
   - exact related.
 Qed.
 
+(** A source-label subgroup records a modal guard describing the target
+    region still represented by that subgroup.  When a transition cluster
+    selects [target] inside [guard], Valmari's first physical split separates
+    sources confined to the selected region from sources that also reach the
+    guarded remainder.  The second split separates sources that reach the
+    selected region from those that do not. *)
+Definition guarded_reaches_formula
+    (action : Action) (guard target : modal_formula) : modal_formula :=
+  FormulaDiamond action (FormulaAnd guard target).
+
+Definition guarded_confined_formula
+    (action : Action) (guard target : modal_formula) : modal_formula :=
+  FormulaAnd
+    (guarded_reaches_formula action guard target)
+    (FormulaNot
+      (FormulaDiamond action
+        (FormulaAnd guard (FormulaNot target)))).
+
+Lemma satisfies_guarded_reaches_formula : forall state action guard target,
+  satisfies state (guarded_reaches_formula action guard target) <->
+  exists successor,
+    transition state action successor /\
+    satisfies successor guard /\
+    satisfies successor target.
+Proof.
+  intros state action guard target.
+  unfold guarded_reaches_formula; simpl; firstorder.
+Qed.
+
+Lemma satisfies_guarded_confined_formula : forall state action guard target,
+  satisfies state (guarded_confined_formula action guard target) <->
+  (exists successor,
+      transition state action successor /\
+      satisfies successor guard /\
+      satisfies successor target) /\
+  ~ (exists successor,
+      transition state action successor /\
+      satisfies successor guard /\
+      ~ satisfies successor target).
+Proof.
+  intros state action guard target.
+  unfold guarded_confined_formula, guarded_reaches_formula; simpl; firstorder.
+Qed.
+
+Theorem guarded_valmari_predicates_are_saturated :
+  forall action guard target,
+    @saturated State Action Color transition color
+      (fun state =>
+        satisfies state (guarded_reaches_formula action guard target)) /\
+    @saturated State Action Color transition color
+      (fun state =>
+        satisfies state (guarded_confined_formula action guard target)).
+Proof.
+  intros action guard target; split; apply modal_formula_is_saturated.
+Qed.
+
 Definition certifies (formula : modal_formula) (set : State -> Prop) : Prop :=
   forall state, satisfies state formula <-> set state.
 
@@ -605,11 +661,13 @@ Proof.
 Qed.
 
 (** Valmari's labelled nondeterministic driver refines a state block by two
-    modal predicates for a transition cluster: states whose matching label is
-    confined to the target block, and states with some transition into the
-    target block.  This replay relation records those predicates directly.
-    The preceding invariance theorem is the semantic bridge that makes these
-    implementation-shaped refinements as safe as a plain predecessor split. *)
+    modal predicates for a transition cluster and its current source-label
+    subgroup guard: states confined to the selected guarded target region,
+    and states reaching that region.  The guard is essential: transitions
+    outside the subgroup must not falsify confinement.  This replay relation
+    records those predicates directly.  The preceding invariance theorem is
+    the semantic bridge that makes these implementation-shaped refinements as
+    safe as a plain predecessor split. *)
 Inductive modal_replayed_refinement :
     (State -> State -> Prop) -> Prop :=
 | modal_replay_initial :
