@@ -228,6 +228,15 @@ it has an $`a`$-transition to a state satisfying $`\varphi`$. A split caused
 by a state that can reach a characteristic target block while its peer cannot
 yields an oriented distinguishing formula.
 
+Witness selection is deterministic and formally specified. Differently
+colored states use the left state's color atom. Otherwise, the query scans the
+canonical physical-split trace and selects the first split whose exact child
+membership separates the pair. It returns that split predicate when the left
+state satisfies it and its negation otherwise. This earliest-trace rule avoids
+evaluating a potentially much larger final class characteristic formula.
+`differing_modal_predicate_has_oriented_witness` proves both orientations
+sound.
+
 Witnesses are hash-consed DAGs, not expanded trees and not one copy per state
 pair. Evaluation is bottom-up or uses the explicit pushdown automaton.
 Wißmann, Milius, and Schröder establish quasilinear generic modal-witness

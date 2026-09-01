@@ -511,6 +511,26 @@ Definition distinguishes
     (formula : modal_formula) (left right : State) : Prop :=
   satisfies left formula /\ ~ satisfies right formula.
 
+(** The deterministic witness query scans the canonical physical-split trace
+    and selects its first predicate on which the queried states differ.  The
+    predicate itself or its negation orients that separator toward the left
+    state without expanding the final class characteristic formula. *)
+Lemma differing_modal_predicate_has_oriented_witness :
+  forall predicate left right,
+    (satisfies left predicate \/ ~ satisfies left predicate) ->
+    (satisfies right predicate \/ ~ satisfies right predicate) ->
+    ~ (satisfies left predicate <-> satisfies right predicate) ->
+    exists witness, distinguishes witness left right.
+Proof.
+  intros predicate left right left_decidable right_decidable differs.
+  destruct left_decidable as [left_holds | left_misses];
+    destruct right_decidable as [right_holds | right_misses].
+  - exfalso; apply differs; tauto.
+  - exists predicate; unfold distinguishes; tauto.
+  - exists (FormulaNot predicate); unfold distinguishes; simpl; tauto.
+  - exfalso; apply differs; tauto.
+Qed.
+
 Lemma color_formula_certifies_color_block : forall representative,
   certifies (FormulaColor (color representative))
     (fun state => @same_color State Color color representative state).
