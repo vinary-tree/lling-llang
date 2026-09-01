@@ -328,6 +328,8 @@ impl NativeFrameAccount {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BisimulationCertificate {
     input_digest: [u8; 32],
+    initial_blocks: Vec<usize>,
+    initial_formula_for_block: Vec<usize>,
     trace: Vec<CertifiedSplit>,
     formulas: Vec<FormulaNode>,
     formula_for_block: Vec<usize>,
@@ -478,10 +480,39 @@ impl CertifiedBisimulation {
         if self.blocks[left] == self.blocks[right] {
             return Ok(None);
         }
-        let root = self.certificate.formula_for_block[self.blocks[left]];
+
+        let (root, negated) = if self.certificate.initial_blocks[left]
+            != self.certificate.initial_blocks[right]
+        {
+            (
+                self.certificate.initial_formula_for_block[self.certificate.initial_blocks[left]],
+                false,
+            )
+        } else {
+            let separating_split = self
+                .certificate
+                .trace
+                .iter()
+                .find_map(|split| {
+                    let left_in_new = split.new_members.contains(&left);
+                    let right_in_new = split.new_members.contains(&right);
+                    (left_in_new != right_in_new).then_some((split, left_in_new))
+                })
+                .ok_or(BisimulationError::InternalInvariant {
+                    context: "separated pair has no separating certificate split",
+                })?;
+            let (split, left_in_new) = separating_split;
+            let left_satisfies = if left_in_new {
+                split.new_is_marked
+            } else {
+                !split.new_is_marked
+            };
+            (split.predicate_formula, !left_satisfies)
+        };
         Ok(Some(DistinguishingWitness {
             formulas: &self.certificate.formulas,
             root,
+            negated,
             input_digest: self.certificate.input_digest,
         }))
     }
@@ -497,6 +528,7 @@ impl CertifiedBisimulation {
 pub struct DistinguishingWitness<'a> {
     formulas: &'a [FormulaNode],
     root: usize,
+    negated: bool,
     input_digest: [u8; 32],
 }
 
@@ -518,7 +550,8 @@ impl DistinguishingWitness<'_> {
                 states: validated.state_count,
             });
         }
-        evaluate_formula(self.formulas, self.root, &validated, colors, state)
+        let holds = evaluate_formula(self.formulas, self.root, &validated, colors, state)?;
+        Ok(if self.negated { !holds } else { holds })
     }
 }
 
@@ -547,6 +580,11 @@ fn compute_validated(
         let representative = state_partition.members(block)[0];
         formula_of_block.push(formula_builder.color(colors[representative])?);
     }
+    let mut initial_blocks = reserved_vec(state_count, "initial certificate partition")?;
+    initial_blocks.extend_from_slice(state_partition.block_map());
+    let mut initial_formula_for_block =
+        reserved_vec(initial_state_blocks, "initial certificate formulas")?;
+    initial_formula_for_block.extend_from_slice(&formula_of_block);
 
     let mut state_charges = filled_vec(state_count, 0usize, "state charge counters")?;
     let mut transition_charges =
@@ -732,6 +770,8 @@ fn compute_validated(
     let formulas = formula_builder.nodes;
     let certificate = BisimulationCertificate {
         input_digest: validated.input_digest,
+        initial_blocks,
+        initial_formula_for_block,
         trace,
         formulas,
         formula_for_block,
@@ -1039,15 +1079,8 @@ fn evaluate_formula(
         .map_err(|_| BisimulationError::AllocationFailed {
             context: "witness PDA memo table",
         })?;
-    let stack_capacity = formulas
-        .len()
-        .checked_mul(2)
-        .and_then(|frames| frames.checked_add(1))
-        .ok_or(BisimulationError::ArithmeticOverflow {
-            context: "witness PDA stack capacity",
-        })?;
-    let mut stack = reserved_vec(stack_capacity, "witness PDA stack")?;
-    stack.push(EvalFrame::Enter { node: root, state });
+    let mut stack = reserved_vec(formulas.len().min(1024).max(1), "witness PDA stack")?;
+    push_eval_frame(&mut stack, EvalFrame::Enter { node: root, state })?;
 
     while let Some(frame) = stack.pop() {
         match frame {
@@ -1064,30 +1097,36 @@ fn evaluate_formula(
                     }
                     FormulaNode::Not(child) => {
                         validate_child(node, child)?;
-                        stack.push(EvalFrame::ResolveNot { node, state, child });
-                        stack.push(EvalFrame::Enter { node: child, state });
+                        push_eval_frame(&mut stack, EvalFrame::ResolveNot { node, state, child })?;
+                        push_eval_frame(&mut stack, EvalFrame::Enter { node: child, state })?;
                     }
                     FormulaNode::And(left, right) => {
                         validate_child(node, left)?;
                         validate_child(node, right)?;
-                        stack.push(EvalFrame::ResolveAnd {
-                            node,
-                            state,
-                            left,
-                            right,
-                        });
-                        stack.push(EvalFrame::Enter { node: right, state });
-                        stack.push(EvalFrame::Enter { node: left, state });
+                        push_eval_frame(
+                            &mut stack,
+                            EvalFrame::ResolveAnd {
+                                node,
+                                state,
+                                left,
+                                right,
+                            },
+                        )?;
+                        push_eval_frame(&mut stack, EvalFrame::Enter { node: right, state })?;
+                        push_eval_frame(&mut stack, EvalFrame::Enter { node: left, state })?;
                     }
                     FormulaNode::Diamond(action, child) => {
                         validate_child(node, child)?;
-                        stack.push(EvalFrame::ScanDiamond {
-                            node,
-                            state,
-                            action,
-                            child,
-                            cursor: 0,
-                        });
+                        push_eval_frame(
+                            &mut stack,
+                            EvalFrame::ScanDiamond {
+                                node,
+                                state,
+                                action,
+                                child,
+                                cursor: 0,
+                            },
+                        )?;
                     }
                 }
             }
@@ -1137,17 +1176,23 @@ fn evaluate_formula(
                             break;
                         }
                     } else {
-                        stack.push(EvalFrame::ScanDiamond {
-                            node,
-                            state,
-                            action,
-                            child,
-                            cursor: transition_cursor,
-                        });
-                        stack.push(EvalFrame::Enter {
-                            node: child,
-                            state: edge.target,
-                        });
+                        push_eval_frame(
+                            &mut stack,
+                            EvalFrame::ScanDiamond {
+                                node,
+                                state,
+                                action,
+                                child,
+                                cursor: transition_cursor,
+                            },
+                        )?;
+                        push_eval_frame(
+                            &mut stack,
+                            EvalFrame::Enter {
+                                node: child,
+                                state: edge.target,
+                            },
+                        )?;
                         suspended = true;
                         break;
                     }
@@ -1162,6 +1207,16 @@ fn evaluate_formula(
         .get(&(root, state))
         .copied()
         .ok_or(BisimulationError::InvalidWitness { node: root })
+}
+
+fn push_eval_frame(stack: &mut Vec<EvalFrame>, frame: EvalFrame) -> Result<(), BisimulationError> {
+    stack
+        .try_reserve(1)
+        .map_err(|_| BisimulationError::AllocationFailed {
+            context: "witness PDA stack frame",
+        })?;
+    stack.push(frame);
+    Ok(())
 }
 
 fn insert_formula_value(

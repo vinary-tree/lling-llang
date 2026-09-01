@@ -25,7 +25,7 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
 
     #[test]
-    fn every_certificate_layer_and_characteristic_formula_is_exact(
+    fn every_certificate_layer_and_oriented_witness_is_exact(
         num_states in 1_usize..13,
         raw_edges in proptest::collection::vec((0_usize..12, any::<u32>(), 0_usize..12), 0..96),
         raw_colors in proptest::collection::vec(0_usize..4, 1..13),
@@ -41,16 +41,13 @@ proptest! {
         );
 
         for left in 0..num_states {
-            if let Some(right) = (0..num_states)
-                .find(|&right| result.blocks()[right] != result.blocks()[left])
-            {
-                let witness = result.try_witness(left, right).unwrap().unwrap();
-                for state in 0..num_states {
-                    prop_assert_eq!(
-                        witness.evaluate(&lts, &colors, state).unwrap(),
-                        result.blocks()[state] == result.blocks()[left],
-                    );
+            for right in 0..num_states {
+                if result.blocks()[right] == result.blocks()[left] {
+                    continue;
                 }
+                let witness = result.try_witness(left, right).unwrap().unwrap();
+                prop_assert!(witness.evaluate(&lts, &colors, left).unwrap());
+                prop_assert!(!witness.evaluate(&lts, &colors, right).unwrap());
             }
         }
 

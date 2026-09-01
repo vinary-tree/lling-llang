@@ -41,6 +41,16 @@ pub(super) fn replay_certificate(
         let representative = state_partition.members(block)[0];
         formula_of_block.push(formula_builder.color(colors[representative])?);
     }
+    if state_partition.block_map() != certificate.initial_blocks {
+        return Err(BisimulationError::InvalidCertificate {
+            context: "initial color partition differs from deterministic replay",
+        });
+    }
+    if formula_of_block != certificate.initial_formula_for_block {
+        return Err(BisimulationError::InvalidCertificate {
+            context: "initial color formulas differ from deterministic replay",
+        });
+    }
 
     let mut source_counts = filled_vec(state_count, 0usize, "replayed source counters")?;
     let mut source_new_group =

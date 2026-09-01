@@ -284,6 +284,29 @@ whole-partition rescans and one native frame. Counters must be connected to
 actual loop events and allocations; constants initialized to desired values
 are not evidence.
 
+### Preregistered benchmark protocol
+
+The paired baseline is the replaced deterministic signature-rescan routine.
+It is retained only inside the benchmark target; it is not a second production
+implementation. No benchmark compares Valmari against another selected
+partition-refinement algorithm.
+
+| Shape | Construction | Paired state counts | Certified-only scale counts |
+|---|---|---:|---:|
+| deep chain | one transition from each state to its successor | 32, 64, 128, 256 | 4,096 and 32,768 |
+| wide fan-out | one root reaches every other state | 128, 1,024, 8,192 | 65,536 |
+| sparse carrier | one transition every 17 states with three colors | 1,024, 8,192, 65,536 | 131,072 |
+| dense multi-label | every source reaches every target under four actions | 16, 32, 64 | 128 and 256 |
+
+The paired measurements report construction-to-certified-result latency and
+the observed crossover rather than requiring the richer certified API to win
+at every small size. Certified-only measurements establish scaling where the
+legacy chain would intentionally perform quadratic repeated rescans. The
+acceptance record includes Criterion samples, actual work/allocation counters,
+`/usr/bin/time -v` peak resident set size (RSS), and `heaptrack --record-only`
+plus `heaptrack_print` output. Every executable remains inside the 4 GiB,
+zero-swap systemd scope and uses repository-backed scratch storage.
+
 ## Parallelism and concurrency
 
 Parallel execution is useful only when it preserves work efficiency,
@@ -352,11 +375,13 @@ normative contract
 | `vco-e4-strong-bisimulation.smt2` | Validation, refinement, witness, canonicality, work, heap, and stack boundaries | Exact 15-result transcript |
 | executable oracle | Independent greatest fixed point versus partition refinement and stack-safe characteristic formulas | All 5,124 complete cases pass |
 | mutation campaign | Endpoint, color, transfer, termination, duplicate, modal, certificate, and canonical-ID defects | All 10 fail for their named invariant |
-| invariant ledger | Every Rocq theorem/lemma, configured TLC check, and named SMT control | 93 rows map to 13 Rust properties |
-| required-red package | Future validation, equivalence, evidence, resource, empty-input, and deep-stack behavior | Cargo status 101 solely because `CertifiedBisimulation` is absent |
+| invariant ledger | Every Rocq theorem/lemma, configured TLC check, and named SMT control | 97 rows map to 13 Rust properties |
+| implementation property package | Validation, equivalence, evidence, resource, empty-input, and deep-stack behavior | All 13 properties pass against `CertifiedBisimulation` |
 
-The required-red package is isolated under `proofs/required_red`; it does not
-make ordinary repository tests intentionally fail.
+The historical required-red package remains isolated under
+`proofs/required_red`; after production implementation, the same package is a
+required-green acceptance suite and does not make ordinary repository tests
+intentionally fail.
 
 ## Security and failure behavior
 
