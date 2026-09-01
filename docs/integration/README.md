@@ -27,7 +27,7 @@ Patterns for embedding `lling-llang` into your own applications and pipelines.
 
 ### `liblevenshtein/` — fuzzy string matching
 
-[liblevenshtein-rust](https://github.com/) supplies the edit-distance machinery
+[liblevenshtein-rust](https://github.com/vinary-tree/liblevenshtein-rust) supplies the edit-distance machinery
 behind the spelling-correction, phonetic-matching, and code-completion layers.
 
 | Doc | What it covers |
@@ -67,7 +67,7 @@ component doc states its current status (Planned / Stub).
 
 ## Reading order
 
-```text
+```art
 external/library-usage  ─▶  external/{speech-nlp, text-correction}
                                      │
               liblevenshtein/overview ─▶ dictionaries ─▶ transducers
@@ -94,7 +94,7 @@ Some integration docs link **out of this repository** into sibling F1R3FLY.io
 repositories that are expected to be checked out **beside** `lling-llang` in the
 same parent directory:
 
-```text
+```art
 f1r3fly.io/
 ├── lling-llang/        ← this repository
 ├── libgrammstein/      ← phonetic embeddings, spelling-to-sound rules
@@ -106,7 +106,7 @@ per directory level **plus one more** to leave the repository root, then descend
 into the sibling repo — for example, from a two-level doc like
 `docs/integration/libgrammstein/phonetic-rescore.md`:
 
-```text
+```art
 ../../../libgrammstein/docs/...
 └┬─┘└┬─┘└┬─┘
  │   │   └─ leave lling-llang/ → f1r3fly.io/
@@ -142,7 +142,7 @@ the family data flow, libdictenstein produces dictionaries, duallity adapts
 them into Levenshtein WFST resources, and **lling-llang captures and
 composes** those resources (and exports its own):
 
-```text
+```art
 libdictenstein ──▶ duallity ──▶ lling-llang ──▶ downstream consumers
   dictionary        WFST          capture ∘ compose ∘ export
   resources         resources     (vt.scalar-wfst.1, both directions)
@@ -166,15 +166,16 @@ Family canon (normative, hosted with the interop crate):
 
 | Document | What it defines |
 |---|---|
-| [ABI reference](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-reference.md) | The annotated base protocol: `VtStatus`, `VtResource`, retain/release, `query_interface`, both interface vtables, the refcount and paging laws, the seven weight domains. |
-| [ABI evolution](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/abi-evolution.md) | The four version counters, additive-vs-breaking rules, worked evolution examples, the compatibility matrix. |
-| [Security model](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/vinary-tree-interop/docs/security-model.md) | The family trust zones, the panic/exception containment law, parallelism-by-claim, exhaustion vectors, non-goals. |
+| [ABI reference](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md) | The annotated base protocol: `VtStatus`, `VtResource`, retain/release, `query_interface`, both interface vtables, the refcount and paging laws, the seven weight domains. |
+| [ABI evolution](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-evolution.md) | The four version counters, additive-vs-breaking rules, worked evolution examples, the compatibility matrix. |
+| [Security model](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/security-model.md) | The family trust zones, the panic/exception containment law, parallelism-by-claim, exhaustion vectors, non-goals. |
 
 Data-flow neighbors:
 
 | Repository | Role relative to lling-llang |
 |---|---|
-| [liblevenshtein-rust](https://github.com/vinary-tree/liblevenshtein-rust) | Hosts the `vinary-tree-interop` crate (the shared ABI types) and the family [language-bindings overview](https://github.com/vinary-tree/liblevenshtein-rust/blob/master/docs/language-bindings.md); consumes dictionary resources on its own surface. |
+| [vinary-tree-interop](https://github.com/vinary-tree/vinary-tree-interop) | Owns the shared ABI types, canonical protocol documentation, headers, package metadata, and language-neutral conformance surfaces. |
+| [liblevenshtein-rust](https://github.com/vinary-tree/liblevenshtein-rust) | Supplies edit-distance automata and consumes dictionary resources on its own surface. |
 | [libdictenstein](https://github.com/vinary-tree/libdictenstein) | Produces the dictionary resources at the head of the pipeline. |
 | [duallity](https://github.com/vinary-tree/duallity) | Adapts dictionaries into Levenshtein WFST resources — the primary upstream producer of the scalar-WFST resources lling-llang composes. |
 
@@ -187,6 +188,6 @@ sections linking the central [bibliography](../BIBLIOGRAPHY.md) by anchor — se
 [`liblevenshtein/overview.md`](liblevenshtein/overview.md#references) and
 [`libgrammstein/phonetic-rescore.md`](libgrammstein/phonetic-rescore.md#references).
 The foundational citations behind these integrations are
-[Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) (WFSTs in speech recognition),
-[Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) (weighted-automata algorithms), and
-[Allauzen 2007](../BIBLIOGRAPHY.md#ref-allauzen2007) (the OpenFst library design).
+[Mohri 2002](https://doi.org/10.1006/csla.2001.0184) (WFSTs in speech recognition),
+[Mohri 2009](https://doi.org/10.1007/978-3-642-01492-5_6) (weighted-automata algorithms), and
+[Allauzen 2007](https://doi.org/10.1007/978-3-540-76336-9_3) (the OpenFst library design).

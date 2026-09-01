@@ -21,8 +21,8 @@
 //! subsequent steps.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
-use std::fmt::Debug;
-use std::hash::Hash;
+use std::fmt::{self, Debug};
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use super::algebra_tower::{HeytingAlgebra, RejectSafeAlgebra, Sat3};
@@ -143,7 +143,6 @@ impl ActionPattern {
 }
 
 /// The domain a quantifier ranges over.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum QDomain {
     /// An explicit set of values.
     Values(Vec<String>),
@@ -157,7 +156,6 @@ pub enum QDomain {
 
 /// A behavioral predicate. (Relational fragment; modal/temporal arms added
 /// later.)
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum BehavioralFormula {
     /// Always true.
     Top,
@@ -197,65 +195,569 @@ pub enum BehavioralFormula {
     Not(Box<BehavioralFormula>),
 }
 
-impl BehavioralFormula {
-    /// Collect the free variables (not bound by an enclosing quantifier).
-    fn free_vars(&self, bound: &mut BTreeSet<String>, acc: &mut BTreeSet<String>) {
-        match self {
-            BehavioralFormula::Top | BehavioralFormula::Bot => {}
-            BehavioralFormula::Relation { args, .. } => {
-                for a in args {
-                    if let Arg::Var(v) = a {
-                        if !bound.contains(v) {
-                            acc.insert(v.clone());
+impl Clone for QDomain {
+    fn clone(&self) -> Self {
+        let mut current = self;
+        let mut limits = Vec::new();
+        while let QDomain::Bounded(inner, limit) = current {
+            limits.push(*limit);
+            current = inner;
+        }
+        let mut cloned = match current {
+            QDomain::Values(values) => QDomain::Values(values.clone()),
+            QDomain::RelationColumn(relation, column) => {
+                QDomain::RelationColumn(relation.clone(), *column)
+            }
+            QDomain::Active => QDomain::Active,
+            QDomain::Bounded(_, _) => unreachable!("bounded-domain spine reaches a base"),
+        };
+        while let Some(limit) = limits.pop() {
+            cloned = QDomain::Bounded(Box::new(cloned), limit);
+        }
+        cloned
+    }
+}
+
+impl PartialEq for QDomain {
+    fn eq(&self, other: &Self) -> bool {
+        let mut left = self;
+        let mut right = other;
+        loop {
+            match (left, right) {
+                (QDomain::Values(left), QDomain::Values(right)) => return left == right,
+                (
+                    QDomain::RelationColumn(left_relation, left_column),
+                    QDomain::RelationColumn(right_relation, right_column),
+                ) => return left_relation == right_relation && left_column == right_column,
+                (QDomain::Active, QDomain::Active) => return true,
+                (
+                    QDomain::Bounded(left_inner, left_limit),
+                    QDomain::Bounded(right_inner, right_limit),
+                ) if left_limit == right_limit => {
+                    left = left_inner;
+                    right = right_inner;
+                }
+                _ => return false,
+            }
+        }
+    }
+}
+
+impl Eq for QDomain {}
+
+impl Hash for QDomain {
+    fn hash<S: Hasher>(&self, state: &mut S) {
+        enum Task<'a> {
+            Domain(&'a QDomain),
+            Limit(usize),
+        }
+        let mut tasks = vec![Task::Domain(self)];
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Limit(limit) => limit.hash(state),
+                Task::Domain(domain) => {
+                    std::mem::discriminant(domain).hash(state);
+                    match domain {
+                        QDomain::Values(values) => values.hash(state),
+                        QDomain::RelationColumn(relation, column) => {
+                            relation.hash(state);
+                            column.hash(state);
+                        }
+                        QDomain::Active => {}
+                        QDomain::Bounded(inner, limit) => {
+                            tasks.push(Task::Limit(*limit));
+                            tasks.push(Task::Domain(inner));
                         }
                     }
                 }
             }
-            BehavioralFormula::Forall { var, body, .. }
-            | BehavioralFormula::Exists { var, body, .. } => {
-                let fresh = bound.insert(var.clone());
-                body.free_vars(bound, acc);
-                if fresh {
-                    bound.remove(var);
+        }
+    }
+}
+
+impl fmt::Debug for QDomain {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        enum Event<'a> {
+            Domain(&'a QDomain),
+            Text(&'static str),
+            Limit(usize),
+        }
+        let mut events = vec![Event::Domain(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Text(text) => formatter.write_str(text)?,
+                Event::Limit(limit) => write!(formatter, "{limit:?}")?,
+                Event::Domain(domain) => match domain {
+                    QDomain::Values(values) => write!(formatter, "Values({values:?})")?,
+                    QDomain::RelationColumn(relation, column) => {
+                        write!(formatter, "RelationColumn({relation:?}, {column:?})")?;
+                    }
+                    QDomain::Active => formatter.write_str("Active")?,
+                    QDomain::Bounded(inner, limit) => {
+                        formatter.write_str("Bounded(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Limit(*limit));
+                        events.push(Event::Text(", "));
+                        events.push(Event::Domain(inner));
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Drop for QDomain {
+    fn drop(&mut self) {
+        let mut pending = Vec::new();
+        if let QDomain::Bounded(inner, _) = self {
+            pending.push(std::mem::replace(&mut **inner, QDomain::Active));
+        }
+        while let Some(mut domain) = pending.pop() {
+            if let QDomain::Bounded(inner, _) = &mut domain {
+                pending.push(std::mem::replace(&mut **inner, QDomain::Active));
+            }
+        }
+    }
+}
+
+impl Clone for BehavioralFormula {
+    fn clone(&self) -> Self {
+        enum Task<'a> {
+            Formula(&'a BehavioralFormula),
+            Forall(&'a str, &'a QDomain),
+            Exists(&'a str, &'a QDomain),
+            Diamond(&'a ActionPattern),
+            BoxAll(&'a ActionPattern),
+            Mu(&'a str),
+            Nu(&'a str),
+            And,
+            Or,
+            Not,
+        }
+        let mut tasks = vec![Task::Formula(self)];
+        let mut values = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Formula(formula) => match formula {
+                    BehavioralFormula::Top => values.push(BehavioralFormula::Top),
+                    BehavioralFormula::Bot => values.push(BehavioralFormula::Bot),
+                    BehavioralFormula::Relation { name, args } => {
+                        values.push(BehavioralFormula::Relation {
+                            name: name.clone(),
+                            args: args.clone(),
+                        });
+                    }
+                    BehavioralFormula::Forall { var, domain, body } => {
+                        tasks.push(Task::Forall(var, domain));
+                        tasks.push(Task::Formula(body));
+                    }
+                    BehavioralFormula::Exists { var, domain, body } => {
+                        tasks.push(Task::Exists(var, domain));
+                        tasks.push(Task::Formula(body));
+                    }
+                    BehavioralFormula::Atom(label) => {
+                        values.push(BehavioralFormula::Atom(label.clone()));
+                    }
+                    BehavioralFormula::Diamond(action, body) => {
+                        tasks.push(Task::Diamond(action));
+                        tasks.push(Task::Formula(body));
+                    }
+                    BehavioralFormula::BoxAll(action, body) => {
+                        tasks.push(Task::BoxAll(action));
+                        tasks.push(Task::Formula(body));
+                    }
+                    BehavioralFormula::Mu(var, body) => {
+                        tasks.push(Task::Mu(var));
+                        tasks.push(Task::Formula(body));
+                    }
+                    BehavioralFormula::Nu(var, body) => {
+                        tasks.push(Task::Nu(var));
+                        tasks.push(Task::Formula(body));
+                    }
+                    BehavioralFormula::FixVar(var) => {
+                        values.push(BehavioralFormula::FixVar(var.clone()));
+                    }
+                    BehavioralFormula::And(left, right) => {
+                        tasks.push(Task::And);
+                        tasks.push(Task::Formula(right));
+                        tasks.push(Task::Formula(left));
+                    }
+                    BehavioralFormula::Or(left, right) => {
+                        tasks.push(Task::Or);
+                        tasks.push(Task::Formula(right));
+                        tasks.push(Task::Formula(left));
+                    }
+                    BehavioralFormula::Not(inner) => {
+                        tasks.push(Task::Not);
+                        tasks.push(Task::Formula(inner));
+                    }
+                },
+                Task::Forall(var, domain) | Task::Exists(var, domain) => {
+                    let body = values.pop().expect("behavioral quantifier body is cloned");
+                    values.push(if matches!(task, Task::Forall(_, _)) {
+                        BehavioralFormula::Forall {
+                            var: var.to_string(),
+                            domain: domain.clone(),
+                            body: Box::new(body),
+                        }
+                    } else {
+                        BehavioralFormula::Exists {
+                            var: var.to_string(),
+                            domain: domain.clone(),
+                            body: Box::new(body),
+                        }
+                    });
+                }
+                Task::Diamond(action) | Task::BoxAll(action) => {
+                    let body = values.pop().expect("behavioral modal body is cloned");
+                    values.push(if matches!(task, Task::Diamond(_)) {
+                        BehavioralFormula::Diamond(action.clone(), Box::new(body))
+                    } else {
+                        BehavioralFormula::BoxAll(action.clone(), Box::new(body))
+                    });
+                }
+                Task::Mu(var) | Task::Nu(var) => {
+                    let body = values.pop().expect("behavioral fixpoint body is cloned");
+                    values.push(if matches!(task, Task::Mu(_)) {
+                        BehavioralFormula::Mu(var.to_string(), Box::new(body))
+                    } else {
+                        BehavioralFormula::Nu(var.to_string(), Box::new(body))
+                    });
+                }
+                Task::And | Task::Or => {
+                    let right = values.pop().expect("right behavioral clone is present");
+                    let left = values.pop().expect("left behavioral clone is present");
+                    values.push(if matches!(task, Task::And) {
+                        BehavioralFormula::And(Box::new(left), Box::new(right))
+                    } else {
+                        BehavioralFormula::Or(Box::new(left), Box::new(right))
+                    });
+                }
+                Task::Not => {
+                    let inner = values.pop().expect("negated behavioral clone is present");
+                    values.push(BehavioralFormula::Not(Box::new(inner)));
                 }
             }
-            BehavioralFormula::And(a, b) | BehavioralFormula::Or(a, b) => {
-                a.free_vars(bound, acc);
-                b.free_vars(bound, acc);
+        }
+        values
+            .pop()
+            .expect("the root behavioral formula produces one clone")
+    }
+}
+
+impl PartialEq for BehavioralFormula {
+    fn eq(&self, other: &Self) -> bool {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (BehavioralFormula::Top, BehavioralFormula::Top)
+                | (BehavioralFormula::Bot, BehavioralFormula::Bot) => {}
+                (
+                    BehavioralFormula::Relation {
+                        name: left_name,
+                        args: left_args,
+                    },
+                    BehavioralFormula::Relation {
+                        name: right_name,
+                        args: right_args,
+                    },
+                ) if left_name == right_name && left_args == right_args => {}
+                (
+                    BehavioralFormula::Forall {
+                        var: left_var,
+                        domain: left_domain,
+                        body: left_body,
+                    },
+                    BehavioralFormula::Forall {
+                        var: right_var,
+                        domain: right_domain,
+                        body: right_body,
+                    },
+                )
+                | (
+                    BehavioralFormula::Exists {
+                        var: left_var,
+                        domain: left_domain,
+                        body: left_body,
+                    },
+                    BehavioralFormula::Exists {
+                        var: right_var,
+                        domain: right_domain,
+                        body: right_body,
+                    },
+                ) if left_var == right_var && left_domain == right_domain => {
+                    pending.push((left_body, right_body));
+                }
+                (BehavioralFormula::Atom(left), BehavioralFormula::Atom(right))
+                | (BehavioralFormula::FixVar(left), BehavioralFormula::FixVar(right))
+                    if left == right => {}
+                (
+                    BehavioralFormula::Diamond(left_action, left_body),
+                    BehavioralFormula::Diamond(right_action, right_body),
+                )
+                | (
+                    BehavioralFormula::BoxAll(left_action, left_body),
+                    BehavioralFormula::BoxAll(right_action, right_body),
+                ) if left_action == right_action => pending.push((left_body, right_body)),
+                (
+                    BehavioralFormula::Mu(left_var, left_body),
+                    BehavioralFormula::Mu(right_var, right_body),
+                )
+                | (
+                    BehavioralFormula::Nu(left_var, left_body),
+                    BehavioralFormula::Nu(right_var, right_body),
+                ) if left_var == right_var => pending.push((left_body, right_body)),
+                (
+                    BehavioralFormula::And(left_left, left_right),
+                    BehavioralFormula::And(right_left, right_right),
+                )
+                | (
+                    BehavioralFormula::Or(left_left, left_right),
+                    BehavioralFormula::Or(right_left, right_right),
+                ) => {
+                    pending.push((left_right, right_right));
+                    pending.push((left_left, right_left));
+                }
+                (BehavioralFormula::Not(left), BehavioralFormula::Not(right)) => {
+                    pending.push((left, right));
+                }
+                _ => return false,
             }
-            BehavioralFormula::Not(x) => x.free_vars(bound, acc),
-            // Modal arms: fixpoint variables are a separate namespace (state
-            // sets), not relational vars; recurse into bodies for relational
-            // free vars; Atom/FixVar contribute no relational vars.
-            BehavioralFormula::Atom(_) | BehavioralFormula::FixVar(_) => {}
-            BehavioralFormula::Diamond(_, body)
-            | BehavioralFormula::BoxAll(_, body)
-            | BehavioralFormula::Mu(_, body)
-            | BehavioralFormula::Nu(_, body) => body.free_vars(bound, acc),
+        }
+        true
+    }
+}
+
+impl Eq for BehavioralFormula {}
+
+impl Hash for BehavioralFormula {
+    fn hash<S: Hasher>(&self, state: &mut S) {
+        let mut pending = vec![self];
+        while let Some(formula) = pending.pop() {
+            std::mem::discriminant(formula).hash(state);
+            match formula {
+                BehavioralFormula::Top | BehavioralFormula::Bot => {}
+                BehavioralFormula::Relation { name, args } => {
+                    name.hash(state);
+                    args.hash(state);
+                }
+                BehavioralFormula::Forall { var, domain, body }
+                | BehavioralFormula::Exists { var, domain, body } => {
+                    var.hash(state);
+                    domain.hash(state);
+                    pending.push(body);
+                }
+                BehavioralFormula::Atom(label) | BehavioralFormula::FixVar(label) => {
+                    label.hash(state);
+                }
+                BehavioralFormula::Diamond(action, body)
+                | BehavioralFormula::BoxAll(action, body) => {
+                    action.hash(state);
+                    pending.push(body);
+                }
+                BehavioralFormula::Mu(var, body) | BehavioralFormula::Nu(var, body) => {
+                    var.hash(state);
+                    pending.push(body);
+                }
+                BehavioralFormula::And(left, right) | BehavioralFormula::Or(left, right) => {
+                    pending.push(right);
+                    pending.push(left);
+                }
+                BehavioralFormula::Not(inner) => pending.push(inner),
+            }
+        }
+    }
+}
+
+impl fmt::Debug for BehavioralFormula {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        enum Event<'a> {
+            Formula(&'a BehavioralFormula),
+            Text(&'static str),
+        }
+        let mut events = vec![Event::Formula(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Text(text) => formatter.write_str(text)?,
+                Event::Formula(formula) => match formula {
+                    BehavioralFormula::Top => formatter.write_str("Top")?,
+                    BehavioralFormula::Bot => formatter.write_str("Bot")?,
+                    BehavioralFormula::Relation { name, args } => {
+                        write!(formatter, "Relation {{ name: {name:?}, args: {args:?} }}")?;
+                    }
+                    BehavioralFormula::Forall { var, domain, body }
+                    | BehavioralFormula::Exists { var, domain, body } => {
+                        write!(
+                            formatter,
+                            "{} {{ var: {var:?}, domain: {domain:?}, body: ",
+                            if matches!(formula, BehavioralFormula::Forall { .. }) {
+                                "Forall"
+                            } else {
+                                "Exists"
+                            }
+                        )?;
+                        events.push(Event::Text(" }"));
+                        events.push(Event::Formula(body));
+                    }
+                    BehavioralFormula::Atom(label) => write!(formatter, "Atom({label:?})")?,
+                    BehavioralFormula::FixVar(var) => write!(formatter, "FixVar({var:?})")?,
+                    BehavioralFormula::Diamond(action, body)
+                    | BehavioralFormula::BoxAll(action, body) => {
+                        write!(
+                            formatter,
+                            "{}({action:?}, ",
+                            if matches!(formula, BehavioralFormula::Diamond(..)) {
+                                "Diamond"
+                            } else {
+                                "BoxAll"
+                            }
+                        )?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Formula(body));
+                    }
+                    BehavioralFormula::Mu(var, body) | BehavioralFormula::Nu(var, body) => {
+                        write!(
+                            formatter,
+                            "{}({var:?}, ",
+                            if matches!(formula, BehavioralFormula::Mu(..)) {
+                                "Mu"
+                            } else {
+                                "Nu"
+                            }
+                        )?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Formula(body));
+                    }
+                    BehavioralFormula::And(left, right) | BehavioralFormula::Or(left, right) => {
+                        formatter.write_str(if matches!(formula, BehavioralFormula::And(..)) {
+                            "And("
+                        } else {
+                            "Or("
+                        })?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Formula(right));
+                        events.push(Event::Text(", "));
+                        events.push(Event::Formula(left));
+                    }
+                    BehavioralFormula::Not(inner) => {
+                        formatter.write_str("Not(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Formula(inner));
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Drop for BehavioralFormula {
+    fn drop(&mut self) {
+        fn drain(formula: &mut BehavioralFormula, pending: &mut Vec<BehavioralFormula>) {
+            match formula {
+                BehavioralFormula::Forall { body, .. }
+                | BehavioralFormula::Exists { body, .. }
+                | BehavioralFormula::Diamond(_, body)
+                | BehavioralFormula::BoxAll(_, body)
+                | BehavioralFormula::Mu(_, body)
+                | BehavioralFormula::Nu(_, body)
+                | BehavioralFormula::Not(body) => {
+                    pending.push(std::mem::replace(&mut **body, BehavioralFormula::Top));
+                }
+                BehavioralFormula::And(left, right) | BehavioralFormula::Or(left, right) => {
+                    pending.push(std::mem::replace(&mut **right, BehavioralFormula::Top));
+                    pending.push(std::mem::replace(&mut **left, BehavioralFormula::Top));
+                }
+                BehavioralFormula::Top
+                | BehavioralFormula::Bot
+                | BehavioralFormula::Relation { .. }
+                | BehavioralFormula::Atom(_)
+                | BehavioralFormula::FixVar(_) => {}
+            }
+        }
+
+        let mut pending = Vec::new();
+        drain(self, &mut pending);
+        while let Some(mut formula) = pending.pop() {
+            drain(&mut formula, &mut pending);
+        }
+    }
+}
+
+impl BehavioralFormula {
+    /// Collect the free variables (not bound by an enclosing quantifier).
+    fn free_vars(&self, bound: &mut BTreeSet<String>, acc: &mut BTreeSet<String>) {
+        enum Task<'a> {
+            Visit(&'a BehavioralFormula),
+            ExitBinding(&'a str, bool),
+        }
+        let mut tasks = vec![Task::Visit(self)];
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::ExitBinding(var, was_present) => {
+                    if !was_present {
+                        bound.remove(var);
+                    }
+                }
+                Task::Visit(formula) => match formula {
+                    BehavioralFormula::Top | BehavioralFormula::Bot => {}
+                    BehavioralFormula::Relation { args, .. } => {
+                        for arg in args {
+                            if let Arg::Var(var) = arg {
+                                if !bound.contains(var) {
+                                    acc.insert(var.clone());
+                                }
+                            }
+                        }
+                    }
+                    BehavioralFormula::Forall { var, body, .. }
+                    | BehavioralFormula::Exists { var, body, .. } => {
+                        let was_present = !bound.insert(var.clone());
+                        tasks.push(Task::ExitBinding(var, was_present));
+                        tasks.push(Task::Visit(body));
+                    }
+                    BehavioralFormula::And(left, right) | BehavioralFormula::Or(left, right) => {
+                        tasks.push(Task::Visit(right));
+                        tasks.push(Task::Visit(left));
+                    }
+                    BehavioralFormula::Not(inner)
+                    | BehavioralFormula::Diamond(_, inner)
+                    | BehavioralFormula::BoxAll(_, inner)
+                    | BehavioralFormula::Mu(_, inner)
+                    | BehavioralFormula::Nu(_, inner) => tasks.push(Task::Visit(inner)),
+                    // Fixpoint variables are in a separate state-set namespace.
+                    BehavioralFormula::Atom(_) | BehavioralFormula::FixVar(_) => {}
+                },
+            }
         }
     }
 
     /// Whether the formula uses any modal/temporal operator (and therefore needs
     /// the LTS, not just the fact base).
     fn has_modal(&self) -> bool {
-        match self {
-            BehavioralFormula::Atom(_)
-            | BehavioralFormula::Diamond(..)
-            | BehavioralFormula::BoxAll(..)
-            | BehavioralFormula::Mu(..)
-            | BehavioralFormula::Nu(..)
-            | BehavioralFormula::FixVar(_) => true,
-            BehavioralFormula::And(a, b) | BehavioralFormula::Or(a, b) => {
-                a.has_modal() || b.has_modal()
+        let mut pending = vec![self];
+        while let Some(formula) = pending.pop() {
+            match formula {
+                BehavioralFormula::Atom(_)
+                | BehavioralFormula::Diamond(..)
+                | BehavioralFormula::BoxAll(..)
+                | BehavioralFormula::Mu(..)
+                | BehavioralFormula::Nu(..)
+                | BehavioralFormula::FixVar(_) => return true,
+                BehavioralFormula::And(left, right) | BehavioralFormula::Or(left, right) => {
+                    pending.push(right);
+                    pending.push(left);
+                }
+                BehavioralFormula::Not(inner)
+                | BehavioralFormula::Forall { body: inner, .. }
+                | BehavioralFormula::Exists { body: inner, .. } => pending.push(inner),
+                BehavioralFormula::Top
+                | BehavioralFormula::Bot
+                | BehavioralFormula::Relation { .. } => {}
             }
-            BehavioralFormula::Not(x) => x.has_modal(),
-            BehavioralFormula::Forall { body, .. } | BehavioralFormula::Exists { body, .. } => {
-                body.has_modal()
-            }
-            BehavioralFormula::Top
-            | BehavioralFormula::Bot
-            | BehavioralFormula::Relation { .. } => false,
         }
+        false
     }
 }
 
@@ -327,7 +829,13 @@ impl<H: HostTerm> BehavioralAlgebra<H> {
     fn domain_values(&self, domain: &QDomain) -> (Vec<String>, bool) {
         // Returns (values, exact). `exact = false` means the domain was bounded
         // and may have been truncated.
-        match domain {
+        let mut current = domain;
+        let mut limits = Vec::new();
+        while let QDomain::Bounded(inner, limit) = current {
+            limits.push(*limit);
+            current = inner;
+        }
+        let mut values = match current {
             QDomain::Values(vs) => (vs.clone(), true),
             QDomain::Active => (self.facts.active_domain().into_iter().collect(), true),
             QDomain::RelationColumn(rel, col) => {
@@ -341,98 +849,162 @@ impl<H: HostTerm> BehavioralAlgebra<H> {
                 }
                 (vals.into_iter().collect(), true)
             }
-            QDomain::Bounded(inner, limit) => {
-                let (mut vals, exact) = self.domain_values(inner);
-                let truncated = vals.len() > *limit;
-                vals.truncate(*limit);
-                (vals, exact && !truncated)
-            }
+            QDomain::Bounded(_, _) => unreachable!("bounded-domain spine reaches a base"),
+        };
+        while let Some(limit) = limits.pop() {
+            let truncated = values.0.len() > limit;
+            values.0.truncate(limit);
+            values.1 &= !truncated;
         }
+        values
     }
 
     /// Evaluate `formula` against the snapshot with the given bindings. Returns
     /// `(result, exact)`; `exact = false` when a bounded quantifier may have
     /// been truncated (so a `false`/`true` could be budget-limited).
     fn eval(&self, formula: &BehavioralFormula, env: &BTreeMap<String, String>) -> (bool, bool) {
-        match formula {
-            BehavioralFormula::Top => (true, true),
-            BehavioralFormula::Bot => (false, true),
-            BehavioralFormula::Relation { name, args } => {
-                let tuple: Option<Vec<String>> =
-                    args.iter().map(|a| self.resolve(a, env)).collect();
-                match tuple {
-                    Some(t) => (self.facts.holds(name, &t), true),
-                    None => (false, true), // unbound var ⇒ not satisfied with this env
+        type Env = BTreeMap<String, String>;
+        enum Frame<'a> {
+            Eval(&'a BehavioralFormula, Env),
+            Not,
+            AndRight(&'a BehavioralFormula, Env),
+            AndFinish(bool),
+            OrRight(&'a BehavioralFormula, Env),
+            OrFinish(bool),
+            Quantifier {
+                var: &'a str,
+                body: &'a BehavioralFormula,
+                remaining: std::vec::IntoIter<String>,
+                base_env: Env,
+                universal: bool,
+                exact: bool,
+            },
+        }
+
+        let mut frames = vec![Frame::Eval(formula, env.clone())];
+        let mut result = None;
+        while let Some(frame) = frames.pop() {
+            match frame {
+                Frame::Eval(current, current_env) => match current {
+                    BehavioralFormula::Top => result = Some((true, true)),
+                    BehavioralFormula::Bot => result = Some((false, true)),
+                    BehavioralFormula::Relation { name, args } => {
+                        let tuple: Option<Vec<String>> = args
+                            .iter()
+                            .map(|argument| self.resolve(argument, &current_env))
+                            .collect();
+                        result = Some(match tuple {
+                            Some(tuple) => (self.facts.holds(name, &tuple), true),
+                            None => (false, true),
+                        });
+                    }
+                    BehavioralFormula::Forall { var, domain, body }
+                    | BehavioralFormula::Exists { var, domain, body } => {
+                        let universal = matches!(current, BehavioralFormula::Forall { .. });
+                        let (values, domain_exact) = self.domain_values(domain);
+                        let mut remaining = values.into_iter();
+                        if let Some(value) = remaining.next() {
+                            let mut inner_env = current_env.clone();
+                            inner_env.insert(var.clone(), value);
+                            frames.push(Frame::Quantifier {
+                                var,
+                                body,
+                                remaining,
+                                base_env: current_env,
+                                universal,
+                                exact: domain_exact,
+                            });
+                            frames.push(Frame::Eval(body, inner_env));
+                        } else {
+                            result = Some((universal, domain_exact));
+                        }
+                    }
+                    BehavioralFormula::And(left, right) => {
+                        frames.push(Frame::AndRight(right, current_env.clone()));
+                        frames.push(Frame::Eval(left, current_env));
+                    }
+                    BehavioralFormula::Or(left, right) => {
+                        frames.push(Frame::OrRight(right, current_env.clone()));
+                        frames.push(Frame::Eval(left, current_env));
+                    }
+                    BehavioralFormula::Not(inner) => {
+                        frames.push(Frame::Not);
+                        frames.push(Frame::Eval(inner, current_env));
+                    }
+                    BehavioralFormula::Atom(_)
+                    | BehavioralFormula::Diamond(..)
+                    | BehavioralFormula::BoxAll(..)
+                    | BehavioralFormula::Mu(..)
+                    | BehavioralFormula::Nu(..)
+                    | BehavioralFormula::FixVar(_) => {
+                        unreachable!("modal formula reached the relational evaluator")
+                    }
+                },
+                Frame::Not => {
+                    let (value, exact) = result.take().expect("negated formula is evaluated");
+                    result = Some((!value, exact));
                 }
-            }
-            BehavioralFormula::Forall { var, domain, body } => {
-                let (vals, dom_exact) = self.domain_values(domain);
-                let mut env2 = env.clone();
-                let mut all = true;
-                let mut exact = dom_exact;
-                for v in &vals {
-                    env2.insert(var.clone(), v.clone());
-                    let (r, e) = self.eval(body, &env2);
-                    exact = exact && e;
-                    if !r {
-                        all = false;
-                        break;
+                Frame::AndRight(right, env) => {
+                    let (left, exact) = result.take().expect("left conjunction is evaluated");
+                    if left {
+                        frames.push(Frame::AndFinish(exact));
+                        frames.push(Frame::Eval(right, env));
+                    } else {
+                        result = Some((false, exact));
                     }
                 }
-                env2.remove(var);
-                // If `all` held only over a truncated domain, the result is inexact.
-                (all, exact)
-            }
-            BehavioralFormula::Exists { var, domain, body } => {
-                let (vals, dom_exact) = self.domain_values(domain);
-                let mut env2 = env.clone();
-                let mut any = false;
-                let mut exact = dom_exact;
-                for v in &vals {
-                    env2.insert(var.clone(), v.clone());
-                    let (r, e) = self.eval(body, &env2);
-                    exact = exact && e;
-                    if r {
-                        any = true;
-                        break;
+                Frame::AndFinish(left_exact) => {
+                    let (right, right_exact) =
+                        result.take().expect("right conjunction is evaluated");
+                    result = Some((right, left_exact && right_exact));
+                }
+                Frame::OrRight(right, env) => {
+                    let (left, exact) = result.take().expect("left disjunction is evaluated");
+                    if left {
+                        result = Some((true, exact));
+                    } else {
+                        frames.push(Frame::OrFinish(exact));
+                        frames.push(Frame::Eval(right, env));
                     }
                 }
-                env2.remove(var);
-                (any, exact)
-            }
-            BehavioralFormula::And(a, b) => {
-                let (ra, ea) = self.eval(a, env);
-                if !ra {
-                    return (false, ea);
+                Frame::OrFinish(left_exact) => {
+                    let (right, right_exact) =
+                        result.take().expect("right disjunction is evaluated");
+                    result = Some((right, left_exact && right_exact));
                 }
-                let (rb, eb) = self.eval(b, env);
-                (rb, ea && eb)
-            }
-            BehavioralFormula::Or(a, b) => {
-                let (ra, ea) = self.eval(a, env);
-                if ra {
-                    return (true, ea);
+                Frame::Quantifier {
+                    var,
+                    body,
+                    mut remaining,
+                    base_env,
+                    universal,
+                    mut exact,
+                } => {
+                    let (value, body_exact) = result
+                        .take()
+                        .expect("behavioral quantifier body is evaluated");
+                    exact &= body_exact;
+                    if (universal && !value) || (!universal && value) {
+                        result = Some((value, exact));
+                    } else if let Some(value) = remaining.next() {
+                        let mut inner_env = base_env.clone();
+                        inner_env.insert(var.to_string(), value);
+                        frames.push(Frame::Quantifier {
+                            var,
+                            body,
+                            remaining,
+                            base_env,
+                            universal,
+                            exact,
+                        });
+                        frames.push(Frame::Eval(body, inner_env));
+                    } else {
+                        result = Some((universal, exact));
+                    }
                 }
-                let (rb, eb) = self.eval(b, env);
-                (rb, ea && eb)
-            }
-            BehavioralFormula::Not(x) => {
-                let (r, e) = self.eval(x, env);
-                (!r, e)
-            }
-            // Invariant: `eval` is the relational-only evaluator; modal formulas
-            // are routed to the model checker by `evaluate`/`is_satisfiable_3v`,
-            // and the relational fast path runs only when `has_modal()` is false,
-            // so no modal arm is reachable here.
-            BehavioralFormula::Atom(_)
-            | BehavioralFormula::Diamond(..)
-            | BehavioralFormula::BoxAll(..)
-            | BehavioralFormula::Mu(..)
-            | BehavioralFormula::Nu(..)
-            | BehavioralFormula::FixVar(_) => {
-                unreachable!("modal formula reached the relational evaluator")
             }
         }
+        result.expect("the root behavioral formula produces one relational result")
     }
 
     /// Build the reachable LTS from `root` (BFS), capped at `MAX_REACH_STATES`.
@@ -476,109 +1048,258 @@ impl<H: HostTerm> BehavioralAlgebra<H> {
         env: &BTreeMap<String, String>,
         fix: &HashMap<String, HashSet<usize>>,
     ) -> HashSet<usize> {
-        let all = || (0..states.len()).collect::<HashSet<usize>>();
-        match formula {
-            BehavioralFormula::Top => all(),
-            BehavioralFormula::Bot => HashSet::new(),
-            BehavioralFormula::Atom(label) => (0..states.len())
-                .filter(|&i| states[i].label() == *label)
-                .collect(),
-            // State-independent relational atom: holds at all states or none.
-            BehavioralFormula::Relation { .. } => {
-                if self.eval(formula, env).0 {
-                    all()
-                } else {
-                    HashSet::new()
-                }
-            }
-            BehavioralFormula::Forall { var, domain, body } => {
-                let (vals, _exact) = self.domain_values(domain);
-                let mut acc = all();
-                let mut env2 = env.clone();
-                for v in &vals {
-                    env2.insert(var.clone(), v.clone());
-                    let d = self.denote(body, states, adj, &env2, fix);
-                    acc = acc.intersection(&d).copied().collect();
-                }
-                env2.remove(var);
-                acc
-            }
-            BehavioralFormula::Exists { var, domain, body } => {
-                let (vals, _exact) = self.domain_values(domain);
-                let mut acc = HashSet::new();
-                let mut env2 = env.clone();
-                for v in &vals {
-                    env2.insert(var.clone(), v.clone());
-                    let d = self.denote(body, states, adj, &env2, fix);
-                    acc = acc.union(&d).copied().collect();
-                }
-                env2.remove(var);
-                acc
-            }
-            BehavioralFormula::And(a, b) => {
-                let da = self.denote(a, states, adj, env, fix);
-                let db = self.denote(b, states, adj, env, fix);
-                da.intersection(&db).copied().collect()
-            }
-            BehavioralFormula::Or(a, b) => {
-                let da = self.denote(a, states, adj, env, fix);
-                let db = self.denote(b, states, adj, env, fix);
-                da.union(&db).copied().collect()
-            }
-            BehavioralFormula::Not(x) => {
-                let d = self.denote(x, states, adj, env, fix);
-                (0..states.len()).filter(|i| !d.contains(i)).collect()
-            }
-            BehavioralFormula::Diamond(ap, body) => {
-                let b = self.denote(body, states, adj, env, fix);
-                (0..states.len())
-                    .filter(|&i| {
-                        adj[i]
-                            .iter()
-                            .any(|(act, j)| ap.matches(act) && b.contains(j))
-                    })
-                    .collect()
-            }
-            BehavioralFormula::BoxAll(ap, body) => {
-                let b = self.denote(body, states, adj, env, fix);
-                (0..states.len())
-                    .filter(|&i| {
-                        adj[i]
-                            .iter()
-                            .all(|(act, j)| !ap.matches(act) || b.contains(j))
-                    })
-                    .collect()
-            }
-            BehavioralFormula::Mu(x, body) => {
-                // least fixpoint: start ∅, iterate (monotone; ≤ |states| steps).
-                let mut cur: HashSet<usize> = HashSet::new();
-                for _ in 0..=states.len() {
-                    let mut fix2 = fix.clone();
-                    fix2.insert(x.clone(), cur.clone());
-                    let next = self.denote(body, states, adj, env, &fix2);
-                    if next == cur {
-                        break;
-                    }
-                    cur = next;
-                }
-                cur
-            }
-            BehavioralFormula::Nu(x, body) => {
-                // greatest fixpoint: start ⊤, iterate (monotone; ≤ |states| steps).
-                let mut cur: HashSet<usize> = all();
-                for _ in 0..=states.len() {
-                    let mut fix2 = fix.clone();
-                    fix2.insert(x.clone(), cur.clone());
-                    let next = self.denote(body, states, adj, env, &fix2);
-                    if next == cur {
-                        break;
-                    }
-                    cur = next;
-                }
-                cur
-            }
-            BehavioralFormula::FixVar(x) => fix.get(x).cloned().unwrap_or_default(),
+        type StateSet = HashSet<usize>;
+        type Env = std::rc::Rc<BTreeMap<String, String>>;
+        type Fix = std::rc::Rc<HashMap<String, StateSet>>;
+
+        enum Frame<'a> {
+            Eval(&'a BehavioralFormula, Env, Fix),
+            Not,
+            AndRight(&'a BehavioralFormula, Env, Fix),
+            AndFinish(StateSet),
+            OrRight(&'a BehavioralFormula, Env, Fix),
+            OrFinish(StateSet),
+            Quantifier {
+                var: &'a str,
+                body: &'a BehavioralFormula,
+                remaining: std::vec::IntoIter<String>,
+                base_env: Env,
+                fix: Fix,
+                accumulator: StateSet,
+                universal: bool,
+            },
+            Modal {
+                action: &'a ActionPattern,
+                existential: bool,
+            },
+            Fixpoint {
+                var: &'a str,
+                body: &'a BehavioralFormula,
+                env: Env,
+                base_fix: Fix,
+                current: StateSet,
+                remaining: usize,
+            },
         }
+
+        let all_states = || (0..states.len()).collect::<StateSet>();
+        let mut frames = vec![Frame::Eval(
+            formula,
+            std::rc::Rc::new(env.clone()),
+            std::rc::Rc::new(fix.clone()),
+        )];
+        let mut result = None;
+        while let Some(frame) = frames.pop() {
+            match frame {
+                Frame::Eval(current, current_env, current_fix) => match current {
+                    BehavioralFormula::Top => result = Some(all_states()),
+                    BehavioralFormula::Bot => result = Some(StateSet::new()),
+                    BehavioralFormula::Atom(label) => {
+                        result = Some(
+                            (0..states.len())
+                                .filter(|&index| states[index].label() == *label)
+                                .collect(),
+                        );
+                    }
+                    BehavioralFormula::Relation { .. } => {
+                        result = Some(if self.eval(current, current_env.as_ref()).0 {
+                            all_states()
+                        } else {
+                            StateSet::new()
+                        });
+                    }
+                    BehavioralFormula::Forall { var, domain, body }
+                    | BehavioralFormula::Exists { var, domain, body } => {
+                        let universal = matches!(current, BehavioralFormula::Forall { .. });
+                        let (values, _) = self.domain_values(domain);
+                        let mut remaining = values.into_iter();
+                        let accumulator = if universal {
+                            all_states()
+                        } else {
+                            StateSet::new()
+                        };
+                        if let Some(value) = remaining.next() {
+                            let mut inner_env = current_env.as_ref().clone();
+                            inner_env.insert(var.clone(), value);
+                            frames.push(Frame::Quantifier {
+                                var,
+                                body,
+                                remaining,
+                                base_env: current_env,
+                                fix: current_fix.clone(),
+                                accumulator,
+                                universal,
+                            });
+                            frames.push(Frame::Eval(
+                                body,
+                                std::rc::Rc::new(inner_env),
+                                current_fix,
+                            ));
+                        } else {
+                            result = Some(accumulator);
+                        }
+                    }
+                    BehavioralFormula::And(left, right) => {
+                        frames.push(Frame::AndRight(
+                            right,
+                            current_env.clone(),
+                            current_fix.clone(),
+                        ));
+                        frames.push(Frame::Eval(left, current_env, current_fix));
+                    }
+                    BehavioralFormula::Or(left, right) => {
+                        frames.push(Frame::OrRight(
+                            right,
+                            current_env.clone(),
+                            current_fix.clone(),
+                        ));
+                        frames.push(Frame::Eval(left, current_env, current_fix));
+                    }
+                    BehavioralFormula::Not(inner) => {
+                        frames.push(Frame::Not);
+                        frames.push(Frame::Eval(inner, current_env, current_fix));
+                    }
+                    BehavioralFormula::Diamond(action, body)
+                    | BehavioralFormula::BoxAll(action, body) => {
+                        frames.push(Frame::Modal {
+                            action,
+                            existential: matches!(current, BehavioralFormula::Diamond(..)),
+                        });
+                        frames.push(Frame::Eval(body, current_env, current_fix));
+                    }
+                    BehavioralFormula::Mu(var, body) | BehavioralFormula::Nu(var, body) => {
+                        let current_set = if matches!(current, BehavioralFormula::Mu(..)) {
+                            StateSet::new()
+                        } else {
+                            all_states()
+                        };
+                        let mut body_fix = current_fix.as_ref().clone();
+                        body_fix.insert(var.clone(), current_set.clone());
+                        frames.push(Frame::Fixpoint {
+                            var,
+                            body,
+                            env: current_env.clone(),
+                            base_fix: current_fix,
+                            current: current_set,
+                            remaining: states.len(),
+                        });
+                        frames.push(Frame::Eval(body, current_env, std::rc::Rc::new(body_fix)));
+                    }
+                    BehavioralFormula::FixVar(var) => {
+                        result = Some(current_fix.get(var).cloned().unwrap_or_default());
+                    }
+                },
+                Frame::Not => {
+                    let inner = result.take().expect("negated denotation is evaluated");
+                    result = Some(
+                        (0..states.len())
+                            .filter(|index| !inner.contains(index))
+                            .collect(),
+                    );
+                }
+                Frame::AndRight(right, env, fix) => {
+                    let left = result.take().expect("left denotation is evaluated");
+                    frames.push(Frame::AndFinish(left));
+                    frames.push(Frame::Eval(right, env, fix));
+                }
+                Frame::AndFinish(left) => {
+                    let right = result.take().expect("right denotation is evaluated");
+                    result = Some(left.intersection(&right).copied().collect());
+                }
+                Frame::OrRight(right, env, fix) => {
+                    let left = result.take().expect("left denotation is evaluated");
+                    frames.push(Frame::OrFinish(left));
+                    frames.push(Frame::Eval(right, env, fix));
+                }
+                Frame::OrFinish(left) => {
+                    let right = result.take().expect("right denotation is evaluated");
+                    result = Some(left.union(&right).copied().collect());
+                }
+                Frame::Quantifier {
+                    var,
+                    body,
+                    mut remaining,
+                    base_env,
+                    fix,
+                    accumulator,
+                    universal,
+                } => {
+                    let body_set = result
+                        .take()
+                        .expect("behavioral quantified denotation is evaluated");
+                    let accumulator = if universal {
+                        accumulator.intersection(&body_set).copied().collect()
+                    } else {
+                        accumulator.union(&body_set).copied().collect()
+                    };
+                    if let Some(value) = remaining.next() {
+                        let mut inner_env = base_env.as_ref().clone();
+                        inner_env.insert(var.to_string(), value);
+                        frames.push(Frame::Quantifier {
+                            var,
+                            body,
+                            remaining,
+                            base_env,
+                            fix: fix.clone(),
+                            accumulator,
+                            universal,
+                        });
+                        frames.push(Frame::Eval(body, std::rc::Rc::new(inner_env), fix));
+                    } else {
+                        result = Some(accumulator);
+                    }
+                }
+                Frame::Modal {
+                    action,
+                    existential,
+                } => {
+                    let body = result.take().expect("modal body denotation is evaluated");
+                    result = Some(
+                        (0..states.len())
+                            .filter(|&index| {
+                                if existential {
+                                    adj[index].iter().any(|(label, target)| {
+                                        action.matches(label) && body.contains(target)
+                                    })
+                                } else {
+                                    adj[index].iter().all(|(label, target)| {
+                                        !action.matches(label) || body.contains(target)
+                                    })
+                                }
+                            })
+                            .collect(),
+                    );
+                }
+                Frame::Fixpoint {
+                    var,
+                    body,
+                    env,
+                    base_fix,
+                    current,
+                    remaining,
+                } => {
+                    let next = result
+                        .take()
+                        .expect("fixpoint body denotation is evaluated");
+                    if next == current || remaining == 0 {
+                        result = Some(next);
+                    } else {
+                        let mut body_fix = base_fix.as_ref().clone();
+                        body_fix.insert(var.to_string(), next.clone());
+                        frames.push(Frame::Fixpoint {
+                            var,
+                            body,
+                            env: env.clone(),
+                            base_fix,
+                            current: next,
+                            remaining: remaining - 1,
+                        });
+                        frames.push(Frame::Eval(body, env, std::rc::Rc::new(body_fix)));
+                    }
+                }
+            }
+        }
+        result.expect("the root behavioral formula produces one denotation")
     }
 }
 

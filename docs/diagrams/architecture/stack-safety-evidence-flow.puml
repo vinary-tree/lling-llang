@@ -1,0 +1,38 @@
+@startuml
+title Formal-first stack-safety evidence flow
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam ArrowColor #455A64
+skinparam ArrowThickness 1.5
+skinparam defaultFontName Helvetica
+skinparam activity {
+  BackgroundColor #FFF59D
+  BorderColor #F9A825
+  FontColor #102027
+  DiamondBackgroundColor #ECEFF1
+  DiamondBorderColor #455A64
+}
+
+start
+:Exact source revision and\npgmcp/libcpg SCC discovery; <<#FFF59D>>
+:Corroborate recursive equations,\nobservables, lifecycle, and false positives; <<#FFF59D>>
+:Rocq · TLA+/TLC · SMT model\nwith no proof escapes; <<#FFCDD2>>
+:Extract every invariant into\nproperties and causal required-red controls; <<#E1BEE7>>
+:Implement the specialized typed\nheap-resident machine; <<#B2DFDB>>
+:Run 100,000-level / 256-KiB tests,\nwork · allocation · RSS · malformed gates; <<#C8E6C9>>
+if (All acceptance gates green?) then (yes)
+  :Bind ledger rows to immutable commit; <<#C8E6C9>>
+  :Run fresh full-source pgmcp/libcpg\nrecursion and SCC analysis; <<#BBDEFB>>
+  if (Every result has exact disposition?) then (yes)
+    :Attach hashes and trusted evidence\nto pgmcp; <<#C8E6C9>>
+    stop
+  else (no)
+    :Return uncovered source edge\nto formal modeling before another implementation revision; <<#FFCDD2>>
+    stop
+  endif
+else (no)
+  :Minimize the counterexample and\nstrengthen the formal invariant before another implementation revision; <<#FFCDD2>>
+  stop
+endif
+@enduml

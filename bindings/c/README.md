@@ -15,7 +15,7 @@ source. A source-layout build and the executable example use:
 ```sh
 cargo build --no-default-features --features ffi
 cc -std=c17 -Wall -Wextra -Werror \
-  -Iinclude -I../liblevenshtein-rust/vinary-tree-interop/include \
+  -Iinclude -I../vinary-tree-interop/include \
   bindings/c/examples/compose_demo.c -Ltarget/debug -llling_llang \
   -Wl,-rpath,"$PWD/target/debug" -o target/lling-c-compose
 target/lling-c-compose

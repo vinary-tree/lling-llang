@@ -1,6 +1,7 @@
 //! Tree transducer rules and patterns.
 
-use std::hash::Hash;
+use std::fmt;
+use std::hash::{Hash, Hasher};
 
 use super::types::StateId;
 use crate::semiring::Semiring;
@@ -55,12 +56,191 @@ impl<L> TreeChild<L> {
 }
 
 /// A tree pattern for matching or producing trees.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TreePattern<L> {
     /// The root symbol of the pattern.
     pub symbol: L,
     /// Children of the pattern.
     pub children: Vec<TreeChild<L>>,
+}
+
+impl<L: Clone> Clone for TreePattern<L> {
+    fn clone(&self) -> Self {
+        struct Frame<'a, L> {
+            source: &'a TreePattern<L>,
+            next_child: usize,
+            children: Vec<TreeChild<L>>,
+        }
+        let mut frames = vec![Frame {
+            source: self,
+            next_child: 0,
+            children: Vec::with_capacity(self.children.len()),
+        }];
+        loop {
+            let frame = frames
+                .last_mut()
+                .expect("the root pattern clone frame remains until completion");
+            if let Some(child) = frame.source.children.get(frame.next_child) {
+                frame.next_child += 1;
+                match child {
+                    TreeChild::Variable { state, var_index } => {
+                        frame.children.push(TreeChild::Variable {
+                            state: *state,
+                            var_index: *var_index,
+                        });
+                    }
+                    TreeChild::Subtree(subtree) => frames.push(Frame {
+                        source: subtree,
+                        next_child: 0,
+                        children: Vec::with_capacity(subtree.children.len()),
+                    }),
+                }
+                continue;
+            }
+            let completed = frames
+                .pop()
+                .expect("a completed pattern clone frame is present");
+            let pattern = TreePattern {
+                symbol: completed.source.symbol.clone(),
+                children: completed.children,
+            };
+            if let Some(parent) = frames.last_mut() {
+                parent.children.push(TreeChild::Subtree(Box::new(pattern)));
+            } else {
+                return pattern;
+            }
+        }
+    }
+}
+
+impl<L: PartialEq> PartialEq for TreePattern<L> {
+    fn eq(&self, other: &Self) -> bool {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            if left.symbol != right.symbol || left.children.len() != right.children.len() {
+                return false;
+            }
+            for (left, right) in left.children.iter().zip(&right.children) {
+                match (left, right) {
+                    (
+                        TreeChild::Variable {
+                            state: ls,
+                            var_index: lv,
+                        },
+                        TreeChild::Variable {
+                            state: rs,
+                            var_index: rv,
+                        },
+                    ) if ls == rs && lv == rv => {}
+                    (TreeChild::Subtree(left), TreeChild::Subtree(right)) => {
+                        pending.push((left, right));
+                    }
+                    _ => return false,
+                }
+            }
+        }
+        true
+    }
+}
+
+impl<L: Eq> Eq for TreePattern<L> {}
+
+impl<L: Hash> Hash for TreePattern<L> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        enum Item<'a, L> {
+            Pattern(&'a TreePattern<L>),
+            Child(&'a TreeChild<L>),
+        }
+        let mut pending = vec![Item::Pattern(self)];
+        while let Some(item) = pending.pop() {
+            match item {
+                Item::Pattern(pattern) => {
+                    pattern.symbol.hash(state);
+                    pattern.children.len().hash(state);
+                    pending.extend(pattern.children.iter().rev().map(Item::Child));
+                }
+                Item::Child(TreeChild::Variable {
+                    state: child_state,
+                    var_index,
+                }) => {
+                    std::mem::discriminant(&TreeChild::<L>::Variable {
+                        state: *child_state,
+                        var_index: *var_index,
+                    })
+                    .hash(state);
+                    child_state.hash(state);
+                    var_index.hash(state);
+                }
+                Item::Child(child @ TreeChild::Subtree(subtree)) => {
+                    std::mem::discriminant(child).hash(state);
+                    pending.push(Item::Pattern(subtree));
+                }
+            }
+        }
+    }
+}
+
+impl<L: fmt::Debug> fmt::Debug for TreePattern<L> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        enum Event<'a, L> {
+            Pattern(&'a TreePattern<L>),
+            Children(&'a [TreeChild<L>], usize),
+            Text(&'static str),
+        }
+        let mut events = vec![Event::Pattern(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Text(text) => write!(f, "{text}")?,
+                Event::Pattern(pattern) => {
+                    write!(
+                        f,
+                        "TreePattern {{ symbol: {:?}, children: [",
+                        pattern.symbol
+                    )?;
+                    events.push(Event::Children(&pattern.children, 0));
+                }
+                Event::Children(children, index) => {
+                    if index == children.len() {
+                        write!(f, "] }}")?;
+                    } else {
+                        if index > 0 {
+                            write!(f, ", ")?;
+                        }
+                        events.push(Event::Children(children, index + 1));
+                        match &children[index] {
+                            TreeChild::Variable { state, var_index } => write!(
+                                f,
+                                "Variable {{ state: {state:?}, var_index: {var_index:?} }}"
+                            )?,
+                            TreeChild::Subtree(subtree) => {
+                                write!(f, "Subtree(")?;
+                                events.push(Event::Text(")"));
+                                events.push(Event::Pattern(subtree));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<L> Drop for TreePattern<L> {
+    fn drop(&mut self) {
+        let mut pending = Vec::new();
+        for child in std::mem::take(&mut self.children) {
+            if let TreeChild::Subtree(subtree) = child {
+                pending.push(subtree);
+            }
+        }
+        while let Some(mut pattern) = pending.pop() {
+            for child in std::mem::take(&mut pattern.children) {
+                if let TreeChild::Subtree(subtree) = child {
+                    pending.push(subtree);
+                }
+            }
+        }
+    }
 }
 
 impl<L> TreePattern<L> {
@@ -99,13 +279,14 @@ impl<L: Clone> TreePattern<L> {
     }
 
     fn collect_var_indices(&self, indices: &mut Vec<usize>) {
-        for child in &self.children {
+        let mut pending: Vec<&TreeChild<L>> = self.children.iter().rev().collect();
+        while let Some(child) = pending.pop() {
             match child {
                 TreeChild::Variable { var_index, .. } => {
                     indices.push(*var_index);
                 }
                 TreeChild::Subtree(pattern) => {
-                    pattern.collect_var_indices(indices);
+                    pending.extend(pattern.children.iter().rev());
                 }
             }
         }

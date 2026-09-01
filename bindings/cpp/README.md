@@ -49,7 +49,7 @@ c++ -std=c++20 $(pkg-config --cflags lling-llang) demo.cpp \
 ```sh
 cargo build --release --features ffi     # produces cdylib + staticlib
 c++ -std=c++20 -I include \
-    -I ../liblevenshtein-rust/vinary-tree-interop/include \
+    -I ../vinary-tree-interop/include \
     demo.cpp -L target/release -llling_llang
 ```
 
@@ -185,7 +185,7 @@ implicitly `noexcept`.
 - ABI v1, API revision 1: call `lling_abi_version()` /
   `lling_api_revision()` for a runtime handshake when loading the library
   dynamically; the revision only grows within an ABI version (see the
-  [C ABI reference](https://github.com/vinary-tree/lling-llang/blob/master/docs/api/c-abi-reference.md#version-constants-and-the-handshake)).
+  [C ABI reference](../../docs/api/c-abi-reference.md#version-constants-and-the-handshake)).
 - The header pair (`lling_llang.h`, `lling_llang.hpp`) is drift-gated
   against `src/ffi.rs` and `bindings/api.json` by
   `python3 scripts/check-bindings.py`.

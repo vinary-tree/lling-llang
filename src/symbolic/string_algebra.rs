@@ -14,6 +14,9 @@
 //! boolean ops with decidable emptiness/membership, so this is a genuine,
 //! exact EBA.
 
+use std::fmt;
+use std::hash::{Hash, Hasher};
+
 use super::regex_sfa::{RegexAlgebra, RegexPred};
 use super::{BooleanAlgebra, CharClassAlgebra, CharClassPred};
 
@@ -22,7 +25,6 @@ use super::{BooleanAlgebra, CharClassAlgebra, CharClassPred};
 // ══════════════════════════════════════════════════════════════════════════════
 
 /// A string predicate: a symbolic regular language over character classes.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum StrPred {
     /// The empty language `∅`.
     Empty,
@@ -46,6 +48,213 @@ pub enum StrPred {
     Compl(Box<StrPred>),
 }
 
+impl Clone for StrPred {
+    fn clone(&self) -> Self {
+        enum Task<'a> {
+            Visit(&'a StrPred),
+            Concat,
+            Alt,
+            Star,
+            Inter,
+            Compl,
+        }
+
+        let mut tasks = vec![Task::Visit(self)];
+        let mut values = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Visit(predicate) => match predicate {
+                    StrPred::Empty => values.push(StrPred::Empty),
+                    StrPred::Epsilon => values.push(StrPred::Epsilon),
+                    StrPred::Class(class) => values.push(StrPred::Class(class.clone())),
+                    StrPred::Literal(value) => values.push(StrPred::Literal(value.clone())),
+                    StrPred::Length(lo, hi) => values.push(StrPred::Length(*lo, *hi)),
+                    StrPred::Concat(left, right) => {
+                        tasks.push(Task::Concat);
+                        tasks.push(Task::Visit(right));
+                        tasks.push(Task::Visit(left));
+                    }
+                    StrPred::Alt(left, right) => {
+                        tasks.push(Task::Alt);
+                        tasks.push(Task::Visit(right));
+                        tasks.push(Task::Visit(left));
+                    }
+                    StrPred::Star(inner) => {
+                        tasks.push(Task::Star);
+                        tasks.push(Task::Visit(inner));
+                    }
+                    StrPred::Inter(left, right) => {
+                        tasks.push(Task::Inter);
+                        tasks.push(Task::Visit(right));
+                        tasks.push(Task::Visit(left));
+                    }
+                    StrPred::Compl(inner) => {
+                        tasks.push(Task::Compl);
+                        tasks.push(Task::Visit(inner));
+                    }
+                },
+                Task::Concat | Task::Alt | Task::Inter => {
+                    let right = values
+                        .pop()
+                        .expect("right string-predicate clone is present");
+                    let left = values
+                        .pop()
+                        .expect("left string-predicate clone is present");
+                    values.push(match task {
+                        Task::Concat => StrPred::Concat(Box::new(left), Box::new(right)),
+                        Task::Alt => StrPred::Alt(Box::new(left), Box::new(right)),
+                        Task::Inter => StrPred::Inter(Box::new(left), Box::new(right)),
+                        _ => unreachable!("binary string-predicate task is known"),
+                    });
+                }
+                Task::Star | Task::Compl => {
+                    let inner = values
+                        .pop()
+                        .expect("unary string-predicate clone is present");
+                    values.push(if matches!(task, Task::Star) {
+                        StrPred::Star(Box::new(inner))
+                    } else {
+                        StrPred::Compl(Box::new(inner))
+                    });
+                }
+            }
+        }
+        values
+            .pop()
+            .expect("the root string predicate produces one clone")
+    }
+}
+
+impl PartialEq for StrPred {
+    fn eq(&self, other: &Self) -> bool {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (StrPred::Empty, StrPred::Empty) | (StrPred::Epsilon, StrPred::Epsilon) => {}
+                (StrPred::Class(left), StrPred::Class(right)) if left == right => {}
+                (StrPred::Literal(left), StrPred::Literal(right)) if left == right => {}
+                (StrPred::Length(ll, lh), StrPred::Length(rl, rh)) if ll == rl && lh == rh => {}
+                (StrPred::Concat(ll, lr), StrPred::Concat(rl, rr))
+                | (StrPred::Alt(ll, lr), StrPred::Alt(rl, rr))
+                | (StrPred::Inter(ll, lr), StrPred::Inter(rl, rr)) => {
+                    pending.push((lr, rr));
+                    pending.push((ll, rl));
+                }
+                (StrPred::Star(left), StrPred::Star(right))
+                | (StrPred::Compl(left), StrPred::Compl(right)) => {
+                    pending.push((left, right));
+                }
+                _ => return false,
+            }
+        }
+        true
+    }
+}
+
+impl Eq for StrPred {}
+
+impl Hash for StrPred {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut pending = vec![self];
+        while let Some(predicate) = pending.pop() {
+            std::mem::discriminant(predicate).hash(state);
+            match predicate {
+                StrPred::Empty | StrPred::Epsilon => {}
+                StrPred::Class(class) => class.hash(state),
+                StrPred::Literal(value) => value.hash(state),
+                StrPred::Length(lo, hi) => {
+                    lo.hash(state);
+                    hi.hash(state);
+                }
+                StrPred::Concat(left, right)
+                | StrPred::Alt(left, right)
+                | StrPred::Inter(left, right) => {
+                    pending.push(right);
+                    pending.push(left);
+                }
+                StrPred::Star(inner) | StrPred::Compl(inner) => pending.push(inner),
+            }
+        }
+    }
+}
+
+impl fmt::Debug for StrPred {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        enum Event<'a> {
+            Predicate(&'a StrPred),
+            Text(&'static str),
+        }
+
+        let mut events = vec![Event::Predicate(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Text(text) => formatter.write_str(text)?,
+                Event::Predicate(predicate) => match predicate {
+                    StrPred::Empty => formatter.write_str("Empty")?,
+                    StrPred::Epsilon => formatter.write_str("Epsilon")?,
+                    StrPred::Class(class) => write!(formatter, "Class({class:?})")?,
+                    StrPred::Literal(value) => write!(formatter, "Literal({value:?})")?,
+                    StrPred::Length(lo, hi) => write!(formatter, "Length({lo:?}, {hi:?})")?,
+                    StrPred::Concat(left, right)
+                    | StrPred::Alt(left, right)
+                    | StrPred::Inter(left, right) => {
+                        let name = match predicate {
+                            StrPred::Concat(_, _) => "Concat",
+                            StrPred::Alt(_, _) => "Alt",
+                            StrPred::Inter(_, _) => "Inter",
+                            _ => unreachable!("binary string-predicate variant is known"),
+                        };
+                        write!(formatter, "{name}(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Predicate(right));
+                        events.push(Event::Text(", "));
+                        events.push(Event::Predicate(left));
+                    }
+                    StrPred::Star(inner) | StrPred::Compl(inner) => {
+                        formatter.write_str(if matches!(predicate, StrPred::Star(_)) {
+                            "Star("
+                        } else {
+                            "Compl("
+                        })?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Predicate(inner));
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Drop for StrPred {
+    fn drop(&mut self) {
+        fn drain(predicate: &mut StrPred, pending: &mut Vec<StrPred>) {
+            match predicate {
+                StrPred::Concat(left, right)
+                | StrPred::Alt(left, right)
+                | StrPred::Inter(left, right) => {
+                    pending.push(std::mem::replace(&mut **right, StrPred::Empty));
+                    pending.push(std::mem::replace(&mut **left, StrPred::Empty));
+                }
+                StrPred::Star(inner) | StrPred::Compl(inner) => {
+                    pending.push(std::mem::replace(&mut **inner, StrPred::Empty));
+                }
+                StrPred::Empty
+                | StrPred::Epsilon
+                | StrPred::Class(_)
+                | StrPred::Literal(_)
+                | StrPred::Length(_, _) => {}
+            }
+        }
+
+        let mut pending = Vec::new();
+        drain(self, &mut pending);
+        while let Some(mut predicate) = pending.pop() {
+            drain(&mut predicate, &mut pending);
+        }
+    }
+}
+
 impl StrPred {
     /// `Σ*` — every string.
     pub fn any() -> StrPred {
@@ -59,31 +268,83 @@ impl StrPred {
 
     /// Desugar to the generic regex over character-class predicates.
     fn to_regex(&self) -> RegexPred<CharClassPred> {
-        match self {
-            StrPred::Empty => RegexPred::Empty,
-            StrPred::Epsilon => RegexPred::Epsilon,
-            StrPred::Class(c) => RegexPred::Elem(c.clone()),
-            StrPred::Literal(s) => {
-                let mut acc = RegexPred::Epsilon;
-                for ch in s.chars() {
-                    acc = RegexPred::Concat(
-                        Box::new(acc),
-                        Box::new(RegexPred::Elem(CharClassPred::Range(ch, ch))),
-                    );
-                }
-                acc
-            }
-            StrPred::Length(lo, hi) => RegexPred::Length(*lo, *hi),
-            StrPred::Concat(a, b) => {
-                RegexPred::Concat(Box::new(a.to_regex()), Box::new(b.to_regex()))
-            }
-            StrPred::Alt(a, b) => RegexPred::Alt(Box::new(a.to_regex()), Box::new(b.to_regex())),
-            StrPred::Star(a) => RegexPred::Star(Box::new(a.to_regex())),
-            StrPred::Inter(a, b) => {
-                RegexPred::Inter(Box::new(a.to_regex()), Box::new(b.to_regex()))
-            }
-            StrPred::Compl(a) => RegexPred::Compl(Box::new(a.to_regex())),
+        enum Task<'a> {
+            Visit(&'a StrPred),
+            Concat,
+            Alt,
+            Star,
+            Inter,
+            Compl,
         }
+
+        let mut tasks = vec![Task::Visit(self)];
+        let mut values = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Visit(predicate) => match predicate {
+                    StrPred::Empty => values.push(RegexPred::Empty),
+                    StrPred::Epsilon => values.push(RegexPred::Epsilon),
+                    StrPred::Class(class) => values.push(RegexPred::Elem(class.clone())),
+                    StrPred::Literal(value) => {
+                        let mut regex = RegexPred::Epsilon;
+                        for character in value.chars() {
+                            regex = RegexPred::Concat(
+                                Box::new(regex),
+                                Box::new(RegexPred::Elem(CharClassPred::Range(
+                                    character, character,
+                                ))),
+                            );
+                        }
+                        values.push(regex);
+                    }
+                    StrPred::Length(lo, hi) => values.push(RegexPred::Length(*lo, *hi)),
+                    StrPred::Concat(left, right) => {
+                        tasks.push(Task::Concat);
+                        tasks.push(Task::Visit(right));
+                        tasks.push(Task::Visit(left));
+                    }
+                    StrPred::Alt(left, right) => {
+                        tasks.push(Task::Alt);
+                        tasks.push(Task::Visit(right));
+                        tasks.push(Task::Visit(left));
+                    }
+                    StrPred::Star(inner) => {
+                        tasks.push(Task::Star);
+                        tasks.push(Task::Visit(inner));
+                    }
+                    StrPred::Inter(left, right) => {
+                        tasks.push(Task::Inter);
+                        tasks.push(Task::Visit(right));
+                        tasks.push(Task::Visit(left));
+                    }
+                    StrPred::Compl(inner) => {
+                        tasks.push(Task::Compl);
+                        tasks.push(Task::Visit(inner));
+                    }
+                },
+                Task::Concat | Task::Alt | Task::Inter => {
+                    let right = values.pop().expect("right regex result is present");
+                    let left = values.pop().expect("left regex result is present");
+                    values.push(match task {
+                        Task::Concat => RegexPred::Concat(Box::new(left), Box::new(right)),
+                        Task::Alt => RegexPred::Alt(Box::new(left), Box::new(right)),
+                        Task::Inter => RegexPred::Inter(Box::new(left), Box::new(right)),
+                        _ => unreachable!("binary desugaring task is known"),
+                    });
+                }
+                Task::Star | Task::Compl => {
+                    let inner = values.pop().expect("unary regex result is present");
+                    values.push(if matches!(task, Task::Star) {
+                        RegexPred::Star(Box::new(inner))
+                    } else {
+                        RegexPred::Compl(Box::new(inner))
+                    });
+                }
+            }
+        }
+        values
+            .pop()
+            .expect("the root string predicate produces one regex")
     }
 }
 
@@ -231,5 +492,25 @@ mod tests {
         assert!(alg.is_satisfiable(&alg.true_pred()));
         assert!(alg.evaluate(&alg.true_pred(), &"anything".to_string()));
         assert!(!alg.evaluate(&alg.false_pred(), &"".to_string()));
+    }
+
+    #[test]
+    fn deep_desugaring_uses_constant_native_stack() {
+        const DEPTH: usize = 100_000;
+        std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(|| {
+                let mut predicate = StrPred::Epsilon;
+                for _ in 0..DEPTH {
+                    predicate = StrPred::Compl(Box::new(predicate));
+                }
+                let regex = predicate.to_regex();
+                assert!(matches!(regex, RegexPred::Compl(_)));
+                drop(regex);
+                drop(predicate);
+            })
+            .expect("small-stack worker must spawn")
+            .join()
+            .expect("string desugaring must not overflow the native stack");
     }
 }

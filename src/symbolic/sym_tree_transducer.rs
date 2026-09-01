@@ -162,35 +162,194 @@ impl<A: BooleanAlgebra, B: BooleanAlgebra> SymbolicTreeTransducer<A, B> {
         }
     }
 
-    /// Bottom-up: state → output terms producible at this node in that state.
-    fn run_outputs(&self, node: &SymTerm<A::Domain>) -> HashMap<usize, Vec<SymTerm<B::Domain>>> {
-        let child_maps: Vec<HashMap<usize, Vec<SymTerm<B::Domain>>>> =
-            node.children.iter().map(|c| self.run_outputs(c)).collect();
-        let mut result: HashMap<usize, Vec<SymTerm<B::Domain>>> = HashMap::new();
-        for rule in &self.rules {
-            if rule.constructor != node.constructor
-                || rule.child_states.len() != node.children.len()
-            {
-                continue;
+    /// Assemble a deterministic singleton result by consuming owned children.
+    ///
+    /// Each uniquely selected child is moved into the result. Repeated selector
+    /// indices clone only the non-final occurrences because the public output is
+    /// an owned tree and therefore cannot represent sharing.
+    fn build_output_owned(
+        &self,
+        builder: &OutputBuilder<A, B>,
+        input_payload: &Option<A::Domain>,
+        child_outputs: Vec<SymTerm<B::Domain>>,
+    ) -> Option<SymTerm<B::Domain>> {
+        match builder {
+            OutputBuilder::Project(index) => child_outputs.into_iter().nth(*index),
+            OutputBuilder::Build {
+                constructor,
+                payload,
+                children,
+            } => {
+                let payload = match payload {
+                    PayloadOut::Structural => None,
+                    PayloadOut::Const(value) => Some(value.clone()),
+                    PayloadOut::Map(function) => Some(function(input_payload.as_ref()?)),
+                };
+                let mut remaining = vec![0usize; child_outputs.len()];
+                for &index in children {
+                    *remaining.get_mut(index)? += 1;
+                }
+                let mut slots = child_outputs.into_iter().map(Some).collect::<Vec<_>>();
+                let mut selected = Vec::with_capacity(children.len());
+                for &index in children {
+                    remaining[index] -= 1;
+                    if remaining[index] == 0 {
+                        selected.push(slots[index].take().expect("the selected child is present"));
+                    } else {
+                        selected.push(slots[index].as_ref()?.clone());
+                    }
+                }
+                Some(SymTerm {
+                    constructor: constructor.clone(),
+                    payload,
+                    children: selected,
+                })
             }
-            if !self.payload_matches(&rule.payload_guard, &node.payload) {
-                continue;
-            }
-            // Each child must be in its required state with some output(s).
-            let per_child: Option<Vec<&Vec<SymTerm<B::Domain>>>> = rule
+        }
+    }
+
+    fn rule_matches_completed_node(
+        &self,
+        rule: &TransducerRule<A, B>,
+        node: &SymTerm<A::Domain>,
+        child_maps: &[HashMap<usize, Vec<SymTerm<B::Domain>>>],
+    ) -> bool {
+        rule.constructor == node.constructor
+            && rule.child_states.len() == node.children.len()
+            && self.payload_matches(&rule.payload_guard, &node.payload)
+            && rule
                 .child_states
                 .iter()
                 .enumerate()
-                .map(|(i, &q)| child_maps[i].get(&q))
-                .collect();
-            let Some(per_child) = per_child else { continue };
-            for combo in cartesian_terms(&per_child) {
-                if let Some(out) = self.build_output(&rule.output, &node.payload, &combo) {
-                    result.entry(rule.target).or_default().push(out);
+                .all(|(index, state)| child_maps[index].contains_key(state))
+    }
+
+    fn deterministic_singleton_output(
+        &self,
+        rule: &TransducerRule<A, B>,
+        input_payload: &Option<A::Domain>,
+        child_maps: &mut [HashMap<usize, Vec<SymTerm<B::Domain>>>],
+    ) -> Option<SymTerm<B::Domain>> {
+        if !rule
+            .child_states
+            .iter()
+            .enumerate()
+            .all(|(index, state)| child_maps[index][state].len() == 1)
+        {
+            return None;
+        }
+        let child_outputs = rule
+            .child_states
+            .iter()
+            .enumerate()
+            .map(|(index, state)| {
+                child_maps[index]
+                    .remove(state)
+                    .expect("the applicable rule's child state is present")
+                    .pop()
+                    .expect("the deterministic child output was length-checked")
+            })
+            .collect();
+        self.build_output_owned(&rule.output, input_payload, child_outputs)
+    }
+
+    /// Bottom-up: state → output terms producible at this node in that state.
+    fn run_outputs(&self, node: &SymTerm<A::Domain>) -> HashMap<usize, Vec<SymTerm<B::Domain>>> {
+        struct Frame<'a, Input, Output> {
+            node: &'a SymTerm<Input>,
+            next_child: usize,
+            child_maps: Vec<HashMap<usize, Vec<SymTerm<Output>>>>,
+        }
+
+        let mut frames = vec![Frame {
+            node,
+            next_child: 0,
+            child_maps: Vec::with_capacity(node.children.len()),
+        }];
+        loop {
+            let frame = frames
+                .last_mut()
+                .expect("the root transduction frame remains until completion");
+            if let Some(child) = frame.node.children.get(frame.next_child) {
+                frame.next_child += 1;
+                frames.push(Frame {
+                    node: child,
+                    next_child: 0,
+                    child_maps: Vec::with_capacity(child.children.len()),
+                });
+                continue;
+            }
+
+            let mut completed = frames
+                .pop()
+                .expect("a completed transduction frame is present");
+            let mut unique_rule = None;
+            let mut ambiguous = false;
+            for rule in &self.rules {
+                if self.rule_matches_completed_node(rule, completed.node, &completed.child_maps) {
+                    if unique_rule.replace(rule).is_some() {
+                        ambiguous = true;
+                        break;
+                    }
                 }
             }
+
+            let deterministic = if ambiguous {
+                None
+            } else {
+                unique_rule.and_then(|rule| {
+                    let singleton = rule
+                        .child_states
+                        .iter()
+                        .enumerate()
+                        .all(|(index, state)| completed.child_maps[index][state].len() == 1);
+                    singleton.then_some(rule)
+                })
+            };
+
+            let mut result: HashMap<usize, Vec<SymTerm<B::Domain>>> = HashMap::new();
+            if let Some(rule) = deterministic {
+                if let Some(output) = self.deterministic_singleton_output(
+                    rule,
+                    &completed.node.payload,
+                    &mut completed.child_maps,
+                ) {
+                    result.entry(rule.target).or_default().push(output);
+                }
+            } else {
+                for rule in &self.rules {
+                    if !self.rule_matches_completed_node(
+                        rule,
+                        completed.node,
+                        &completed.child_maps,
+                    ) {
+                        continue;
+                    }
+                    let per_child = rule
+                        .child_states
+                        .iter()
+                        .enumerate()
+                        .map(|(index, &state)| {
+                            completed.child_maps[index]
+                                .get(&state)
+                                .expect("the matching rule's child state is present")
+                        })
+                        .collect::<Vec<_>>();
+                    for combo in cartesian_terms(&per_child) {
+                        if let Some(output) =
+                            self.build_output(&rule.output, &completed.node.payload, &combo)
+                        {
+                            result.entry(rule.target).or_default().push(output);
+                        }
+                    }
+                }
+            }
+            if let Some(parent) = frames.last_mut() {
+                parent.child_maps.push(result);
+            } else {
+                return result;
+            }
         }
-        result
     }
 
     /// The set of output terms produced for `input`.
@@ -270,12 +429,114 @@ where
 mod tests {
     use super::super::{IntervalAlgebra, IntervalPred};
     use super::*;
+    use proptest::prelude::*;
+
+    const DEEP_TRANSDUCTION_DEPTH: usize = 100_000;
+    const SMALL_NATIVE_STACK: usize = 256 * 1024;
 
     fn lit(n: i64) -> SymTerm<i64> {
         SymTerm::leaf("Lit", n)
     }
     fn pair(a: SymTerm<i64>, b: SymTerm<i64>) -> SymTerm<i64> {
         SymTerm::node("Pair", vec![a, b])
+    }
+
+    fn unary_term(depth: usize) -> SymTerm<i64> {
+        let mut term = SymTerm::constant("L");
+        for _ in 0..depth {
+            term = SymTerm::node("U", vec![term]);
+        }
+        term
+    }
+
+    fn unary_depth(term: &SymTerm<i64>) -> Option<usize> {
+        let mut depth = 0usize;
+        let mut current = term;
+        loop {
+            match (current.constructor.as_str(), current.children.as_slice()) {
+                ("L", []) => return Some(depth),
+                ("U", [child]) => {
+                    depth += 1;
+                    current = child;
+                }
+                _ => return None,
+            }
+        }
+    }
+
+    fn unary_identity() -> SymbolicTreeTransducer<IntervalAlgebra, IntervalAlgebra> {
+        let mut transducer =
+            SymbolicTreeTransducer::new(IntervalAlgebra::new(0, 1), IntervalAlgebra::new(0, 1));
+        transducer.register("L", 0);
+        transducer.register("U", 1);
+        let state = transducer.add_state();
+        transducer.set_accepting(state);
+        transducer.add_rule(TransducerRule {
+            constructor: "L".to_owned(),
+            payload_guard: None,
+            child_states: Vec::new(),
+            target: state,
+            output: OutputBuilder::Build {
+                constructor: "L".to_owned(),
+                payload: PayloadOut::Structural,
+                children: Vec::new(),
+            },
+        });
+        transducer.add_rule(TransducerRule {
+            constructor: "U".to_owned(),
+            payload_guard: None,
+            child_states: vec![state],
+            target: state,
+            output: OutputBuilder::Build {
+                constructor: "U".to_owned(),
+                payload: PayloadOut::Structural,
+                children: vec![0],
+            },
+        });
+        transducer
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(512))]
+
+        #[test]
+        fn unary_transduction_preserves_exact_depth(depth in 0usize..128) {
+            let input = unary_term(depth);
+            let output = unary_identity().transduce(&input);
+            prop_assert_eq!(output.len(), 1);
+            prop_assert_eq!(unary_depth(&output[0]), Some(depth));
+        }
+
+        #[test]
+        fn owned_output_assembly_refines_clone_based_selection(
+            (child_count, selectors, project_index) in (1usize..8).prop_flat_map(|child_count| {
+                (
+                    Just(child_count),
+                    prop::collection::vec(0usize..child_count, 0..16),
+                    0usize..child_count,
+                )
+            }),
+        ) {
+            let transducer = unary_identity();
+            let children = (0..child_count)
+                .map(|index| SymTerm::constant(format!("C{index}")))
+                .collect::<Vec<SymTerm<i64>>>();
+            let build = OutputBuilder::Build {
+                constructor: "Out".to_owned(),
+                payload: PayloadOut::Structural,
+                children: selectors,
+            };
+            prop_assert_eq!(
+                transducer.build_output(&build, &None, &children),
+                transducer.build_output_owned(&build, &None, children.clone()),
+            );
+
+            let project = OutputBuilder::Project(project_index);
+            prop_assert_eq!(
+                transducer.build_output(&project, &None, &children),
+                transducer.build_output_owned(&project, &None, children),
+            );
+        }
     }
 
     /// A transducer that doubles every Lit payload and rebuilds Pairs.
@@ -398,5 +659,25 @@ mod tests {
         // double then double = quadruple
         let out = compose_transduce(&t, &t, &pair(lit(3), lit(4)));
         assert_eq!(out, vec![pair(lit(12), lit(16))]);
+    }
+
+    #[test]
+    fn deep_symbolic_tree_transduction_uses_constant_native_stack() {
+        std::thread::Builder::new()
+            .name("deep-symbolic-tree-transduction".to_owned())
+            .stack_size(SMALL_NATIVE_STACK)
+            .spawn(|| {
+                let transducer = unary_identity();
+                let input = unary_term(DEEP_TRANSDUCTION_DEPTH);
+                let output = transducer.transduce(&input);
+                assert_eq!(output.len(), 1);
+                assert_eq!(unary_depth(&output[0]), Some(DEEP_TRANSDUCTION_DEPTH));
+                drop(output);
+                drop(input);
+                drop(transducer);
+            })
+            .expect("the bounded-stack symbolic-transduction worker must spawn")
+            .join()
+            .expect("symbolic tree transduction must not overflow the native stack");
     }
 }

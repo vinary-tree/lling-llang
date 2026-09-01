@@ -1,8 +1,8 @@
 # lling-llang Coq/Rocq proofs Makefile
 #
 # Build with resource limiting (recommended):
-#   systemd-run --user --scope -p MemoryMax=126G -p CPUQuota=1800% \
-#     -p IOWeight=30 -p TasksMax=200 make -j1
+#   systemd-run --user --scope -p MemoryMax=4G -p MemorySwapMax=0 \
+#     -p CPUQuota=100% -p TasksMax=64 make -j1
 #
 # Build without resource limiting:
 #   make
@@ -30,6 +30,7 @@ clean:
 	rm -f presburger/*.glob presburger/*.vo presburger/*.vok presburger/*.vos presburger/*.aux
 	rm -f sft/*.glob sft/*.vo sft/*.vok sft/*.vos sft/*.aux
 	rm -f symbolic_algebra/*.glob symbolic_algebra/*.vo symbolic_algebra/*.vok symbolic_algebra/*.vos symbolic_algebra/*.aux
+	rm -f stack_safety/*.glob stack_safety/*.vo stack_safety/*.vok stack_safety/*.vos stack_safety/*.aux
 
 force:
 	touch _CoqProject
@@ -38,7 +39,7 @@ force:
 # Check for Admitted proofs (CI integration)
 proof-check:
 	@echo "Checking for unchecked proof escapes..."
-	@if grep -REn "^[[:space:]]*(Admitted|Abort)\.|^[[:space:]]*(Axiom|Conjecture|Parameter)[[:space:]]|\badmit\.|True[[:space:]]*\(\*|True\." foundations wfst algorithms abi logict presburger sft symbolic_algebra 2>/dev/null; then \
+	@if grep -REn "^[[:space:]]*(Admitted|Abort)\.|^[[:space:]]*(Axiom|Conjecture|Parameter)[[:space:]]|\badmit\.|True[[:space:]]*\(\*|True\." foundations wfst algorithms abi logict presburger sft symbolic_algebra stack_safety 2>/dev/null; then \
 		echo "ERROR: Found unchecked or vacuous proof escapes."; \
 		exit 1; \
 	else \

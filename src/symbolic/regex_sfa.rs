@@ -19,8 +19,8 @@
 //! separate multiset model.
 
 use std::collections::HashSet;
-use std::fmt::Debug;
-use std::hash::Hash;
+use std::fmt::{self, Debug};
+use std::hash::{Hash, Hasher};
 
 use super::{BooleanAlgebra, SymbolicAutomaton};
 
@@ -30,7 +30,6 @@ use super::{BooleanAlgebra, SymbolicAutomaton};
 
 /// A symbolic regular expression whose character class is an element predicate
 /// `P` (`= A::Predicate`).
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum RegexPred<P> {
     /// `∅` — matches no sequence.
     Empty,
@@ -50,6 +49,202 @@ pub enum RegexPred<P> {
     Inter(Box<RegexPred<P>>, Box<RegexPred<P>>),
     /// Complement (relative to `Σ*`).
     Compl(Box<RegexPred<P>>),
+}
+
+impl<P: Clone> Clone for RegexPred<P> {
+    fn clone(&self) -> Self {
+        enum Task<'a, P> {
+            Clone(&'a RegexPred<P>),
+            Concat,
+            Alt,
+            Star,
+            Inter,
+            Compl,
+        }
+        let mut tasks = vec![Task::Clone(self)];
+        let mut values = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Clone(predicate) => match predicate {
+                    RegexPred::Empty => values.push(RegexPred::Empty),
+                    RegexPred::Epsilon => values.push(RegexPred::Epsilon),
+                    RegexPred::Elem(inner) => values.push(RegexPred::Elem(inner.clone())),
+                    RegexPred::Length(lo, hi) => values.push(RegexPred::Length(*lo, *hi)),
+                    RegexPred::Concat(left, right) => {
+                        tasks.push(Task::Concat);
+                        tasks.push(Task::Clone(right));
+                        tasks.push(Task::Clone(left));
+                    }
+                    RegexPred::Alt(left, right) => {
+                        tasks.push(Task::Alt);
+                        tasks.push(Task::Clone(right));
+                        tasks.push(Task::Clone(left));
+                    }
+                    RegexPred::Star(inner) => {
+                        tasks.push(Task::Star);
+                        tasks.push(Task::Clone(inner));
+                    }
+                    RegexPred::Inter(left, right) => {
+                        tasks.push(Task::Inter);
+                        tasks.push(Task::Clone(right));
+                        tasks.push(Task::Clone(left));
+                    }
+                    RegexPred::Compl(inner) => {
+                        tasks.push(Task::Compl);
+                        tasks.push(Task::Clone(inner));
+                    }
+                },
+                Task::Concat | Task::Alt | Task::Inter => {
+                    let right = values.pop().expect("right regex clone is present");
+                    let left = values.pop().expect("left regex clone is present");
+                    values.push(match task {
+                        Task::Concat => RegexPred::Concat(Box::new(left), Box::new(right)),
+                        Task::Alt => RegexPred::Alt(Box::new(left), Box::new(right)),
+                        Task::Inter => RegexPred::Inter(Box::new(left), Box::new(right)),
+                        _ => unreachable!("binary regex clone task is known"),
+                    });
+                }
+                Task::Star | Task::Compl => {
+                    let inner = values.pop().expect("unary regex clone is present");
+                    values.push(if matches!(task, Task::Star) {
+                        RegexPred::Star(Box::new(inner))
+                    } else {
+                        RegexPred::Compl(Box::new(inner))
+                    });
+                }
+            }
+        }
+        values.pop().expect("the root regex produces one clone")
+    }
+}
+
+impl<P: PartialEq> PartialEq for RegexPred<P> {
+    fn eq(&self, other: &Self) -> bool {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (RegexPred::Empty, RegexPred::Empty) | (RegexPred::Epsilon, RegexPred::Epsilon) => {
+                }
+                (RegexPred::Elem(left), RegexPred::Elem(right)) if left == right => {}
+                (RegexPred::Length(ll, lh), RegexPred::Length(rl, rh)) if ll == rl && lh == rh => {}
+                (RegexPred::Concat(ll, lr), RegexPred::Concat(rl, rr))
+                | (RegexPred::Alt(ll, lr), RegexPred::Alt(rl, rr))
+                | (RegexPred::Inter(ll, lr), RegexPred::Inter(rl, rr)) => {
+                    pending.push((lr, rr));
+                    pending.push((ll, rl));
+                }
+                (RegexPred::Star(left), RegexPred::Star(right))
+                | (RegexPred::Compl(left), RegexPred::Compl(right)) => {
+                    pending.push((left, right));
+                }
+                _ => return false,
+            }
+        }
+        true
+    }
+}
+
+impl<P: Eq> Eq for RegexPred<P> {}
+
+impl<P: Hash> Hash for RegexPred<P> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut pending = vec![self];
+        while let Some(predicate) = pending.pop() {
+            std::mem::discriminant(predicate).hash(state);
+            match predicate {
+                RegexPred::Empty | RegexPred::Epsilon => {}
+                RegexPred::Elem(inner) => inner.hash(state),
+                RegexPred::Length(lo, hi) => {
+                    lo.hash(state);
+                    hi.hash(state);
+                }
+                RegexPred::Concat(left, right)
+                | RegexPred::Alt(left, right)
+                | RegexPred::Inter(left, right) => {
+                    pending.push(right);
+                    pending.push(left);
+                }
+                RegexPred::Star(inner) | RegexPred::Compl(inner) => pending.push(inner),
+            }
+        }
+    }
+}
+
+impl<P: fmt::Debug> fmt::Debug for RegexPred<P> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        enum Event<'a, P> {
+            Pred(&'a RegexPred<P>),
+            Text(&'static str),
+        }
+        let mut events = vec![Event::Pred(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Text(text) => write!(f, "{text}")?,
+                Event::Pred(predicate) => match predicate {
+                    RegexPred::Empty => write!(f, "Empty")?,
+                    RegexPred::Epsilon => write!(f, "Epsilon")?,
+                    RegexPred::Elem(inner) => write!(f, "Elem({inner:?})")?,
+                    RegexPred::Length(lo, hi) => write!(f, "Length({lo:?}, {hi:?})")?,
+                    RegexPred::Concat(left, right)
+                    | RegexPred::Alt(left, right)
+                    | RegexPred::Inter(left, right) => {
+                        let name = match predicate {
+                            RegexPred::Concat(_, _) => "Concat",
+                            RegexPred::Alt(_, _) => "Alt",
+                            RegexPred::Inter(_, _) => "Inter",
+                            _ => unreachable!("binary regex variant is known"),
+                        };
+                        write!(f, "{name}(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Pred(right));
+                        events.push(Event::Text(", "));
+                        events.push(Event::Pred(left));
+                    }
+                    RegexPred::Star(inner) | RegexPred::Compl(inner) => {
+                        write!(
+                            f,
+                            "{}(",
+                            if matches!(predicate, RegexPred::Star(_)) {
+                                "Star"
+                            } else {
+                                "Compl"
+                            }
+                        )?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Pred(inner));
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<P> Drop for RegexPred<P> {
+    fn drop(&mut self) {
+        fn drain<P>(predicate: &mut RegexPred<P>, pending: &mut Vec<RegexPred<P>>) {
+            match predicate {
+                RegexPred::Concat(left, right)
+                | RegexPred::Alt(left, right)
+                | RegexPred::Inter(left, right) => {
+                    pending.push(std::mem::replace(&mut **right, RegexPred::Empty));
+                    pending.push(std::mem::replace(&mut **left, RegexPred::Empty));
+                }
+                RegexPred::Star(inner) | RegexPred::Compl(inner) => {
+                    pending.push(std::mem::replace(&mut **inner, RegexPred::Empty));
+                }
+                RegexPred::Empty
+                | RegexPred::Epsilon
+                | RegexPred::Elem(_)
+                | RegexPred::Length(_, _) => {}
+            }
+        }
+        let mut pending = Vec::new();
+        drain(self, &mut pending);
+        while let Some(mut predicate) = pending.pop() {
+            drain(&mut predicate, &mut pending);
+        }
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -96,38 +291,68 @@ impl<P: Clone> EpsNfa<P> {
     }
 
     fn concat(a: EpsNfa<P>, b: EpsNfa<P>) -> Self {
-        let off = a.n;
-        let mut eps: Vec<(usize, usize)> = a.eps.clone();
-        eps.extend(b.eps.iter().map(|&(x, y)| (x + off, y + off)));
-        let mut chr = a.chr.clone();
-        chr.extend(b.chr.iter().map(|(x, g, y)| (x + off, g.clone(), y + off)));
-        for &ai in &a.accepts {
-            for &bi in &b.initials {
+        let EpsNfa {
+            n: a_n,
+            mut eps,
+            mut chr,
+            initials,
+            accepts: a_accepts,
+        } = a;
+        let EpsNfa {
+            n: b_n,
+            eps: b_eps,
+            chr: b_chr,
+            initials: b_initials,
+            accepts: b_accepts,
+        } = b;
+        let off = a_n;
+        eps.extend(b_eps.into_iter().map(|(x, y)| (x + off, y + off)));
+        chr.extend(
+            b_chr
+                .into_iter()
+                .map(|(x, guard, y)| (x + off, guard, y + off)),
+        );
+        for ai in a_accepts {
+            for &bi in &b_initials {
                 eps.push((ai, bi + off));
             }
         }
-        let accepts = b.accepts.iter().map(|&s| s + off).collect();
+        let accepts = b_accepts.into_iter().map(|state| state + off).collect();
         EpsNfa {
-            n: a.n + b.n,
+            n: a_n + b_n,
             eps,
             chr,
-            initials: a.initials.clone(),
+            initials,
             accepts,
         }
     }
 
     fn alt(a: EpsNfa<P>, b: EpsNfa<P>) -> Self {
-        let off = a.n;
-        let mut eps = a.eps.clone();
-        eps.extend(b.eps.iter().map(|&(x, y)| (x + off, y + off)));
-        let mut chr = a.chr.clone();
-        chr.extend(b.chr.iter().map(|(x, g, y)| (x + off, g.clone(), y + off)));
-        let mut initials = a.initials.clone();
-        initials.extend(b.initials.iter().map(|&s| s + off));
-        let mut accepts = a.accepts.clone();
-        accepts.extend(b.accepts.iter().map(|&s| s + off));
+        let EpsNfa {
+            n: a_n,
+            mut eps,
+            mut chr,
+            mut initials,
+            mut accepts,
+        } = a;
+        let EpsNfa {
+            n: b_n,
+            eps: b_eps,
+            chr: b_chr,
+            initials: b_initials,
+            accepts: b_accepts,
+        } = b;
+        let off = a_n;
+        eps.extend(b_eps.into_iter().map(|(x, y)| (x + off, y + off)));
+        chr.extend(
+            b_chr
+                .into_iter()
+                .map(|(x, guard, y)| (x + off, guard, y + off)),
+        );
+        initials.extend(b_initials.into_iter().map(|state| state + off));
+        accepts.extend(b_accepts.into_iter().map(|state| state + off));
         EpsNfa {
-            n: a.n + b.n,
+            n: a_n + b_n,
             eps,
             chr,
             initials,
@@ -136,18 +361,24 @@ impl<P: Clone> EpsNfa<P> {
     }
 
     fn star(a: EpsNfa<P>) -> Self {
-        let q = a.n;
-        let mut eps = a.eps.clone();
-        for &ai in &a.initials {
+        let EpsNfa {
+            n,
+            mut eps,
+            chr,
+            initials,
+            accepts,
+        } = a;
+        let q = n;
+        for &ai in &initials {
             eps.push((q, ai));
         }
-        for &acc in &a.accepts {
+        for acc in accepts {
             eps.push((acc, q));
         }
         EpsNfa {
-            n: a.n + 1,
+            n: n + 1,
             eps,
-            chr: a.chr.clone(),
+            chr,
             initials: vec![q],
             accepts: vec![q],
         }
@@ -218,39 +449,90 @@ fn compile_eps<A>(algebra: &A, p: &RegexPred<A::Predicate>) -> EpsNfa<A::Predica
 where
     A: BooleanAlgebra,
 {
-    match p {
-        RegexPred::Empty => EpsNfa::empty(),
-        RegexPred::Epsilon => EpsNfa::epsilon(),
-        RegexPred::Elem(c) => EpsNfa::elem(c.clone()),
-        RegexPred::Length(lo, hi) => {
-            let sigma = || EpsNfa::elem(algebra.true_pred());
-            let mut acc = EpsNfa::epsilon();
-            for _ in 0..*lo {
-                acc = EpsNfa::concat(acc, sigma());
-            }
-            match hi {
-                None => EpsNfa::concat(acc, EpsNfa::star(sigma())),
-                Some(h) => {
-                    for _ in 0..h.saturating_sub(*lo) {
-                        acc = EpsNfa::concat(acc, EpsNfa::alt(EpsNfa::epsilon(), sigma()));
+    enum Task<'a, P> {
+        Compile(&'a RegexPred<P>),
+        Concat,
+        Alt,
+        Star,
+        Inter,
+        Compl,
+    }
+    let mut tasks = vec![Task::Compile(p)];
+    let mut values = Vec::new();
+    while let Some(task) = tasks.pop() {
+        match task {
+            Task::Compile(predicate) => match predicate {
+                RegexPred::Empty => values.push(EpsNfa::empty()),
+                RegexPred::Epsilon => values.push(EpsNfa::epsilon()),
+                RegexPred::Elem(class) => values.push(EpsNfa::elem(class.clone())),
+                RegexPred::Length(lo, hi) => {
+                    let sigma = || EpsNfa::elem(algebra.true_pred());
+                    let mut acc = EpsNfa::epsilon();
+                    for _ in 0..*lo {
+                        acc = EpsNfa::concat(acc, sigma());
                     }
-                    acc
+                    values.push(match hi {
+                        None => EpsNfa::concat(acc, EpsNfa::star(sigma())),
+                        Some(upper) => {
+                            for _ in 0..upper.saturating_sub(*lo) {
+                                acc = EpsNfa::concat(acc, EpsNfa::alt(EpsNfa::epsilon(), sigma()));
+                            }
+                            acc
+                        }
+                    });
                 }
+                RegexPred::Concat(left, right) => {
+                    tasks.push(Task::Concat);
+                    tasks.push(Task::Compile(right));
+                    tasks.push(Task::Compile(left));
+                }
+                RegexPred::Alt(left, right) => {
+                    tasks.push(Task::Alt);
+                    tasks.push(Task::Compile(right));
+                    tasks.push(Task::Compile(left));
+                }
+                RegexPred::Star(inner) => {
+                    tasks.push(Task::Star);
+                    tasks.push(Task::Compile(inner));
+                }
+                RegexPred::Inter(left, right) => {
+                    tasks.push(Task::Inter);
+                    tasks.push(Task::Compile(right));
+                    tasks.push(Task::Compile(left));
+                }
+                RegexPred::Compl(inner) => {
+                    tasks.push(Task::Compl);
+                    tasks.push(Task::Compile(inner));
+                }
+            },
+            Task::Concat | Task::Alt | Task::Inter => {
+                let right = values.pop().expect("right compiled regex is present");
+                let left = values.pop().expect("left compiled regex is present");
+                values.push(match task {
+                    Task::Concat => EpsNfa::concat(left, right),
+                    Task::Alt => EpsNfa::alt(left, right),
+                    Task::Inter => {
+                        let left = left.to_sfa(algebra.clone());
+                        let right = right.to_sfa(algebra.clone());
+                        EpsNfa::from_sfa(&left.intersect(&right))
+                    }
+                    _ => unreachable!("binary regex compilation task is known"),
+                });
             }
-        }
-        RegexPred::Concat(a, b) => EpsNfa::concat(compile_eps(algebra, a), compile_eps(algebra, b)),
-        RegexPred::Alt(a, b) => EpsNfa::alt(compile_eps(algebra, a), compile_eps(algebra, b)),
-        RegexPred::Star(a) => EpsNfa::star(compile_eps(algebra, a)),
-        RegexPred::Inter(a, b) => {
-            let sa = compile_eps(algebra, a).to_sfa(algebra.clone());
-            let sb = compile_eps(algebra, b).to_sfa(algebra.clone());
-            EpsNfa::from_sfa(&sa.intersect(&sb))
-        }
-        RegexPred::Compl(a) => {
-            let sa = compile_eps(algebra, a).to_sfa(algebra.clone());
-            EpsNfa::from_sfa(&sa.complement())
+            Task::Star => {
+                let inner = values.pop().expect("star operand is compiled");
+                values.push(EpsNfa::star(inner));
+            }
+            Task::Compl => {
+                let inner = values.pop().expect("complement operand is compiled");
+                let automaton = inner.to_sfa(algebra.clone());
+                values.push(EpsNfa::from_sfa(&automaton.complement()));
+            }
         }
     }
+    values
+        .pop()
+        .expect("the root regex produces one epsilon-NFA")
 }
 
 /// Compile a [`RegexPred`] to an SFA over `A`.

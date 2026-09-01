@@ -142,7 +142,6 @@ impl<S: Into<String>> From<S> for NodeKind {
 /// A syntax node in a parse tree.
 ///
 /// This is an owned representation suitable for storage and manipulation.
-#[derive(Debug, Clone, PartialEq)]
 pub struct SyntaxNode {
     /// Kind of this node.
     pub kind: NodeKind,
@@ -157,6 +156,9 @@ pub struct SyntaxNode {
     /// Whether this node was inserted by error recovery.
     pub is_missing: bool,
 }
+
+#[path = "traits/syntax_node_lifecycle.rs"]
+mod syntax_node_lifecycle;
 
 impl SyntaxNode {
     /// Create a new syntax node.
@@ -219,22 +221,42 @@ impl SyntaxNode {
 
     /// Get text content, recursively collecting from children if needed.
     pub fn get_text(&self) -> String {
-        if let Some(ref text) = self.text {
-            text.clone()
-        } else {
-            self.children.iter().map(|c| c.get_text()).collect()
+        let mut output = String::new();
+        let mut pending = Vec::with_capacity(64);
+        pending.push(self);
+        while let Some(node) = pending.pop() {
+            if let Some(text) = &node.text {
+                output.push_str(text);
+            } else {
+                pending.extend(node.children.iter().rev());
+            }
         }
+        output
     }
 
     /// Check if this node or any descendant has an error.
     pub fn has_error(&self) -> bool {
-        self.is_error || self.children.iter().any(|c| c.has_error())
+        let mut pending = Vec::with_capacity(64);
+        pending.push(self);
+        while let Some(node) = pending.pop() {
+            if node.is_error {
+                return true;
+            }
+            pending.extend(node.children.iter().rev());
+        }
+        false
     }
 
     /// Count error nodes in this tree.
     pub fn error_count(&self) -> usize {
-        let self_count = if self.is_error { 1 } else { 0 };
-        self_count + self.children.iter().map(|c| c.error_count()).sum::<usize>()
+        let mut count = 0usize;
+        let mut pending = Vec::with_capacity(64);
+        pending.push(self);
+        while let Some(node) = pending.pop() {
+            count += usize::from(node.is_error);
+            pending.extend(node.children.iter().rev());
+        }
+        count
     }
 
     /// Find all error nodes in this tree.
@@ -245,11 +267,13 @@ impl SyntaxNode {
     }
 
     fn collect_errors<'a>(&'a self, errors: &mut Vec<&'a SyntaxNode>) {
-        if self.is_error {
-            errors.push(self);
-        }
-        for child in &self.children {
-            child.collect_errors(errors);
+        let mut pending = Vec::with_capacity(64);
+        pending.push(self);
+        while let Some(node) = pending.pop() {
+            if node.is_error {
+                errors.push(node);
+            }
+            pending.extend(node.children.iter().rev());
         }
     }
 
@@ -273,26 +297,38 @@ impl SyntaxNode {
     }
 
     fn collect_by_kind<'a>(&'a self, kind: &str, results: &mut Vec<&'a SyntaxNode>) {
-        if self.kind.name() == kind {
-            results.push(self);
-        }
-        for child in &self.children {
-            child.collect_by_kind(kind, results);
+        let mut pending = Vec::with_capacity(64);
+        pending.push(self);
+        while let Some(node) = pending.pop() {
+            if node.kind.name() == kind {
+                results.push(node);
+            }
+            pending.extend(node.children.iter().rev());
         }
     }
 
     /// Get depth of this tree.
     pub fn depth(&self) -> usize {
-        if self.children.is_empty() {
-            1
-        } else {
-            1 + self.children.iter().map(|c| c.depth()).max().unwrap_or(0)
+        let mut maximum = 0usize;
+        let mut pending = Vec::with_capacity(64);
+        pending.push((self, 1usize));
+        while let Some((node, depth)) = pending.pop() {
+            maximum = maximum.max(depth);
+            pending.extend(node.children.iter().rev().map(|child| (child, depth + 1)));
         }
+        maximum
     }
 
     /// Count total nodes in this tree.
     pub fn node_count(&self) -> usize {
-        1 + self.children.iter().map(|c| c.node_count()).sum::<usize>()
+        let mut count = 0usize;
+        let mut pending = Vec::with_capacity(64);
+        pending.push(self);
+        while let Some(node) = pending.pop() {
+            count += 1;
+            pending.extend(node.children.iter().rev());
+        }
+        count
     }
 }
 
@@ -329,21 +365,54 @@ pub trait SyntaxNodeRef<'a>: Clone + Debug {
 
     /// Convert to owned SyntaxNode.
     fn to_syntax_node(&self) -> SyntaxNode {
-        let mut node = SyntaxNode::new(self.kind(), self.range());
-        node.is_error = self.is_error();
-        node.is_missing = self.is_missing();
-
-        // For leaf nodes, store text directly
-        if self.child_count() == 0 {
-            node.text = Some(self.text().to_string());
+        struct Frame<N> {
+            node: SyntaxNode,
+            children: Vec<N>,
+            next_child: usize,
         }
 
-        // Recursively convert children
-        for child in self.children() {
-            node.children.push(child.to_syntax_node());
+        fn frame<'tree, N>(source: N) -> Frame<N>
+        where
+            N: SyntaxNodeRef<'tree>,
+        {
+            let mut node = SyntaxNode::new(source.kind(), source.range());
+            node.is_error = source.is_error();
+            node.is_missing = source.is_missing();
+            let child_count = source.child_count();
+            if child_count == 0 {
+                node.text = Some(source.text().to_owned());
+            }
+            let mut children = Vec::with_capacity(child_count);
+            children.extend(source.children());
+            Frame {
+                node,
+                children,
+                next_child: 0,
+            }
         }
 
-        node
+        let mut frames = Vec::with_capacity(64);
+        frames.push(frame(self.clone()));
+        loop {
+            let current = frames
+                .last_mut()
+                .expect("the root syntax-reference frame remains until completion");
+            if let Some(child) = current.children.get(current.next_child).cloned() {
+                current.next_child += 1;
+                frames.push(frame(child));
+                continue;
+            }
+
+            let completed = frames
+                .pop()
+                .expect("a completed syntax-reference frame is present")
+                .node;
+            if let Some(parent) = frames.last_mut() {
+                parent.node.children.push(completed);
+            } else {
+                return completed;
+            }
+        }
     }
 }
 

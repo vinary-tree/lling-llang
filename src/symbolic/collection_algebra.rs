@@ -27,6 +27,8 @@
 //! holds regardless of cost.
 
 use std::collections::HashMap;
+use std::fmt;
+use std::hash::{Hash, Hasher};
 
 use super::kat_algebra::BooleanTest;
 use super::ordered_field::{OrderedFieldAlgebra, OrderedFieldPred, OrderedPoint};
@@ -66,7 +68,6 @@ pub(crate) fn minterms<A: BooleanAlgebra>(elem: &A, classes: &[A::Predicate]) ->
 
 /// A bag predicate: a boolean combination of cardinality atoms over an element
 /// predicate type `P`.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum BagPred<P> {
     /// Satisfied by every bag.
     True,
@@ -80,6 +81,182 @@ pub enum BagPred<P> {
     Or(Box<BagPred<P>>, Box<BagPred<P>>),
     /// Negation.
     Not(Box<BagPred<P>>),
+}
+
+impl<P: Clone> Clone for BagPred<P> {
+    fn clone(&self) -> Self {
+        enum Task<'a, P> {
+            Clone(&'a BagPred<P>),
+            And,
+            Or,
+            Not,
+        }
+        let mut tasks = vec![Task::Clone(self)];
+        let mut values = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Clone(predicate) => match predicate {
+                    BagPred::True => values.push(BagPred::True),
+                    BagPred::False => values.push(BagPred::False),
+                    BagPred::Count { class, lo, hi } => values.push(BagPred::Count {
+                        class: class.clone(),
+                        lo: *lo,
+                        hi: *hi,
+                    }),
+                    BagPred::And(left, right) => {
+                        tasks.push(Task::And);
+                        tasks.push(Task::Clone(right));
+                        tasks.push(Task::Clone(left));
+                    }
+                    BagPred::Or(left, right) => {
+                        tasks.push(Task::Or);
+                        tasks.push(Task::Clone(right));
+                        tasks.push(Task::Clone(left));
+                    }
+                    BagPred::Not(inner) => {
+                        tasks.push(Task::Not);
+                        tasks.push(Task::Clone(inner));
+                    }
+                },
+                Task::And | Task::Or => {
+                    let right = values.pop().expect("right bag clone is present");
+                    let left = values.pop().expect("left bag clone is present");
+                    values.push(if matches!(task, Task::And) {
+                        BagPred::And(Box::new(left), Box::new(right))
+                    } else {
+                        BagPred::Or(Box::new(left), Box::new(right))
+                    });
+                }
+                Task::Not => {
+                    let inner = values.pop().expect("negated bag clone is present");
+                    values.push(BagPred::Not(Box::new(inner)));
+                }
+            }
+        }
+        values
+            .pop()
+            .expect("the root bag predicate produces one clone")
+    }
+}
+
+impl<P: PartialEq> PartialEq for BagPred<P> {
+    fn eq(&self, other: &Self) -> bool {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (BagPred::True, BagPred::True) | (BagPred::False, BagPred::False) => {}
+                (
+                    BagPred::Count {
+                        class: lc,
+                        lo: ll,
+                        hi: lh,
+                    },
+                    BagPred::Count {
+                        class: rc,
+                        lo: rl,
+                        hi: rh,
+                    },
+                ) if lc == rc && ll == rl && lh == rh => {}
+                (BagPred::And(ll, lr), BagPred::And(rl, rr))
+                | (BagPred::Or(ll, lr), BagPred::Or(rl, rr)) => {
+                    pending.push((lr, rr));
+                    pending.push((ll, rl));
+                }
+                (BagPred::Not(left), BagPred::Not(right)) => pending.push((left, right)),
+                _ => return false,
+            }
+        }
+        true
+    }
+}
+
+impl<P: Eq> Eq for BagPred<P> {}
+
+impl<P: Hash> Hash for BagPred<P> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut pending = vec![self];
+        while let Some(predicate) = pending.pop() {
+            std::mem::discriminant(predicate).hash(state);
+            match predicate {
+                BagPred::True | BagPred::False => {}
+                BagPred::Count { class, lo, hi } => {
+                    class.hash(state);
+                    lo.hash(state);
+                    hi.hash(state);
+                }
+                BagPred::And(left, right) | BagPred::Or(left, right) => {
+                    pending.push(right);
+                    pending.push(left);
+                }
+                BagPred::Not(inner) => pending.push(inner),
+            }
+        }
+    }
+}
+
+impl<P: fmt::Debug> fmt::Debug for BagPred<P> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        enum Event<'a, P> {
+            Pred(&'a BagPred<P>),
+            Text(&'static str),
+        }
+        let mut events = vec![Event::Pred(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Text(text) => write!(f, "{text}")?,
+                Event::Pred(predicate) => match predicate {
+                    BagPred::True => write!(f, "True")?,
+                    BagPred::False => write!(f, "False")?,
+                    BagPred::Count { class, lo, hi } => {
+                        write!(f, "Count {{ class: {class:?}, lo: {lo:?}, hi: {hi:?} }}")?;
+                    }
+                    BagPred::And(left, right) | BagPred::Or(left, right) => {
+                        write!(
+                            f,
+                            "{}(",
+                            if matches!(predicate, BagPred::And(_, _)) {
+                                "And"
+                            } else {
+                                "Or"
+                            }
+                        )?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Pred(right));
+                        events.push(Event::Text(", "));
+                        events.push(Event::Pred(left));
+                    }
+                    BagPred::Not(inner) => {
+                        write!(f, "Not(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Pred(inner));
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<P> Drop for BagPred<P> {
+    fn drop(&mut self) {
+        fn drain<P>(predicate: &mut BagPred<P>, pending: &mut Vec<BagPred<P>>) {
+            match predicate {
+                BagPred::And(left, right) | BagPred::Or(left, right) => {
+                    pending.push(std::mem::replace(&mut **right, BagPred::True));
+                    pending.push(std::mem::replace(&mut **left, BagPred::True));
+                }
+                BagPred::Not(inner) => {
+                    pending.push(std::mem::replace(&mut **inner, BagPred::True));
+                }
+                BagPred::True | BagPred::False | BagPred::Count { .. } => {}
+            }
+        }
+        let mut pending = Vec::new();
+        drain(self, &mut pending);
+        while let Some(mut predicate) = pending.pop() {
+            drain(&mut predicate, &mut pending);
+        }
+    }
 }
 
 /// The effective Boolean algebra of multisets (bags) over an element algebra.
@@ -124,18 +301,21 @@ impl<A: BooleanAlgebra> BagAlgebra<A> {
 
     /// Collect every distinct `class` appearing in `Count` atoms.
     fn collect_classes(&self, pred: &BagPred<A::Predicate>, out: &mut Vec<A::Predicate>) {
-        match pred {
-            BagPred::Count { class, .. } => {
-                if !out.iter().any(|c| c == class) {
-                    out.push(class.clone());
+        let mut pending = vec![pred];
+        while let Some(predicate) = pending.pop() {
+            match predicate {
+                BagPred::Count { class, .. } => {
+                    if !out.iter().any(|candidate| candidate == class) {
+                        out.push(class.clone());
+                    }
                 }
+                BagPred::And(left, right) | BagPred::Or(left, right) => {
+                    pending.push(right);
+                    pending.push(left);
+                }
+                BagPred::Not(inner) => pending.push(inner),
+                BagPred::True | BagPred::False => {}
             }
-            BagPred::And(a, b) | BagPred::Or(a, b) => {
-                self.collect_classes(a, out);
-                self.collect_classes(b, out);
-            }
-            BagPred::Not(x) => self.collect_classes(x, out),
-            BagPred::True | BagPred::False => {}
         }
     }
 
@@ -167,47 +347,80 @@ impl<A: BooleanAlgebra> BagAlgebra<A> {
         counts: &[u64],
         cover: &HashMap<A::Predicate, Vec<usize>>,
     ) -> bool {
-        match pred {
-            BagPred::True => true,
-            BagPred::False => false,
-            BagPred::Count { class, lo, hi } => {
-                let sum: u64 = cover
-                    .get(class)
-                    .map(|idxs| idxs.iter().map(|&i| counts[i]).sum())
-                    .unwrap_or(0);
-                sum >= *lo && hi.map(|h| sum <= h).unwrap_or(true)
-            }
-            BagPred::And(a, b) => {
-                self.eval_counts(a, counts, cover) && self.eval_counts(b, counts, cover)
-            }
-            BagPred::Or(a, b) => {
-                self.eval_counts(a, counts, cover) || self.eval_counts(b, counts, cover)
-            }
-            BagPred::Not(x) => !self.eval_counts(x, counts, cover),
+        enum Frame<'a, P> {
+            Eval(&'a BagPred<P>),
+            Not,
+            AndRight(&'a BagPred<P>),
+            OrRight(&'a BagPred<P>),
         }
+        let mut frames = vec![Frame::Eval(pred)];
+        let mut result = None;
+        while let Some(frame) = frames.pop() {
+            match frame {
+                Frame::Eval(predicate) => match predicate {
+                    BagPred::True => result = Some(true),
+                    BagPred::False => result = Some(false),
+                    BagPred::Count { class, lo, hi } => {
+                        let sum: u64 = cover
+                            .get(class)
+                            .map(|indices| indices.iter().map(|&index| counts[index]).sum())
+                            .unwrap_or(0);
+                        result = Some(sum >= *lo && hi.map(|bound| sum <= bound).unwrap_or(true));
+                    }
+                    BagPred::And(left, right) => {
+                        frames.push(Frame::AndRight(right));
+                        frames.push(Frame::Eval(left));
+                    }
+                    BagPred::Or(left, right) => {
+                        frames.push(Frame::OrRight(right));
+                        frames.push(Frame::Eval(left));
+                    }
+                    BagPred::Not(inner) => {
+                        frames.push(Frame::Not);
+                        frames.push(Frame::Eval(inner));
+                    }
+                },
+                Frame::Not => result = Some(!result.take().expect("negated count is evaluated")),
+                Frame::AndRight(right) => {
+                    if result.take().expect("left count conjunction is evaluated") {
+                        frames.push(Frame::Eval(right));
+                    } else {
+                        result = Some(false);
+                    }
+                }
+                Frame::OrRight(right) => {
+                    if result.take().expect("left count disjunction is evaluated") {
+                        result = Some(true);
+                    } else {
+                        frames.push(Frame::Eval(right));
+                    }
+                }
+            }
+        }
+        result.expect("the root bag predicate produces one result")
     }
 
     /// The smallest count cap `B` such that counts `≥ B` are indistinguishable
     /// from `B` for every atom (`1 + max threshold`).
     fn count_cap(&self, pred: &BagPred<A::Predicate>) -> u64 {
-        fn go<P>(pred: &BagPred<P>, acc: &mut u64) {
-            match pred {
+        let mut acc = 0;
+        let mut pending = vec![pred];
+        while let Some(predicate) = pending.pop() {
+            match predicate {
                 BagPred::Count { lo, hi, .. } => {
-                    *acc = (*acc).max(*lo);
+                    acc = acc.max(*lo);
                     if let Some(h) = hi {
-                        *acc = (*acc).max(*h);
+                        acc = acc.max(*h);
                     }
                 }
-                BagPred::And(a, b) | BagPred::Or(a, b) => {
-                    go(a, acc);
-                    go(b, acc);
+                BagPred::And(left, right) | BagPred::Or(left, right) => {
+                    pending.push(right);
+                    pending.push(left);
                 }
-                BagPred::Not(x) => go(x, acc),
+                BagPred::Not(inner) => pending.push(inner),
                 BagPred::True | BagPred::False => {}
             }
         }
-        let mut acc = 0;
-        go(pred, &mut acc);
         acc + 1
     }
 
@@ -298,17 +511,58 @@ impl<A: BooleanAlgebra> BooleanAlgebra for BagAlgebra<A> {
     }
 
     fn evaluate(&self, pred: &Self::Predicate, elem: &Self::Domain) -> bool {
-        match pred {
-            BagPred::True => true,
-            BagPred::False => false,
-            BagPred::Count { class, lo, hi } => {
-                let count = elem.iter().filter(|e| self.elem.evaluate(class, e)).count() as u64;
-                count >= *lo && hi.map(|h| count <= h).unwrap_or(true)
-            }
-            BagPred::And(a, b) => self.evaluate(a, elem) && self.evaluate(b, elem),
-            BagPred::Or(a, b) => self.evaluate(a, elem) || self.evaluate(b, elem),
-            BagPred::Not(x) => !self.evaluate(x, elem),
+        enum Frame<'a, P> {
+            Eval(&'a BagPred<P>),
+            Not,
+            AndRight(&'a BagPred<P>),
+            OrRight(&'a BagPred<P>),
         }
+        let mut frames = vec![Frame::Eval(pred)];
+        let mut result = None;
+        while let Some(frame) = frames.pop() {
+            match frame {
+                Frame::Eval(predicate) => match predicate {
+                    BagPred::True => result = Some(true),
+                    BagPred::False => result = Some(false),
+                    BagPred::Count { class, lo, hi } => {
+                        let count = elem
+                            .iter()
+                            .filter(|value| self.elem.evaluate(class, value))
+                            .count() as u64;
+                        result =
+                            Some(count >= *lo && hi.map(|bound| count <= bound).unwrap_or(true));
+                    }
+                    BagPred::And(left, right) => {
+                        frames.push(Frame::AndRight(right));
+                        frames.push(Frame::Eval(left));
+                    }
+                    BagPred::Or(left, right) => {
+                        frames.push(Frame::OrRight(right));
+                        frames.push(Frame::Eval(left));
+                    }
+                    BagPred::Not(inner) => {
+                        frames.push(Frame::Not);
+                        frames.push(Frame::Eval(inner));
+                    }
+                },
+                Frame::Not => result = Some(!result.take().expect("negated bag is evaluated")),
+                Frame::AndRight(right) => {
+                    if result.take().expect("left bag conjunction is evaluated") {
+                        frames.push(Frame::Eval(right));
+                    } else {
+                        result = Some(false);
+                    }
+                }
+                Frame::OrRight(right) => {
+                    if result.take().expect("left bag disjunction is evaluated") {
+                        result = Some(true);
+                    } else {
+                        frames.push(Frame::Eval(right));
+                    }
+                }
+            }
+        }
+        result.expect("the root bag predicate produces one result")
     }
 }
 
@@ -468,7 +722,6 @@ impl Singleton for super::KatBooleanAlgebra {
 
 /// A map predicate: a boolean combination of entry-cardinality atoms over a key
 /// predicate type `KP` and value predicate type `VP`.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum MapPred<KP, VP> {
     /// Satisfied by every map.
     True,
@@ -487,6 +740,202 @@ pub enum MapPred<KP, VP> {
     Or(Box<MapPred<KP, VP>>, Box<MapPred<KP, VP>>),
     /// Negation.
     Not(Box<MapPred<KP, VP>>),
+}
+
+impl<KP: Clone, VP: Clone> Clone for MapPred<KP, VP> {
+    fn clone(&self) -> Self {
+        enum Task<'a, KP, VP> {
+            Clone(&'a MapPred<KP, VP>),
+            And,
+            Or,
+            Not,
+        }
+        let mut tasks = vec![Task::Clone(self)];
+        let mut values = Vec::new();
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Clone(predicate) => match predicate {
+                    MapPred::True => values.push(MapPred::True),
+                    MapPred::False => values.push(MapPred::False),
+                    MapPred::CountEntries {
+                        key_class,
+                        val_class,
+                        lo,
+                        hi,
+                    } => values.push(MapPred::CountEntries {
+                        key_class: key_class.clone(),
+                        val_class: val_class.clone(),
+                        lo: *lo,
+                        hi: *hi,
+                    }),
+                    MapPred::And(left, right) => {
+                        tasks.push(Task::And);
+                        tasks.push(Task::Clone(right));
+                        tasks.push(Task::Clone(left));
+                    }
+                    MapPred::Or(left, right) => {
+                        tasks.push(Task::Or);
+                        tasks.push(Task::Clone(right));
+                        tasks.push(Task::Clone(left));
+                    }
+                    MapPred::Not(inner) => {
+                        tasks.push(Task::Not);
+                        tasks.push(Task::Clone(inner));
+                    }
+                },
+                Task::And | Task::Or => {
+                    let right = values.pop().expect("right map clone is present");
+                    let left = values.pop().expect("left map clone is present");
+                    values.push(if matches!(task, Task::And) {
+                        MapPred::And(Box::new(left), Box::new(right))
+                    } else {
+                        MapPred::Or(Box::new(left), Box::new(right))
+                    });
+                }
+                Task::Not => {
+                    let inner = values.pop().expect("negated map clone is present");
+                    values.push(MapPred::Not(Box::new(inner)));
+                }
+            }
+        }
+        values
+            .pop()
+            .expect("the root map predicate produces one clone")
+    }
+}
+
+impl<KP: PartialEq, VP: PartialEq> PartialEq for MapPred<KP, VP> {
+    fn eq(&self, other: &Self) -> bool {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (MapPred::True, MapPred::True) | (MapPred::False, MapPred::False) => {}
+                (
+                    MapPred::CountEntries {
+                        key_class: lk,
+                        val_class: lv,
+                        lo: ll,
+                        hi: lh,
+                    },
+                    MapPred::CountEntries {
+                        key_class: rk,
+                        val_class: rv,
+                        lo: rl,
+                        hi: rh,
+                    },
+                ) if lk == rk && lv == rv && ll == rl && lh == rh => {}
+                (MapPred::And(ll, lr), MapPred::And(rl, rr))
+                | (MapPred::Or(ll, lr), MapPred::Or(rl, rr)) => {
+                    pending.push((lr, rr));
+                    pending.push((ll, rl));
+                }
+                (MapPred::Not(left), MapPred::Not(right)) => pending.push((left, right)),
+                _ => return false,
+            }
+        }
+        true
+    }
+}
+
+impl<KP: Eq, VP: Eq> Eq for MapPred<KP, VP> {}
+
+impl<KP: Hash, VP: Hash> Hash for MapPred<KP, VP> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut pending = vec![self];
+        while let Some(predicate) = pending.pop() {
+            std::mem::discriminant(predicate).hash(state);
+            match predicate {
+                MapPred::True | MapPred::False => {}
+                MapPred::CountEntries {
+                    key_class,
+                    val_class,
+                    lo,
+                    hi,
+                } => {
+                    key_class.hash(state);
+                    val_class.hash(state);
+                    lo.hash(state);
+                    hi.hash(state);
+                }
+                MapPred::And(left, right) | MapPred::Or(left, right) => {
+                    pending.push(right);
+                    pending.push(left);
+                }
+                MapPred::Not(inner) => pending.push(inner),
+            }
+        }
+    }
+}
+
+impl<KP: fmt::Debug, VP: fmt::Debug> fmt::Debug for MapPred<KP, VP> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        enum Event<'a, KP, VP> {
+            Pred(&'a MapPred<KP, VP>),
+            Text(&'static str),
+        }
+        let mut events = vec![Event::Pred(self)];
+        while let Some(event) = events.pop() {
+            match event {
+                Event::Text(text) => write!(f, "{text}")?,
+                Event::Pred(predicate) => match predicate {
+                    MapPred::True => write!(f, "True")?,
+                    MapPred::False => write!(f, "False")?,
+                    MapPred::CountEntries {
+                        key_class,
+                        val_class,
+                        lo,
+                        hi,
+                    } => write!(
+                        f,
+                        "CountEntries {{ key_class: {key_class:?}, val_class: {val_class:?}, lo: {lo:?}, hi: {hi:?} }}"
+                    )?,
+                    MapPred::And(left, right) | MapPred::Or(left, right) => {
+                        write!(
+                            f,
+                            "{}(",
+                            if matches!(predicate, MapPred::And(_, _)) {
+                                "And"
+                            } else {
+                                "Or"
+                            }
+                        )?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Pred(right));
+                        events.push(Event::Text(", "));
+                        events.push(Event::Pred(left));
+                    }
+                    MapPred::Not(inner) => {
+                        write!(f, "Not(")?;
+                        events.push(Event::Text(")"));
+                        events.push(Event::Pred(inner));
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<KP, VP> Drop for MapPred<KP, VP> {
+    fn drop(&mut self) {
+        fn drain<KP, VP>(predicate: &mut MapPred<KP, VP>, pending: &mut Vec<MapPred<KP, VP>>) {
+            match predicate {
+                MapPred::And(left, right) | MapPred::Or(left, right) => {
+                    pending.push(std::mem::replace(&mut **right, MapPred::True));
+                    pending.push(std::mem::replace(&mut **left, MapPred::True));
+                }
+                MapPred::Not(inner) => {
+                    pending.push(std::mem::replace(&mut **inner, MapPred::True));
+                }
+                MapPred::True | MapPred::False | MapPred::CountEntries { .. } => {}
+            }
+        }
+        let mut pending = Vec::new();
+        drain(self, &mut pending);
+        while let Some(mut predicate) = pending.pop() {
+            drain(&mut predicate, &mut pending);
+        }
+    }
 }
 
 type FeasibleMapCounts<KP, VP> = (Vec<KP>, Vec<VP>, Vec<Vec<u64>>);
@@ -552,47 +1001,50 @@ impl<K: Singleton, V: BooleanAlgebra> MapAlgebra<K, V> {
         keys: &mut Vec<K::Predicate>,
         vals: &mut Vec<V::Predicate>,
     ) {
-        match pred {
-            MapPred::CountEntries {
-                key_class,
-                val_class,
-                ..
-            } => {
-                if !keys.iter().any(|c| c == key_class) {
-                    keys.push(key_class.clone());
+        let mut pending = vec![pred];
+        while let Some(predicate) = pending.pop() {
+            match predicate {
+                MapPred::CountEntries {
+                    key_class,
+                    val_class,
+                    ..
+                } => {
+                    if !keys.iter().any(|candidate| candidate == key_class) {
+                        keys.push(key_class.clone());
+                    }
+                    if !vals.iter().any(|candidate| candidate == val_class) {
+                        vals.push(val_class.clone());
+                    }
                 }
-                if !vals.iter().any(|c| c == val_class) {
-                    vals.push(val_class.clone());
+                MapPred::And(left, right) | MapPred::Or(left, right) => {
+                    pending.push(right);
+                    pending.push(left);
                 }
+                MapPred::Not(inner) => pending.push(inner),
+                MapPred::True | MapPred::False => {}
             }
-            MapPred::And(a, b) | MapPred::Or(a, b) => {
-                self.collect_classes(a, keys, vals);
-                self.collect_classes(b, keys, vals);
-            }
-            MapPred::Not(x) => self.collect_classes(x, keys, vals),
-            MapPred::True | MapPred::False => {}
         }
     }
 
     fn count_cap(&self, pred: &MapPred<K::Predicate, V::Predicate>) -> u64 {
-        fn go<KP, VP>(pred: &MapPred<KP, VP>, acc: &mut u64) {
-            match pred {
+        let mut acc = 0;
+        let mut pending = vec![pred];
+        while let Some(predicate) = pending.pop() {
+            match predicate {
                 MapPred::CountEntries { lo, hi, .. } => {
-                    *acc = (*acc).max(*lo);
+                    acc = acc.max(*lo);
                     if let Some(h) = hi {
-                        *acc = (*acc).max(*h);
+                        acc = acc.max(*h);
                     }
                 }
-                MapPred::And(a, b) | MapPred::Or(a, b) => {
-                    go(a, acc);
-                    go(b, acc);
+                MapPred::And(left, right) | MapPred::Or(left, right) => {
+                    pending.push(right);
+                    pending.push(left);
                 }
-                MapPred::Not(x) => go(x, acc),
+                MapPred::Not(inner) => pending.push(inner),
                 MapPred::True | MapPred::False => {}
             }
         }
-        let mut acc = 0;
-        go(pred, &mut acc);
         acc + 1
     }
 
@@ -620,38 +1072,83 @@ impl<K: Singleton, V: BooleanAlgebra> MapAlgebra<K, V> {
         key_ms: &[K::Predicate],
         val_ms: &[V::Predicate],
     ) -> bool {
-        match pred {
-            MapPred::True => true,
-            MapPred::False => false,
-            MapPred::CountEntries {
-                key_class,
-                val_class,
-                lo,
-                hi,
-            } => {
-                let mut sum = 0u64;
-                for (i, km) in key_ms.iter().enumerate() {
-                    if !self.key.is_satisfiable(&self.key.and(km, key_class)) {
-                        continue;
-                    }
-                    for (j, vm) in val_ms.iter().enumerate() {
-                        if self.val.is_satisfiable(&self.val.and(vm, val_class)) {
-                            sum += counts[i][j];
+        enum Frame<'a, KP, VP> {
+            Eval(&'a MapPred<KP, VP>),
+            Not,
+            AndRight(&'a MapPred<KP, VP>),
+            OrRight(&'a MapPred<KP, VP>),
+        }
+        let mut frames = vec![Frame::Eval(pred)];
+        let mut result = None;
+        while let Some(frame) = frames.pop() {
+            match frame {
+                Frame::Eval(predicate) => match predicate {
+                    MapPred::True => result = Some(true),
+                    MapPred::False => result = Some(false),
+                    MapPred::CountEntries {
+                        key_class,
+                        val_class,
+                        lo,
+                        hi,
+                    } => {
+                        let mut sum = 0u64;
+                        for (i, key_minterm) in key_ms.iter().enumerate() {
+                            if !self
+                                .key
+                                .is_satisfiable(&self.key.and(key_minterm, key_class))
+                            {
+                                continue;
+                            }
+                            for (j, value_minterm) in val_ms.iter().enumerate() {
+                                if self
+                                    .val
+                                    .is_satisfiable(&self.val.and(value_minterm, val_class))
+                                {
+                                    sum += counts[i][j];
+                                }
+                            }
                         }
+                        result = Some(sum >= *lo && hi.map(|bound| sum <= bound).unwrap_or(true));
+                    }
+                    MapPred::And(left, right) => {
+                        frames.push(Frame::AndRight(right));
+                        frames.push(Frame::Eval(left));
+                    }
+                    MapPred::Or(left, right) => {
+                        frames.push(Frame::OrRight(right));
+                        frames.push(Frame::Eval(left));
+                    }
+                    MapPred::Not(inner) => {
+                        frames.push(Frame::Not);
+                        frames.push(Frame::Eval(inner));
+                    }
+                },
+                Frame::Not => {
+                    result = Some(!result.take().expect("negated map count is evaluated"))
+                }
+                Frame::AndRight(right) => {
+                    if result
+                        .take()
+                        .expect("left map count conjunction is evaluated")
+                    {
+                        frames.push(Frame::Eval(right));
+                    } else {
+                        result = Some(false);
                     }
                 }
-                sum >= *lo && hi.map(|h| sum <= h).unwrap_or(true)
+                Frame::OrRight(right) => {
+                    if result
+                        .take()
+                        .expect("left map count disjunction is evaluated")
+                    {
+                        result = Some(true);
+                    } else {
+                        frames.push(Frame::Eval(right));
+                    }
+                }
             }
-            MapPred::And(a, b) => {
-                self.eval_counts(a, counts, key_ms, val_ms)
-                    && self.eval_counts(b, counts, key_ms, val_ms)
-            }
-            MapPred::Or(a, b) => {
-                self.eval_counts(a, counts, key_ms, val_ms)
-                    || self.eval_counts(b, counts, key_ms, val_ms)
-            }
-            MapPred::Not(x) => !self.eval_counts(x, counts, key_ms, val_ms),
         }
+        result.expect("the root map predicate produces one result")
     }
 
     /// Search for a feasible (key-minterm × value-minterm) count matrix honoring
@@ -769,27 +1266,66 @@ impl<K: Singleton, V: BooleanAlgebra> BooleanAlgebra for MapAlgebra<K, V> {
     }
 
     fn evaluate(&self, pred: &Self::Predicate, elem: &Self::Domain) -> bool {
-        match pred {
-            MapPred::True => true,
-            MapPred::False => false,
-            MapPred::CountEntries {
-                key_class,
-                val_class,
-                lo,
-                hi,
-            } => {
-                let count = elem
-                    .iter()
-                    .filter(|(k, v)| {
-                        self.key.evaluate(key_class, k) && self.val.evaluate(val_class, v)
-                    })
-                    .count() as u64;
-                count >= *lo && hi.map(|h| count <= h).unwrap_or(true)
-            }
-            MapPred::And(a, b) => self.evaluate(a, elem) && self.evaluate(b, elem),
-            MapPred::Or(a, b) => self.evaluate(a, elem) || self.evaluate(b, elem),
-            MapPred::Not(x) => !self.evaluate(x, elem),
+        enum Frame<'a, KP, VP> {
+            Eval(&'a MapPred<KP, VP>),
+            Not,
+            AndRight(&'a MapPred<KP, VP>),
+            OrRight(&'a MapPred<KP, VP>),
         }
+        let mut frames = vec![Frame::Eval(pred)];
+        let mut result = None;
+        while let Some(frame) = frames.pop() {
+            match frame {
+                Frame::Eval(predicate) => match predicate {
+                    MapPred::True => result = Some(true),
+                    MapPred::False => result = Some(false),
+                    MapPred::CountEntries {
+                        key_class,
+                        val_class,
+                        lo,
+                        hi,
+                    } => {
+                        let count = elem
+                            .iter()
+                            .filter(|(key, value)| {
+                                self.key.evaluate(key_class, key)
+                                    && self.val.evaluate(val_class, value)
+                            })
+                            .count() as u64;
+                        result =
+                            Some(count >= *lo && hi.map(|bound| count <= bound).unwrap_or(true));
+                    }
+                    MapPred::And(left, right) => {
+                        frames.push(Frame::AndRight(right));
+                        frames.push(Frame::Eval(left));
+                    }
+                    MapPred::Or(left, right) => {
+                        frames.push(Frame::OrRight(right));
+                        frames.push(Frame::Eval(left));
+                    }
+                    MapPred::Not(inner) => {
+                        frames.push(Frame::Not);
+                        frames.push(Frame::Eval(inner));
+                    }
+                },
+                Frame::Not => result = Some(!result.take().expect("negated map is evaluated")),
+                Frame::AndRight(right) => {
+                    if result.take().expect("left map conjunction is evaluated") {
+                        frames.push(Frame::Eval(right));
+                    } else {
+                        result = Some(false);
+                    }
+                }
+                Frame::OrRight(right) => {
+                    if result.take().expect("left map disjunction is evaluated") {
+                        result = Some(true);
+                    } else {
+                        frames.push(Frame::Eval(right));
+                    }
+                }
+            }
+        }
+        result.expect("the root map predicate produces one result")
     }
 }
 

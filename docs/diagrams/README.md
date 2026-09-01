@@ -34,7 +34,8 @@ fifth toolchain keeps the visual style consistent. **Kroki** (the pgmcp HTTP
 gateway) is an optional fallback; the local engines above are the required path.
 
 **Math in diagram labels.** PlantUML (`.puml`) and TikZ (`.tex`) typeset
-mathematics with LaTeX — `<latex>\oplus</latex>` via JLaTeXMath in PlantUML, math
+mathematics with LaTeX — a PlantUML `latex` element containing $`\oplus`$ is
+rendered via JLaTeXMath, while math
 macros in TikZ — rather than Unicode literals, per the pgmcp
 *diagrams-plantuml-latex* guideline and [`STYLE.md`](../STYLE.md) §4. Graphviz
 (`.dot`) and D2 (`.d2`) have no LaTeX facility, so their automaton and dataflow
@@ -98,8 +99,12 @@ edge [color="#607D8B", fontcolor="#37474F", fontname="Helvetica", fontsize=11, p
 // start:  __start__ [shape=point, width=0.01]; __start__ -> q0;
 ```
 
-PlantUML sources reuse the `skinparam` blocks from the existing `.puml` files;
-TikZ sources `\definecolor{found}{HTML}{BBDEFB}` … one per palette row.
+PlantUML sources reuse the `skinparam` blocks from the existing `.puml` files.
+TikZ sources define one named color per palette row in their preamble, for example:
+
+```latex
+\definecolor{found}{HTML}{BBDEFB}
+```
 
 ## 3. Directory & naming
 
@@ -112,19 +117,19 @@ whitelists `docs/diagrams/**/*.svg`.
 
 ## 4. Embedding in docs
 
-```markdown
+````markdown
 ![<descriptive alt text>](../diagrams/<section>/<name>.svg)
 
 *<one-line color legend>.*
 
 <details><summary>Text view</summary>
 
-```text
+```art
 <original ASCII/Unicode art, kept verbatim as the accessible fallback>
 ```
 
 </details>
-```
+````
 
 Relative prefix = one `../` per directory level below `docs/`. Always keep the
 `<details>` fallback.
@@ -162,4 +167,6 @@ diagrams are added.)
 | `architecture/builder-lifecycle-state.svg` | PlantUML | `api/c-abi-reference.md` |
 | `architecture/wfst-import-compose-sequence.svg` | PlantUML | `architecture/resource-abi.md`, `security/abi-trust-model.md` |
 | `architecture/composition-product-component.svg` | PlantUML | `architecture/resource-abi.md` |
+| `architecture/stack-safety-runtime.svg` | PlantUML | `architecture/stack-safety.md` |
+| `architecture/stack-safety-evidence-flow.svg` | PlantUML | `architecture/stack-safety.md` |
 | `algorithms/*` · `asr/*` · `advanced/*` · `transducers/*` · `correction/*` | Graphviz / PlantUML / D2 / TikZ | the corresponding topic docs |

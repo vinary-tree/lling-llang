@@ -26,7 +26,7 @@
 # tests/support/); no dependent crate is pulled in.
 #
 # Requires a nightly toolchain with the `rust-src` component (for `-Zbuild-std`,
-# which rebuilds std -- and every dependency, including the sibling
+# which rebuilds std -- and every dependency, including the registry-resolved
 # `vinary-tree-interop` crate at the ABI boundary -- with the sanitizer
 # runtime). `--target` is passed so host build scripts and proc-macros
 # (moniker-derive) are NOT instrumented; only the target test binary is.
