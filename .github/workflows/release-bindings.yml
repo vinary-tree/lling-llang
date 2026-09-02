@@ -36,6 +36,7 @@ jobs:
           git clone --depth 1 --branch v4.0.0-rc.6 https://github.com/vinary-tree/vinary-tree-interop.git "$parent/vinary-tree-interop"
       - uses: dtolnay/rust-toolchain@1.95
         with: { components: clippy }
+      - run: python3 scripts/sync-release-version.py
       - name: Verify immutable tag matches the package version
         run: >-
           python3 scripts/check-release-ref.py

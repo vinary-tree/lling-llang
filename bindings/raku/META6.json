@@ -1,7 +1,7 @@
 {
   "name": "Lling-Llang",
   "version": "4.0.0-rc.6",
-  "description": "Composable weighted finite-state transducers and host-defined automata for Raku",
+  "description": "Build, compose, optimize, and run semiring-generic weighted automata for speech recognition, text processing, and constrained generation.",
   "auth": "zef:vinary-tree",
   "api": "1",
   "license": "Apache-2.0",

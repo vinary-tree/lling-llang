@@ -8,7 +8,7 @@ edition = "2021"
 # --all-features floor is set by sysinfo 0.39 (1.95).
 rust-version = "1.95"
 authors = ["Dylon Edwards <dylon.devo@gmail.com>"]
-description = "WFST framework for text normalization and grammar correction"
+description = "Build, compose, optimize, and run semiring-generic weighted automata for speech recognition, text processing, and constrained generation."
 license = "Apache-2.0"
 repository = "https://github.com/vinary-tree/lling-llang"
 keywords = ["wfst", "lattice", "cfg", "text-normalization", "grammar-correction"]

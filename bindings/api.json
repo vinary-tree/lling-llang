@@ -627,10 +627,13 @@
     "registries": {
       "cargo": "4.0.0-rc.6",
       "cmake": "4.0.0-rc.6",
+      "julia": "4.0.0-rc.6",
       "npm": "4.0.0-rc.6",
-      "pkgConfig": "4.0.0-rc.6"
+      "pkgConfig": "4.0.0-rc.6",
+      "zef": "4.0.0-rc.6"
     },
     "distTag": "next",
     "sourceTag": "v4.0.0-rc.6"
-  }
+  },
+  "productDescription": "Build, compose, optimize, and run semiring-generic weighted automata for speech recognition, text processing, and constrained generation."
 }

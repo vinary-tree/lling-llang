@@ -5,11 +5,17 @@
   "coordinates": {
     "npmPackage": "@vinary-tree/lling-llang"
   },
+  "metadata": {
+    "summary": "Build and compose weighted automata for speech, text, and language processing",
+    "description": "Build, compose, optimize, and run semiring-generic weighted automata for speech recognition, text processing, and constrained generation."
+  },
   "registries": {
     "cargo": "4.0.0-rc.6",
     "cmake": "4.0.0-rc.6",
+    "julia": "4.0.0-rc.6",
     "npm": "4.0.0-rc.6",
-    "pkgConfig": "4.0.0-rc.6"
+    "pkgConfig": "4.0.0-rc.6",
+    "zef": "4.0.0-rc.6"
   },
   "dependencies": {
     "libdictenstein": "4.0.0-rc.6",

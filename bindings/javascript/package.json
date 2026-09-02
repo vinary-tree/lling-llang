@@ -1,7 +1,7 @@
 {
   "name": "@vinary-tree/lling-llang",
   "version": "4.0.0-rc.6",
-  "description": "Modular JavaScript, TypeScript, and ClojureScript bindings for lling-llang",
+  "description": "Build, compose, optimize, and run semiring-generic weighted automata for speech recognition, text processing, and constrained generation.",
   "author": {
     "name": "Dylon Edwards",
     "email": "dylon.devo@gmail.com"

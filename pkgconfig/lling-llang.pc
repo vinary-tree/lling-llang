@@ -4,7 +4,7 @@ libdir=${prefix}/lib
 includedir=${prefix}/include
 
 Name: lling-llang
-Description: High-performance weighted finite-state transducer algebra
+Description: Build and compose weighted automata for speech, text, and language processing
 Version: 4.0.0-rc.6
 Requires: vinary-tree-interop = 4.0.0-rc.6
 Libs: -L${libdir} -llling_llang
