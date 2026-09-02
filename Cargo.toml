@@ -178,6 +178,10 @@ name = "ffi_compose_benchmarks"
 harness = false
 required-features = ["ffi"]
 
+[[bench]]
+name = "certified_bisimulation_benchmarks"
+harness = false
+
 [package.metadata.docs.rs]
 all-features = true
 

@@ -189,17 +189,12 @@ Correction-layer implementations:
 | [libgrammstein: Phonetic Rescoring](integration/libgrammstein/phonetic-rescore.md) | Phonetic lattice rescoring with Zompist rules |
 | [F1R3FLY.io: Vision](integration/f1r3fly/vision.md) · [PathMap](integration/f1r3fly/pathmap-backend.md) · [MeTTaIL](integration/f1r3fly/mettail-layer.md) · [MORK](integration/f1r3fly/mork-layer.md) · [MeTTaTron](integration/f1r3fly/mettatron-layer.md) · [Rholang](integration/f1r3fly/rholang-layer.md) | Distributed correction over the F1R3FLY stack |
 | [External: Speech/NLP](integration/external/speech-nlp.md) · [Text Correction](integration/external/text-correction.md) · [Library Usage](integration/external/library-usage.md) | Integrating lling-llang into external systems |
-| [libcpg Integration and Migration](integration/external/libcpg.md) | Formal-first migration sequence, trait compatibility, graph adoption, assurance-ready reports, concurrency, and required-red properties |
 
 ### Security
 
 | Document | Description |
 |----------|-------------|
 | [ABI Trust Model](security/abi-trust-model.md) | Foreign scalar-WFST providers as untrusted input: validation duties, the F1 case study, panic containment, threading trust, residual assumptions |
-| [Optimizer and ABI Contracts](security/optimizer-abi-contracts.md) | Threat model for tape compatibility, exactness claims, plan cycles, deterministic commit, budgets, cancellation, retains, and opaque ABI v1 layout |
-| [libcpg Evidence Trust Model](security/libcpg-evidence-trust-model.md) | Five-coordinate freshness, result-digest framing, trust/independence, rejection semantics, resource safety, and audit evidence |
-| [libcpg Manifest and Fact-Identity Trust Model](security/libcpg-manifest-trust-model.md) | Identity substitution, tombstone and dense-index integrity, exact source evidence, cache non-promotion, deterministic publication, and bounded decoding controls |
-| [Provider Boundary Trust Model](security/provider-boundary-trust-model.md) | Provider-neutral exactness authority, control-domain independence, stale identity rejection, cache isolation, ownership, and dependency threats |
 
 ### Release engineering
 

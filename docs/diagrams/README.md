@@ -33,7 +33,6 @@ diagrams: committed SVGs make its inline-preview advantage moot, and avoiding a
 fifth toolchain keeps the visual style consistent. **Kroki** (the pgmcp HTTP
 gateway) is an optional fallback; the local engines above are the required path.
 
-<!-- vdl-disable MATH006 -->
 **Math in diagram labels.** PlantUML (`.puml`) and TikZ (`.tex`) typeset
 mathematics with LaTeX — a PlantUML `latex` element containing $`\oplus`$ is
 rendered via JLaTeXMath, while math
@@ -42,7 +41,6 @@ macros in TikZ — rather than Unicode literals, per the pgmcp
 (`.dot`) and D2 (`.d2`) have no LaTeX facility, so their automaton and dataflow
 labels keep the readable Unicode forms (`a:ε/0.5`, `q₀`) — which render
 identically in the SVG.
-<!-- vdl-enable MATH006 -->
 
 ## 2. Color palette — one intuitive color per concept
 
@@ -189,6 +187,4 @@ diagrams are added.)
 | `optimization/strong-bisimulation-flow.svg` | PlantUML | `optimization/certified-strong-bisimulation-contract.md` |
 | `optimization/strong-bisimulation-evidence.svg` | PlantUML | `optimization/certified-strong-bisimulation-contract.md` |
 | `optimization/dictionary-surface-architecture.svg` | PlantUML | `optimization/dictionary-surface-contract.md` |
-| `architecture/stack-safety-runtime.svg` | PlantUML | `architecture/stack-safety.md` |
-| `architecture/stack-safety-evidence-flow.svg` | PlantUML | `architecture/stack-safety.md` |
 | `algorithms/*` · `asr/*` · `advanced/*` · `transducers/*` · `correction/*` | Graphviz / PlantUML / D2 / TikZ | the corresponding topic docs |

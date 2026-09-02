@@ -25,16 +25,19 @@ endif
 :Build forward and reverse CSR\nplus refinable state/transition partitions; <<#B2DFDB>>
 :Seed blocks by initial color\nseed splitter worklist; <<#C8E6C9>>
 while (Splitter worklist nonempty?) is (yes)
-  :Count predecessors by action and block\nusing explicit arrays; <<#C8E6C9>>
-  :Split affected state and transition blocks\nqueue only the smaller half; <<#C8E6C9>>
-  :Append safe split and shared modal nodes\nto replay and witness DAGs; <<#E1BEE7>>
+  :Count predecessors by action and target block\nusing reverse CSR and explicit arrays; <<#C8E6C9>>
+  :Refine the source-label subgroup\ninto selected and guarded remainder; <<#B2DFDB>>
+  :Build guarded reaches and confined predicates\nfrom hash-consed modal nodes; <<#E1BEE7>>
+  :Split confined, then reaching members\nqueue only the smaller physical half; <<#C8E6C9>>
+  :Append both exact physical splits\nto the replay trace; <<#E1BEE7>>
 endwhile (no)
 :Assign canonical block IDs\nin increasing state order; <<#C8E6C9>>
-:Independently replay every split\nand check final stability; <<#FFCDD2>>
+:Independently rebuild and replay every split\ncheck canonical output and final stability; <<#FFCDD2>>
 if (Queried states share a block?) then (yes)
   :Return canonical relation\nand replay certificate; <<#BBDEFB>>
 else (no)
-  :Return an oriented distinguishing formula DAG\nevaluated by an explicit pushdown machine; <<#E1BEE7>>
+  :Select the earliest separating physical split\norient its predicate toward the left state; <<#E1BEE7>>
+  :Evaluate the shared formula DAG\nwith an explicit heap pushdown machine; <<#E1BEE7>>
 endif
 stop
 @enduml

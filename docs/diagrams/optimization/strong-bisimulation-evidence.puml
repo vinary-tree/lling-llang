@@ -9,7 +9,7 @@ skinparam rectangle {
   FontColor #102027
 }
 
-title <b>Strong-bisimulation pre-implementation evidence</b>\n<size:11>every executable path is bounded, headless, repository-backed, and zero-swap</size>
+title <b>Certified strong-bisimulation evidence</b>\n<size:11>formal contract · executable refinement · independent replay · bounded acceptance</size>
 
 rectangle "<b>Normative contract</b>\nlabelled transfer in both directions\nvalidated input · canonical relation\ncertificate · witness · resource envelope" as CONTRACT #FFF59D
 
@@ -18,23 +18,32 @@ rectangle "<b>TLA+ / TLC</b>\n14,916 valid lifecycle states\n3 malformed dense-i
 rectangle "<b>Z3</b>\n15 exact SAT/UNSAT controls\nvalidation · refinement · canonicality\nwork · heap · native stack" as SMT #E1BEE7
 rectangle "<b>Executable oracle</b>\n5,124 complete small LTS/color cases\nindependent greatest fixed point\nstack-safe characteristic formulas" as ORACLE #C8E6C9
 rectangle "<b>Mutation controls</b>\n10 injected semantic defects\nall killed for their named reason" as MUTANTS #FFCDD2
-rectangle "<b>Required-red Rust</b>\n13 future-API properties\nred only on missing CertifiedBisimulation" as RED #FFE0B2
-rectangle "<b>Production implementation gate</b>\nno Rust algorithm change in this milestone\nfuture code must turn red properties green\nand preserve every ledger row" as GATE #BBDEFB
+rectangle "<b>Invariant ledger</b>\n97 exhaustive formal rows\n13 implementation properties\nno unregistered theorem or control" as LEDGER #FFF59D
+rectangle "<b>Required-green Rust</b>\n13 generated properties\nall execute against CertifiedBisimulation" as GREEN #C8E6C9
+rectangle "<b>Production Valmari core</b>\nvalidated radix + dual CSR\nrefinable state/transition partitions\nguarded modal split trace" as CORE #BBDEFB
+rectangle "<b>Independent replay</b>\nrebuild guards and formulas\nvalidate every split + final stability\nnever call the producer" as REPLAY #FFCDD2
+rectangle "<b>Bounded acceptance</b>\n100,000-state / 64 KiB stack\nCriterion crossover matrix\nheadless heaptrack: 89.03 MiB RSS" as ACCEPT #FFE0B2
 
 CONTRACT -down-> ROCQ
 CONTRACT -down-> TLA
 CONTRACT -down-> SMT
-ROCQ -down-> ORACLE
-TLA -down-> ORACLE
-SMT -down-> ORACLE
+ROCQ -down-> LEDGER
+TLA -down-> LEDGER
+SMT -down-> LEDGER
+CONTRACT -down-> ORACLE
 ORACLE -down-> MUTANTS
-MUTANTS -down-> RED
-RED -down-> GATE
+MUTANTS -down-> GREEN
+LEDGER -down-> GREEN
+CORE -down-> GREEN
+CORE -down-> REPLAY
+GREEN -down-> ACCEPT
+REPLAY -down-> ACCEPT
 
-note right of GATE
+note right of ACCEPT
   No unchecked proof escapes.
   No malformed endpoint is skipped.
   No recursive production traversal.
   No whole-partition rescans.
+  No GUI profiler or tmpfs scratch.
 end note
 @enduml

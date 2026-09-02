@@ -27,7 +27,7 @@ if [[ "${LLING_LLANG_FORMAL_SCOPED:-0}" != "1" ]]; then
   if command -v systemd-run >/dev/null 2>&1 \
      && systemd-run --user --scope -q true >/dev/null 2>&1; then
     exec systemd-run --user --scope -q --expand-environment=no \
-      -p MemoryMax=4G -p MemorySwapMax=0 -p CPUQuota=400% -p TasksMax=64 \
+      -p MemoryMax=4G -p MemorySwapMax=0 -p CPUQuota=100% -p TasksMax=64 \
       --setenv=LLING_LLANG_FORMAL_SCOPED=1 \
       --setenv=TMPDIR="$TMP_DIR" \
       --setenv=CARGO_BUILD_JOBS=1 \
@@ -159,8 +159,10 @@ python3 "$ROOT/scripts/check-strong-bisimulation-invariants.py" \
   2>&1 | tee "$LOG_DIR/strong-bisimulation-invariant-registry.log"
 python3 "$ROOT/scripts/check-dictionary-surface-invariants.py" \
   2>&1 | tee "$LOG_DIR/dictionary-surface-invariant-registry.log"
-python3 "$ROOT/scripts/check-stack-safety-dispositions.py" \
+python3 -B "$ROOT/scripts/check-stack-safety-dispositions.py" \
   2>&1 | tee "$LOG_DIR/stack-safety-disposition-registry.log"
+python3 -B "$ROOT/scripts/check-stack-safety-dispositions.py" --self-test \
+  2>&1 | tee "$LOG_DIR/stack-safety-disposition-self-test.log"
 
 # These two registries intentionally attest exact protected baselines in
 # independently owned sibling repositories. They belong to the complete local
@@ -191,6 +193,15 @@ run_tlc abi-composition \
 run_tlc cascade "$ROOT/proofs/tla/CascadeOrder.tla" "$ROOT/proofs/tla/MC/CascadeOrder.cfg"
 run_tlc cascade-fair "$ROOT/proofs/tla/CascadeOrder.tla" "$ROOT/proofs/tla/MC/CascadeOrderFair.cfg"
 run_tlc cascade-overlap "$ROOT/proofs/tla/CascadeOrder.tla" "$ROOT/proofs/tla/MC/CascadeOrderOverlappingAlphabets.cfg"
+run_tlc stack-balanced \
+  "$ROOT/proofs/tla/StackMachineProtocol.tla" \
+  "$ROOT/proofs/tla/MC/StackMachineBalanced.cfg"
+run_tlc stack-deep \
+  "$ROOT/proofs/tla/StackMachineProtocol.tla" \
+  "$ROOT/proofs/tla/MC/StackMachineDeep.cfg"
+run_tlc stack-short-circuit \
+  "$ROOT/proofs/tla/StackMachineProtocol.tla" \
+  "$ROOT/proofs/tla/MC/StackMachineShortCircuit.cfg"
 
 run_tlc optimizer-lifecycle \
   "$ROOT/proofs/tla/OptimizerLifecycle.tla" \
@@ -656,33 +667,27 @@ diff -u \
 "$ROOT/proofs/verify-abi-bounded.sh"
 "$ROOT/scripts/check-neutral-foundation-required-red.sh"
 "$ROOT/scripts/check-libcpg-manifest-required-red.sh"
-"$ROOT/scripts/check-strong-bisimulation-required-red.sh"
+"$ROOT/scripts/check-strong-bisimulation-properties.sh"
 
-# The documentation linter is temporarily opt-in while its maintainer completes
-# the corruption-safety fix. Keep formal verification usable without invoking a
-# tool that is currently prohibited from touching this documentation tree.
-if [[ "${LLING_RUN_VINARY_DOC_LINT:-0}" == "1" ]]; then
-  if ! command -v vinary-doc-lint >/dev/null 2>&1; then
-    echo "ERROR: vinary-doc-lint was requested but is unavailable." >&2
-    exit 127
-  fi
-  vinary-doc-lint check \
-    "$ROOT/docs/optimization/certified-strong-bisimulation-contract.md" \
-    "$ROOT/docs/optimization/formal-verification.md" \
-    "$ROOT/proofs/doc/proof-status.md" \
-    "$ROOT/docs/BIBLIOGRAPHY.md" \
-    "$ROOT/docs/README.md" \
-    "$ROOT/docs/diagrams/README.md" \
-    2>&1 | tee "$LOG_DIR/strong-bisimulation-doc-lint.log"
-  vinary-doc-lint --diagram-tools check \
-    "$ROOT/docs/optimization/certified-strong-bisimulation-contract.md" \
-    "$ROOT/docs/diagrams/optimization/strong-bisimulation-flow.puml" \
-    "$ROOT/docs/diagrams/optimization/strong-bisimulation-evidence.puml" \
-    "$ROOT/docs/diagrams/optimization/strong-bisimulation-flow.svg" \
-    "$ROOT/docs/diagrams/optimization/strong-bisimulation-evidence.svg" \
-    2>&1 | tee "$LOG_DIR/strong-bisimulation-diagram-lint.log"
-else
-  echo "Skipping vinary-doc-lint while its corruption-safety fix is pending."
+if ! command -v vinary-doc-lint >/dev/null 2>&1; then
+  echo "ERROR: vinary-doc-lint is required for formal documentation acceptance." >&2
+  exit 127
 fi
+vinary-doc-lint check \
+  "$ROOT/docs/optimization/certified-strong-bisimulation-contract.md" \
+  "$ROOT/docs/optimization/formal-verification.md" \
+  "$ROOT/proofs/doc/proof-status.md" \
+  "$ROOT/docs/BIBLIOGRAPHY.md" \
+  "$ROOT/docs/README.md" \
+  "$ROOT/docs/diagrams/README.md" \
+  2>&1 | tee "$LOG_DIR/strong-bisimulation-doc-lint.log"
+vinary-doc-lint --diagram-tools check \
+  "$ROOT/docs/optimization/certified-strong-bisimulation-contract.md" \
+  "$ROOT/docs/diagrams/optimization/strong-bisimulation-flow.puml" \
+  "$ROOT/docs/diagrams/optimization/strong-bisimulation-evidence.puml" \
+  "$ROOT/docs/diagrams/optimization/strong-bisimulation-flow.svg" \
+  "$ROOT/docs/diagrams/optimization/strong-bisimulation-evidence.svg" \
+  2>&1 | tee "$LOG_DIR/strong-bisimulation-diagram-lint.log"
 
+rm -rf "$MUTANT_DIR"
 echo "Formal verification completed successfully. Evidence logs: $LOG_DIR"

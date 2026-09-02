@@ -13,7 +13,7 @@ if [[ "${LLING_LLANG_FORMAL_SCOPED:-0}" != "1" ]]; then
   if command -v systemd-run >/dev/null 2>&1 \
      && systemd-run --user --scope -q true >/dev/null 2>&1; then
     exec systemd-run --user --scope -q --expand-environment=no \
-      -p MemoryMax=4G -p MemorySwapMax=0 -p TasksMax=64 \
+      -p MemoryMax=4G -p MemorySwapMax=0 -p CPUQuota=100% -p TasksMax=64 \
       --setenv=LLING_LLANG_FORMAL_SCOPED=1 \
       --setenv=CARGO_BUILD_JOBS=1 \
       --setenv=CARGO_TARGET_DIR="$TARGET_DIR" \
@@ -47,7 +47,7 @@ run_missing_api_red() {
   shift 2
   local log="$LOG_DIR/${owner}-required-red.log"
   set +e
-  cargo test --offline --manifest-path "$manifest" --no-run 2>&1 | tee "$log" >/dev/null
+  cargo test --locked --offline --manifest-path "$manifest" --no-run 2>&1 | tee "$log" >/dev/null
   local status="${PIPESTATUS[0]}"
   set -e
   if [[ "$status" -ne 101 ]]; then

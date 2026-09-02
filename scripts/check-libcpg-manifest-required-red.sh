@@ -13,7 +13,7 @@ if [[ "${LLING_LLANG_FORMAL_SCOPED:-0}" != "1" ]]; then
   if command -v systemd-run >/dev/null 2>&1 \
      && systemd-run --user --scope -q true >/dev/null 2>&1; then
     exec systemd-run --user --scope -q --expand-environment=no \
-      -p MemoryMax=4G -p MemorySwapMax=0 -p TasksMax=64 \
+      -p MemoryMax=4G -p MemorySwapMax=0 -p CPUQuota=100% -p TasksMax=64 \
       --setenv=LLING_LLANG_FORMAL_SCOPED=1 \
       --setenv=CARGO_BUILD_JOBS=1 \
       --setenv=CARGO_TARGET_DIR="$TARGET_DIR" \
@@ -43,7 +43,7 @@ reject_transport_failure() {
 
 manifest_log="$LOG_DIR/libcpg-manifest-required-red.log"
 set +e
-cargo test --offline \
+cargo test --locked --offline \
   --manifest-path "$ROOT/proofs/required_red/owners/libcpg_manifest/Cargo.toml" \
   --no-run 2>&1 | tee "$manifest_log" >/dev/null
 manifest_status="${PIPESTATUS[0]}"

@@ -22,7 +22,7 @@ TLA_CONFIGS = (
 )
 SMT = "proofs/smt/vco-e4-strong-bisimulation.smt2"
 SMT_EXPECTED = ROOT / "proofs/smt/vco-e4-strong-bisimulation.expected"
-PROPERTY_SUITE = "proofs/required_red/strong_bisimulation/tests/contracts.rs"
+PROPERTY_SUITE = "proofs/properties/strong_bisimulation/tests/contracts.rs"
 REGISTRY = ROOT / "proofs/doc/strong-bisimulation-invariants.tsv"
 COLUMNS = [
     "id",
@@ -98,6 +98,7 @@ def rocq_property(symbol: str) -> str:
             "formula",
             "witness",
             "saturation",
+            "saturated",
             "preimage",
             "class_cert",
         )
@@ -177,7 +178,7 @@ def row(
         "proof_strength": strength,
         "property_suite": PROPERTY_SUITE,
         "property_name": property_name,
-        "implementation_state": "required-red-before-production",
+        "implementation_state": "implemented-and-required-green",
         "model_evidence": evidence,
     }
 
@@ -302,7 +303,7 @@ def validate_registry(expected: list[dict[str, str]]) -> None:
     referenced = {entry["property_name"] for entry in actual}
     if defined != referenced:
         fail(
-            "required-red property coverage differs from the formal ledger: "
+            "required-green property coverage differs from the formal ledger: "
             f"unreferenced={sorted(defined - referenced)}, "
             f"missing={sorted(referenced - defined)}"
         )

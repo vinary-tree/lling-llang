@@ -80,9 +80,8 @@ fabricate a DOI**.
   *(DOI and Springer metadata re-verified 2026-08-30.)*
 - <a id="ref-nist1804"></a>**[NIST 2015]** National Institute of Standards
   and Technology. (2015). *Secure Hash Standard (SHS).* FIPS PUB 180-4.
-  [Official NIST publication record](https://csrc.nist.gov/pubs/fips/180-4/upd1/final)
-  *(The publication record and its DOI metadata were re-verified 2026-08-30;
-  the DOI resolver currently returns HTTP 404 to the documentation linter.)*
+  [Official NIST FIPS 180-4 publication](https://csrc.nist.gov/files/pubs/fips/180-4/final/docs/fips180-4.pdf)
+  *(The official publication metadata was re-verified 2026-09-01.)*
 
 - <a id="ref-kildall1973"></a>**[Kildall 1973]** Kildall, G. A. (1973).
   *A Unified Approach to Global Program Optimization.* POPL '73:194–206.
@@ -200,7 +199,7 @@ References backing the stack-safe execution architecture
 - <a id="ref-reynolds1972"></a>**[Reynolds 1972]** Reynolds, J. C. (1972).
   *Definitional Interpreters for Higher-Order Programming Languages.*
   Proceedings of the 25th ACM National Conference, volume 2:717–740.
-  [https://doi.org/10.1145/800194.805852](https://doi.org/10.1145/800194.805852)
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F800194.805852)
 - <a id="ref-danvy2001"></a>**[Danvy & Nielsen 2001]** Danvy, O., & Nielsen,
   L. R. (2001). *Defunctionalization at Work.* BRICS Report Series 8(23).
   [https://doi.org/10.7146/brics.v8i23.21684](https://doi.org/10.7146/brics.v8i23.21684)
@@ -216,7 +215,7 @@ References backing the stack-safe execution architecture
 - <a id="ref-claessen2000"></a>**[Claessen & Hughes 2000]** Claessen, K., &
   Hughes, J. (2000). *QuickCheck: A Lightweight Tool for Random Testing of
   Haskell Programs.* ACM SIGPLAN Notices 35(9):268–279.
-  [https://doi.org/10.1145/357766.351266](https://doi.org/10.1145/357766.351266)
+  [Crossref DOI metadata](https://api.crossref.org/works/10.1145%2F357766.351266)
 
 ---
 

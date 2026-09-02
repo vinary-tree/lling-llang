@@ -289,6 +289,18 @@ Proof.
     + exact bisim.
 Qed.
 
+Lemma saturated_split_contains_bisimilarity :
+  forall relation predicate,
+    contains_bisimilarity relation ->
+    saturated predicate ->
+    contains_bisimilarity (split_relation relation predicate).
+Proof.
+  intros relation predicate contains predicate_saturated left right bisim.
+  split.
+  - now apply contains.
+  - now apply predicate_saturated.
+Qed.
+
 Inductive replayed_refinement :
     (State -> State -> Prop) -> Prop :=
 | replay_initial :
@@ -307,7 +319,7 @@ Theorem replayed_refinement_equivalence : forall relation,
 Proof.
   intros relation replay.
   induction replay.
-  - exact same_color_equivalence.
+  - apply same_color_equivalence.
   - now apply split_relation_equivalence.
 Qed.
 
@@ -316,7 +328,7 @@ Theorem replayed_refinement_contains_bisimilarity : forall relation,
 Proof.
   intros relation replay.
   induction replay.
-  - exact same_color_contains_bisimilarity.
+  - apply same_color_contains_bisimilarity.
   - apply safe_split_contains_bisimilarity.
     + now apply replayed_refinement_equivalence.
     + exact IHreplay.
@@ -383,12 +395,141 @@ Fixpoint satisfies (state : State) (formula : modal_formula) : Prop :=
         transition state action target /\ satisfies target inner
   end.
 
+Lemma modal_formula_preserved_by_strong_bisimulation :
+  forall relation,
+    @strong_bisimulation State Action Color transition color relation ->
+    forall formula left right,
+      relation left right ->
+      (satisfies left formula <-> satisfies right formula).
+Proof.
+  intros relation bisimulation formula.
+  induction formula as
+      [expected
+      | left_formula left_induction right_formula right_induction
+      | inner inner_induction
+      | action inner inner_induction];
+    intros left right related.
+  - simpl.
+    pose proof (proj1 (bisimulation left right related)) as colors.
+    unfold same_color in colors.
+    now rewrite colors.
+  - simpl.
+    rewrite (left_induction left right related).
+    rewrite (right_induction left right related).
+    tauto.
+  - simpl.
+    rewrite (inner_induction left right related).
+    tauto.
+  - simpl.
+    pose proof (bisimulation left right related) as matching.
+    destruct matching as [_ [forward backward]].
+    split.
+    + intros [left_target [left_step left_holds]].
+      destruct (forward action left_target left_step)
+        as [right_target [right_step targets_related]].
+      exists right_target; split; [exact right_step |].
+      apply (proj1 (inner_induction left_target right_target targets_related)).
+      exact left_holds.
+    + intros [right_target [right_step right_holds]].
+      destruct (backward action right_target right_step)
+        as [left_target [left_step targets_related]].
+      exists left_target; split; [exact left_step |].
+      apply (proj2 (inner_induction left_target right_target targets_related)).
+      exact right_holds.
+Qed.
+
+Theorem modal_formula_is_saturated : forall formula,
+  @saturated State Action Color transition color
+    (fun state => satisfies state formula).
+Proof.
+  intros formula left right [relation [bisimulation related]].
+  eapply modal_formula_preserved_by_strong_bisimulation.
+  - exact bisimulation.
+  - exact related.
+Qed.
+
+(** A source-label subgroup records a modal guard describing the target
+    region still represented by that subgroup.  When a transition cluster
+    selects [target] inside [guard], Valmari's first physical split separates
+    sources confined to the selected region from sources that also reach the
+    guarded remainder.  The second split separates sources that reach the
+    selected region from those that do not. *)
+Definition guarded_reaches_formula
+    (action : Action) (guard target : modal_formula) : modal_formula :=
+  FormulaDiamond action (FormulaAnd guard target).
+
+Definition guarded_confined_formula
+    (action : Action) (guard target : modal_formula) : modal_formula :=
+  FormulaAnd
+    (guarded_reaches_formula action guard target)
+    (FormulaNot
+      (FormulaDiamond action
+        (FormulaAnd guard (FormulaNot target)))).
+
+Lemma satisfies_guarded_reaches_formula : forall state action guard target,
+  satisfies state (guarded_reaches_formula action guard target) <->
+  exists successor,
+    transition state action successor /\
+    satisfies successor guard /\
+    satisfies successor target.
+Proof.
+  intros state action guard target.
+  unfold guarded_reaches_formula; simpl; firstorder.
+Qed.
+
+Lemma satisfies_guarded_confined_formula : forall state action guard target,
+  satisfies state (guarded_confined_formula action guard target) <->
+  (exists successor,
+      transition state action successor /\
+      satisfies successor guard /\
+      satisfies successor target) /\
+  ~ (exists successor,
+      transition state action successor /\
+      satisfies successor guard /\
+      ~ satisfies successor target).
+Proof.
+  intros state action guard target.
+  unfold guarded_confined_formula, guarded_reaches_formula; simpl; firstorder.
+Qed.
+
+Theorem guarded_valmari_predicates_are_saturated :
+  forall action guard target,
+    @saturated State Action Color transition color
+      (fun state =>
+        satisfies state (guarded_reaches_formula action guard target)) /\
+    @saturated State Action Color transition color
+      (fun state =>
+        satisfies state (guarded_confined_formula action guard target)).
+Proof.
+  intros action guard target; split; apply modal_formula_is_saturated.
+Qed.
+
 Definition certifies (formula : modal_formula) (set : State -> Prop) : Prop :=
   forall state, satisfies state formula <-> set state.
 
 Definition distinguishes
     (formula : modal_formula) (left right : State) : Prop :=
   satisfies left formula /\ ~ satisfies right formula.
+
+(** The deterministic witness query scans the canonical physical-split trace
+    and selects its first predicate on which the queried states differ.  The
+    predicate itself or its negation orients that separator toward the left
+    state without expanding the final class characteristic formula. *)
+Lemma differing_modal_predicate_has_oriented_witness :
+  forall predicate left right,
+    (satisfies left predicate \/ ~ satisfies left predicate) ->
+    (satisfies right predicate \/ ~ satisfies right predicate) ->
+    ~ (satisfies left predicate <-> satisfies right predicate) ->
+    exists witness, distinguishes witness left right.
+Proof.
+  intros predicate left right left_decidable right_decidable differs.
+  destruct left_decidable as [left_holds | left_misses];
+    destruct right_decidable as [right_holds | right_misses].
+  - exfalso; apply differs; tauto.
+  - exists predicate; unfold distinguishes; tauto.
+  - exists (FormulaNot predicate); unfold distinguishes; simpl; tauto.
+  - exfalso; apply differs; tauto.
+Qed.
 
 Lemma color_formula_certifies_color_block : forall representative,
   certifies (FormulaColor (color representative))
@@ -537,6 +678,156 @@ Proof.
   - right.
     exact (@separated_states_have_distinguishing_formula
       relation left right replay separated).
+Qed.
+
+(** Valmari's labelled nondeterministic driver refines a state block by two
+    modal predicates for a transition cluster and its current source-label
+    subgroup guard: states confined to the selected guarded target region,
+    and states reaching that region.  The guard is essential: transitions
+    outside the subgroup must not falsify confinement.  This replay relation
+    records those predicates directly.  The preceding invariance theorem is
+    the semantic bridge that makes these implementation-shaped refinements as
+    safe as a plain predecessor split. *)
+Inductive modal_replayed_refinement :
+    (State -> State -> Prop) -> Prop :=
+| modal_replay_initial :
+    modal_replayed_refinement (@same_color State Color color)
+| modal_replay_split : forall relation predicate,
+    modal_replayed_refinement relation ->
+    (forall state,
+      satisfies state predicate \/ ~ satisfies state predicate) ->
+    modal_replayed_refinement
+      (@split_relation State relation
+        (fun state => satisfies state predicate)).
+
+Theorem modal_replayed_refinement_equivalence : forall relation,
+  modal_replayed_refinement relation -> relation_equivalence relation.
+Proof.
+  intros relation replay.
+  induction replay as
+      [|relation predicate replay induction predicate_decidable].
+  - apply same_color_equivalence.
+  - destruct induction as [reflexive [symmetric transitive]].
+    unfold relation_equivalence.
+    split.
+    + intros state; split; [now apply reflexive | tauto].
+    + split.
+      * intros left right [related same_predicate].
+        split; [now apply symmetric | tauto].
+      * intros left middle right
+          [left_middle left_predicate]
+          [middle_right right_predicate].
+        split.
+        -- eapply transitive; eauto.
+        -- tauto.
+Qed.
+
+Theorem modal_replayed_refinement_contains_bisimilarity : forall relation,
+  modal_replayed_refinement relation ->
+  @contains_bisimilarity State Action Color transition color relation.
+Proof.
+  intros relation replay.
+  induction replay as
+      [|relation predicate replay induction predicate_decidable].
+  - apply same_color_contains_bisimilarity.
+  - intros left right bisim.
+    split.
+    + now apply induction.
+    + apply modal_formula_is_saturated.
+      exact bisim.
+Qed.
+
+Lemma modal_split_preserves_class_certificates :
+  forall relation predicate,
+    classes_have_certificates relation ->
+    (forall state,
+      satisfies state predicate \/ ~ satisfies state predicate) ->
+    classes_have_certificates
+      (@split_relation State relation
+        (fun state => satisfies state predicate)).
+Proof.
+  intros relation predicate certificates predicate_decidable representative.
+  destruct (certificates representative)
+    as [source_formula source_certificate].
+  destruct (predicate_decidable representative)
+    as [representative_holds | representative_misses].
+  - exists (FormulaAnd source_formula predicate).
+    intros state.
+    unfold split_relation.
+    simpl.
+    rewrite (source_certificate state).
+    tauto.
+  - exists (FormulaAnd source_formula (FormulaNot predicate)).
+    intros state.
+    unfold split_relation.
+    simpl.
+    rewrite (source_certificate state).
+    tauto.
+Qed.
+
+Theorem modal_replayed_classes_have_characteristic_formulas :
+  forall relation,
+    modal_replayed_refinement relation ->
+    classes_have_certificates relation.
+Proof.
+  intros relation replay.
+  induction replay as
+      [|relation predicate replay induction predicate_decidable].
+  - exact initial_colors_have_certificates.
+  - now apply modal_split_preserves_class_certificates.
+Qed.
+
+Theorem modal_separated_states_have_distinguishing_formula :
+  forall relation left right,
+    modal_replayed_refinement relation ->
+    ~ relation left right ->
+    exists formula, distinguishes formula left right.
+Proof.
+  intros relation left right replay separated.
+  destruct (modal_replayed_classes_have_characteristic_formulas replay left)
+    as [formula certificate].
+  exists formula.
+  split.
+  - apply (proj2 (certificate left)).
+    apply (proj1 (modal_replayed_refinement_equivalence replay)).
+  - intro right_holds.
+    apply separated.
+    apply (proj1 (certificate right)); exact right_holds.
+Qed.
+
+Definition modal_relation_certificate_accepts
+    (relation : State -> State -> Prop) : Prop :=
+  modal_replayed_refinement relation /\
+  @strong_bisimulation State Action Color transition color relation /\
+  (forall left right, relation left right \/ ~ relation left right).
+
+Theorem accepted_modal_relation_certificate_exact :
+  forall relation left right,
+    modal_relation_certificate_accepts relation ->
+    (relation left right <->
+      @bisimilar State Action Color transition color left right).
+Proof.
+  intros relation left right [replay [stable decidable]].
+  split.
+  - intro related.
+    exists relation; auto.
+  - intro bisim.
+    now apply (modal_replayed_refinement_contains_bisimilarity replay).
+Qed.
+
+Theorem accepted_modal_certificate_decides_with_witness :
+  forall relation left right,
+    modal_relation_certificate_accepts relation ->
+    relation left right \/
+    exists formula, distinguishes formula left right.
+Proof.
+  intros relation left right [replay [stable decidable]].
+  destruct (decidable left right) as [related | separated].
+  - now left.
+  - right.
+    eapply modal_separated_states_have_distinguishing_formula.
+    + exact replay.
+    + exact separated.
 Qed.
 
 End CharacteristicWitnesses.
