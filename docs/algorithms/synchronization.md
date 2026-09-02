@@ -37,7 +37,7 @@ After 'b:y': consumed 2 inputs, 2 outputs → delay = 0
 
 Synchronization transforms a transducer so that delays are handled in a canonical way, with draining states to emit residual symbols at final states. The figure below contrasts a delayed transducer ($`a{:}\varepsilon`$ runs the input tape ahead) with its synchronized form, whose states carry the residual delay $`(q, \text{in} \mid \text{out})`$ and whose draining tail flushes leftover symbols at the final state.
 
-![Synchronization before/after: a delayed transducer with an a:ε arc that runs the input tape one symbol ahead, beside its synchronized form whose states carry the residual delay (q, in∣out) and a draining tail that emits leftover output symbols before the final state](../diagrams/algorithms/synchronization.svg)
+![Synchronization before and after: a delayed transducer with an a-to-epsilon arc that runs the input tape one symbol ahead, beside its synchronized form whose states carry an input-versus-output residual delay and a draining tail that emits leftover output symbols before the final state](../diagrams/algorithms/synchronization.svg)
 
 *Teal = transducer-family accent; the **before** cluster shows the delay swinging $`-1 \to 0`$ as $`a{:}\varepsilon`$ then $`b{:}x`$, $`c{:}y`$ are read; the **after** cluster carries the residual delay inside each state $`(\text{state}, \text{in} \mid \text{out})`$, green-bold arcs emit a buffered residual, and grey-dashed $`\varepsilon`$ arcs in the amber `DRAIN` state flush leftovers before the green double-ring final.*
 
@@ -208,7 +208,7 @@ if sync.is_expanded(0) {
 
 ## Algorithm Details
 
-Synchronization is a lazy reachability search over **synchronized states** — pairs of an original state and the residual delay accumulated to reach it. The loop invariant is that every reachable synchronized state carries a *canonical* delay (its common prefix already cancelled, so at most one tape is non-empty); expanding a state therefore produces at most one successor per original arc, and a bounded delay guarantees the search visits finitely many states. The literate chunks below name the three phases — `⟨ step a synchronized state ⟩`, `⟨ cancel the common prefix ⟩`, and `⟨ drain residuals at a final state ⟩` — and `⟨ synchronize ⟩` assembles them.
+Synchronization is a lazy reachability search over **synchronized states**—pairs of an original state and the residual delay accumulated to reach it. The loop invariant is that every reachable synchronized state carries a *canonical* delay (its common prefix already cancelled, so at most one tape is non-empty); expanding a state therefore produces at most one successor per original arc, and a bounded delay guarantees the search visits finitely many states. The literate chunks below name the three phases—`step a synchronized state`, `cancel the common prefix`, and `drain residuals at a final state`—and `synchronize` assembles them.
 
 ### Synchronized States
 
@@ -304,7 +304,7 @@ After sync:
 
 ### Time Complexity
 
-The synchronized transducer has $`O((\lvert Q\rvert + \lvert E\rvert) \times (\lvert\Sigma\rvert^d + \lvert\Delta\rvert^d))`$ arcs to realize:
+The synchronized transducer has $`\mathcal{O}((\lvert Q\rvert + \lvert E\rvert) \times (\lvert\Sigma\rvert^d + \lvert\Delta\rvert^d))`$ arcs to realize:
 
 ```math
 O((\lvert Q\rvert + \lvert E\rvert) \times (\lvert\Sigma\rvert^d + \lvert\Delta\rvert^d))
@@ -319,7 +319,7 @@ Where:
 
 ### Space Complexity
 
-The synchronized state space is $`O(\lvert Q\rvert \times \lvert\Sigma\rvert^d \times \lvert\Delta\rvert^d)`$:
+The synchronized state space is $`\mathcal{O}(\lvert Q\rvert \times \lvert\Sigma\rvert^d \times \lvert\Delta\rvert^d)`$:
 
 ```math
 O(\lvert Q\rvert \times \lvert\Sigma\rvert^d \times \lvert\Delta\rvert^d)

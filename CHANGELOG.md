@@ -68,7 +68,7 @@ is `math` — per [`docs/STYLE.md`](docs/STYLE.md); symbols are defined in
 ### Changed
 - **Documentation math notation → MathJax LaTeX.** Migrated every repository and
   `docs/` Markdown document from the previous Unicode-glyphs-in-backticks style to
-  **MathJax LaTeX** delimited for GitHub-flavored Markdown (inline $`…`$ spans,
+  **MathJax LaTeX** delimited for GitHub-flavored Markdown (inline math spans,
   display `math` fences). Rewrote [`docs/STYLE.md`](docs/STYLE.md) §1 and
   [`docs/NOTATION.md`](docs/NOTATION.md) — whose **LaTeX** column is now the
   canonical Unicode → LaTeX map — and updated `README.md`, `ARCHITECTURE.md`,
@@ -83,7 +83,7 @@ is `math` — per [`docs/STYLE.md`](docs/STYLE.md); symbols are defined in
   performance figures in [`docs/advanced/gpu-acceleration.md`](docs/advanced/gpu-acceleration.md)
   to Braun et al. (the crate ships no GPU kernels); softened the `f1r3fly` "full stack"
   claim to what is actually wired; and normalized doubled-backtick code spans
-  (`` `X` `` → `X`), which had rendered with spurious visible backticks on GitHub.
+  (`X` → `X`), which had rendered with spurious visible backticks on GitHub.
 - README and module doc-comments cross-link into the new `docs/` tier rather
   than restating concepts inline.
 
@@ -147,7 +147,7 @@ semiring↔lattice bridge into the dictionary-family crates.
   Coq+TLA⁺ suite; adds a Notation glossary, a compiled quick-start, and literate
   shortest-distance/Viterbi pseudocode; replaces the malformed ASCII lattice
   with a color-coded WFSA SVG plus a plain-text fallback; wraps all inline math
-  in backticks and uses the Unicode bar `∣` (U+2223) for cardinality.
+  in backticks and uses the Unicode bar $`\mid`$ (U+2223) for cardinality.
 - **Technical-debt cleanup** across the crate (`11cabba`).
 
 ### Fixed
@@ -216,18 +216,18 @@ foundation (`semiring`, `wfst`, `lattice`, `algorithms`, `path`, `cfg`,
 *Accepted optimizations from the scientific ledger
 ([`docs/archive/journal.md`](docs/archive/journal.md)); each was merged
 only after a benchmarked improvement at `p < 0.05`.*
-- **Topological sort $`O(\lvert V\rvert^2)`$ → $`O(\lvert V\rvert + \lvert E\rvert)`$** by building an
+- **Topological sort $`\mathcal{O}(\lvert V\rvert^2)`$ → $`\mathcal{O}(\lvert V\rvert + \lvert E\rvert)`$** by building an
   `edge_id → target` lookup table once instead of scanning all nodes per edge —
-  **−94%** on a 200-node diamond lattice (**17.6×** faster) (`c3449c2`).
+  **$`-94\%`$** on a 200-node diamond lattice (**$`17.6\times`$** faster) (`c3449c2`).
 - **`log_sum_exp` fast path** — when $`\lvert a - b\rvert > 20`$, $`e^{-\text{diff}}`$ underflows below
   `f64` precision, so the result is simply `min(a, b)`, skipping `exp`/`ln`:
-  **$`\approx`$ −10%** on log-semiring ops, with `−5…12%` cascading across algorithms
+  **$`\approx -10\%`$** on log-semiring operations, with $`-5\%`$ to $`12\%`$ changes cascading across algorithms
   (`ef735dc`).
 - **Beam-search allocation removal** — eliminated the intermediate `Vec` in the
-  edge-expansion loop (direct iteration): **$`\approx`$ −23%** on beam search (`347e98d`).
+  edge-expansion loop (direct iteration): **$`\approx -23\%`$** on beam search (`347e98d`).
 - **Path-extend clone reduction** — added `extend_move(self, …)` and a
   move-last pattern so each path extension saves one `SmallVec<[EdgeId; 16]>`
-  clone: **$`\approx`$ −25%** on beam search, **up to −21%** on N-best (`8bf8d78`).
+  clone: **$`\approx -25\%`$** on beam search, **up to $`-21\%`$** on N-best (`8bf8d78`).
 
 *Rejected optimizations (documented in the ledger so they are not re-attempted):*
 semiring `#[inline(always)]` (compiler already inlined; forcing it bloated

@@ -139,7 +139,7 @@ The choice of queue discipline significantly impacts algorithm performance. The 
 
 **When to use**: General-purpose for any k-closed semiring.
 
-**Complexity**: $`O(C \cdot \lvert E\rvert)`$ where $`C`$ bounds the path length.
+**Complexity**: $`\mathcal{O}(C \cdot \lvert E\rvert)`$ where $`C`$ bounds the path length.
 
 ```rust
 let config = ShortestDistanceConfig::general();
@@ -156,7 +156,7 @@ Order: [0, 1, 2, 3]  (process in dependency order)
 
 **When to use**: Acyclic graphs (lattices, DAGs). (DAG = **D**irected **A**cyclic **G**raph.)
 
-**Complexity**: $`O(\lvert Q\rvert + \lvert E\rvert)`$ — each state processed exactly once.
+**Complexity**: $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ — each state processed exactly once.
 
 ```rust
 let config = ShortestDistanceConfig::acyclic();
@@ -176,7 +176,7 @@ Priority Queue:
 
 **When to use**: Tropical semiring with non-negative weights.
 
-**Complexity**: $`O(\lvert E\rvert + \lvert Q\rvert \log \lvert Q\rvert)`$ — Dijkstra's algorithm.
+**Complexity**: $`\mathcal{O}(\lvert E\rvert + \lvert Q\rvert \log \lvert Q\rvert)`$ — Dijkstra's algorithm.
 
 ```rust
 let config = ShortestDistanceConfig::tropical();
@@ -297,7 +297,7 @@ to the paths already explored, and $`r[s]`$ holds exactly the weight that still 
 pushed out of $`s`$. The relaxation step below pops a state and pushes its remainder
 along every outgoing arc.
 
-![Relaxation step: pop state s, push remainder r[s] along each arc as r[s] ⊗ w(e), updating distance and remainder of the target, then re-enqueue changed targets](../diagrams/algorithms/shortest-distance-relax.svg)
+![Relaxation step: pop one state, multiply its remainder by each outgoing arc weight, update the target distance and remainder, then re-enqueue changed targets](../diagrams/algorithms/shortest-distance-relax.svg)
 
 *Algorithms-green = the state being relaxed; arcs carry $`r[s] \otimes w(e)`$; the dotted queue (FIFO/shortest-first/topological per the discipline) feeds and re-receives updated successors.*
 
@@ -361,10 +361,10 @@ $`d[t] \oplus \text{contribution} \ne d[t]`$ halts propagation as soon as a path
 improving the distance.
 
 **Complexity.** With the topological discipline on a DAG each state is popped once,
-giving $`O(\lvert Q\rvert + \lvert E\rvert)`$. With the FIFO discipline on a general $`k`$-closed
-semiring a state is relaxed at most $`k`$ times for a bound of $`O(C \cdot \lvert E\rvert)`$
+giving $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$. With the FIFO discipline on a general $`k`$-closed
+semiring a state is relaxed at most $`k`$ times for a bound of $`\mathcal{O}(C \cdot \lvert E\rvert)`$
 where $`C`$ is the per-state processing bound. With the shortest-first discipline on
-the tropical semiring it is exactly Dijkstra's $`O(\lvert E\rvert + \lvert Q\rvert \log \lvert Q\rvert)`$.
+the tropical semiring it is exactly Dijkstra's $`\mathcal{O}(\lvert E\rvert + \lvert Q\rvert \log \lvert Q\rvert)`$.
 
 ### Floyd-Warshall Generalization
 
@@ -389,10 +389,10 @@ For the log semiring, $`a^* = \ln(1 - e^{-a})`$ when $`a > 0`$.
 
 | Queue | Time Complexity | Space | Best For |
 |-------|-----------------|-------|----------|
-| Topological | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(\lvert Q\rvert)`$ | Acyclic graphs |
-| ShortestFirst | $`O(\lvert E\rvert + \lvert Q\rvert \log \lvert Q\rvert)`$ | $`O(\lvert Q\rvert)`$ | Tropical semiring |
-| FIFO | $`O(C \cdot \lvert E\rvert)`$ | $`O(\lvert Q\rvert)`$ | General k-closed |
-| All-Pairs | $`O(\lvert Q\rvert^3)`$ | $`O(\lvert Q\rvert^2)`$ | Complete matrix |
+| Topological | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | $`\mathcal{O}(\lvert Q\rvert)`$ | Acyclic graphs |
+| ShortestFirst | $`\mathcal{O}(\lvert E\rvert + \lvert Q\rvert \log \lvert Q\rvert)`$ | $`\mathcal{O}(\lvert Q\rvert)`$ | Tropical semiring |
+| FIFO | $`\mathcal{O}(C \cdot \lvert E\rvert)`$ | $`\mathcal{O}(\lvert Q\rvert)`$ | General k-closed |
+| All-Pairs | $`\mathcal{O}(\lvert Q\rvert^3)`$ | $`\mathcal{O}(\lvert Q\rvert^2)`$ | Complete matrix |
 
 Where:
 - $`\lvert Q\rvert`$ = number of states
@@ -401,13 +401,13 @@ Where:
 
 ### Queue Selection Decision Tree
 
-See the [Queue Disciplines](#queue-disciplines) decision-tree diagram above: acyclic → topological $`O(\lvert Q\rvert + \lvert E\rvert)`$; otherwise tropical with non-negative weights → shortest-first $`O(\lvert E\rvert + \lvert Q\rvert \log \lvert Q\rvert)`$; else FIFO $`O(C \cdot \lvert E\rvert)`$.
+See the [Queue Disciplines](#queue-disciplines) decision-tree diagram above: acyclic → topological $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$; otherwise tropical with non-negative weights → shortest-first $`\mathcal{O}(\lvert E\rvert + \lvert Q\rvert \log \lvert Q\rvert)`$; else FIFO $`\mathcal{O}(C \cdot \lvert E\rvert)`$.
 
 ## Convergence
 
 ### When Does It Converge?
 
-- **Acyclic graphs**: Always converges in $`O(\lvert Q\rvert)`$ iterations
+- **Acyclic graphs**: Always converges in $`\mathcal{O}(\lvert Q\rvert)`$ iterations
 - **k-closed semirings**: Converges after at most $`k`$ iterations per state
 - **Tropical with negative cycles**: May not converge (returns `None`)
 

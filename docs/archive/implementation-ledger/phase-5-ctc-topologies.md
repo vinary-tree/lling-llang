@@ -16,23 +16,23 @@ Different topologies offer trade-offs between graph size and accuracy.
 ### Components
 
 1. **Correct-CTC (T.fst)**: Standard complete graph topology
-   - N states (one per vocabulary unit including blank)
-   - N² arcs (complete graph with self-loops)
+   - $`N`$ states (one per vocabulary unit including blank)
+   - $`N^{2}`$ arcs (complete graph with self-loops)
    - Best accuracy, largest graph
 
 2. **Compact-CTC (Tcompact.fst)**: Reduced graph with blank back-off
-   - N states
-   - 3N-2 arcs
-   - 1.5× smaller graph, same accuracy as Correct-CTC
+   - $`N`$ states
+   - $`3N-2`$ arcs
+   - $`1.5`$ times smaller graph, same accuracy as Correct-CTC
 
 3. **Minimal-CTC (Tminimal.fst)**: Smallest possible graph
    - 1 state
-   - N arcs
-   - 2× smaller graph, slight accuracy penalty (~0.2% WER)
+   - $`N`$ arcs
+   - $`2`$ times smaller graph, slight accuracy penalty (approximately $`0.2\%`$ WER)
 
 4. **Selfless variants**: Remove non-blank self-loops
    - Better for wide context window models (Conformer)
-   - Reduces arc count by N-1
+   - Reduces arc count by $`N-1`$
 
 ---
 
@@ -47,11 +47,11 @@ Graph construction time should scale with arc count:
 
 | Topology | States | Arcs | Expected Complexity |
 |----------|--------|------|---------------------|
-| Correct-CTC | N | N² | O(N²) |
-| Compact-CTC | N | 3N-2 | O(N) |
-| Minimal-CTC | 1 | N | O(N) |
-| Selfless Correct | N | N²-(N-1) | O(N²) |
-| Selfless Compact | N | 2N-1 | O(N) |
+| Correct-CTC | $`N`$ | $`N^{2}`$ | $`\mathcal{O}(N^{2})`$ |
+| Compact-CTC | $`N`$ | $`3N-2`$ | $`\mathcal{O}(N)`$ |
+| Minimal-CTC | $`1`$ | $`N`$ | $`\mathcal{O}(N)`$ |
+| Selfless Correct | $`N`$ | $`N^{2}-(N-1)`$ | $`\mathcal{O}(N^{2})`$ |
+| Selfless Compact | $`N`$ | $`2N-1`$ | $`\mathcal{O}(N)`$ |
 
 ### Implementation
 
@@ -82,18 +82,18 @@ Graph construction time should scale with arc count:
 
 ### Analysis
 
-1. **Correct-CTC scales quadratically** as expected from N² arcs
-2. **Compact-CTC scales linearly** - 513× faster at N=1000
-3. **Minimal-CTC is fastest** - only N arcs, single state
+1. **Correct-CTC scales quadratically** as expected from $`N^{2}`$ arcs
+2. **Compact-CTC scales linearly**—$`513`$ times faster at $`N=1000`$
+3. **Minimal-CTC is fastest**—only $`N`$ arcs and a single state
 4. **Selfless variants** reduce arc count marginally for Correct, more for Compact
 
 ### Complexity Verification
 
 | Topology | Theory | Observed | Match |
 |----------|--------|----------|-------|
-| Correct-CTC | O(N²) | ~17N² ns | ✓ |
-| Compact-CTC | O(N) | ~34N ns | ✓ |
-| Minimal-CTC | O(N) | ~3.5N ns | ✓ |
+| Correct-CTC | $`\mathcal{O}(N^{2})`$ | approximately $`17N^{2}`$ ns | ✓ |
+| Compact-CTC | $`\mathcal{O}(N)`$ | approximately $`34N`$ ns | ✓ |
+| Minimal-CTC | $`\mathcal{O}(N)`$ | approximately $`3.5N`$ ns | ✓ |
 
 ### Arc Count Verification
 
@@ -113,4 +113,3 @@ Graph construction time should scale with arc count:
 - [x] Comprehensive documentation
 
 ---
-

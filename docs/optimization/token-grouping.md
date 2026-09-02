@@ -163,7 +163,7 @@ arc forces `expanded == true` and stores the token
 
 ## Algorithms
 
-### ⟨ lazy token grouping per frame ⟩
+### Lazy token grouping per frame
 
 The intent is to *keep one prunable score per base state and only pay for tokens
 that survive to a word boundary*. The invariant is: **a group's
@@ -185,8 +185,8 @@ base state in the current frame**, whether or not those tokens are materialized.
   advance_frame():   snapshot active groups → GroupedFrame; roll pool & queue
 ```
 
-Per token the work is $`O(1)`$ (a hash lookup, a $`\oplus_{\log}`$, a bucket
-insert); pruning is $`O(\text{buckets})`$ to sweep the tail. The saving comes from
+Per token the work is $`\mathcal{O}(1)`$ (a hash lookup, a $`\oplus_{\log}`$, a bucket
+insert); pruning is $`\mathcal{O}(\text{buckets})`$ to sweep the tail. The saving comes from
 **not** running composition for the grammar-state distinctions inside a group
 until a word boundary, and from pruning whole groups by one number — the source
 notes 10–20× fewer composition operations and the matching `ops_saved` counter.

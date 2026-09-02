@@ -5,10 +5,10 @@ The canonical reference for every symbol, operator, and acronym used across the
 this file and repeat only the terms they use locally (see [`STYLE.md`](STYLE.md)).
 
 All mathematics is written as **MathJax LaTeX** delimited for GitHub-flavored
-Markdown — inline math as a backtick span wrapped in dollar signs (``$`\oplus`$``)
+Markdown—inline math as a backtick span wrapped in dollar signs, as in $`\oplus`$,
 and display math in a fenced block whose info-string is `math`. The **LaTeX**
 column below is therefore also the canonical *Unicode → LaTeX* map: to typeset a
-symbol, copy the command from that column into a ``$`…`$`` span. (See
+symbol, copy the command from that column into an inline math span. (See
 [`STYLE.md`](STYLE.md) §1 for the delimiter rules and the reasons behind them.)
 
 ---
@@ -61,7 +61,7 @@ Symbols introduced by the resource-ABI documentation
 | $`Q_\circ`$ | `Q_\circ` | product state set | The discovered composition states $`Q_\circ \subseteq Q_1 \times Q_2 \times \Phi`$. |
 | $`(q_1, q_2, \phi)`$ | `(q_1, q_2, \phi)` | product state | One lazy-composition state: component states plus filter state. |
 | $`\mathbb{R}_{\ge 0}`$, $`\mathbb{N}`$ | `\mathbb{R}_{\ge 0}`, `\mathbb{N}` | carriers | Non-negative reals (probability semiring) and naturals (counting semiring) in the weight-domain table. |
-| $`d_i`$ | `d_i` | out-degree | Outgoing-arc count of a component state; product-state expansion costs $`O(d_1 + d_2 + d_1 d_2)`$. |
+| $`d_i`$ | `d_i` | out-degree | Outgoing-arc count of a component state; product-state expansion costs $`\mathcal{O}(d_1 + d_2 + d_1 d_2)`$. |
 
 ## Set & logic symbols
 
@@ -71,7 +71,7 @@ Symbols introduced by the resource-ABI documentation
 | $`\cup`$, $`\cap`$ | `\cup`, `\cap` | union, intersection |
 | $`\in`$, $`\notin`$ | `\in`, `\notin` | membership, non-membership |
 | $`\forall`$, $`\exists`$ | `\forall`, `\exists` | universal, existential quantifiers |
-| $`\langle \dots \rangle`$ | `\langle \dots \rangle` | tuple. **Note:** in a literate-pseudocode fence the same angle-bracket form names a chunk (`⟨ relax outgoing arcs ⟩`) and stays verbatim Unicode inside the ` ```text ` block — it is not math there. |
+| $`\langle \dots \rangle`$ | `\langle \dots \rangle` | tuple. **Note:** a literate-pseudocode fence may name a chunk `relax outgoing arcs`; that label is code rather than mathematical notation. |
 | $`\mid`$ | `\mid` | "given" / conditional bar, as in $`P(a \mid b)`$ (distinct from cardinality $`\lvert\cdot\rvert`$). |
 
 > **Combining accents.** The semiring identities are $`\bar{0}`$ (`\bar{0}`) and
@@ -93,7 +93,7 @@ Symbols introduced by the resource-ABI documentation
 | **LF-MMI** | Lattice-Free Maximum Mutual Information (sequence-discriminative training) | [training/weak-supervision.md](training/weak-supervision.md) |
 | **PDA** | Pushdown Automaton (finite automaton with a stack; recognizes CFLs) | [transducers/pushdown.md](transducers/pushdown.md) |
 | **CFG / CFL** | Context-Free Grammar / Language | [algorithms/parsing.md](algorithms/parsing.md) |
-| **TN / ITN** | Text Normalization / Inverse TN (e.g. "five dollars" $`\rightleftarrows`$ `` `$5` ``) | [correction/text-normalization.md](correction/text-normalization.md) |
+| **TN / ITN** | Text Normalization / Inverse TN (for example, “five dollars” $`\rightleftarrows`$ `$5`) | [correction/text-normalization.md](correction/text-normalization.md) |
 | **CSR** | Compressed Sparse Row (sparse-matrix layout for GPU WFSTs) | [advanced/gpu-acceleration.md](advanced/gpu-acceleration.md) |
 | **RRWM** | Rational Randomized Weighted-Majority (online ensemble learning) | [algorithms/rrwm.md](algorithms/rrwm.md) |
 | **GCD** | Grammar-Constrained Decoding | [advanced/constrained-decoding.md](advanced/constrained-decoding.md) |

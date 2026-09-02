@@ -49,7 +49,7 @@ RRWM maintains a **cumulative weight automaton** $`W_t`$ that tracks performance
 round predicts by sampling $`W_{t-1}`$, observes a loss transducer $`V_t`$, composes it
 in, and weight-pushes to restore a stochastic automaton for the next sample.
 
-![RRWM online learning loop: starting from W₀ (one-state, all paths weight 1̄), each round predicts by sampling Wₜ₋₁, builds a loss transducer Vₜ, composes Wₜ ← Wₜ₋₁ ∘ Vₜ, weight-pushes to stochastic, and accumulates loss until T rounds or a state cap triggers reset](../diagrams/algorithms/rrwm-loop.svg)
+![RRWM online learning loop: starting from a one-state model whose paths have multiplicative-identity weight, each round samples the preceding model, builds a loss transducer, composes them into the next model, weight-pushes to stochastic form, and accumulates loss until the round or state limit is reached](../diagrams/algorithms/rrwm-loop.svg)
 
 *Purple = the learner's predict step (sampling); algorithms-green = the WFST operations it drives (compose, weight-push); the loop runs until round $`T`$ or a state cap forces a reset to $`W_0`$. Regret bound $`E[R_T] \le 2M\sqrt{T \log N}`$.*
 
@@ -445,11 +445,11 @@ Better-performing paths get higher probability over time.
 
 | Operation | Complexity |
 |-----------|------------|
-| `observe()` | $`O(\lvert W_{t-1}\rvert \times \lvert V_t\rvert)`$ composition |
-| `predict()` | $`O(\text{path length})`$ sampling |
-| `regret_bound()` | $`O(1)`$ |
-| `reset()` | $`O(1)`$ |
-| Space | $`O(\lvert W_t\rvert)`$ cumulative automaton |
+| `observe()` | $`\mathcal{O}(\lvert W_{t-1}\rvert \times \lvert V_t\rvert)`$ composition |
+| `predict()` | $`\mathcal{O}(\text{path length})`$ sampling |
+| `regret_bound()` | $`\mathcal{O}(1)`$ |
+| `reset()` | $`\mathcal{O}(1)`$ |
+| Space | $`\mathcal{O}(\lvert W_t\rvert)`$ cumulative automaton |
 
 ## References
 

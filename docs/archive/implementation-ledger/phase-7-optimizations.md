@@ -20,7 +20,7 @@ Phase 7 implements critical optimization techniques identified from the WFST lit
    - 10-20× reduction in composition operations
 
 3. **N-gram Back-off Structure** (7.3): Compact LM representation
-   - Avoids O(|V|²) transitions in language model graphs
+   - Avoids $`\mathcal{O}(\lvert V\rvert^{2})`$ transitions in language model graphs
    - Uses back-off ε-transitions to lower-order n-grams
 
 ---
@@ -80,7 +80,7 @@ pub fn prepare_for_beam_search<L, F>(
 
 **Key functions**:
 - `prepare_for_beam_search()` - High-level API for beam search optimization
-- `compute_log_potentials()` - Backward potentials: V(q) = -log(Σ exp(-path_weight))
+- `compute_log_potentials()`—backward potentials: $`V(q) = -\log(\sum_p \exp(-\mathrm{weight}(p)))`$
 - `apply_log_push()` - Apply potentials to reweight arcs and finals
 - `build_lookahead_table()` - Precompute lookahead for fast state scoring
 - `normalize_score()` - Combine accumulated weight with lookahead
@@ -97,7 +97,7 @@ pub fn prepare_for_beam_search<L, F>(
    - V(final) = final_weight
    - V(q) = logadd_{arcs from q} (arc_weight + V(target))
 2. Reweight arcs: w'(a) = V(source) + w(a) - V(target)
-3. Reweight finals: ρ'(f) = ρ(f) - V(f) + V(start)
+3. Reweight finals: $`\rho'(f) = \rho(f) - V(f) + V(\mathrm{start})`$
 4. Result: Stochastic automaton where outgoing weights sum to 1
 
 **Lookahead Scoring**:
@@ -136,7 +136,7 @@ pub fn prepare_for_beam_search<L, F>(
 
 ### Analysis
 
-1. **Log push scales linearly** with graph size: O(|Q| + |E|)
+1. **Log push scales linearly** with graph size: $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$
 2. **Diamond ~2x linear cost** due to higher edge density
 3. **Lookahead table construction** faster than full push (read-only)
 4. **Query performance** excellent: ~36 ns/state
@@ -146,9 +146,9 @@ pub fn prepare_for_beam_search<L, F>(
 
 | Operation | Theory | Observed | Match |
 |-----------|--------|----------|-------|
-| Log push | O(\|Q\| + \|E\|) | Linear ✓ | ✓ |
-| Lookahead table | O(\|Q\| + \|E\|) | Linear ✓ | ✓ |
-| Lookahead query | O(1) | ~36 ns ✓ | ✓ |
+| Log push | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | Linear ✓ | ✓ |
+| Lookahead table | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | Linear ✓ | ✓ |
+| Lookahead query | $`\mathcal{O}(1)`$ | ~36 ns ✓ | ✓ |
 
 ### Result
 
@@ -216,7 +216,7 @@ pub struct BucketQueue<T> {
 - `Token`: Hypothesis representation with back-tracing info
 - `TokenGroup`: Collection of tokens at same base state, with lazy expansion
 - `TokenGroupPool`: Frame-aware storage for token groups
-- `BucketQueue`: O(1) priority queue for histogram pruning
+- `BucketQueue`: $`\mathcal{O}(1)`$ priority queue for histogram pruning
 - `TokenGroupManager`: High-level API coordinating all components
 - `GroupedFrame`: Snapshot of active groups when advancing frames
 - `GroupLink`: Links for lazy back-tracing without materializing tokens
@@ -234,7 +234,7 @@ pub struct BucketQueue<T> {
 | 1000 | 29.5 µs | 29.5 ns | 0.89× |
 | 5000 | 102.8 µs | 20.6 ns | 0.62× |
 
-**Analysis**: Sub-linear scaling - amortized O(1) insert/pop confirmed.
+**Analysis**: Sub-linear scaling - amortized $`\mathcal{O}(1)`$ insert/pop confirmed.
 Better per-operation time at larger sizes due to fewer bucket reallocations.
 
 #### TokenGroup add_token
@@ -245,7 +245,7 @@ Better per-operation time at larger sizes due to fewer bucket reallocations.
 | 50 | 2.19 µs | 43.8 ns |
 | 100 | 4.17 µs | 41.7 ns |
 
-**Analysis**: Linear O(n) with ~43 ns/token. SmallVec inline storage helps for small groups.
+**Analysis**: Linear $`\mathcal{O}(n)`$ with ~43 ns/token. SmallVec inline storage helps for small groups.
 
 #### TokenGroupPool get_or_create
 
@@ -255,7 +255,7 @@ Better per-operation time at larger sizes due to fewer bucket reallocations.
 | 500 | 18.9 µs | 37.8 ns |
 | 1000 | 40.5 µs | 40.5 ns |
 
-**Analysis**: Linear O(n) with FxHashMap providing fast lookups.
+**Analysis**: Linear $`\mathcal{O}(n)`$ with FxHashMap providing fast lookups.
 
 #### TokenGroupPool lookup (1000 groups)
 
@@ -307,11 +307,11 @@ Word arcs trigger immediate expansion (~6 ns overhead per expansion).
 
 | Component | Time Complexity | Space Complexity |
 |-----------|-----------------|------------------|
-| BucketQueue insert | O(1) amortized | O(num_buckets + n) |
-| BucketQueue pop | O(1) amortized | - |
-| TokenGroup add | O(1) amortized | O(tokens) |
-| Pool get_or_create | O(1) expected | O(groups) |
-| Manager process | O(1) expected | O(tokens) |
+| BucketQueue insert | $`\mathcal{O}(1)`$ amortized | $`\mathcal{O}(num_buckets + n)`$ |
+| BucketQueue pop | $`\mathcal{O}(1)`$ amortized | - |
+| TokenGroup add | $`\mathcal{O}(1)`$ amortized | $`\mathcal{O}(tokens)`$ |
+| Pool get_or_create | $`\mathcal{O}(1)`$ expected | $`\mathcal{O}(groups)`$ |
+| Manager process | $`\mathcal{O}(1)`$ expected | $`\mathcal{O}(tokens)`$ |
 
 ### Integration Notes
 
@@ -350,17 +350,17 @@ let frame_info = manager.advance_frame();
 ### Hypothesis
 
 N-gram language models in WFST form can grow exponentially with vocabulary size.
-A naive bigram representation requires O(|V|²) transitions. Using back-off states
+A naive bigram representation requires $`\mathcal{O}(\lvert V\rvert^{2})`$ transitions. Using back-off states
 with ε-transitions to lower-order n-grams maintains the same probability distribution
-with only O(|V|) states and transitions.
+with only $`\mathcal{O}(\lvert V\rvert)`$ states and transitions.
 
 **From Mohri et al.**:
 > "For large vocabulary language models, directly representing all n-grams creates
-> O(|V|²) transitions. Using back-off states with ε-transitions to lower-order
+> $`\mathcal{O}(\lvert V\rvert^{2})`$ transitions. Using back-off states with ε-transitions to lower-order
 > n-grams keeps the graph compact while preserving the language model distribution."
 
 **Key insight**: Seen n-grams get direct transitions; unseen n-grams use back-off
-state with ε-transition carrying the back-off weight β(w₁).
+state with an $`\varepsilon`$-transition carrying the back-off weight $`\beta(w_1)`$.
 
 ### Design
 
@@ -396,7 +396,7 @@ pub enum PruningStrategy {
 - `src/optimization/ngram_backoff.rs` (~700 lines)
 
 **Key components**:
-- `BigramLm`: Efficient bigram LM with O(1) probability lookup
+- `BigramLm`: Efficient bigram LM with $`\mathcal{O}(1)`$ probability lookup
 - `NgramLmBuilder`: Build arbitrary n-gram WFSTs with back-off structure
 - `NgramLmConfig`: Configuration for LM construction
 - `NgramStats` / `BigramStats`: Statistics about LM structure
@@ -423,7 +423,7 @@ pub enum PruningStrategy {
 | 500 | 3.24 µs | 6.5 ns |
 | 1000 | 6.18 µs | 6.2 ns |
 
-**Analysis**: Linear O(|V|) scaling with ~6.5 ns/word. Efficient allocation with
+**Analysis**: Linear $`\mathcal{O}(\lvert V\rvert)`$ scaling with ~6.5 ns/word. Efficient allocation with
 pre-sized vectors.
 
 #### BigramLm Probability Lookup
@@ -434,18 +434,18 @@ pre-sized vectors.
 | 500 | 1.43 µs | 14.3 ns |
 | 1000 | 1.41 µs | 14.1 ns |
 
-**Analysis**: O(1) lookup regardless of vocabulary size. FxHashMap provides
+**Analysis**: $`\mathcal{O}(1)`$ lookup regardless of vocabulary size. FxHashMap provides
 consistent ~14 ns per bigram lookup. Includes back-off computation when needed.
 
 #### BigramLm to WFST Conversion
 
 | Vocab Size | Time | Transitions |
 |------------|------|-------------|
-| 50 | 1.72 µs | O(50) |
-| 100 | 2.60 µs | O(100) |
-| 200 | 4.67 µs | O(200) |
+| 50 | 1.72 µs | $`\mathcal{O}(50)`$ |
+| 100 | 2.60 µs | $`\mathcal{O}(100)`$ |
+| 200 | 4.67 µs | $`\mathcal{O}(200)`$ |
 
-**Analysis**: Linear O(|V|) for back-off WFST. Would be O(|V|²) without back-off.
+**Analysis**: Linear $`\mathcal{O}(\lvert V\rvert)`$ for back-off WFST. Would be $`\mathcal{O}(\lvert V\rvert^{2})`$ without back-off.
 At V=200: 4.67 µs for ~200 transitions vs ~40,000 for naive representation.
 
 #### NgramLmBuilder (Trigram)
@@ -475,7 +475,7 @@ table efficiency. Context deduplication provides significant savings.
 | 1000 | 1,000,000 arcs | ~2,000 arcs | 500× |
 | 10,000 | 100,000,000 arcs | ~20,000 arcs | 5,000× |
 
-**Key result**: Back-off structure provides O(|V|²) → O(|V|) reduction.
+**Key result**: Back-off structure provides $`\mathcal{O}(\lvert V\rvert^{2})`$ → $`\mathcal{O}(\lvert V\rvert)`$ reduction.
 
 ### Integration Notes
 
@@ -501,7 +501,7 @@ let prob = lm.prob(word1_id, word2_id); // Uses back-off if unseen
 - [x] **ACCEPTED**: N-gram back-off implemented with correct semantics
 - [x] 8 unit tests passing
 - [x] 5 benchmark cases added
-- [x] O(|V|) complexity for back-off WFST construction
+- [x] $`\mathcal{O}(\lvert V\rvert)`$ complexity for back-off WFST construction
 - [x] Pruning strategies for compact models
 
 ---
@@ -516,13 +516,13 @@ let prob = lm.prob(word1_id, word2_id); // Uses back-off if unseen
 
 | Algorithm | Complexity (Expected) | Complexity (Observed) | Status |
 |-----------|----------------------|----------------------|--------|
-| Log Push | O(\|Q\| + \|E\|) | Linear ✓ | ACCEPTED |
-| Lookahead Table | O(\|Q\| + \|E\|) | Linear ✓ | ACCEPTED |
-| Token Group Process | O(1) expected | ~65 ns/token ✓ | ACCEPTED |
-| BucketQueue | O(1) amortized | ~25-35 ns/op ✓ | ACCEPTED |
-| BigramLm Lookup | O(1) | ~14 ns ✓ | ACCEPTED |
-| Back-off WFST | O(\|V\|) | Linear ✓ | ACCEPTED |
-| Trigram Build | O(n-grams) | ~150 ns/ngram ✓ | ACCEPTED |
+| Log Push | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | Linear ✓ | ACCEPTED |
+| Lookahead Table | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | Linear ✓ | ACCEPTED |
+| Token Group Process | $`\mathcal{O}(1)`$ expected | ~65 ns/token ✓ | ACCEPTED |
+| BucketQueue | $`\mathcal{O}(1)`$ amortized | ~25-35 ns/op ✓ | ACCEPTED |
+| BigramLm Lookup | $`\mathcal{O}(1)`$ | ~14 ns ✓ | ACCEPTED |
+| Back-off WFST | $`\mathcal{O}(\lvert V\rvert)`$ | Linear ✓ | ACCEPTED |
+| Trigram Build | $`\mathcal{O}(n-grams)`$ | ~150 ns/ngram ✓ | ACCEPTED |
 
 ### Optimization Summary
 
@@ -530,6 +530,6 @@ let prob = lm.prob(word1_id, word2_id); // Uses back-off if unseen
 |--------------|--------|---------|----------|
 | Log Weight Pushing | Mohri et al. 2002 | Up to 18× beam search speedup | ✓ |
 | Token Grouping | LET-Decoder (Lv 2021) | 10-20× fewer composition ops | ✓ |
-| N-gram Back-off | WFST Literature | O(\|V\|²) → O(\|V\|) space | ✓ |
+| N-gram Back-off | WFST Literature | $`\mathcal{O}(\lvert V\rvert^{2})`$ → $`\mathcal{O}(\lvert V\rvert)`$ space | ✓ |
 
 ---

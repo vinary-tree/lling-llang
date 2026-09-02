@@ -310,7 +310,7 @@ struct VectorState<L, W: Semiring> {
 ```
 
 Benefits:
-- O(1) state access by ID
+- $`\mathcal{O}(1)`$ state access by ID
 - Contiguous memory for cache efficiency
 - Simple implementation
 
@@ -421,6 +421,6 @@ fn is_reachable<L, W: Semiring>(
 
 Full entries — including DOIs — are in [`BIBLIOGRAPHY.md`](../BIBLIOGRAPHY.md).
 
-- [**Mohri 2009**](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, *Weighted Automata Algorithms*: the WFST model $`(Q, \Sigma, q_0, F, E, \rho)`$, epsilon handling, and the $`O(\lvert Q\rvert + \lvert E\rvert)`$ traversal bounds this trait surface supports. [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)
+- [**Mohri 2009**](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, *Weighted Automata Algorithms*: the WFST model $`(Q, \Sigma, q_0, F, E, \rho)`$, epsilon handling, and the $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ traversal bounds this trait surface supports. [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)
 - [**Mohri 2002**](../BIBLIOGRAPHY.md#ref-mohri2002) — Mohri, Pereira & Riley, *Weighted Finite-State Transducers in Speech Recognition*: lazy composition as the motivation for the `LazyWfst` trait and its `CachePolicy`. [doi:10.1006/csla.2001.0184](https://doi.org/10.1006/csla.2001.0184)
 - [**Allauzen 2007**](../BIBLIOGRAPHY.md#ref-allauzen2007) — Allauzen et al., *OpenFst: A General and Efficient Weighted Finite-State Transducer Library*: the mutable/immutable/lazy `Fst` interface design that `Wfst` / `MutableWfst` / `LazyWfst` mirror. [doi:10.1007/978-3-540-76336-9_3](https://doi.org/10.1007/978-3-540-76336-9_3)

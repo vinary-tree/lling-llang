@@ -52,10 +52,10 @@ See `/home/dylon/.claude/hardware-specifications.md` for full details.
 | semiring/log_to_probability | 743 ps | |
 | lattice/topological_sort_linear/10 | 626 ns | |
 | lattice/topological_sort_linear/100 | 13.3 µs | |
-| lattice/topological_sort_linear/200 | 41.5 µs | **O(V²) scaling visible** |
+| lattice/topological_sort_linear/200 | 41.5 µs | **$`\mathcal{O}(V^{2})`$ scaling visible** |
 | lattice/topological_sort_diamond/10 | 1.35 µs | |
 | lattice/topological_sort_diamond/100 | 46.8 µs | |
-| lattice/topological_sort_diamond/200 | 166 µs | **O(V²) scaling visible** |
+| lattice/topological_sort_diamond/200 | 166 µs | **$`\mathcal{O}(V^{2})`$ scaling visible** |
 | lattice/path_count_linear/10 | 674 ns | |
 | lattice/path_count_linear/100 | 5.15 µs | |
 | lattice/path_count_linear/200 | 10.6 µs | |
@@ -104,7 +104,7 @@ for &edge_id in &node.outgoing {
     }
 }
 ```
-This creates O(V²) complexity because the function only receives `&[Node]` without
+This creates $`\mathcal{O}(V^{2})`$ complexity because the function only receives `&[Node]` without
 access to `Edge::target`. For each outgoing edge, it scans all nodes to find which
 one has that edge as incoming.
 
@@ -116,7 +116,7 @@ one has that edge as incoming.
 
 **Priority**: CRITICAL (94.92% of runtime)
 **File**: `src/lattice/algorithms.rs`
-**Current**: O(V × E × avg_incoming) ≈ O(V²) due to nested loop scanning all nodes for each edge
+**Current**: $`\mathcal{O}(V \times E \times \mathrm{avg\_incoming}) \approx \mathcal{O}(V^{2})`$ due to a nested loop scanning all nodes for each edge
 **Root Cause**: Function signature `fn topological_sort(nodes: &[Node])` lacks edge target info
 
 **Proposed Fix**: Change signature to include edges, build edge_id → target lookup table:
@@ -135,7 +135,7 @@ pub fn topological_sort<W: Semiring>(nodes: &[Node], edges: &[Edge<W>]) -> Optio
 
 **Expected Improvement**:
 - 10 nodes: minimal (overhead dominates)
-- 200 nodes: ~10-50× faster (O(V+E) vs O(V²))
+- 200 nodes: ~10-50× faster ($`\mathcal{O}(V+E)`$ vs $`\mathcal{O}(V^{2})`$)
 - 1000 nodes: ~50-100× faster
 
 ### Hypothesis 2: Semiring Operation Inlining
@@ -173,8 +173,8 @@ pub fn topological_sort<W: Semiring>(nodes: &[Node], edges: &[Edge<W>]) -> Optio
 
 **Implementation**:
 - Changed signature: `fn topological_sort(nodes: &[Node])` → `fn topological_sort<W: Semiring>(nodes: &[Node], edges: &[Edge<W>])`
-- Built `edge_id → target` lookup table in O(E) time
-- Replaced O(V) scan per edge with O(1) lookup
+- Built `edge_id → target` lookup table in $`\mathcal{O}(E)`$ time
+- Replaced $`\mathcal{O}(V)`$ scan per edge with $`\mathcal{O}(1)`$ lookup
 - Updated callers: `Lattice::topological_order()`, test files
 
 **Results**:
@@ -194,7 +194,7 @@ pub fn topological_sort<W: Semiring>(nodes: &[Node], edges: &[Edge<W>]) -> Optio
 - 200 nodes: **17.6× faster**
 
 **Analysis**:
-The results confirm the O(V²) → O(V+E) complexity change. Improvement scales with graph size as predicted:
+The results confirm the $`\mathcal{O}(V^{2})`$ → $`\mathcal{O}(V+E)`$ complexity change. Improvement scales with graph size as predicted:
 - Small graphs: overhead of building lookup table reduces gains
 - Large graphs: asymptotic improvement dominates
 
@@ -227,7 +227,7 @@ These regressions are within run-to-run variance and are vastly outweighed by th
 **Date**: 2025-12-26
 **Status**: ✅ ACCEPTED (p < 0.05)
 
-**Rationale**: When computing `log(exp(-a) + exp(-b))` and `|a - b| > 20`, the term `exp(-diff)` underflows to effectively 0 (exp(-20) ≈ 2e-9). This makes `ln(1 + exp(-diff)) ≈ ln(1) = 0`, so the result is simply `min(a, b)`.
+**Rationale**: When computing $`\log(\exp(-a) + \exp(-b))`$ and $`\lvert a - b\rvert > 20`$, the term $`\exp(-\mathrm{diff})`$ underflows to effectively zero ($`\exp(-20) \approx 2 \times 10^{-9}`$). This makes $`\ln(1 + \exp(-\mathrm{diff})) \approx \ln(1) = 0`$, so the result is simply $`\min(a,b)`$.
 
 **Implementation**:
 ```rust
@@ -265,7 +265,7 @@ min - (1.0 + (-diff).exp()).ln()
 **Analysis**:
 The fast path optimization shows ~10% improvement in log semiring operations and ~5-12% cascading improvements across all algorithms that use log weights. The benchmark tests use TropicalWeight, but the improvements still propagate because the benchmark infrastructure runs faster overall.
 
-The optimization is mathematically sound: for diff > 20, the correction term `ln(1 + exp(-20))` ≈ `ln(1 + 2e-9)` ≈ 2e-9, which is below f64 precision. The fast path avoids expensive `exp()` and `ln()` calls.
+The optimization is mathematically sound: for $`\mathrm{diff} > 20`$, the correction term $`\ln(1 + \exp(-20)) \approx \ln(1 + 2 \times 10^{-9}) \approx 2 \times 10^{-9}`$, which is below `f64` precision. The fast path avoids expensive `exp()` and `ln()` calls.
 
 ---
 
@@ -274,7 +274,7 @@ The optimization is mathematically sound: for diff > 20, the correction term `ln
 **Date**: 2025-12-26
 **Status**: ❌ REJECTED
 
-**Rationale**: Replace `sort_by()` + `truncate()` (O(n log n)) with `select_nth_unstable_by()` + `truncate()` (O(n)) for beam pruning.
+**Rationale**: Replace `sort_by()` + `truncate()` ($`\mathcal{O}(n \log n)`$) with `select_nth_unstable_by()` + `truncate()` ($`\mathcal{O}(n)`$) for beam pruning.
 
 **Results**:
 
@@ -285,7 +285,7 @@ The optimization is mathematically sound: for diff > 20, the correction term `ln
 | beam_search_diamond_10/10 | 9.17 µs | 12.01 µs | **+27.7%** | < 0.05 |
 
 **Analysis**:
-The O(n) vs O(n log n) asymptotic advantage only manifests for large n. In the benchmark:
+The $`\mathcal{O}(n)`$ vs $`\mathcal{O}(n \log n)`$ asymptotic advantage only manifests for large n. In the benchmark:
 - Diamond lattice has 10 positions × 2 branches = ~20 elements per pruning step
 - For such small n, Rust's highly optimized `sort_by` (introsort) has lower constant factors than quickselect
 - The selection algorithm's overhead dominates for small inputs
@@ -346,7 +346,7 @@ For beam search with beam_width=10 and 10 positions, this saves ~100 small alloc
 **Date**: 2025-12-26
 **Status**: ❌ REJECTED
 
-**Rationale**: Replace O(n) `contains()` checks in Earley chart merge with HashSet-based O(1) lookups.
+**Rationale**: Replace $`\mathcal{O}(n)`$ `contains()` checks in Earley chart merge with HashSet-based $`\mathcal{O}(1)`$ lookups.
 
 **Before**:
 ```rust
@@ -485,7 +485,7 @@ Reverted.
 
 | # | Optimization | Impact | Key Insight |
 |---|-------------|--------|-------------|
-| 1 | Topological Sort O(V²)→O(V+E) | **-94%** (200 nodes) | Built edge_id→target lookup table |
+| 1 | Topological Sort $`\mathcal{O}(V^{2})`$→$`\mathcal{O}(V+E)`$ | **-94%** (200 nodes) | Built edge_id→target lookup table |
 | 3 | log_sum_exp fast path | **-10%** | Skip exp/ln when diff > 20 |
 | 5 | Eliminate beam.rs Vec | **-23%** | Direct iteration, no intermediate allocation |
 | 7 | Path extend clone reduction | **-25%** | Move-last pattern for SmallVec<[EdgeId; 16]> |
@@ -495,13 +495,13 @@ Reverted.
 | # | Optimization | Result | Reason |
 |---|-------------|--------|--------|
 | 2 | Semiring #[inline(always)] | Mixed | Compiler already optimized; forced inlining caused bloat |
-| 4 | Beam search select_nth | +19% to +28% | O(n) vs O(n log n) only helps for large n |
+| 4 | Beam search select_nth | +19% to +28% | $`\mathcal{O}(n)`$ vs $`\mathcal{O}(n \log n)`$ only helps for large n |
 | 6 | Earley chart merge HashSet | +5% to +11% | SmallVec<4> too small for HashSet benefit |
 | 8 | Earley state clone reduction | +4% to +10% | SmallVec<4> clones cheaper than move-last overhead |
 
 ### Key Learnings
 
-1. **Asymptotic improvements require scale**: O(n) vs O(n log n) or O(1) vs O(n) optimizations only help when n is large. For n < 20, constant factors dominate.
+1. **Asymptotic improvements require scale**: $`\mathcal{O}(n)`$ vs $`\mathcal{O}(n \log n)`$ or $`\mathcal{O}(1)`$ vs $`\mathcal{O}(n)`$ optimizations only help when n is large. For n < 20, constant factors dominate.
 
 2. **SmallVec capacity matters**: Optimizations that help SmallVec<[T; 16]> may regress SmallVec<[T; 4]> because smaller inline capacity means faster clones.
 
@@ -520,4 +520,3 @@ Reverted.
 | N-best search | nbest_diamond_10/10 | **~25%** faster |
 | Log semiring ops | log_plus | **~10%** faster |
 | Earley parsing | earley_5_word_sentence | ~5% faster |
-

@@ -166,7 +166,7 @@ reassembled output is in input order.
   return reassemble(out)                          ▷ concatenate spans in order
 ```
 
-`classify` is $`O(\lvert \text{input}\rvert)`$ for the demonstration classifier; each
+`classify` is $`\mathcal{O}(\lvert \text{input}\rvert)`$ for the demonstration classifier; each
 $`\tau_c`$ is a finite transducer so verbalizing a token is linear in its
 length; $`\text{reassemble}`$ is linear in the number of tokens. ITN runs the same
 chunk with $`\tau^{-1}_c`$ (e.g. `words_to_number`) and inverted PLAIN handling.
@@ -174,9 +174,9 @@ chunk with $`\tau^{-1}_c`$ (e.g. `words_to_number`) and inverted PLAIN handling.
 **Trace** (`"I have 123 apples"`, TN): the classifier tags `"123"` as
 `CARDINAL` and the rest as `PLAIN`; $`\tau_{\text{CARDINAL}}(\text{"123"}) = \text{"one hundred twenty three"}`$;
 reassembly yields `"I have one hundred twenty three apples"`.
-The ITN trace runs in reverse: `` `words_to_number(["one","hundred","twenty",
-"three"]) = (123, 4)` `` consuming four words, so
-`"... one hundred twenty three apples" → "... 123 apples"`. ∎
+The ITN trace runs in reverse: `words_to_number(["one", "hundred", "twenty", "three"]) = (123, 4)`
+consuming four words, so
+`"... one hundred twenty three apples" → "... 123 apples"`. This completes the derivation.
 
 ---
 
@@ -241,7 +241,7 @@ assert_eq!(cfg.subunit_divisor, 100); // cents
 
 ### Classify → normalize-per-class → reassemble (TN/ITN flow)
 
-![Activity flow: input text, classifier WFST tags tokens with a SemioticClass, a per-token branch routes CARDINAL/MONEY/TIME/DATE/MEASURE/ORDINAL/PLAIN tokens to their verbalizer τ_c, and the reassembler concatenates the verbalized spans into weighted candidates.](../diagrams/correction/tn-itn-flow.svg)
+![Activity flow: a classifier tags input tokens by semiotic class, per-class branches route them to the matching verbalizer, and a reassembler concatenates the verbalized spans into weighted candidates](../diagrams/correction/tn-itn-flow.svg)
 
 *Amber = per-class verbalization activities; blue diamond = the class switch;
 green terminal = the emitted weighted candidates `Vec<(String, W)>`; the
@@ -267,7 +267,7 @@ stop
 
 ### The MONEY-class WFST (`$5 → five dollars`)
 
-![MONEY verbalizer WFST: absorb the currency symbol (ε output), verbalize the integer amount via the CARDINAL spine, then emit the plural currency name; the singular-name alternative is shown for amount = 1.](../diagrams/correction/money-fst.svg)
+![Money verbalizer: absorb the currency symbol without output, verbalize the integer amount through the cardinal spine, then emit the plural currency name, with a singular alternative for amount one](../diagrams/correction/money-fst.svg)
 
 *Blue = states; double green ring = final; bold green = the single accepting
 derivation `"$5" → "five dollars"`; grey = the singular alternative

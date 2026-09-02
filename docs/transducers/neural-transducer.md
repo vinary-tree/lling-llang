@@ -170,11 +170,11 @@ $`\exp(\alpha + \text{log\_prob} + \beta - \text{total})`$. Both passes combine 
 ```
 
 The two recursions share the same blank/emit factorization as the
-[transition table](#formal-model); the named chunks `` ⟨ blank ⟩ `` and
-`` ⟨ emit ⟩ `` correspond exactly to the two arc kinds.
+[transition table](#formal-model); the named chunks `blank` and `emit`
+correspond exactly to the two arc kinds.
 
-**Complexity.** Each pass visits every $`(t,u)`$ cell once with $`O(1)`$ work, so the
-loss and gradients are $`O(T \cdot U)`$ time and space — the defining efficiency of
+**Complexity.** Each pass visits every $`(t,u)`$ cell once with $`\mathcal{O}(1)`$ work, so the
+loss and gradients are $`\mathcal{O}(T \cdot U)`$ time and space — the defining efficiency of
 the RNN-T forward–backward algorithm
 ([Graves 2012](../BIBLIOGRAPHY.md#ref-graves2012)).
 
@@ -387,7 +387,7 @@ with the multi-tape, pushdown, tree, and subsequential families.
 - <a id="cite-graves2012"></a>[Graves 2012](../BIBLIOGRAPHY.md#ref-graves2012) —
   Graves, A. (2012). *Sequence Transduction with Recurrent Neural Networks.*
   arXiv:1211.3711. Introduces the RNN-T model, the $`T \times U`$ alignment lattice, the
-  emit/blank factorization, and the $`O(T \cdot U)`$ forward–backward algorithm.
+  emit/blank factorization, and the $`\mathcal{O}(T \cdot U)`$ forward–backward algorithm.
 - <a id="cite-graves2006"></a>[Graves 2006](../BIBLIOGRAPHY.md#ref-graves2006) —
   Graves, A., Fernández, S., Gomez, F., & Schmidhuber, J. (2006). *Connectionist
   Temporal Classification.* ICML 2006. The blank-augmented alignment idea RNN-T

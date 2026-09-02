@@ -142,7 +142,7 @@ remove_epsilon(&mut fst, config)?;
 
 The figure below shows the whole transform end-to-end: a chain with two $`\varepsilon`$ arcs (grey dashed) is folded into a single labelled arc whose weight is the $`\otimes`$-product across the $`\varepsilon`$-closure, and the start state becomes final-reachable.
 
-![Epsilon removal before/after: a chain 0 -ε/1.0→ 1 -a/2.0→ 2 -ε/0.5→ 3(final) folds into a single arc 0 -a/3.5→ (final), the epsilon weights multiplied into the surviving real arc](../diagrams/algorithms/epsilon-removal.svg)
+![Epsilon removal before and after: a four-state chain with epsilon arcs around one labeled arc folds into a single labeled arc whose weight includes both epsilon weights](../diagrams/algorithms/epsilon-removal.svg)
 
 *Grey dashed = $`\varepsilon`$ arcs (removed); the surviving $`a`$-arc absorbs the $`\varepsilon`$-weights via $`\otimes`$; the green double-ring final state's weight absorbs any $`\varepsilon`$-reachable final.*
 
@@ -226,10 +226,10 @@ Before:                     After:
   0 --a/1.5--> 2 (final)    // Combined: 1.0 ⊗ 0.5 = 1.5
 ```
 
-**Complexity.** Computing one $`\varepsilon`$-closure costs up to $`O(\lvert Q\rvert + \lvert E\rvert)`$ and there
-are up to $`\lvert Q\rvert`$ of them, giving the $`O(\lvert Q\rvert^2 + \lvert Q\rvert\lvert E\rvert)`$ figure below for
+**Complexity.** Computing one $`\varepsilon`$-closure costs up to $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ and there
+are up to $`\lvert Q\rvert`$ of them, giving the $`\mathcal{O}(\lvert Q\rvert^2 + \lvert Q\rvert\lvert E\rvert)`$ figure below for
 $`k`$-closed semirings; a complete semiring with $`\varepsilon`$-cycles needs the star and rises to
-$`O(\lvert Q\rvert^3 + \lvert Q\rvert\lvert E\rvert)`$.
+$`\mathcal{O}(\lvert Q\rvert^3 + \lvert Q\rvert\lvert E\rvert)`$.
 
 ### Handling Start State
 
@@ -263,9 +263,9 @@ After (tropical semiring, ⊕ = min):
 
 | Graph Type | Semiring | Time Complexity |
 |------------|----------|-----------------|
-| Acyclic | Any | $`O(\lvert Q\rvert^2 + \lvert Q\rvert\lvert E\rvert)`$ |
-| General | $`k`$-closed | $`O(\lvert Q\rvert^2 + \lvert Q\rvert\lvert E\rvert)`$ |
-| General | Complete | $`O(\lvert Q\rvert^3 + \lvert Q\rvert\lvert E\rvert)`$ |
+| Acyclic | Any | $`\mathcal{O}(\lvert Q\rvert^2 + \lvert Q\rvert\lvert E\rvert)`$ |
+| General | $`k`$-closed | $`\mathcal{O}(\lvert Q\rvert^2 + \lvert Q\rvert\lvert E\rvert)`$ |
+| General | Complete | $`\mathcal{O}(\lvert Q\rvert^3 + \lvert Q\rvert\lvert E\rvert)`$ |
 
 Where:
 - $`\lvert Q\rvert`$ = number of states

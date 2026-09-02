@@ -51,7 +51,7 @@ weight pushing, $`\varepsilon`$-removal, `connect`, determinization, minimizatio
 synchronization; `composition` lazily evaluates $`A \circ B`$ on demand to avoid
 materializing the product; `optimization` prepares lattices for beam search
 (log-pushing, look-ahead tables, n-gram builders). Complexity for acyclic
-lattices is $`O(\lvert V\rvert + \lvert E\rvert)`$.
+lattices is $`\mathcal{O}(\lvert V\rvert + \lvert E\rvert)`$.
 → [`docs/algorithms/shortest-distance.md`](docs/algorithms/shortest-distance.md),
 [`docs/algorithms/path-extraction.md`](docs/algorithms/path-extraction.md),
 [`docs/algorithms/composition.md`](docs/algorithms/composition.md),

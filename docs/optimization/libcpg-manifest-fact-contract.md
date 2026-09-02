@@ -285,7 +285,7 @@ BUILD-DENSE-INDEX(canonical-active-facts)
   return immutable index
 ```
 
-For an already canonical snapshot this is $`O(n)`$ expected time, $`O(n)`$
+For an already canonical snapshot this is $`\mathcal{O}(n)`$ expected time, $`\mathcal{O}(n)`$
 space, and constant native-stack growth. Canonicalization of arbitrary external
 input is a separate named cost. The production implementation must benchmark
 comparison sort against a fixed-width radix strategy on preregistered small,

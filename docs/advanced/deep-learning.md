@@ -132,8 +132,8 @@ let output = forward_score(&GradientWfst::from_wfst(&composed));
 
 | Layer Type | Parameters | Operations |
 |------------|------------|------------|
-| WFST Conv ($`k=3`$, $`c_o=64`$) | 2,048 | $`O(k \times w \times c_o)`$ |
-| Traditional Conv ($`k=3`$, $`c_i=256`$, $`c_o=64`$) | 79,000 | $`O(k \times c_i \times c_o)`$ |
+| WFST Conv ($`k=3`$, $`c_o=64`$) | 2,048 | $`\mathcal{O}(k \times w \times c_o)`$ |
+| Traditional Conv ($`k=3`$, $`c_i=256`$, $`c_o=64`$) | 79,000 | $`\mathcal{O}(k \times c_i \times c_o)`$ |
 
 38× **fewer parameters** with WFST convolution!
 
@@ -384,8 +384,8 @@ Scale to large vocabularies with `87×` speedup.
 ### The Problem
 
 Dense n-gram transitions:
-- Bigram: $`O(\lvert V\rvert^2)`$ transitions for vocabulary size $`\lvert V\rvert`$
-- Trigram: $`O(\lvert V\rvert^3)`$ transitions
+- Bigram: $`\mathcal{O}(\lvert V\rvert^2)`$ transitions for vocabulary size $`\lvert V\rvert`$
+- Trigram: $`\mathcal{O}(\lvert V\rvert^3)`$ transitions
 - 1000 word pieces: 1 million bigram arcs!
 
 ### The Solution
@@ -525,7 +525,7 @@ let fisher = compute_fisher_information(&first_grads);
 
 ### Hessian-Vector Products
 
-Efficient $`O(\lvert E\rvert)`$ computation without materializing the full Hessian:
+Efficient $`\mathcal{O}(\lvert E\rvert)`$ computation without materializing the full Hessian:
 
 ```rust
 // Direction vector
@@ -633,7 +633,7 @@ let loss = z_score.value() - a_score.value();
 
 ## Performance Tips
 
-1. **Use Diagonal Hessian**: Full Hessian is $`O(\lvert E\rvert^2)`$, diagonal is $`O(\lvert E\rvert)`$
+1. **Use Diagonal Hessian**: Full Hessian is $`\mathcal{O}(\lvert E\rvert^2)`$, diagonal is $`\mathcal{O}(\lvert E\rvert)`$
 
 2. **Prune Aggressively**: `min_count=10` gives 87× speedup with no accuracy loss
 

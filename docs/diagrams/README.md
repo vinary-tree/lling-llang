@@ -39,7 +39,7 @@ rendered via JLaTeXMath, while math
 macros in TikZ — rather than Unicode literals, per the pgmcp
 *diagrams-plantuml-latex* guideline and [`STYLE.md`](../STYLE.md) §4. Graphviz
 (`.dot`) and D2 (`.d2`) have no LaTeX facility, so their automaton and dataflow
-labels keep the readable Unicode forms (`a:ε/0.5`, `q₀`) — which render
+labels keep readable Unicode forms equivalent to $`a:\varepsilon/0.5`$ and $`q_0`$—which render
 identically in the SVG.
 
 ## 2. Color palette — one intuitive color per concept
@@ -80,7 +80,7 @@ at a glance):
 |---|---|
 | Best / Viterbi path | `#2E7D32`, bold (`penwidth=2`) |
 | Alternative path | `#B0BEC5` (light) / `#607D8B` (default arrow) |
-| Epsilon (`ε`) arc | `#9E9E9E`, dashed |
+| Epsilon ($`\varepsilon`$) arc | `#9E9E9E`, dashed |
 | Final state | double ring (`peripheries=2`), fill `#C8E6C9`, border `#2E7D32` |
 | Start state | fill `#BBDEFB`, border `#1565C0`, arrow from an invisible point |
 | Proof / verifies edge | `#B71C1C`, dashed |

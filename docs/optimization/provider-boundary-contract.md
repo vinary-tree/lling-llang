@@ -219,7 +219,7 @@ ADAPT-RESULT(result, map_payload)
       RETURN Incomplete(reason, mapped_partial, checkpoint)
 ```
 
-The algorithm performs $`O(1)`$ metadata work plus the cost of
+The algorithm performs $`\mathcal{O}(1)`$ metadata work plus the cost of
 `map_payload`. It neither copies the limitation sequence nor traverses the
 checkpoint.
 

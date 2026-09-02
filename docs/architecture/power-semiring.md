@@ -42,7 +42,7 @@ The $`\eta`$ parameter controls the "softness" of the plus operation — a tempe
 
 The figure below ties the three regimes to their algebra and to the isomorphism $`\Psi_\eta`$ with the probability semiring:
 
-![The η-power semiring figure: the signature S_η = (ℝ₊∪{+∞}, ⊕_η, ×, 0, 1) with ⊕_η x y = (x^{1/η}+y^{1/η})^η branches to three limiting regimes — η→0 Max semiring (hard winner-take-all), η=1 Probability (soft log-sum-exp), η→∞ Min semiring (greedy argmin) — along an explore↔exploit axis, and an isomorphism box Ψ_η(x)=x^η, Ψ_η⁻¹(x)=x^{1/η} preserving plus and times.](../diagrams/architecture/power-semiring.svg)
+![Power-semiring figure: the exponent controls a continuum from maximum through probability to minimum behavior along an explore-versus-exploit axis, while an isomorphism preserves addition and multiplication](../diagrams/architecture/power-semiring.svg)
 
 *Blue = the $`S_\eta`$ signature; green = the three limiting semirings ($`\max`$, probability, $`\min`$); amber = the algebraic-property tags and the $`\Psi_\eta`$ isomorphism; the amber explore/exploit arrows are the $`\eta`$ temperature axis.*
 

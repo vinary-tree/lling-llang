@@ -194,7 +194,7 @@ checkers) using the standard composition algorithm.
 
 ## Algorithms
 
-### ⟨ least-cost repair selection ⟩
+### Least-cost repair selection
 
 The intent is to *return the cheapest set of mutually consistent edits that fix
 the located errors*. The invariant maintained by the selection loop is: **every
@@ -219,8 +219,8 @@ applying them in any order is well-defined.
     apply chosen edits to source in descending byte order  ⟨ offset-stable apply ⟩
 ```
 
-Firing all rules is $`O(\lvert\text{rules}\rvert \cdot \lvert t\rvert)`$ in the simple text/after-token
-cases; the greedy non-overlap pass is $`O(\lvert\text{candidates}\rvert^2)`$ in the worst
+Firing all rules is $`\mathcal{O}(\lvert\text{rules}\rvert \cdot \lvert t\rvert)`$ in the simple text/after-token
+cases; the greedy non-overlap pass is $`\mathcal{O}(\lvert\text{candidates}\rvert^2)`$ in the worst
 case (each candidate compared against the accepted set). Applying edits in
 descending byte order keeps earlier offsets valid as later text changes —
 the same trick `RepairAction::Multiple` uses internally.

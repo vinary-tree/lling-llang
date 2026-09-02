@@ -184,7 +184,7 @@ merges converge to the same value (the CRDT property).
   (a.join(&b)).join(&c)        = a.join(&b.join(&c))      (associative)
 ```
 
-Each merge is $`O(\operatorname{cost}(\oplus))`$ — $`O(1)`$ for scalar semirings such as
+Each merge is $`\mathcal{O}(\operatorname{cost}(\oplus))`$ — $`\mathcal{O}(1)`$ for scalar semirings such as
 Tropical/Boolean. Because the operation is a lattice join, a dictionary built
 this way is a conflict-free replicated value: merging two replicas in any order
 yields the least upper bound of their contents.
@@ -250,7 +250,7 @@ assert_is_semiring_lattice::<BoolWeight>();
 
 ### Blanket impl + two values merging via $`\oplus`$
 
-![Class diagram of the semiring↔lattice bridge: Semiring is refined by IdempotentSemiring and the blanket SemiringLattice; SemiringLatticeWrapper<S> implements llattice::Lattice (join = ⊕, meet = ⊗) and libdictenstein::DictionaryValue. Below, an object snapshot shows two Tropical wrapper values joining (⊕ = min) into a merged value.](../diagrams/architecture/lattice-bridge.svg)
+![Class diagram of the semiring-to-lattice bridge: an idempotent semiring gains a blanket lattice view whose join uses semiring addition and whose meet uses semiring multiplication; an object snapshot shows two tropical values joining by minimum](../diagrams/architecture/lattice-bridge.svg)
 
 *Blue = the core `Semiring` / `Lattice` interfaces; amber =
 idempotent marker and the wrapper/value objects; green = the

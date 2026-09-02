@@ -105,7 +105,7 @@ assert_eq!(TropicalWeight::one().value(), 0.0);
 
 Max-plus scores for best-gain paths.
 
-**Definition**: `` $`(\mathbb{R}\cup\{-\infty\},\max,+,-\infty,0)`$ ``
+**Definition**: $`(\mathbb{R}\cup\{-\infty\},\max,+,-\infty,0)`$
 
 ```rust
 use lling_llang::semiring::{ArcticWeight, Semiring};
@@ -120,13 +120,13 @@ assert_eq!(ArcticWeight::zero().value(), f64::NEG_INFINITY);
 `try_new` accepts finite values and negative infinity; it rejects NaN and
 positive infinity. `star` returns `Some(ArcticWeight::one())` for weights at
 most zero and `None` for a positive cycle. Sequential score addition clamps
-positive and negative IEEE-754 overflow to `` $`\pm\texttt{f64::MAX}`$ ``;
+positive and negative IEEE-754 overflow to $`\pm\texttt{f64::MAX}`$;
 this keeps every operation inside the checked carrier and prevents a debug or
 release panic. Saturation loses overflow magnitude, so the type intentionally
 does not implement `DivisibleSemiring` or `WeaklyLeftDivisibleSemiring`.
 It implements idempotent, zero-sum-free, commutative-times, totally-ordered,
 and quantizable capabilities, and also omits the non-negative and
-`` $`k`$ ``-closed markers.
+$`k`$-closed markers.
 
 ## LogWeight
 

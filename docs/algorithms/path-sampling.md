@@ -36,7 +36,7 @@ each step it draws one outgoing transition under the chosen strategy; at a final
 may stop with a strategy-dependent probability. The green path in the figure is one such
 walk; the per-arc probabilities annotate the proportional choice.
 
-![Forward path sampling: a random walk from start state 0 drawing each arc proportional to its weight (a/P=0.3 sampled over b/0.5 and c/0.2), then a/P=1.0 into a final state, with an inset showing the stop decision P(stop)=ρ/(ρ ⊕ Σ out-weights)](../diagrams/algorithms/path-sampling.svg)
+![Forward path sampling: a random walk from the start state draws each arc in proportion to its weight, enters a final state, and compares the final weight with the sum of outgoing weights to decide whether to stop](../diagrams/algorithms/path-sampling.svg)
 
 *Green bold = one sampled path; grey = the alternatives not taken; arc labels carry the proportional $`P`$; the dotted inset is the final-state stop rule $`P(\text{stop}) = \rho / (\rho \oplus \sum \text{out-weights})`$.*
 
@@ -86,7 +86,7 @@ both.
         if ∣path∣ > max_length:  error MaxLengthExceeded
 ```
 
-The key decision is how `⟨ sample one transition ⟩` weights the choice. This is
+The key decision is how `sample one transition` weights the choice. This is
 controlled by the **sampling strategy**.
 
 ### Sampling Strategies
@@ -415,7 +415,7 @@ match result {
 | Factor | Impact | Recommendation |
 |--------|--------|----------------|
 | Path length | Linear in length | Set reasonable `max_length` |
-| Number of transitions | Constant per state | Proportional sampling has $`O(n)`$ per state |
+| Number of transitions | Constant per state | Proportional sampling has $`\mathcal{O}(n)`$ per state |
 | Stochastic vs raw | Same complexity | Push weights once, sample many times |
 | Seed setting | Minor overhead | Use for reproducibility |
 

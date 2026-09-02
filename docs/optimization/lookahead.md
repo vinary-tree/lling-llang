@@ -141,10 +141,10 @@ is preferable for repeated lookups).
 
 ## Algorithms
 
-### ⟨ build lookahead table ⟩
+### Build the lookahead table
 
 The intent is to *materialize $`V(q)`$ for every state so the frontier can
-read it in $`O(1)`$*. The invariant is that, processing states in reverse
+read it in $`\mathcal{O}(1)`$*. The invariant is that, processing states in reverse
 topological order, $`V(q)`$ is final before any predecessor of $`q`$ is
 visited — the standard backward shortest-distance order.
 
@@ -159,12 +159,12 @@ visited — the standard backward shortest-distance order.
   return LookaheadTable { potentials = V, total, num_reachable }
 ```
 
-For an acyclic WFST this is $`O(\lvert Q\rvert + \lvert E\rvert)`$ — one visit per state and per
+For an acyclic WFST this is $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ — one visit per state and per
 arc. Cyclic WFSTs require the fixed-point shortest-distance solver inside
 `compute_log_potentials`; `allow_unreachable` shields callers from the failure
 case by returning an all-$`\bar{0}`$ table.
 
-### ⟨ push lookahead to the frontier ⟩
+### Push lookahead to the frontier
 
 At search time each hypothesis combines its prefix cost with the table:
 
@@ -180,7 +180,7 @@ Without lookahead, $`\text{best}`$ is dominated by the *shortest* prefixes and l
 hypotheses are unfairly pruned; with $`L`$, every score is a whole-path
 estimate, so the cutoff is meaningful across stages.
 
-![Lookahead pruning: a small WFSA's backward potentials V(q) populate a lookahead table L, which the beam frontier combines with each hypothesis's accumulated cost via g ⊗ L[q] to decide what survives the beam threshold.](../diagrams/optimization/lookahead.svg)
+![Lookahead pruning: a small weighted automaton's backward potentials populate a lookahead table, which the beam frontier combines multiplicatively with each hypothesis's accumulated cost to decide what survives the threshold](../diagrams/optimization/lookahead.svg)
 
 *Blue = WFSA states annotated with $`V(q)`$; green/bold = the best path and the kept frontier; grey = alternative arcs; amber = the materialized $`L`$ table; dotted = the data flow from potentials to the frontier.*
 
@@ -259,7 +259,7 @@ assert!(normalized.approx_eq(&LogWeight::new(3.0), 0.001));
   applies on the lane-vectorized frontier.
 - **Constrained decoding.** The per-state `valid_token_cache` in
   [`advanced/constrained-decoding.md`](../advanced/constrained-decoding.md) is the
-  same "precompute per state, read in $`O(1)`$ at search time" pattern.
+  same "precompute per state, read in $`\mathcal{O}(1)`$ at search time" pattern.
 - See the optimization research log in [`journal.md`](journal.md).
 
 ---

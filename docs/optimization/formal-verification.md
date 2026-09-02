@@ -326,7 +326,7 @@ artifact uses a memory-backed temporary directory.
 The lazy-expansion Rust implementation now refines its lifecycle model through
 89 bidirectionally mapped properties: 57 Rocq declarations, 18 TLC invariants,
 and 14 SMT queries. Separate unit evidence covers panic rollback, concurrent
-cancellation, independent-wrapper parallelism, saturating counters, and O(1)
+cancellation, independent-wrapper parallelism, saturating counters, and $`\mathcal{O}(1)`$
 intrusive LRU behavior. Later optimizer-plan and ABI work must still add
 refinement evidence connecting their concrete scheduler and wire types to the
 remaining models. The present proofs do not claim:

@@ -13,7 +13,7 @@ These are foundational algorithms from Mohri's work on weighted automata.
 
 1. **Queue Disciplines**: Different traversal strategies for shortest-distance
    - `FifoQueue`: General-purpose, k-closed semirings
-   - `TopologicalQueue`: Acyclic graphs, O(|Q| + |E|)
+   - `TopologicalQueue`: Acyclic graphs, $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$
    - `ShortestFirstQueue`: Dijkstra-style, tropical semiring
 
 2. **Gen-Single-Source Shortest-Distance**: Generalized relaxation algorithm
@@ -22,7 +22,7 @@ These are foundational algorithms from Mohri's work on weighted automata.
 
 3. **Gen-All-Pairs Shortest-Distance**: Floyd-Warshall generalization
    - For complete semirings
-   - Complexity: Θ(|Q|³(T⊕ + T⊗ + T*))
+   - Complexity: $`\Theta(\lvert Q\rvert^{3}(T_{\oplus} + T_{\otimes} + T_*))`$
 
 ---
 
@@ -37,9 +37,9 @@ Queue discipline selection significantly impacts shortest-distance performance:
 
 | Queue Type | Best For | Expected Complexity |
 |------------|----------|---------------------|
-| TopologicalQueue | Acyclic graphs | O(|Q| + |E|) |
-| ShortestFirstQueue | Tropical semiring | O(|E| + |Q| log |Q|) |
-| FifoQueue | General k-closed | O(|Q|² + |Q||E|) worst case |
+| TopologicalQueue | Acyclic graphs | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ |
+| ShortestFirstQueue | Tropical semiring | $`\mathcal{O}(\lvert E\rvert + \lvert Q\rvert \log \lvert Q\rvert)`$ |
+| FifoQueue | General k-closed | $`\mathcal{O}(\lvert Q\rvert^{2} + \lvert Q\rvert\lvert E\rvert)`$ worst case |
 
 ### Design
 
@@ -64,9 +64,9 @@ pub trait ShortestDistanceQueue<W: Semiring> {
 - `src/algorithms/queue.rs` (~794 lines)
 
 **Key implementations**:
-- `FifoQueue`: VecDeque-based, O(1) insert/pop, O(n) contains
+- `FifoQueue`: VecDeque-based, $`\mathcal{O}(1)`$ insert/pop, $`\mathcal{O}(n)`$ contains
 - `TopologicalQueue`: Topological order traversal with FIFO fallback
-- `ShortestFirstQueue`: BinaryHeap-based priority queue, O(log n) operations
+- `ShortestFirstQueue`: BinaryHeap-based priority queue, $`\mathcal{O}(\log n)`$ operations
 - `AutoQueue`: Automatic queue selection based on graph properties
 
 ---
@@ -81,9 +81,9 @@ pub trait ShortestDistanceQueue<W: Semiring> {
 Generalized single-source shortest-distance computes minimum weight from start state
 to all reachable states. Performance depends on queue discipline:
 
-- **Acyclic + TopologicalQueue**: O(|Q| + (T⊕ + T⊗)|E|)
-- **Tropical + ShortestFirstQueue**: O(|E| + |Q| log |Q|)
-- **General + FifoQueue**: O(C·|E|) where C is path length bound
+- **Acyclic + TopologicalQueue**: $`\mathcal{O}(\lvert Q\rvert + (T\oplus + T\otimes)\lvert E\rvert)`$
+- **Tropical + ShortestFirstQueue**: $`\mathcal{O}(\lvert E\rvert + \lvert Q\rvert \log \lvert Q\rvert)`$
+- **General + FifoQueue**: $`\mathcal{O}(C\cdot\lvert E\rvert)`$ where C is path length bound
 
 ### Implementation
 
@@ -108,8 +108,8 @@ to all reachable states. Performance depends on queue discipline:
 All-pairs shortest distance computes minimum weight between every pair of states.
 Floyd-Warshall generalization for complete semirings.
 
-**Complexity**: Θ(|Q|³(T⊕ + T⊗ + T*))
-**Space**: Θ(|Q|²)
+**Complexity**: $`\Theta(\lvert Q\rvert^{3}(T_{\oplus} + T_{\otimes} + T_*))`$
+**Space**: $`\Theta(\lvert Q\rvert^{2})`$
 
 ### Implementation
 
@@ -149,7 +149,7 @@ ShortestFirst has ~1.7x overhead due to BinaryHeap operations.
 | 200 | 7.51 µs | 7.62 µs |
 
 **Observation**: TopologicalQueue shows slight advantage at small sizes.
-Both scale linearly with graph size, confirming O(|Q| + |E|) complexity.
+Both scale linearly with graph size, confirming $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ complexity.
 
 ### All-Pairs Shortest Distance
 
@@ -160,7 +160,8 @@ Both scale linearly with graph size, confirming O(|Q| + |E|) complexity.
 | 20 | 7.26 µs | 7.40 µs |
 | 30 | 19.39 µs | 19.47 µs |
 
-**Observation**: Confirms O(n³) scaling. 30³/10³ = 27x theoretical, actual ~13x
+**Observation**: Confirms $`\mathcal{O}(n^{3})`$ scaling. The theoretical ratio is
+$`30^{3}/10^{3} = 27`$, while the measured ratio is approximately $`13`$
 (due to constant factors and cache effects at larger sizes).
 
 ### Queue Discipline Comparison (Diamond, 50 positions, varying branching)
@@ -189,4 +190,3 @@ All implementations show expected algorithmic complexity and reasonable constant
 The queue discipline selection API allows users to optimize for their specific use case.
 
 ---
-

@@ -427,9 +427,9 @@ let layer = PhoneticRescoreLayer::new(reference)
 
 | Operation | Time | Notes |
 |-----------|------|-------|
-| `normalize()` | ~10 μs | Per word, uncached |
+| `normalize()` | approximately 10 µs | Per word, uncached |
 | `normalize()` | ~100 ns | Per word, cached |
-| `phonetic_distance()` | ~20 μs | Two normalizations + Levenshtein |
+| `phonetic_distance()` | approximately 20 µs | Two normalizations + Levenshtein |
 | `apply()` | ~1 ms | 100-edge lattice |
 
 ## Related Documentation

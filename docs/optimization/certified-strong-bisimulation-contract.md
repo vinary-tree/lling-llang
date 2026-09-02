@@ -121,7 +121,7 @@ contract.
 The production core specializes Valmari's refinable state-and-transition
 partition algorithm for labelled nondeterministic systems
 ([Valmari 2010](../BIBLIOGRAPHY.md)). It meets the required
-$`O(m\log n)`$ refinement target with linear partition storage, handles
+$`\mathcal{O}(m\log n)`$ refinement target with linear partition storage, handles
 nondeterminism directly, and exposes split history for certificates and modal
 witnesses. Paige and Tarjan provide the partition-refinement discipline
 ([Paige & Tarjan 1987](../BIBLIOGRAPHY.md)); Fernandez
@@ -275,11 +275,11 @@ transitions.
 
 | Component | Time | Auxiliary heap | Native stack |
 |---|---:|---:|---:|
-| validation, radix canonicalization, CSR | $`O(n+m)`$ on fixed-width word-RAM | $`O(n+m)`$ | $`O(1)`$ |
-| Valmari refinement core | $`O(n+m\log\max(2,n))`$ | $`O(n+m)`$ | $`O(1)`$ |
-| canonical block numbering | $`O(n)`$ | $`O(n)`$ | $`O(1)`$ |
-| replay certificate and shared modal DAG | $`O((n+m)\log\max(2,n))`$ | $`O((n+m)\log\max(2,n))`$ evidence | $`O(1)`$ |
-| optional relation matrix | $`O(n^2)`$ | $`O(n^2)`$ | $`O(1)`$ |
+| validation, radix canonicalization, CSR | $`\mathcal{O}(n+m)`$ on fixed-width word-RAM | $`\mathcal{O}(n+m)`$ | $`\mathcal{O}(1)`$ |
+| Valmari refinement core | $`\mathcal{O}(n+m\log\max(2,n))`$ | $`\mathcal{O}(n+m)`$ | $`\mathcal{O}(1)`$ |
+| canonical block numbering | $`\mathcal{O}(n)`$ | $`\mathcal{O}(n)`$ | $`\mathcal{O}(1)`$ |
+| replay certificate and shared modal DAG | $`\mathcal{O}((n+m)\log\max(2,n))`$ | $`\mathcal{O}((n+m)\log\max(2,n))`$ evidence | $`\mathcal{O}(1)`$ |
+| optional relation matrix | $`\mathcal{O}(n^2)`$ | $`\mathcal{O}(n^2)`$ | $`\mathcal{O}(1)`$ |
 
 Every state or transition charged through a smaller-half split has at most
 $`\lfloor\log_2\max(1,n)\rfloor`$ charges. The resource account reports zero

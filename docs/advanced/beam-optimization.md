@@ -11,7 +11,7 @@ Beam search is the standard inference algorithm for large WFST-based systems, pr
 | Log-Semiring Pushing | Stochastic normalization | Up to 18× speedup |
 | Lookahead Tables | Future cost estimation | Improved pruning |
 | Token Grouping | Lazy evaluation for composition | 10-20× fewer ops |
-| N-gram Back-off | Compact LM representation | Avoids $`O(\lvert V\rvert^2)`$ |
+| N-gram Back-off | Compact LM representation | Avoids $`\mathcal{O}(\lvert V\rvert^2)`$ |
 
 ## Log-Semiring Weight Pushing
 
@@ -394,13 +394,13 @@ manager.expand_group(group_id);
 
 ## N-gram Back-off Structure
 
-For large vocabulary LMs, back-off structure avoids $`O(\lvert V\rvert^2)`$ transitions.
+For large vocabulary LMs, back-off structure avoids $`\mathcal{O}(\lvert V\rvert^2)`$ transitions.
 
 ### Problem
 
 Naively representing an n-gram LM:
-- $`O(\lvert V\rvert^{n-1})`$ states for contexts
-- $`O(\lvert V\rvert^n)`$ arcs for all n-grams
+- $`\mathcal{O}(\lvert V\rvert^{n-1})`$ states for contexts
+- $`\mathcal{O}(\lvert V\rvert^n)`$ arcs for all n-grams
 
 For a vocabulary of 100K words: $`10^{10}`$ potential bigram arcs.
 
@@ -623,23 +623,23 @@ forward log-probability, not the forward score of the FB algorithm):
 
 | Operation | Time | Space |
 |-----------|------|-------|
-| Compute potentials | $`O(\lvert Q\rvert + \lvert E\rvert)`$ acyclic | $`O(\lvert Q\rvert)`$ |
-| Apply push | $`O(\lvert E\rvert)`$ | $`O(\lvert E\rvert)`$ |
+| Compute potentials | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ acyclic | $`\mathcal{O}(\lvert Q\rvert)`$ |
+| Apply push | $`\mathcal{O}(\lvert E\rvert)`$ | $`\mathcal{O}(\lvert E\rvert)`$ |
 
 ### Lookahead Table
 
 | Operation | Time | Space |
 |-----------|------|-------|
-| Build table | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(\lvert Q\rvert)`$ |
-| Query | $`O(1)`$ | - |
+| Build table | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | $`\mathcal{O}(\lvert Q\rvert)`$ |
+| Query | $`\mathcal{O}(1)`$ | - |
 
 ### Token Grouping
 
 | Operation | Time |
 |-----------|------|
-| Process token | $`O(1)`$ amortized |
-| Advance frame | $`O(\text{groups})`$ |
-| Back-trace | $`O(\text{path length})`$ |
+| Process token | $`\mathcal{O}(1)`$ amortized |
+| Advance frame | $`\mathcal{O}(\text{groups})`$ |
+| Back-trace | $`\mathcal{O}(\text{path length})`$ |
 
 ## References
 

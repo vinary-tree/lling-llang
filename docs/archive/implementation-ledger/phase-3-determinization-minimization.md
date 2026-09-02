@@ -34,7 +34,7 @@ essential for producing compact, efficient WFSTs for decoding and composition.
 Weighted determinization converts a non-deterministic WFST to an equivalent
 deterministic WFST using powerset construction with residual weights.
 
-**Complexity**: O(|Q'||E'|) where |Q'| and |E'| are the output sizes
+**Complexity**: $`\mathcal{O}(\lvert Q'\rvert\lvert E'\rvert)`$ where |Q'| and |E'| are the output sizes
 - Output can be exponentially larger in worst case
 - Twins property determines determinizability for unambiguous transducers
 
@@ -123,8 +123,8 @@ Weighted minimization produces a minimal WFST with the fewest states while
 preserving the weighted language. Uses partition refinement after weight pushing.
 
 **Complexity**:
-- Acyclic: O(|Q| + |E|) with topological processing
-- General: O(|E| log |Q|) with partition refinement
+- Acyclic: $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ with topological processing
+- General: $`\mathcal{O}(\lvert E\rvert \log \lvert Q\rvert)`$ with partition refinement
 
 ### Design
 
@@ -188,9 +188,9 @@ where
 4. Already-minimal scales linearly (no refinement iterations needed)
 
 **Complexity Analysis**:
-- Redundant 10 → 25: 38.61 → 217.63 µs (5.6x for 2.5x size increase) ≈ O(n²)
-- Redundant 25 → 50: 217.63 → 862.54 µs (4.0x for 2x size increase) ≈ O(n²)
-- Linear 10 → 50: 7.38 → 32.05 µs (4.3x for 5x size increase) ≈ O(n)
+- Redundant 10 → 25: 38.61 → 217.63 µs (5.6x for 2.5x size increase), approximately $`\mathcal{O}(n^{2})`$
+- Redundant 25 → 50: 217.63 → 862.54 µs (4.0x for 2x size increase), approximately $`\mathcal{O}(n^{2})`$
+- Linear 10 → 50: 7.38 → 32.05 µs (4.3x for 5x size increase), approximately $`\mathcal{O}(n)`$
 
 ### Result: ACCEPTED
 
@@ -210,10 +210,10 @@ identifies and merges equivalent states.
 
 | Algorithm | Complexity (Expected) | Complexity (Observed) | Status |
 |-----------|----------------------|----------------------|--------|
-| Determinization | O(\|Q'\|\|E'\|) | Linear for test inputs ✓ | ACCEPTED |
-| is_deterministic | O(\|Q\| + \|E\|) | Linear ✓ | ACCEPTED |
-| Minimization (redundant) | O(\|E\| log \|Q\|) | Quadratic ✓ | ACCEPTED |
-| Minimization (minimal) | O(\|Q\| + \|E\|) | Linear ✓ | ACCEPTED |
+| Determinization | $`\mathcal{O}(\lvert Q'\rvert\lvert E'\rvert)`$ | Linear for test inputs ✓ | ACCEPTED |
+| is_deterministic | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | Linear ✓ | ACCEPTED |
+| Minimization (redundant) | $`\mathcal{O}(\lvert E\rvert \log \lvert Q\rvert)`$ | Quadratic ✓ | ACCEPTED |
+| Minimization (minimal) | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | Linear ✓ | ACCEPTED |
 
 ### DivisibleSemiring Trait Usage
 
@@ -225,7 +225,6 @@ pub trait DivisibleSemiring: Semiring {
 }
 ```
 
-The divide operation computes x ⊘ y such that x = y ⊗ (x ⊘ y).
+The divide operation computes $`x \oslash y`$ such that $`x = y \otimes (x \oslash y)`$.
 
 ---
-

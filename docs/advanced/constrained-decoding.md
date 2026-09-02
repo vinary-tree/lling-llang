@@ -119,7 +119,7 @@ pub trait ConstrainedDecoder {
 ### `TokenMask` — the bit-vector that is the mask
 
 `TokenMask` packs $`\lvert V\rvert`$ bits into $`\lceil \lvert V\rvert / 64\rceil`$ `u64` words.
-`set`/`unset`/`is_valid` are $`O(1)`$ bit operations; `union` (`|`) and
+`set`/`unset`/`is_valid` are $`\mathcal{O}(1)`$ bit operations; `union` (`|`) and
 `intersection` (`&`) combine masks word-by-word — the building blocks for
 *intersecting* several constraints (e.g. a grammar **and** a JSON schema).
 `all_valid(vocab_size)` returns the "no constraint" mask with the bits beyond
@@ -146,7 +146,7 @@ assert_eq!(mask.count_valid(), 2);
 
 `WfstConstraint::new` eagerly builds a `valid_token_cache: HashMap<StateId, TokenMask>`
 by scanning each state's transitions once — this is the **lookahead table** that
-makes `valid_tokens` an $`O(1)`$ cache hit instead of an arc rescan.
+makes `valid_tokens` an $`\mathcal{O}(1)`$ cache hit instead of an arc rescan.
 `CompressedFsmConstraint` goes further, flattening transitions into a
 `HashMap<(StateId, TokenId), StateId>` so `advance` is also a single lookup; this
 is the "compressed FSM" stage of the pipeline.
@@ -170,7 +170,7 @@ returning only hypotheses in $`L`$.
 
 ## Algorithms
 
-### ⟨ masked decoding step ⟩
+### Masked decoding step
 
 The per-step intent is to *intersect the LLM distribution with the constraint
 and never leave the language*. The loop invariant is: **after every step the
@@ -189,8 +189,8 @@ beam contains only states reachable by a grammar-valid prefix.**
   repeat until is_accepting(s) or length cap
 ```
 
-Per step the cost is $`O(\lvert \text{arcs}(q)\rvert)`$ to build the mask (or $`O(1)`$ on
-a cache hit) plus $`O(\lvert V\rvert)`$ to apply it to the logits, i.e. $`O(\lvert V\rvert)`$
+Per step the cost is $`\mathcal{O}(\lvert \text{arcs}(q)\rvert)`$ to build the mask (or $`\mathcal{O}(1)`$ on
+a cache hit) plus $`\mathcal{O}(\lvert V\rvert)`$ to apply it to the logits, i.e. $`\mathcal{O}(\lvert V\rvert)`$
 overall — the mask never dominates the LLM forward pass it guards. The
 **compressed FSM** removes the per-step arc scan by precomputing
 `valid_token_cache`; the **lookahead** is precisely that cache.

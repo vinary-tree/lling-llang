@@ -14,7 +14,7 @@ $`P(\text{unit} \mid \text{frame})`$ that drive decoding; `FusionConfig` weights
 language-model score and the weighted product is searched for the best word
 sequence.
 
-![neural posterior fusion: audio frames into AcousticModel forward(), per-frame posteriors, fused via FusionConfig against the recognition network N = H∘C∘L∘G, searched by Viterbi/beam to produce words](../diagrams/acoustic/posterior-fusion.svg)
+![Neural posterior fusion: audio frames pass through the acoustic model, per-frame posteriors are fused with the composed recognition network, and Viterbi or beam search produces words](../diagrams/acoustic/posterior-fusion.svg)
 
 *Purple = the neural acoustic stage (`AcousticModel::forward` → `FramePosterior` / `PosteriorSequence`); orange = the recognition network $`N`$ and `FusionConfig`; green = search. The fused arc weight is $`\text{combined} = \lambda_{am} \cdot \log P(\text{unit} \mid \text{frame}) + \lambda_{lm} \cdot \log P(\text{word} \mid \text{context}) + \text{penalties}`$.*
 

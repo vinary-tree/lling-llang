@@ -271,7 +271,7 @@ Used by `sample_path` for proportional path sampling.
 
 The five core concrete semirings classify by their algebraic properties as follows — **choosing the semiring chooses the question** [[Goodman 1999](../BIBLIOGRAPHY.md#ref-goodman1999)]: Tropical yields the best path (Viterbi), Log the marginal (forward), Probability the inside score, and Boolean reachability.
 
-![Semiring property classification: the Semiring signature (K, ⊕, ⊗, 0̄, 1̄) at the top branches to four concrete semirings — Tropical (ℝ∪{∞}, min, +, ∞, 0), Log (ℝ∪{∞}, ⊕log, +, ∞, 0), Probability ([0,1], +, ×, 0, 1), Boolean ({0,1}, ∨, ∧, 0, 1) — each tagged with its algebraic properties (idempotent/k-closed, divisible, stochastic).](../diagrams/architecture/semiring-hasse.svg)
+![Semiring property classification: the abstract semiring branches to tropical, log, probability, and Boolean implementations, each annotated with properties such as idempotence, closure, divisibility, and stochasticity](../diagrams/architecture/semiring-hasse.svg)
 
 *Blue = the `Semiring` signature and axioms; green = the four core concrete semirings; amber = their distinguishing algebraic-property tags. The caption records which inference question each semiring answers.*
 
@@ -337,10 +337,10 @@ alternative paths and adds scores along a path:
 
 | Operation | Definition | Intuition |
 |---|---|---|
-| `` $`\oplus`$ `` | `` $`\max(a,b)`$ `` | pick the higher-scoring path |
-| `` $`\otimes`$ `` | `` $`a+b`$ `` | accumulate gains and penalties |
-| `` $`\bar{0}`$ `` | `` $`-\infty`$ `` | unreachable path |
-| `` $`\bar{1}`$ `` | `` $`0`$ `` | empty path score |
+| $`\oplus`$ | $`\max(a,b)`$ | pick the higher-scoring path |
+| $`\otimes`$ | $`a+b`$ | accumulate gains and penalties |
+| $`\bar{0}`$ | $`-\infty`$ | unreachable path |
+| $`\bar{1}`$ | $`0`$ | empty path score |
 
 ```rust
 use lling_llang::semiring::{ArcticWeight, Semiring, StarSemiring};
@@ -360,7 +360,7 @@ proves the semiring, order, star boundary, and score-delta telescoping laws.
 Rust uses `f64`, so exact algebraic equality is guaranteed on the tested exact
 integer domain; general floating-point calculations use the trait's explicit
 approximate-equality contract. If sequential addition overflows IEEE-754,
-`times` clamps to `` $`\pm\texttt{f64::MAX}`$ `` instead of constructing an
+`times` clamps to $`\pm\texttt{f64::MAX}`$ instead of constructing an
 out-of-carrier infinity. The result remains total and commutative, but the lost
 overflow magnitude cannot be recovered; accordingly `ArcticWeight` does not
 claim divisible or weakly-left-divisible capability traits. The Rocq

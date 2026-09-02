@@ -200,10 +200,10 @@ For already canonical dense CSR:
 
 | Operation | Required time | Auxiliary space | Native-stack growth |
 |---|---:|---:|---:|
-| validated import | $`O(\lvert V\rvert+\lvert E\rvert)`$ | $`O(\lvert V\rvert)`$ | constant |
-| iterative SCC | $`O(\lvert V\rvert+\lvert E\rvert)`$ | $`O(\lvert V\rvert)`$ | constant |
-| quotient/condensation | $`O(\lvert V\rvert+\lvert E\rvert)`$ | $`O(\lvert V\rvert+\lvert E_C\rvert)`$ | constant |
-| deterministic wavefront | $`O(\lvert C\rvert+\lvert E_C\rvert)`$ | $`O(\lvert C\rvert)`$ | constant |
+| validated import | $`\mathcal{O}(\lvert V\rvert+\lvert E\rvert)`$ | $`\mathcal{O}(\lvert V\rvert)`$ | constant |
+| iterative SCC | $`\mathcal{O}(\lvert V\rvert+\lvert E\rvert)`$ | $`\mathcal{O}(\lvert V\rvert)`$ | constant |
+| quotient/condensation | $`\mathcal{O}(\lvert V\rvert+\lvert E\rvert)`$ | $`\mathcal{O}(\lvert V\rvert+\lvert E_C\rvert)`$ | constant |
+| deterministic wavefront | $`\mathcal{O}(\lvert C\rvert+\lvert E_C\rvert)`$ | $`\mathcal{O}(\lvert C\rvert)`$ | constant |
 
 The formal import charge is exactly $`2|V|+2|E|=2(|V|+|E|)`$: one validation
 and one import pass on each axis. Arbitrary stable-label canonicalization is a

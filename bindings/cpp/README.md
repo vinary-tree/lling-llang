@@ -261,8 +261,8 @@ implicitly `noexcept`.
 ## Zero-copy paths
 
 - `builder::build()` **moves** the graph into the immutable handle — no
-  copy, $`O(1)`$.
-- `retained_resource()` is an atomic refcount increment — $`O(1)`$.
+  copy, $`\mathcal{O}(1)`$.
+- `retained_resource()` is an atomic refcount increment — $`\mathcal{O}(1)`$.
 - `wfst::compose(a, b)` captures one snapshot retain per input and copies
   nothing; product states materialize lazily during traversal and are
   cached.

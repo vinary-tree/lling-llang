@@ -48,7 +48,7 @@ Different topologies trade off:
 
 | Concern | Correct-CTC | Compact-CTC | Minimal-CTC |
 |---------|-------------|-------------|-------------|
-| Graph size | $`O(N^2)`$ | $`O(N)`$ | $`O(N)`$ |
+| Graph size | $`\mathcal{O}(N^2)`$ | $`\mathcal{O}(N)`$ | $`\mathcal{O}(N)`$ |
 | Memory usage | High | Medium | Low |
 | Accuracy | Baseline | Same | Slightly lower |
 | Training speed | Slower | Faster | Fastest |
@@ -187,7 +187,7 @@ back-offs).
 
 ![Compact-CTC for N=3: each non-blank label backs off through the blank state, 3N-2 arcs](../diagrams/advanced/ctc-compact.svg)
 
-*Orange double-ring = blank (start and final); solid blue = `ε:label` entry arcs and non-blank self-loops; grey dashed = `label:ε` back-off arcs through blank. For $`N=3`$ this is $`3 \cdot 3 - 2 = 7`$ arcs.*
+*Orange double-ring = blank (start and final); solid blue = $`\varepsilon:label`$ entry arcs and non-blank self-loops; grey dashed = $`label:\varepsilon`$ back-off arcs through blank. For $`N=3`$ this is $`3 \cdot 3 - 2 = 7`$ arcs.*
 
 <details><summary>Text view</summary>
 
@@ -238,11 +238,11 @@ assert_eq!(info.num_arcs, 2998);  // 3×1000 - 2
 ### Minimal-CTC
 
 Minimal-CTC uses a **single state** with only blank-to-label transductions: $`1`$ state and
-$`N`$ arcs (one `blank:label` per label, plus the `blank:ε` self-loop).
+$`N`$ arcs (one `blank:label` per label, plus the $`blank:\varepsilon`$ self-loop).
 
 ![Minimal-CTC for N=3: a single start-and-final state with N blank-to-label transductions](../diagrams/advanced/ctc-minimal.svg)
 
-*Orange double-ring = the lone state (start and final); solid blue = `blank:label` transductions returning to the state; grey dashed = the `blank:ε` self-loop. Every emission is a blank→label transduction.*
+*Orange double-ring = the lone state (start and final); solid blue = `blank:label` transductions returning to the state; grey dashed = the $`blank:\varepsilon`$ self-loop. Every emission is a blank→label transduction.*
 
 <details><summary>Text view</summary>
 

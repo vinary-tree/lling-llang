@@ -329,11 +329,11 @@ Gradient = P(path uses arc (s,t) | all paths)
 
 | Operation | Time | Space |
 |-----------|------|-------|
-| Forward score (acyclic) | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(\lvert Q\rvert)`$ |
-| Forward score (cyclic) | $`O(\lvert Q\rvert^2)`$ | $`O(\lvert Q\rvert)`$ |
-| Backward pass | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(\lvert Q\rvert + \lvert E\rvert)`$ |
-| Viterbi score | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(\lvert Q\rvert)`$ |
-| Viterbi path | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(\lvert Q\rvert)`$ |
+| Forward score (acyclic) | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | $`\mathcal{O}(\lvert Q\rvert)`$ |
+| Forward score (cyclic) | $`\mathcal{O}(\lvert Q\rvert^2)`$ | $`\mathcal{O}(\lvert Q\rvert)`$ |
+| Backward pass | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ |
+| Viterbi score | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | $`\mathcal{O}(\lvert Q\rvert)`$ |
+| Viterbi path | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | $`\mathcal{O}(\lvert Q\rvert)`$ |
 
 ## Semiring Considerations
 
@@ -532,7 +532,7 @@ if score.value().is_nan() || score.value().is_infinite() {
 
 ## Performance Tips
 
-1. **Use topological order**: For acyclic graphs, topological sort gives $`O(\lvert E\rvert)`$ complexity
+1. **Use topological order**: For acyclic graphs, topological sort gives $`\mathcal{O}(\lvert E\rvert)`$ complexity
 2. **Batch operations**: Compute multiple forward scores before backward passes
 3. **Cache forward scores**: The backward pass reuses $`\alpha`$ values
 4. **Consider Viterbi**: For max-margin training, Viterbi gradients are sparse (`1.0` or `0.0`)

@@ -239,11 +239,11 @@ silently approximated in a standalone hosted checkout.
 
 The current Rocq proofs use exact mathematical domains:
 
-1. **Tropical reference model**: finite real costs plus `+∞`, excluding NaN and `-∞`.
+1. **Tropical reference model**: finite real costs plus $`+\infty`$, excluding NaN and $`-\infty`$.
 2. **Log-weight reference model**: exact probability-mass algebra corresponding to
    negative-log semantics, not Rust `f64` rounding behavior.
 3. **Rust numeric boundary**: `TropicalWeight::new` and `LogWeight::new`
-   reject `NaN` and `-∞`, preserving the finite-real-or-`+∞` boundary used by
+   reject `NaN` and $`-\infty`$, preserving the finite-real-or-$`+\infty`$ boundary used by
    the Rocq models. `QuantizationParams::new` rejects non-finite bounds and
    non-finite ranges, preserving the finite real grid modeled by
    `Quantization.v`. `LogWeight::from_probability` rejects probabilities

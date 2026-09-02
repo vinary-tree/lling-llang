@@ -43,7 +43,7 @@ fabricate a DOI**.
   [https://doi.org/10.1137/0216062](https://doi.org/10.1137/0216062)
   *(DOI and SIAM metadata re-verified 2026-08-30.)*
 - <a id="ref-valmari2010"></a>**[Valmari 2010]** Valmari, A. (2010).
-  *Simple Bisimilarity Minimization in O(m log n) Time.* Fundamenta
+  *Simple Bisimilarity Minimization in $`\mathcal{O}(m \log n)`$ Time.* Fundamenta
   Informaticae 105(3):319–339.
   [https://doi.org/10.3233/FI-2010-369](https://doi.org/10.3233/FI-2010-369)
   *(DOI and IOS Press metadata re-verified 2026-08-30.)*

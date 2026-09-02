@@ -98,9 +98,9 @@ The lexicon maps phone sequences to words: $`L : \text{PhoneId} \to \text{WordId
 the output tape, **interior** phones emit $`\varepsilon`$ (the word is already emitted), and
 the **last** phone returns to the start state so consecutive words concatenate.
 
-![lexicon transducer for the word "cat": start state emits k:cat, interior arc æ:ε, final arc t:ε returning to the start state](../diagrams/asr/lexicon-fst.svg)
+![Lexicon transducer for the word cat: the start state emits the word identifier, two following phone arcs emit epsilon, and the final arc returns to the start state](../diagrams/asr/lexicon-fst.svg)
 
-*Bold green `k:cat` emits the word id; dashed grey `æ:ε` / `t:ε` are $`\varepsilon`$-output arcs; the double-ring start state is also final, so word streams loop back through it.*
+*Bold green `k:cat` emits the word id; dashed grey $`\text{\ae}:\varepsilon`$ / $`t:\varepsilon`$ are $`\varepsilon`$-output arcs; the double-ring start state is also final, so word streams loop back through it.*
 
 <details><summary>Text view</summary>
 
@@ -174,7 +174,7 @@ the phone label emitted on the first arc only. This is exactly
 
 ![3-state left-to-right HMM transducer: states S0, S1, S2 with forward arcs and self-loops, then an exit state](../diagrams/asr/hmm-3state.svg)
 
-*Solid arcs (`pdfᵢ : …`) advance the sub-phonetic state and carry forward cost $`a_{on}`$; dashed grey self-loops carry the stay cost $`a_{sl}`$; the first forward arc emits the phone id, the rest emit $`\varepsilon`$.*
+*Solid arcs labelled $`\mathrm{pdf}_i`$ advance the sub-phonetic state and carry forward cost $`a_{on}`$; dashed grey self-loops carry the stay cost $`a_{sl}`$; the first forward arc emits the phone id, the rest emit $`\varepsilon`$.*
 
 <details><summary>Text view</summary>
 
@@ -239,7 +239,7 @@ Composition L ∘ G:
 Visually, $`L`$'s output tape (`WordId`) feeds $`G`$'s input tape (`WordId`), and the
 composite $`L \circ G`$ reads phones and writes word ids:
 
-![L ∘ G label flow: lexicon L (phone to word_id), grammar G (word_id to word_id), composite L ∘ G (phone to word_id), with a match annotation on the WordId tape](../diagrams/asr/cascade-lg-composition.svg)
+![Lexicon and grammar composition: phone labels flow through the lexicon to word identifiers, which match the grammar tape and remain the composite output](../diagrams/asr/cascade-lg-composition.svg)
 
 *Three clustered machines: $`L`$ (phone → word_id), $`G`$ (word_id → word_id), and the green composite $`L \circ G`$ (phone → word_id); the dotted blue arc marks the matched `word_id` label that makes composition defined, and the composite arc carries the summed weight `1.2`.*
 
@@ -550,7 +550,7 @@ Determinizing after each composition prevents exponential state explosion. The
 state count $`\lvert Q\rvert`$ blows up at every raw composition and is pulled back down by the
 following $`\det`$; the final $`\min`$ and $`\pi`$ yield the minimal decoding graph $`N`$.
 
-![cascade growth: G to L∘G to det(L∘G) to C∘det(L∘G) to det(C∘L∘G) to H∘det(C∘L∘G) to N, with state counts rising at each composition and falling after each determinization](../diagrams/asr/cascade-growth.svg)
+![Cascade growth: the grammar is composed successively with the lexicon, context, and acoustic topology; state counts rise after each composition and fall after each determinization](../diagrams/asr/cascade-growth.svg)
 
 *Each $`\circ`$ (darker orange) inflates $`\lvert Q\rvert`$; the following $`\det`$ (lighter orange) deflates it; $`\min \cdot \pi`$ (amber) produces the minimal recognition network $`N`$. Counts are illustrative figures matching `CascadeStats`.*
 

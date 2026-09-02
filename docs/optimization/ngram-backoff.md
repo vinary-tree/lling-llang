@@ -11,7 +11,7 @@ As a WFST this is realized with **back-off states** reached by $`\varepsilon`$-a
 seen n-grams are direct arcs, and an unseen continuation falls through an
 $`\varepsilon`$-arc of weight $`-\log \beta(h)`$ to the state for $`h'`$, where the
 shorter-context arc is tried instead. This keeps the graph linear in the number
-of *observed* n-grams rather than $`O(\lvert V\rvert^n)`$. Source:
+of *observed* n-grams rather than $`\mathcal{O}(\lvert V\rvert^n)`$. Source:
 [`src/optimization/ngram_backoff.rs`](../../src/optimization/ngram_backoff.rs).
 
 ---
@@ -170,7 +170,7 @@ reduction ratios. `PruningStrategy` enumerates the supported thinning policies
 
 ## Algorithms
 
-### ⟨ build back-off LM WFST ⟩
+### Build the back-off language-model WFST
 
 The intent is to *emit a WFST that is linear in observed n-grams yet assigns the
 correct backed-off probability to every continuation*. The invariant is that
@@ -191,7 +191,7 @@ $`h'`$ state**, so any unseen continuation has a defined fall-through.
   mark states whose context ends in EOS as final; make ε final too
 ```
 
-The build is $`O(\lvert \text{observed}\rvert)`$ states and arcs — independent of $`\lvert V\rvert^n`$.
+The build is $`\mathcal{O}(\lvert \text{observed}\rvert)`$ states and arcs — independent of $`\lvert V\rvert^n`$.
 At query/decoding time, scoring a continuation is: try the emission arc at the
 current context; if absent, take the back-off $`\varepsilon`$ and retry at $`h'`$,
 repeating down the chain $`h \to h' \to \dots \to \varepsilon`$ until an emission arc exists

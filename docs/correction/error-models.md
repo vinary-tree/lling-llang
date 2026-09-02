@@ -86,7 +86,7 @@ The transducer encodes the DP table's frontier as a state. Two encodings ship:
 For the query-specific form the state ID is the linearization
 $`\text{state}(\text{pos}, e) = \text{pos} \cdot (k+1) + e`$ (see
 [`encode_state`](../../src/error_models/edit_distance.rs)), giving an
-$`O(n \cdot (2k+1))`$ state space as documented in the module header.
+$`\mathcal{O}(n \cdot (2k+1))`$ state space as documented in the module header.
 
 ### Confusion matrix
 
@@ -204,9 +204,9 @@ shortest path is well-defined.
 Here $`\varepsilon`$ is the empty label (Rust `None`), $`\bar{1}`$ is
 `TropicalWeight::one()` (cost $`0`$), and $`c_{\text{del}}, c_{\text{sub}}, c_{\text{ins}}`$
 come from [`EditCosts`](../../src/error_models/edit_distance.rs). Each cell
-emits $`O(\lvert \Sigma\rvert)`$ arcs, so construction is
-$`O(n \cdot k \cdot \lvert \Sigma\rvert)`$ time and $`O(n \cdot k)`$ states — matching the
-$`O(n \cdot (2k+1))`$ bound in the module header. Because every arc strictly
+emits $`\mathcal{O}(\lvert \Sigma\rvert)`$ arcs, so construction is
+$`\mathcal{O}(n \cdot k \cdot \lvert \Sigma\rvert)`$ time and $`\mathcal{O}(n \cdot k)`$ states — matching the
+$`\mathcal{O}(n \cdot (2k+1))`$ bound in the module header. Because every arc strictly
 advances $`\text{pos}`$ or $`e`$, a single topological shortest-distance pass
 (see [shortest-distance](../algorithms/shortest-distance.md)) recovers the best
 alignment.
@@ -215,7 +215,7 @@ alignment.
 $`(0,0) \to (1,0) \to (2,0) \to (3,0)`$ matches $`h, e, l`$ at cost $`0`$; the
 insertion arc $`(3,0) \xrightarrow{\varepsilon:l\,/\,1.0} (3,1)`$ spends the one edit; then
 $`(3,1) \xrightarrow{o:o/0} (4,1)`$ matches the final $`o`$. Total $`1.0`$,
-output `"hello"`. ∎
+output `"hello"`. This completes the derivation.
 
 ---
 

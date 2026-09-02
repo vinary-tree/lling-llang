@@ -84,8 +84,8 @@ println!("Weight: {:?}", best.weight);
 
 ### Complexity
 
-- Time: $`O(V + E)`$ after topological sort
-- Space: $`O(V)`$ for backpointers
+- Time: $`\mathcal{O}(V + E)`$ after topological sort
+- Space: $`\mathcal{O}(V)`$ for backpointers
 
 ## N-best
 
@@ -125,8 +125,8 @@ for (rank, path) in top_10.iter().enumerate() {
 
 ### Complexity
 
-- Time: $`O((V + E) \log n)`$ using heap
-- Space: $`O(nV)`$ for $`n`$ paths
+- Time: $`\mathcal{O}((V + E) \log n)`$ using heap
+- Space: $`\mathcal{O}(nV)`$ for $`n`$ paths
 
 ## Beam Search
 
@@ -221,8 +221,8 @@ let paths = beam_search_with_options(&mut lattice, options);
 
 ### Complexity
 
-- Time: $`O(VB \log B)`$ where $`B`$ = beam width
-- Space: $`O(B)`$ for active hypotheses
+- Time: $`\mathcal{O}(VB \log B)`$ where $`B`$ = beam width
+- Space: $`\mathcal{O}(B)`$ for active hypotheses
 
 ## Diverse N-best
 
@@ -446,11 +446,11 @@ where
 
 | Algorithm | Best For | Time | Space | Exact |
 |-----------|----------|------|-------|-------|
-| viterbi | Single best | $`O(V+E)`$ | $`O(V)`$ | Yes |
-| nbest | Top-k | $`O((V+E)\log n)`$ | $`O(nV)`$ | Yes |
-| beam_search | Large lattices | $`O(VB \log B)`$ | $`O(B)`$ | No |
-| diverse_nbest | Variety | $`O(n^2 VE)`$ | $`O(nV)`$ | Yes |
-| sample_paths | Exploration | $`O(nL)`$ | $`O(L)`$ | No |
+| viterbi | Single best | $`\mathcal{O}(V+E)`$ | $`\mathcal{O}(V)`$ | Yes |
+| nbest | Top-k | $`\mathcal{O}((V+E)\log n)`$ | $`\mathcal{O}(nV)`$ | Yes |
+| beam_search | Large lattices | $`\mathcal{O}(VB \log B)`$ | $`\mathcal{O}(B)`$ | No |
+| diverse_nbest | Variety | $`\mathcal{O}(n^2 VE)`$ | $`\mathcal{O}(nV)`$ | Yes |
+| sample_paths | Exploration | $`\mathcal{O}(nL)`$ | $`\mathcal{O}(L)`$ | No |
 
 Where $`V`$ = nodes, $`E`$ = edges, $`n`$ = results, $`B`$ = beam width, $`L`$ = path length.
 

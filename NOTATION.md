@@ -7,6 +7,6 @@ $`\varepsilon`$), automata symbol ($`Q`$, $`q_0`$, $`F`$, $`\Sigma`$, $`\Gamma`$
 $`\Delta`$, $`\rho`$), and acronym (WFST, WFSA, CTC, RNN-T, PDA, TN/ITN, CSR, RRWM,
 GCD, …) used throughout the documentation.
 
-See also [`docs/STYLE.md`](docs/STYLE.md) for the math-notation conventions —
-MathJax LaTeX written in GitHub-delimited inline spans (``$`…`$``) and fenced
-` ```math ` blocks.
+See also [`docs/STYLE.md`](docs/STYLE.md) for the math-notation conventions:
+MathJax LaTeX written in GitHub-delimited inline spans such as $`x + y`$ and
+fenced blocks whose info string is `math`.

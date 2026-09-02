@@ -366,9 +366,9 @@ let improved = layer.apply(&correction_lattice)?;
 
 | Metric | Complexity |
 |--------|------------|
-| Pattern matching | $`O(n \times p \times m)`$ |
-| Weight adjustment | $`O(e)`$ |
-| Total | $`O(n \times p \times m + e)`$ |
+| Pattern matching | $`\mathcal{O}(n \times p \times m)`$ |
+| Weight adjustment | $`\mathcal{O}(e)`$ |
+| Total | $`\mathcal{O}(n \times p \times m + e)`$ |
 
 Where:
 - $`n`$ = number of tokens

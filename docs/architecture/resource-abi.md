@@ -174,7 +174,7 @@ are taken; state expansion goes straight to the captured snapshot's
 `state_info`/`state_arcs`. The unit test
 `composition_construction_retains_inputs_without_expanding_them` pins the
 strongest form: after `compose`, both providers have observed **no** state
-expansion at all — construction is $`O(1)`$ in the size of both inputs.
+expansion at all — construction is $`\mathcal{O}(1)`$ in the size of both inputs.
 
 ![Sequence diagram of lling_wfst_compose: the caller enters the catch_unwind boundary, each input is discovered and snapshotted exactly once through its call gate, the registry is seeded with the start triple, and the handle returns without expanding any component state; the first traversal then expands component states through validated, paged callbacks and registers successor product states.](../diagrams/architecture/wfst-import-compose-sequence.svg)
 
@@ -247,7 +247,7 @@ pub trait ScalarWfstProvider: Send + Sync + 'static {
 
 The Rust-side extension point: a sibling crate (or an application) hands
 lling-llang a lazy WFST by implementing four methods, and
-`OwnedWfstResource::from_provider` wraps it into a `VtResource` in $`O(1)`$.
+`OwnedWfstResource::from_provider` wraps it into a `VtResource` in $`\mathcal{O}(1)`$.
 `state` returns one *complete, bounded* state — validity, finality, final
 weight, and the full outgoing arc vector — which the wrapper caches and
 pages out through `state_arcs`. Implementations must tolerate concurrent
@@ -275,7 +275,7 @@ callbacks are `Arc::increment_strong_count` / `Arc::decrement_strong_count`,
 to a raw `VtResource` (the C ABI's `lling_wfst_resource` mints new retains
 by cloning first). The exported `snapshot` is identity-with-retain — the
 resource **is** its own immutable revision (`IMMUTABLE` flag), so capture is
-$`O(1)`$ for every consumer downstream.
+$`\mathcal{O}(1)`$ for every consumer downstream.
 
 `start` on an eager payload reports `InvalidArgument` when the wrapped graph
 has no start state — reachable only through the Rust `from_wfst` API, since
@@ -295,14 +295,14 @@ so every component state crosses the ABI at most once per capture.
 Two `Arc<CapturedWfst>` plus the registry, the product cache, and the
 epsilon filter. `state(id)` is read-through:
 
-1. product-cache hit → done ($`O(1)`$);
+1. product-cache hit → done ($`\mathcal{O}(1)`$);
 2. otherwise resolve the triple via the registry (unknown id = provider-side
    caller error, `InvalidProviderOutput`), expand both component states
    (their own caches make this amortized-once), then take the registry
    **write** lock only for the pure in-memory successor registration — the
    three move passes above — and finally publish into the product cache.
 
-Expanding one product state costs $`O(d_1 + d_2 + d_1 d_2)`$ for component
+Expanding one product state costs $`\mathcal{O}(d_1 + d_2 + d_1 d_2)`$ for component
 out-degrees $`d_1, d_2`$ (the match pass scans label pairs); each product
 state pays it at most once.
 

@@ -11,16 +11,16 @@ Citations/DOIs, Algorithms/code) for this repository. The top-level
 
 ## 1. Mathematical notation — MathJax LaTeX, GitHub-delimited
 
-All mathematics is written as **MathJax LaTeX**, never as Unicode glyphs and never
-as bare `$…$`. The Unicode → LaTeX map lives in [`NOTATION.md`](NOTATION.md) (its
+All mathematics is written as **MathJax LaTeX**, never as Unicode glyphs or with
+bare dollar delimiters. The Unicode → LaTeX map lives in [`NOTATION.md`](NOTATION.md) (its
 **LaTeX** column is authoritative); every symbol is defined there before use.
 
-- **Inline math = a backtick span wrapped in dollar signs:** ``$`\oplus`$``,
-  ``$`O(\lvert Q\rvert + \lvert E\rvert)`$``, ``$`T = (Q, \Sigma, q_0, F, E, \rho)`$``.
+- **Inline math = a backtick span wrapped in dollar signs:** $`\oplus`$,
+  $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$, $`T = (Q, \Sigma, q_0, F, E, \rho)`$.
   That is: dollar, backtick, LaTeX, backtick, dollar. The backticks are load-bearing —
   GitHub's CommonMark pass strips LaTeX backslash escapes (`\_ \{ \} \; \, \#`)
-  *before* MathJax runs, so a bare `$\Sigma_1$` silently corrupts to `$\Sigma1$`.
-  Wrapping the expression in a code span preserves it. ✅ ``$`\bar{0} \otimes a = \bar{0}`$`` ❌ `$\bar{0} \otimes a$` ❌ `` `$\bar{0}$` `` (renders as literal code, not math).
+  *before* MathJax runs, which can silently remove syntax such as a subscript
+  separator. The required nested delimiter form preserves it: $`\bar{0} \otimes a = \bar{0}`$.
 - **Display math = a fenced block whose info-string is `math`:**
 
   ````markdown
@@ -29,25 +29,25 @@ as bare `$…$`. The Unicode → LaTeX map lives in [`NOTATION.md`](NOTATION.md)
   ```
   ````
 
-  Never use `$$…$$`. A multi-line derivation uses `\begin{aligned} … \end{aligned}`
+  Never use paired dollar delimiters. A multi-line derivation uses `\begin{aligned} … \end{aligned}`
   inside the `math` fence.
 - **Never leave math bare or in an inert code span.** A quantity in prose, a table
-  cell, or a heading is either a ``$`…`$`` span or (for a listing) inside a
-  pseudocode/ART fence — never a plain `` `⊕` `` code span and never unwrapped prose.
-- **Cardinality** is ``$`\lvert Q\rvert`$`` / ``$`\lvert E\rvert`$`` (`\lvert…\rvert`).
-  The **conditional bar** is ``$`P(a \mid b)`$`` (`\mid`). A literal pipe `|` inside a
+  cell, or a heading is either an inline math span or (for a listing) inside a
+  pseudocode/ART fence—never an inert code span and never unwrapped prose.
+- **Cardinality** is $`\lvert Q\rvert`$ / $`\lvert E\rvert`$ (`\lvert…\rvert`).
+  The **conditional bar** is $`P(a \mid b)`$ (`\mid`). A literal pipe `|` inside a
   math span is safe in a Markdown table only because the backtick code span protects
   it; prefer `\lvert…\rvert` in tables to avoid ambiguity.
-- **Identities** are ``$`\bar{0}`$`` (`\bar{0}`, the $`\oplus`$-identity, "no path")
-  and ``$`\bar{1}`$`` (`\bar{1}`, the $`\otimes`$-identity, "empty path"), defined in
+- **Identities** are $`\bar{0}`$ (`\bar{0}`, the $`\oplus`$-identity, "no path")
+  and $`\bar{1}`$ (`\bar{1}`, the $`\otimes`$-identity, "empty path"), defined in
   prose on first use. **Combining accents** ($`\bar{0}`$, $`\tilde{H}`$, $`\hat{x}`$)
   are always a base wrapped by an accent macro, never a base + combining codepoint.
-- **A literal dollar sign** is written as inline code — `` `$` `` — so it never opens a
+- **A literal dollar sign** is written as inline code—`$`—so it never opens a
   math span. Docs that discuss `$`/`$$` as LaTeX tokens
   ([`layers/latex/*`](layers/latex/)) or the money symbol
   ([`correction/text-normalization.md`](correction/text-normalization.md)) keep those
-  as `` `$` `` code spans. **Never let an ASCII letter abut the opening ``$` ``** — write
-  `the $`x`$`, not `the$`x`$`.
+  as the inline-code dollar sign `$`. **Never let an ASCII letter abut the opening
+  math delimiter**—insert whitespace before the formula, as in “the expression $`x`$”.
 - **Unicode is still correct for non-mathematical text:** box-drawing, arrows, and
   geometric glyphs inside diagrams and their `<details>` text-views; enumerations and
   separators in prose; IPA, CJK, and other script samples in language examples. Only
@@ -66,7 +66,7 @@ Each topic/module doc follows this flow (the order conveys *what → how → why
 
 1. **Thesis** — one sentence: what this is, in plain language.
 2. **Terms & symbols** — local definition table (links to `NOTATION.md`).
-3. **Formal model** — the defining tuple/equations as ``$`…`$`` spans and `math`
+3. **Formal model** — the defining tuple/equations as inline math spans and `math`
    blocks, each component defined in a table.
 4. **Intuition** — a small worked example *before* the heavy theory.
 5. **Architecture & API** — key traits/structs and their responsibilities.
@@ -111,23 +111,24 @@ pattern (mirrors the README):
   with LaTeX — `<latex>\oplus</latex>` in PlantUML (JLaTeXMath) and math macros in TikZ
   — rather than Unicode literals, per the pgmcp *diagrams-plantuml-latex* guideline.
   Graphviz (`.dot`) and D2 (`.d2`) have no LaTeX facility; the tool-matrix uses them for
-  automaton and dataflow graphs, where Unicode labels (`a:ε/0.5`, `q₀`) are retained and
+  automaton and dataflow graphs, where Unicode labels equivalent to
+  $`a:\varepsilon/0.5`$ and $`q_0`$ are retained and
   render identically in the SVG.
 
 ## 5. Algorithms — literate pseudocode
 
 Present non-trivial algorithms in Knuth literate-programming style: a prose paragraph
 stating intent and the loop invariant, a named chunk in a ```` ```text ```` fence, then
-prose explaining each step and the complexity ``$`O(\lvert V\rvert + \lvert E\rvert)`$``,
-then a worked trace. Name chunks `⟨ relax outgoing arcs ⟩` and cross-reference them. The
+prose explaining each step and the complexity $`\mathcal{O}(\lvert V\rvert + \lvert E\rvert)`$,
+then a worked trace. Name chunks `relax outgoing arcs` and cross-reference them. The
 README's *"The one algorithm behind it"* section is the house template.
 
 - **Pseudocode listings stay in ```` ```text ```` (or ```` ```rust ````) fences** — they
-  are *code*, not prose, and a fenced block cannot host a rendered ``$`…`$`` span. Inside
-  such a listing the operators stay as their readable Unicode forms (`⊕`, `⊗`, `0̄`, `←`)
-  and the chunk names stay `⟨ … ⟩`, verbatim.
+  are *code*, not prose, and a fenced block cannot host rendered inline math. Inside
+  such a listing the operators may stay in readable Unicode form, provided the
+  surrounding prose restates their mathematical meaning, and chunk names remain plain code labels.
 - **Every mathematical statement a listing makes must also render somewhere.** State the
-  loop invariant, the recurrence, and the complexity in the surrounding prose as ``$`…`$``
+  loop invariant, the recurrence, and the complexity in the surrounding prose as inline math
   spans or a `math` block, so no reader is forced to parse un-rendered glyphs to get the
   math. (This is the one place Unicode math is retained — bounded to code listings and
   paired with rendered prose.)

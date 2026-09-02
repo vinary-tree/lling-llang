@@ -7,7 +7,8 @@
 #                    $`\mathcal{O}(\lvert W\rvert)`$   (dollars OUTSIDE the backtick span)
 #   * display math = a fenced block whose info-string is `math`
 # and forbids (a) Unicode-literal formulae (`𝒪(∣W∣)`, `⟨i,e⟩`, `≤` …) whether backticked or
-# bare, (b) bare undelimited big-O (`O(n)`) in prose, (c) bare `$…$` / `$$…$$`, and (d) the
+# bare, (b) bare undelimited big-O (`O(n)`) in prose, (c) bare `$…$` / `$$…$$`, (d) empty
+# inline-code spans, and (e) the
 # TRANSPOSED nesting `` `$…$` `` (dollars INSIDE the backticks) — GitHub renders that as literal
 # monospace text, not math; the dollars must sit OUTSIDE, as `` $`…`$ ``.
 #
@@ -28,7 +29,8 @@
 # Guards (never flagged / never converted): the U+00B5 MICRO SIGN (µs, microseconds) as
 # distinct from U+03BC GREEK MU; contents of fenced code blocks; IPA letters; MeTTa `$var`,
 # currency `$5`, and regex `$` in prose; ASCII `|` table delimiters and code pipes; context
-# `×`/`·`/arrows outside a formula.
+# `×`/`·`/arrows outside a formula. Unicode sub/superscripts and combining
+# overlines are always mathematical and therefore remain part of the detected set.
 
 # ── The Unicode → LaTeX conversion key (the clearly-mathematical glyphs) ─────────────────
 my constant %KEY = (
@@ -67,6 +69,17 @@ my constant %KEY = (
     "\x[03A3]" => '\Sigma', "\x[0393]" => '\Gamma', "\x[0394]" => '\Delta', "\x[03A9]" => '\Omega',
     "\x[0398]" => '\Theta', "\x[039B]" => '\Lambda', "\x[03A0]" => '\Pi', "\x[03A6]" => '\Phi',
     "\x[03A5]" => '\Upsilon', "\x[03A8]" => '\Psi', "\x[039E]" => '\Xi',
+    # Unicode sub/superscripts and combining overline are mathematical notation too.
+    # The combining overline is context-sensitive (for example, 0 + U+0304 becomes
+    # \bar{0}), so the key names the required rewrite rather than pretending that
+    # a character-for-character substitution is safe.
+    "\x[2070]" => '^{0}', "\x[00B9]" => '^{1}', "\x[00B2]" => '^{2}', "\x[00B3]" => '^{3}',
+    "\x[2074]" => '^{4}', "\x[2075]" => '^{5}', "\x[2076]" => '^{6}', "\x[2077]" => '^{7}',
+    "\x[2078]" => '^{8}', "\x[2079]" => '^{9}', "\x[207F]" => '^{n}', "\x[2071]" => '^{i}',
+    "\x[2080]" => '_{0}', "\x[2081]" => '_{1}', "\x[2082]" => '_{2}', "\x[2083]" => '_{3}',
+    "\x[2084]" => '_{4}', "\x[2085]" => '_{5}', "\x[2086]" => '_{6}', "\x[2087]" => '_{7}',
+    "\x[2088]" => '_{8}', "\x[2089]" => '_{9}', "\x[2099]" => '_{n}', "\x[1D62]" => '_{i}',
+    "\x[0304]" => '\bar{...}',
 );
 
 # The set of glyphs whose presence — inside a backtick span, or bare in prose — signals a
@@ -81,7 +94,7 @@ sub print-key() {
         say "  $u  {$p.key}  ->  {$p.value}";
     }
     say "  U+2223 |  (inside |…| cardinality/abs-value)  ->  \\lvert … \\rvert";
-    say "  sub/superscripts ² ³ ⁿ ₀…₉ ₙ ᵢ …            ->  ^\{…\} / _\{…\}";
+    say "  combining overline (for example, 0 + U+0304) -> \\bar{0} (context-sensitive)";
     say "  GUARDS (never convert): µ U+00B5 (microseconds); IPA; var/currency/regex dollars; table |; × · -> outside a formula";
 }
 
@@ -149,6 +162,10 @@ sub scan-file(Str $path) {
         # λ-theory, ε-transition, α-approximation) is a proper-noun NAME, not a formula, so a span
         # that is exactly "<Greek>-<word>" is exempt (Unicode is correct for such names).
         for @spans -> $s {
+            if $s.trim eq '' {
+                @findings.push([$lno, 'empty-code-span', 'empty inline-code span']);
+                next;
+            }
             next if $s ~~ / ^ <[ \x[0391]..\x[03A9] \x[03B1]..\x[03C9] ]> '-' <[A..Za..z]>+ $ /;
             @findings.push([$lno, 'backticked-unicode-math', "`$s`"]) if has-math($s);
             # (a2) TRANSPOSED inline math: a code span whose content is itself dollar-delimited

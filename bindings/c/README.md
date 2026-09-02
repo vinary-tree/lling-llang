@@ -113,7 +113,7 @@ Dynamic lattice folds send at most 256 operands through each `join_many` or
 `meet_many` callback and fall back pairwise when batching is unavailable.
 Each intermediate is revalidated, allowing compatible providers to change
 representation without reusing a stale function pointer.
-Typed validation and cancellation are fixed-work $`O(1)`$ operations.
+Typed validation and cancellation are fixed-work $`\mathcal{O}(1)`$ operations.
 
 ## Security and provider trust
 

@@ -366,4 +366,4 @@ builder.add_correction(0, 2, "going to", correct_weight, EdgeMetadata::correctio
 Full entries — including DOIs — are in [`BIBLIOGRAPHY.md`](../BIBLIOGRAPHY.md).
 
 - [**Mohri 2002**](../BIBLIOGRAPHY.md#ref-mohri2002) — Mohri, Pereira & Riley, *Weighted Finite-State Transducers in Speech Recognition*: weighted lattices/acceptors as the representation of hypothesis spaces. [doi:10.1006/csla.2001.0184](https://doi.org/10.1006/csla.2001.0184)
-- [**Mohri 2009**](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, *Weighted Automata Algorithms*: topological shortest-distance over a DAG in $`O(\lvert V\rvert + \lvert E\rvert)`$, the bound the position-ordered lattice achieves. [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)
+- [**Mohri 2009**](../BIBLIOGRAPHY.md#ref-mohri2009) — Mohri, *Weighted Automata Algorithms*: topological shortest-distance over a DAG in $`\mathcal{O}(\lvert V\rvert + \lvert E\rvert)`$, the bound the position-ordered lattice achieves. [doi:10.1007/978-3-642-01492-5_6](https://doi.org/10.1007/978-3-642-01492-5_6)

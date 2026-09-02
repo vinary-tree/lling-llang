@@ -30,7 +30,7 @@ The **signed tropical semiring** $`(\mathbb{R} \cup \{\pm\infty\}, \min, +, +\in
 
 The figure below places rewards (negative) and costs (positive) on the real line and marks the star-convergence boundary at $`0`$:
 
-![Signed-tropical semiring figure: the signature (ℝ∪{±∞}, min, +, +∞, 0) with a⊕b=min(a,b) and a⊗b=a+b over a number line from −∞ to +∞=0̄, with a green brace marking rewards (<0, fluency bonus / preferred path) on the negative side and an orange brace marking costs (>0, edit distance / penalty) on the positive side, plus a red star-rule note: a≥0 ⇒ a*=1̄=0 (converges), a<0 ⇒ a*=−∞ (diverges → FallibleStarSemiring).](../diagrams/architecture/signed-tropical.svg)
+![Signed-tropical semiring: a number line separates negative rewards from positive costs; addition selects the lower value, multiplication adds values, and a highlighted star rule distinguishes convergent nonnegative weights from divergent negative weights](../diagrams/architecture/signed-tropical.svg)
 
 *Blue = the signature/axioms; green = the reward region ($`< 0`$) and the converging-star case; orange = the cost region ($`> 0`$); red = the star-divergence boundary at $`0`$ and the fallible-closure note.*
 

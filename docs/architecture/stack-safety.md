@@ -44,8 +44,8 @@ S_{\mathrm{native}}(d) \in O(1)
 ```
 
 The explicit storage bound depends on the operation. A depth-first tree machine
-normally uses $`O(h)`$ continuation storage plus its output. A graph algorithm
-may require $`O(\lvert V\rvert + \lvert E\rvert)`$ adjacency, color, or visited
+normally uses $`\mathcal{O}(h)`$ continuation storage plus its output. A graph algorithm
+may require $`\mathcal{O}(\lvert V\rvert + \lvert E\rvert)`$ adjacency, color, or visited
 storage. Every ledger row states the tighter operation-specific bound rather
 than hiding it behind a universal estimate.
 
@@ -105,7 +105,7 @@ mutual native recursion.
 | Unary recursive spine | Borrowed cursor or parity/count loop | Constant auxiliary storage and one transition per node. |
 | Ordered tree construction or evaluation | Postorder task tape plus value tape | Preserves left-to-right child order and reconstructs parents once. |
 | Mutually recursive syntax families | One tagged continuation enum for the complete SCC | Prevents residual recursion across helper or wrapper boundaries. |
-| Graph depth-first search | Explicit `(vertex, next_edge)` frames plus color/visited storage | Preserves DFS order, detects on-path cycles, and remains $`O(\lvert V\rvert + \lvert E\rvert)`$. |
+| Graph depth-first search | Explicit `(vertex, next_edge)` frames plus color/visited storage | Preserves DFS order, detects on-path cycles, and remains $`\mathcal{O}(\lvert V\rvert + \lvert E\rvert)`$. |
 | Fixed descendant path | Cursor or zipper | Avoids a general PDA where a loop or ancestor zipper is sufficient. |
 | Lazy combinatorial enumeration | Persistent choice arena plus resumable pull frames | Produces a bounded prefix without materializing the complete result space. |
 | Automaton transition lookup | Stable adjacency or exact-tuple index with a scan/index hybrid | Prevents repeated global scans while retaining a bounded adversarial path. |
@@ -118,7 +118,7 @@ adding correctness.
 
 ## Literate algorithm
 
-The chunk `⟨ run a typed reduction machine ⟩` is the common skeleton. Its loop
+The chunk `run a typed reduction machine` is the common skeleton. Its loop
 invariant is that $`V`$ contains exactly the completed results for the scheduled
 but unreduced parents in $`W`$, in their specified order.
 
@@ -151,7 +151,7 @@ value semantics permits it.
 `SymbolicTreeAutomaton::run` illustrates why stack safety and algorithmic
 optimality are separate obligations. A stack-safe postorder traversal that scans
 all $`m`$ transitions at each of $`n`$ input nodes still performs
-$`O(nm)`$ work. The accepted implementation builds two borrowed references per
+$`\mathcal{O}(nm)`$ work. The accepted implementation builds two borrowed references per
 transition:
 
 - a stable constructor/arity bucket for bounded scanning; and

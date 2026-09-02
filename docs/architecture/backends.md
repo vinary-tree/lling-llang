@@ -94,11 +94,11 @@ pub trait LatticeBackend: Clone + Send + Sync {
 
 | Operation | Time | Description |
 |-----------|------|-------------|
-| `intern()` | O(1)* | Add word or return existing ID |
-| `lookup()` | O(1) | Get word by ID |
-| `contains()` | O(1)* | Check if word exists |
-| `get_id()` | O(1)* | Get ID without interning |
-| `iter()` | O(n) | Iterate all entries |
+| `intern()` | $`\mathcal{O}(1)`$* | Add word or return existing ID |
+| `lookup()` | $`\mathcal{O}(1)`$ | Get word by ID |
+| `contains()` | $`\mathcal{O}(1)`$* | Check if word exists |
+| `get_id()` | $`\mathcal{O}(1)`$* | Get ID without interning |
+| `iter()` | $`\mathcal{O}(n)`$ | Iterate all entries |
 
 *Amortized for hash-based implementations
 
@@ -143,7 +143,7 @@ pub struct HashMapBackend {
 - `Arc<str>`: Shared ownership, avoids duplication
 
 **Characteristics**:
-- O(1) intern and lookup
+- $`\mathcal{O}(1)`$ intern and lookup
 - Sequential IDs (0, 1, 2, ...)
 - No structural sharing (`supports_sharing() = false`)
 - Thread-safe via `Arc<str>`

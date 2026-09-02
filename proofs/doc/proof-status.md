@@ -32,7 +32,7 @@ This document tracks the current formal verification surface for lling-llang.
 | `SemiringProperties.v` | Checked | Power, partial-star, homomorphism, and natural-order lemmas |
 
 Rust `TropicalWeight::new` and `LogWeight::new` now enforce the same
-finite-real-or-`+∞` raw-value boundary used by these models; `NaN` and `-∞` are
+finite-real-or-$`+\infty`$ raw-value boundary used by these models; `NaN` and $`-\infty`$ are
 rejected before values enter ordinary semiring operations. `QuantizationParams`
 also rejects non-finite bounds and ranges so runtime quantization grids match
 the finite real grid modeled in `Quantization.v`.

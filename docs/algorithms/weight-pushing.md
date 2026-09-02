@@ -27,7 +27,7 @@ Weight pushing transforms a WFST by redistributing weights along paths while pre
 
 The figure below shows a backward push: each arc is reweighted by the potentials $`V(q)`$ so the path mass migrates toward the start, the per-path total is unchanged, and the final weight normalizes to $`\bar{1}`$.
 
-![Weight pushing before/after: a 0→1→2 chain reweighted by backward potentials V(q) so arc weights move toward the start while every path total stays 3.5 and the final weight ρ becomes 1̄](../diagrams/algorithms/weight-pushing.svg)
+![Weight pushing before and after: a three-state chain reweighted by backward potentials so arc weights move toward the start while every path total stays 3.5 and the final weight becomes the multiplicative identity](../diagrams/algorithms/weight-pushing.svg)
 
 *Left = original tropical weights with each state's potential $`V(q)`$ annotated; right = pushed — $`w'(e) = V(t) \otimes w(e) \otimes V(s)^{-1}`$, mass pulled toward the start, $`\rho \to \bar{1}`$ (green dashed final-weight indicator).*
 
@@ -286,9 +286,9 @@ Because the potentials cancel along the path:
 
 | Operation | Time | Space |
 |-----------|------|-------|
-| Compute potentials (acyclic) | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(\lvert Q\rvert)`$ |
-| Compute potentials (general) | $`O(\lvert E\rvert + \lvert Q\rvert \log \lvert Q\rvert)`$ | $`O(\lvert Q\rvert)`$ |
-| Apply push | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(\lvert E\rvert)`$ |
+| Compute potentials (acyclic) | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | $`\mathcal{O}(\lvert Q\rvert)`$ |
+| Compute potentials (general) | $`\mathcal{O}(\lvert E\rvert + \lvert Q\rvert \log \lvert Q\rvert)`$ | $`\mathcal{O}(\lvert Q\rvert)`$ |
+| Apply push | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | $`\mathcal{O}(\lvert E\rvert)`$ |
 
 ### Beam Search Speedup
 

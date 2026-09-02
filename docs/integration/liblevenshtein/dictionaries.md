@@ -289,7 +289,7 @@ Automaton for substring matching (not just prefixes).
 - Matches substrings anywhere in text
 - Minimal DFA recognizing all suffixes
 - Typically $`\le 2n - 1`$ states for $`n`$ characters
-- $`O(1)`$ amortized online construction
+- $`\mathcal{O}(1)`$ amortized online construction
 
 **Usage**:
 

@@ -234,7 +234,7 @@ procedure PARTITION_REFINEMENT(fst):
 
 The refinement terminates because each round either splits at least one block (strictly
 increasing the block count, bounded by $`\lvert Q\rvert`$) or changes nothing and stops. A
-worklist implementation of this scheme attains Hopcroft's $`O(\lvert E\rvert \log \lvert Q\rvert)`$ bound.
+worklist implementation of this scheme attains Hopcroft's $`\mathcal{O}(\lvert E\rvert \log \lvert Q\rvert)`$ bound.
 
 ### State Signatures
 
@@ -290,18 +290,18 @@ Without pushing, equivalent states might have different weight distributions, pr
 
 | Case | Complexity |
 |------|------------|
-| Acyclic | $`O(\lvert Q\rvert + \lvert E\rvert)`$ |
-| General | $`O(\lvert E\rvert \log \lvert Q\rvert)`$ |
+| Acyclic | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ |
+| General | $`\mathcal{O}(\lvert E\rvert \log \lvert Q\rvert)`$ |
 
-The $`O(\lvert E\rvert \log \lvert Q\rvert)`$ bound comes from Hopcroft's algorithm for partition refinement.
+The $`\mathcal{O}(\lvert E\rvert \log \lvert Q\rvert)`$ bound comes from Hopcroft's algorithm for partition refinement.
 
 ### Space Complexity
 
 | Structure | Size |
 |-----------|------|
-| Partition array | $`O(\lvert Q\rvert)`$ |
-| Signatures | $`O(\lvert Q\rvert \times \text{avg\_out\_degree})`$ |
-| Output WFST | $`O(\lvert Q'\rvert + \lvert E'\rvert)`$ where $`\lvert Q'\rvert \le \lvert Q\rvert`$ |
+| Partition array | $`\mathcal{O}(\lvert Q\rvert)`$ |
+| Signatures | $`\mathcal{O}(\lvert Q\rvert \times \text{avg\_out\_degree})`$ |
+| Output WFST | $`\mathcal{O}(\lvert Q'\rvert + \lvert E'\rvert)`$ where $`\lvert Q'\rvert \le \lvert Q\rvert`$ |
 
 ## Requirements
 
@@ -481,7 +481,7 @@ This means the minimal WFST is optimal in both metrics simultaneously.
 
 ## References
 
-- [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms*: weighted minimization, the push-then-partition-refine pipeline, the Hopcroft $`O(\lvert E\rvert \log \lvert Q\rvert)`$ bound, and the states-also-minimizes-transitions theorem.
+- [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms*: weighted minimization, the push-then-partition-refine pipeline, the Hopcroft $`\mathcal{O}(\lvert E\rvert \log \lvert Q\rvert)`$ bound, and the states-also-minimizes-transitions theorem.
 - [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted Finite-State Transducers in Speech Recognition*: minimization as the final stage of the recognition-cascade optimization, with reported state reductions.
 - [Allauzen 2007](../BIBLIOGRAPHY.md#ref-allauzen2007) — *OpenFst*: the `Minimize` operation and equivalence-by-isomorphism testing this implementation mirrors.
 

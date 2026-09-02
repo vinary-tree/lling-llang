@@ -123,22 +123,22 @@ The top-level [`README.md`](README.md) is the canonical worked example.
 
 - **[`docs/STYLE.md`](docs/STYLE.md)** — the operative rules. Highlights:
   - **Mathematics is MathJax LaTeX, GitHub-delimited.** Write inline math as a
-    backtick span wrapped in dollar signs — ``$`\oplus`$``,
-    ``$`O(\lvert V\rvert + \lvert E\rvert)`$``, ``$`T = (Q, \Sigma, q_0, F, E, \rho)`$`` —
-    and display math in a fenced block whose info-string is `math`. Never a bare
-    `$…$` (CommonMark strips the backslashes before MathJax runs) and never
-    `$$…$$`. Take the LaTeX for each symbol from the map in
+    backtick span wrapped in dollar signs—for example, $`\oplus`$,
+    $`\mathcal{O}(\lvert V\rvert + \lvert E\rvert)`$, or $`T = (Q, \Sigma, q_0, F, E, \rho)`$—
+    and display math in a fenced block whose info-string is `math`. Never use
+    bare dollar-delimited LaTeX or paired dollar delimiters for display math.
+    Take the LaTeX for each symbol from the map in
     [`docs/NOTATION.md`](docs/NOTATION.md).
-  - **Cardinality** is ``$`\lvert Q\rvert`$`` / ``$`\lvert V\rvert`$`` (`\lvert…\rvert`)
-    and the conditional bar is ``$`P(a \mid b)`$`` (`\mid`) — prefer these to a bare
+  - **Cardinality** is $`\lvert Q\rvert`$ / $`\lvert V\rvert`$ (`\lvert…\rvert`)
+    and the conditional bar is $`P(a \mid b)`$ (`\mid`)—prefer these to a bare
     `|`, which is reserved for Markdown tables and Rust bit-or.
   - **Define before use**: every symbol/acronym gets a local "Terms & symbols"
     table linking the central [`docs/NOTATION.md`](docs/NOTATION.md).
   - Topic docs follow *thesis → terms → formal model → intuition →
     architecture/API → algorithms → examples → diagrams → relation → references*.
   - Algorithms are presented in **literate-programming** form (Knuth): prose
-    intent + loop invariant, a named `⟨ chunk ⟩` in a `text` fence — pseudocode
-    keeps its Unicode operators inside the fence — then the ``$`O(\cdot)`$``
+    intent plus loop invariant, a named chunk such as `relax outgoing arcs` in a
+    `text` fence—where pseudocode keeps its Unicode operators—then the $`\mathcal{O}(\cdot)`$
     complexity and a worked trace as rendered math in the surrounding prose.
   - Code snippets must be **valid** — prefer lifting from `#[cfg(test)]` tests or
     doctests so the compiler checks them; use the real API.

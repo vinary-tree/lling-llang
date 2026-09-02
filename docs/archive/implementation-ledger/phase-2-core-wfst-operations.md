@@ -20,7 +20,7 @@ minimization.
 
 2. **Epsilon Removal**: Remove ε-transitions while preserving language
    - ε-closure computation via shortest-distance
-   - Transition deduplication (⊕-sum redundant)
+   - Transition deduplication (combining redundant alternatives with $`\oplus`$)
    - Acyclic optimization
 
 3. **Connect (Trim)**: Remove non-useful states
@@ -47,7 +47,7 @@ essential for minimization and improves beam search pruning efficacy.
 - Uses reverse shortest-distance to compute potentials
 - Path weights normalized (V(initial) absorbed)
 
-**Complexity**: O(|Q| + |E|) for acyclic, O(|E| log |Q|) for general tropical
+**Complexity**: $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ for acyclic, $`\mathcal{O}(\lvert E\rvert \log \lvert Q\rvert)`$ for general tropical
 
 ### Design
 
@@ -107,7 +107,7 @@ where
 
 **Observations**:
 1. Forward push is ~1.5-1.6x faster than backward push
-2. Both scale linearly with graph size, confirming O(|Q| + |E|)
+2. Both scale linearly with graph size, confirming $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$
 3. Diamond graphs have ~1.2x overhead vs linear due to edge density
 4. Backward push is slower because it requires computing reverse graph traversal
 
@@ -129,8 +129,8 @@ Epsilon removal eliminates ε-transitions by computing ε-closures and adding
 direct transitions that bypass the ε-paths.
 
 **Complexity**:
-- Acyclic: O(|Q|² + |Q||E|(T⊕ + T⊗))
-- General: O(|Q|³(T⊕ + T⊗ + T*) + |Q||E|(T⊕ + T⊗))
+- Acyclic: $`\mathcal{O}(\lvert Q\rvert^{2} + \lvert Q\rvert\lvert E\rvert(T\oplus + T\otimes))`$
+- General: $`\mathcal{O}(\lvert Q\rvert^{3}(T\oplus + T\otimes + T*) + \lvert Q\rvert\lvert E\rvert(T\oplus + T\otimes))`$
 
 ### Design
 
@@ -168,7 +168,7 @@ where
 
 **Configuration**: CPU governor=performance, taskset -c 0-3, 100 samples, 3s warmup
 
-#### Epsilon Chain (alternating ε and non-ε transitions)
+#### Epsilon chain (alternating $`\varepsilon`$ and non-$`\varepsilon`$ transitions)
 
 | Depth | Standard | Acyclic Config |
 |-------|----------|----------------|
@@ -201,7 +201,7 @@ Connect removes states that are not on any accepting path. A state is kept iff:
 1. **Accessible**: Reachable from the start state
 2. **Coaccessible**: Can reach at least one final state
 
-**Complexity**: O(|Q| + |E|) - Linear in the size of the automaton.
+**Complexity**: $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ - Linear in the size of the automaton.
 
 ### Design
 
@@ -256,7 +256,7 @@ where
 | 100 | 70.18 µs |
 
 **Observations**:
-1. Linear scaling confirms O(|Q| + |E|) complexity
+1. Linear scaling confirms $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ complexity
 2. Already-connected case is fastest (early exit optimization)
 3. Diamond graphs have ~1.2-1.3x overhead due to higher edge density
 4. Trim operation with actual removals takes ~3x longer (expected: extra work)
@@ -278,10 +278,10 @@ handles both connected graphs (fast path) and graphs requiring trimming.
 
 | Algorithm | Complexity (Expected) | Complexity (Observed) | Status |
 |-----------|----------------------|----------------------|--------|
-| Weight Push Forward | O(\|Q\| + \|E\|) | Linear ✓ | ACCEPTED |
-| Weight Push Backward | O(\|Q\| + \|E\|) | Linear ✓ | ACCEPTED |
-| Epsilon Removal | O(\|Q\|² + \|Q\|\|E\|) | Near-linear ✓ | ACCEPTED |
-| Connect | O(\|Q\| + \|E\|) | Linear ✓ | ACCEPTED |
+| Weight Push Forward | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | Linear ✓ | ACCEPTED |
+| Weight Push Backward | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | Linear ✓ | ACCEPTED |
+| Epsilon Removal | $`\mathcal{O}(\lvert Q\rvert^{2} + \lvert Q\rvert\lvert E\rvert)`$ | Near-linear ✓ | ACCEPTED |
+| Connect | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | Linear ✓ | ACCEPTED |
 
 ### MutableWfst Trait Enhancement
 
@@ -295,4 +295,3 @@ fn clear_transitions(&mut self, state: StateId);
 Implemented in `VectorWfst` for efficient transition manipulation.
 
 ---
-

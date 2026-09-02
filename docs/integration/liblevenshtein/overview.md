@@ -179,9 +179,9 @@ pub enum Algorithm {
 
 | Automata | Build Cost | Query Cost | Memory | Use Case |
 |----------|------------|------------|--------|----------|
-| Lazy | Per-query | $`O(n \cdot m)`$ | Low | Diverse queries |
-| Universal | Precompute | $`O(n \cdot m)`$ | Medium | Repeated patterns |
-| Generalized | Runtime | $`O(n \cdot m)`$ | Medium | Custom operations |
+| Lazy | Per-query | $`\mathcal{O}(n \cdot m)`$ | Low | Diverse queries |
+| Universal | Precompute | $`\mathcal{O}(n \cdot m)`$ | Medium | Repeated patterns |
+| Generalized | Runtime | $`\mathcal{O}(n \cdot m)`$ | Medium | Custom operations |
 
 Where $`n`$ = query length, $`m`$ = matched dictionary subtree size. Trie traversal
 is linear in the query length per surviving branch, with branches pruned as soon

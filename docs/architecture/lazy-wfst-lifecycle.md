@@ -108,9 +108,9 @@ publish one ownerless terminal record
 ```
 
 Every step is iterative. The control depth is constant, so expansion stack use
-is $`O(1)`$ with respect to state count and retry history. Expected cache lookup
-is $`O(1)`$. The intrusive LRU list stores predecessor and successor state IDs
-inside each cache entry, making hits, insertion, and eviction $`O(1)`$ instead
+is $`\mathcal{O}(1)`$ with respect to state count and retry history. Expected cache lookup
+is $`\mathcal{O}(1)`$. The intrusive LRU list stores predecessor and successor state IDs
+inside each cache entry, making hits, insertion, and eviction $`\mathcal{O}(1)`$ instead
 of scanning an access queue.
 
 ## Call sequence and freshness boundary

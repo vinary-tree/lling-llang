@@ -173,6 +173,8 @@ jobs:
       # Raku/setup-raku v1, pinned for a current, reproducible Rakudo rather
       # than Ubuntu's 2022.12 package.
       - uses: Raku/setup-raku@b8b1a4ebe85ef112edfc65e9edc8c57735367e3f
+      - name: Documentation math conformance
+        run: scripts/doc-mathlint.sh
       - name: Build native library and callback shim
         run: |
           cargo build --no-default-features --features raku-bindings

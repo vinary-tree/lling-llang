@@ -190,13 +190,13 @@ consumes exactly `input` starting at `state`, or $`\bar{0}`$-as-`None` if none e
 
 The three named chunks correspond one-to-one with the three loops in
 [`traits.rs`](../../src/multitape/traits.rs). The chunk
-`` ⟨ consume one label ⟩ `` matches a full $`N`$-tuple label against `input[0]`;
-`` ⟨ ε without consuming ⟩ `` follows pure $`\varepsilon`$-moves so the search can change
+`consume one label` matches a full $`N`$-tuple label against `input[0]`;
+`epsilon without consuming` follows pure $`\varepsilon`$-moves so the search can change
 state without advancing the input cursor.
 
 **Complexity.** This returns the *first* accepting path it finds (a recognition
 short-circuit), not the $`\oplus`$-sum over all of them; in the worst case it explores
-$`O(\lvert E\rvert)`$ arcs per input position for $`O(\lvert \text{input}\rvert \cdot \lvert E\rvert)`$ work, and it
+$`\mathcal{O}(\lvert E\rvert)`$ arcs per input position for $`\mathcal{O}(\lvert \text{input}\rvert \cdot \lvert E\rvert)`$ work, and it
 assumes the $`\varepsilon`$-arcs do not form a cycle (otherwise the recursion may not
 terminate). For full $`\oplus`$-aggregation use the single-tape shortest-distance
 machinery after [projection](#projection).

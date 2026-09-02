@@ -7,7 +7,7 @@ The homoglyph disambiguator handles visually similar characters with different m
 | Characters | Possible Meanings |
 |------------|-------------------|
 | `x`, `×`, `✕` | Variable x, Multiplication |
-| `-`, `−`, `–`, `—` | Subtraction, Unary minus |
+| `-`, $`-`$, `–`, `—` | Subtraction, Unary minus |
 | `0`, `O`, `o` | Digit zero, Variable O |
 | `1`, `l`, `I`, `\|` | Digit one, Variable l/I |
 | `'`, `′` | Apostrophe, Prime symbol |
@@ -356,7 +356,7 @@ The disambiguator handles Greek-Latin lookalikes:
 | N | Ν (Nu) | - |
 | P | Ρ (Rho) | Р (Er) |
 | T | Τ (Tau) | Т (Te) |
-| Y | Υ (Upsilon) | У (U) |
+| Y | Greek capital upsilon | Cyrillic capital U |
 
 ## Registering Custom Confusion Sets
 

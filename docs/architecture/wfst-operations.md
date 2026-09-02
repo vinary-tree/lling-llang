@@ -41,8 +41,8 @@ Operations come in two flavors:
 
 | Type | Behavior | Memory | Example |
 |------|----------|--------|---------|
-| **Lazy** | States computed on demand | $`O(1)`$ to create | Union, Concat, Closure, Invert, Project |
-| **Constructive** | Entire result computed upfront | $`O(\lvert\text{result}\rvert)`$ | Reverse |
+| **Lazy** | States computed on demand | $`\mathcal{O}(1)`$ to create | Union, Concat, Closure, Invert, Project |
+| **Constructive** | Entire result computed upfront | $`\mathcal{O}(\lvert\text{result}\rvert)`$ | Reverse |
 
 Lazy operations are preferred when you don't need the entire result (e.g., during pruned search).
 
@@ -50,7 +50,7 @@ Lazy operations are preferred when you don't need the entire result (e.g., durin
 
 Rational operations form the "rational" part of rational transducers. They correspond to regular-expression operators [[Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009)]. Each of the three core constructions wires the operands together with $`\varepsilon`$-transitions, sketched below:
 
-![Rational constructions on WFSTs: three clusters. Union (T₁ ⊕ T₂) — a super-start s with ε-arcs to T₁ and T₂, whose ends have ε-arcs to a shared final f. Concatenation (T₁ ⊗ T₂) — start s into T₁, then an ε-arc labelled ε / ρ(T₁) from T₁'s end into T₂, into final f. Closure (T*) — a super-start s that is itself final (double ring), an ε-arc into T, and an ε loop-back arc from T's end to s.](../diagrams/architecture/wfst-operations.svg)
+![Rational constructions on weighted transducers: union branches from a shared start into either operand, concatenation connects the first operand to the second, and closure adds both an accepting start and a loop back to it](../diagrams/architecture/wfst-operations.svg)
 
 *Blue circles = states; green double-rings = final states; grey dashed arcs = the $`\varepsilon`$-transitions each construction adds; light-grey solid arcs = the operand bodies $`T_1`$ / $`T_2`$ / $`T`$. Cluster borders are tinted blue (union), green (concat), teal (closure).*
 
@@ -83,7 +83,7 @@ Union  T₁ ⊕ T₂:                Concatenation  T₁ ⊗ T₂:        Closur
         ε        ε
 ```
 
-**Complexity**: $`O(\lvert T_1\rvert + \lvert T_2\rvert)`$ — computed lazily.
+**Complexity**: $`\mathcal{O}(\lvert T_1\rvert + \lvert T_2\rvert)`$ — computed lazily.
 
 **Example**:
 ```rust
@@ -127,7 +127,7 @@ assert_eq!(u.num_states(), 5);  // 1 super-start + 2 + 2
          path₁                     path₂
 ```
 
-**Complexity**: $`O(\lvert T_1\rvert + \lvert T_2\rvert + \lvert F_1\rvert\lvert I_2\rvert)`$ where $`F_1`$ = final states of $`T_1`$, $`I_2`$ = initial states of $`T_2`$.
+**Complexity**: $`\mathcal{O}(\lvert T_1\rvert + \lvert T_2\rvert + \lvert F_1\rvert\lvert I_2\rvert)`$ where $`F_1`$ = final states of $`T_1`$, $`I_2`$ = initial states of $`T_2`$.
 
 **Example**:
 ```rust
@@ -163,7 +163,7 @@ let c = concat(&fst_a, &fst_b);
               ε (from T final states)
 ```
 
-**Complexity**: $`O(\lvert T\rvert)`$ — computed lazily.
+**Complexity**: $`\mathcal{O}(\lvert T\rvert)`$ — computed lazily.
 
 **Example**:
 ```rust
@@ -207,7 +207,7 @@ Unary operations transform a single WFST into another.
 **Before**: `(i:o/w)` arc
 **After**: `(o:i/w)` arc
 
-**Complexity**: $`O(\lvert T\rvert)`$ — computed lazily.
+**Complexity**: $`\mathcal{O}(\lvert T\rvert)`$ — computed lazily.
 
 **Example**:
 ```rust
@@ -242,7 +242,7 @@ let inv = invert(&fst);
 **Before**: `(i:o/w)` arc
 **After**: `(i:i/w)` arc (both labels are input)
 
-**Complexity**: $`O(\lvert T\rvert)`$ — computed lazily.
+**Complexity**: $`\mathcal{O}(\lvert T\rvert)`$ — computed lazily.
 
 **Example**:
 ```rust
@@ -269,7 +269,7 @@ let pin = project_input(&fst);
 **Before**: `(i:o/w)` arc
 **After**: `(o:o/w)` arc (both labels are output)
 
-**Complexity**: $`O(\lvert T\rvert)`$ — computed lazily.
+**Complexity**: $`\mathcal{O}(\lvert T\rvert)`$ — computed lazily.
 
 **Example**:
 ```rust
@@ -298,7 +298,7 @@ let pout = project_output(&fst);
 
 **Important**: This is a **constructive** operation (not lazy) because it requires inspecting all states to build the reversed graph.
 
-**Complexity**: $`O(\lvert Q\rvert + \lvert E\rvert)`$
+**Complexity**: $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$
 
 **Structure**:
 ```text
@@ -411,12 +411,12 @@ States 1..=n: Reversed states from T (offset by 1)
 
 | Operation | Creation | Per-State Access |
 |-----------|----------|------------------|
-| Union | $`O(1)`$ | $`O(1)`$ |
-| Concat | $`O(1)`$ | $`O(1)`$ |
-| Closure | $`O(1)`$ | $`O(1)`$ |
-| Invert | $`O(1)`$ | $`O(1)`$ |
-| Project | $`O(1)`$ | $`O(1)`$ |
-| Reverse | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(1)`$ |
+| Union | $`\mathcal{O}(1)`$ | $`\mathcal{O}(1)`$ |
+| Concat | $`\mathcal{O}(1)`$ | $`\mathcal{O}(1)`$ |
+| Closure | $`\mathcal{O}(1)`$ | $`\mathcal{O}(1)`$ |
+| Invert | $`\mathcal{O}(1)`$ | $`\mathcal{O}(1)`$ |
+| Project | $`\mathcal{O}(1)`$ | $`\mathcal{O}(1)`$ |
+| Reverse | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | $`\mathcal{O}(1)`$ |
 
 ## Related Topics
 

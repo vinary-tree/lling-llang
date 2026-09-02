@@ -16,20 +16,20 @@ into deep learning pipelines.
 ### Components
 
 1. **GradientWfst**: WFST wrapper with forward/backward score caching
-   - Maintains α (forward) and β (backward) values per state
+   - Maintains $`\alpha`$ (forward) and $`\beta`$ (backward) values per state
    - Tracks computation state for gradient reuse
 
 2. **Forward Score**: Log-sum-exp over all paths (log semiring)
-   - Computes total path weight: Σ_{p∈paths} exp(-weight(p))
-   - O(|Q| + |E|) for acyclic WFSTs
+   - Computes total path weight: $`\sum_{p \in \mathrm{paths}} \exp(-\mathrm{weight}(p))`$
+   - $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ for acyclic WFSTs
 
 3. **Viterbi Score**: Max over all paths (tropical semiring interpretation)
    - Finds minimum weight path
-   - O(|Q| + |E|) for acyclic WFSTs
+   - $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ for acyclic WFSTs
 
 4. **Backward Pass**: Reverse-mode automatic differentiation
-   - Computes gradients ∂Z/∂w for all arc weights
-   - Uses α·β decomposition: grad(arc) = exp(α[from] + w + β[to] - Z)
+   - Computes gradients $`\partial Z / \partial w`$ for all arc weights
+   - Uses $`\alpha\beta`$ decomposition: $`\mathrm{grad}(e) = \exp(\alpha[\mathrm{from}(e)] + w_e + \beta[\mathrm{to}(e)] - Z)`$
 
 ---
 
@@ -41,15 +41,15 @@ into deep learning pipelines.
 ### Hypothesis
 
 Forward score computes the total weight of all paths through a WFST using the log
-semiring. This is equivalent to computing -log(Σ_paths exp(-path_weight)).
+semiring. This is equivalent to computing $`-\log(\sum_{p \in \mathrm{paths}} \exp(-\mathrm{weight}(p)))`$.
 
 **Algorithm**:
-1. Initialize α[start] = 1̄ (log semiring one = 0.0)
+1. Initialize $`\alpha[\mathrm{start}] = \bar{1}`$ (log-semiring one is $`0`$)
 2. Process states in topological order
-3. For each arc (s, t, w): α[t] = α[t] ⊕ (α[s] ⊗ w)
-4. Total score = ⊕_{f ∈ F} (α[f] ⊗ final_weight[f])
+3. For each arc $`(s,t,w)`$: $`\alpha[t] = \alpha[t] \oplus (\alpha[s] \otimes w)`$
+4. Total score: $`\bigoplus_{f \in F}(\alpha[f] \otimes \mathrm{final\_weight}[f])`$
 
-**Complexity**: O(|Q| + |E|) for acyclic WFSTs
+**Complexity**: $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ for acyclic WFSTs
 
 ### Implementation
 
@@ -79,12 +79,12 @@ Viterbi score finds the minimum weight path through a WFST (tropical semiring).
 For log-probability weights, this corresponds to the maximum probability path.
 
 **Algorithm**:
-1. Initialize δ[start] = 0 (tropical one)
+1. Initialize $`\delta[\mathrm{start}] = 0`$ (tropical one)
 2. Process states in topological order
-3. For each arc (s, t, w): δ[t] = min(δ[t], δ[s] + w)
-4. Best score = min_{f ∈ F}(δ[f] + final_weight[f])
+3. For each arc $`(s,t,w)`$: $`\delta[t] = \min(\delta[t], \delta[s] + w)`$
+4. Best score: $`\min_{f \in F}(\delta[f] + \mathrm{final\_weight}[f])`$
 
-**Complexity**: O(|Q| + |E|) for acyclic WFSTs
+**Complexity**: $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ for acyclic WFSTs
 
 ### Implementation
 
@@ -113,20 +113,20 @@ pub struct ViterbiGradResult {
 Backward pass computes gradients through a WFST using reverse-mode automatic
 differentiation. For arc weight w on transition (s, t):
 
-∂Z/∂w = exp(α[s] + w + β[t] - Z)
+$`\dfrac{\partial Z}{\partial w} = \exp(\alpha[s] + w + \beta[t] - Z)`$
 
 Where:
-- α[s] = forward score from start to state s
-- β[t] = backward score from state t to final states
+- $`\alpha[s]`$ = forward score from the start to state $`s`$
+- $`\beta[t]`$ = backward score from state $`t`$ to final states
 - Z = total score (normalization constant)
 
 **Algorithm**:
-1. Initialize β[f] = final_weight for all final states
+1. Initialize $`\beta[f] = \mathrm{final\_weight}[f]`$ for all final states
 2. Process states in reverse topological order
-3. For each arc (s, t, w): β[s] = β[s] ⊕ (w ⊗ β[t])
-4. Compute arc gradients using α·β formula
+3. For each arc $`(s,t,w)`$: $`\beta[s] = \beta[s] \oplus (w \otimes \beta[t])`$
+4. Compute arc gradients using the $`\alpha\beta`$ formula
 
-**Complexity**: O(|Q| + |E|) for acyclic WFSTs
+**Complexity**: $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ for acyclic WFSTs
 
 ### Implementation
 
@@ -177,19 +177,19 @@ pub struct GradientAccumulator {
 
 ### Analysis
 
-1. **Forward score scales linearly** with graph size O(|Q| + |E|)
+1. **Forward score scales linearly** with graph size $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$
 2. **Viterbi score slightly faster** (no log-sum-exp, just min)
 3. **Backward ~2.5x forward cost** (includes forward pass + gradient computation)
 4. **Parallel paths scale linearly** with path count
-5. **Diamond complexity** = O(layers × width²) due to full connectivity
+5. **Diamond complexity** = $`\mathcal{O}(layers \times width^{2})`$ due to full connectivity
 
 ### Complexity Verification
 
 | Algorithm | Theory | Observed | Match |
 |-----------|--------|----------|-------|
-| Forward score | O(\|Q\| + \|E\|) | Linear ✓ | ✓ |
-| Viterbi score | O(\|Q\| + \|E\|) | Linear ✓ | ✓ |
-| Backward | O(\|Q\| + \|E\|) | ~2.5× forward ✓ | ✓ |
+| Forward score | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | Linear ✓ | ✓ |
+| Viterbi score | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | Linear ✓ | ✓ |
+| Backward | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | ~2.5× forward ✓ | ✓ |
 
 ### Result
 
@@ -211,9 +211,9 @@ pub struct GradientAccumulator {
 
 | Algorithm | Complexity (Expected) | Complexity (Observed) | Status |
 |-----------|----------------------|----------------------|--------|
-| Forward Score | O(\|Q\| + \|E\|) | Linear ✓ | ACCEPTED |
-| Viterbi Score | O(\|Q\| + \|E\|) | Linear ✓ | ACCEPTED |
-| Backward Pass | O(\|Q\| + \|E\|) | ~2.5× forward ✓ | ACCEPTED |
+| Forward Score | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | Linear ✓ | ACCEPTED |
+| Viterbi Score | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | Linear ✓ | ACCEPTED |
+| Backward Pass | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | ~2.5× forward ✓ | ACCEPTED |
 
 ### LogWeight Semiring Semantics
 
@@ -221,11 +221,10 @@ Key insight during implementation: LogWeight stores NEGATIVE log probabilities:
 - `LogWeight::new(x)` represents probability e^(-x)
 - Positive values represent valid probabilities < 1
 - `LogWeight::one()` = 0.0 (probability 1)
-- `LogWeight::zero()` = +∞ (probability 0)
+- `LogWeight::zero()` = $`+\infty`$ (probability $`0`$)
 
 Operations:
 - `times`: Addition in log space (product of probabilities)
 - `plus`: Log-sum-exp (sum of probabilities)
 
 ---
-

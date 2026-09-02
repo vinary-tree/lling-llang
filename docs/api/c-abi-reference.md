@@ -112,7 +112,7 @@ Two counters, two different promises, following the family's
   independent from the project ABI counter.
 
 Both functions are infallible, never touch the error slot, are safe from any
-thread at any time, and cost $`O(1)`$. The canonical handshake:
+thread at any time, and cost $`\mathcal{O}(1)`$. The canonical handshake:
 
 ```c
 if (lling_abi_version() != LLING_ABI_VERSION ||
@@ -136,7 +136,7 @@ Returns this thread's last error message as a NUL-terminated UTF-8 string.
   thread (and only by failing calls — a success leaves it untouched). The
   returned pointer is invalidated by that next failure: copy the string out if
   you need it beyond the next ABI call.
-- Infallible, never null (the initial content is `"ok"`), $`O(1)`$.
+- Infallible, never null (the initial content is `"ok"`), $`\mathcal{O}(1)`$.
 
 ## Status codes
 
@@ -254,7 +254,7 @@ Algorithm ValidateTypedPrefix(pointer, required_size, known_flags)
 | `lling_abi_v2_validate_outcome` | Writes whether the result is authoritative and exact. |
 | `lling_abi_v2_identity_matches` | Writes whether all replay-critical fields match. |
 
-All outputs remain unchanged on failure. Each validator uses $`O(1)`$ time and
+All outputs remain unchanged on failure. Each validator uses $`\mathcal{O}(1)`$ time and
 auxiliary space and performs no callback.
 
 ## Cooperative cancellation v2
@@ -272,7 +272,7 @@ later requests cannot overwrite it.
 
 Request and reason calls may race. Freeing may not race them: synchronize all
 users first. Copying the raw pointer does not create another owner. Operations
-are $`O(1)`$, nonrecursive, and callback-free.
+are $`\mathcal{O}(1)`$, nonrecursive, and callback-free.
 
 ## Host-defined dynamic semirings — 21 functions
 
@@ -468,7 +468,7 @@ complete ownership, batching, validation, and concurrency design.
 `LlingWfstBuilder` is an opaque, caller-owned, **mutable** graph under
 construction: Unicode-scalar labels, tropical `f64` weights. It is **not**
 thread-safe — confine each builder to one thread. `build` freezes it into an
-immutable `LlingWfst` in $`O(1)`$ and consumes it; every later builder call
+immutable `LlingWfst` in $`\mathcal{O}(1)`$ and consumes it; every later builder call
 answers `LLING_STATUS_CLOSED`.
 
 ![LlingWfstBuilder lifecycle state machine: new creates the Open state; reserve, add-state, start/final and arc edits loop on Open; a build without a start state fails with INVALID_ARGUMENT and restores Open; a successful build moves to Consumed and emits the immutable handle; every builder call on Consumed returns CLOSED; free is accepted from both states.](../diagrams/architecture/builder-lifecycle-state.svg)
@@ -504,7 +504,7 @@ LLING_API LlingStatus lling_wfst_builder_new(LlingWfstBuilder** out_builder);
 | Returns | `OK` · `NULL_POINTER` · `PANIC` |
 | Ownership | Caller owns the builder; release with `lling_wfst_builder_free`. |
 | Thread safety | Callable from any thread; the resulting builder is single-threaded. |
-| Complexity | $`O(1)`$ |
+| Complexity | $`\mathcal{O}(1)`$ |
 
 > **Check order.** The out-pointer is validated *before* the builder is
 > constructed: a null `out_builder` returns `NULL_POINTER` and allocates
@@ -523,7 +523,7 @@ LLING_API void lling_wfst_builder_free(LlingWfstBuilder* builder);
 | Returns | *(void — infallible)* |
 | Ownership | Ends the builder's lifetime. Handles already produced by `build` are unaffected. |
 | Thread safety | Call on the thread that owns the builder. |
-| Complexity | $`O(1)`$ plus deallocation of the graph if still Open. |
+| Complexity | $`\mathcal{O}(1)`$ plus deallocation of the graph if still Open. |
 
 ### `lling_wfst_builder_reserve_states`
 
@@ -539,7 +539,7 @@ LLING_API LlingStatus lling_wfst_builder_reserve_states(
 | Returns | `OK` · `NULL_POINTER` · `CLOSED` · `PANIC` |
 | Ownership | No transfer. |
 | Thread safety | Builder-confined (one thread). |
-| Complexity | $`O(\text{additional})`$ amortized; may reallocate once. |
+| Complexity | $`\mathcal{O}(\text{additional})`$ amortized; may reallocate once. |
 
 ### `lling_wfst_builder_add_state`
 
@@ -555,7 +555,7 @@ LLING_API LlingStatus lling_wfst_builder_add_state(
 | Returns | `OK` · `NULL_POINTER` · `CLOSED` · `PANIC` |
 | Ownership | No transfer. |
 | Thread safety | Builder-confined. |
-| Complexity | $`O(1)`$ amortized. |
+| Complexity | $`\mathcal{O}(1)`$ amortized. |
 
 > **Check order.** The builder is validated before `out_state`; when
 > `out_state` is null the state has already been added by the time
@@ -576,7 +576,7 @@ LLING_API LlingStatus lling_wfst_builder_set_start(
 | Returns | `OK` · `INVALID_ARGUMENT` (state absent) · `NULL_POINTER` · `CLOSED` · `PANIC` |
 | Ownership | No transfer. |
 | Thread safety | Builder-confined. |
-| Complexity | $`O(1)`$ |
+| Complexity | $`\mathcal{O}(1)`$ |
 
 ### `lling_wfst_builder_set_final`
 
@@ -592,7 +592,7 @@ LLING_API LlingStatus lling_wfst_builder_set_final(
 | Returns | `OK` · `INVALID_ARGUMENT` (non-tropical weight — NaN or $`-\infty`$; state absent) · `NULL_POINTER` · `CLOSED` · `PANIC` |
 | Ownership | No transfer. |
 | Thread safety | Builder-confined. |
-| Complexity | $`O(1)`$ |
+| Complexity | $`\mathcal{O}(1)`$ |
 
 > **Check order and the weight domain.** The weight is validated with
 > `TropicalWeight::is_valid_raw` *before* the builder pointer is examined,
@@ -618,7 +618,7 @@ LLING_API LlingStatus lling_wfst_builder_clear_final(
 | Returns | `OK` · `INVALID_ARGUMENT` (state absent) · `NULL_POINTER` · `CLOSED` · `PANIC` |
 | Ownership | No transfer. |
 | Thread safety | Builder-confined. |
-| Complexity | $`O(1)`$ |
+| Complexity | $`\mathcal{O}(1)`$ |
 
 ### `lling_wfst_builder_add_arc`
 
@@ -637,7 +637,7 @@ LLING_API LlingStatus lling_wfst_builder_add_arc(
 | Returns | `OK` · `INVALID_ARGUMENT` (non-tropical weight — NaN or $`-\infty`$; presence flag $`> 1`$; non-scalar label; absent endpoint) · `NULL_POINTER` · `CLOSED` · `PANIC` |
 | Ownership | No transfer. |
 | Thread safety | Builder-confined. |
-| Complexity | $`O(1)`$ amortized. |
+| Complexity | $`\mathcal{O}(1)`$ amortized. |
 
 > **Check order.** Validation runs weight → labels → builder → endpoints, so
 > argument errors report `INVALID_ARGUMENT` even when `builder` is null. The
@@ -658,7 +658,7 @@ LLING_API LlingStatus lling_wfst_builder_build(
 | Returns | `OK` · `INVALID_ARGUMENT` (no start state — the builder is **restored**, still Open) · `NULL_POINTER` · `CLOSED` (already consumed) · `PANIC` |
 | Ownership | On `OK`, the caller owns the new handle (free with `lling_wfst_free`); the consumed builder must still be freed with `lling_wfst_builder_free`. |
 | Thread safety | Builder-confined; the produced handle is safe to share across threads. |
-| Complexity | $`O(1)`$ — the graph is moved, not copied. |
+| Complexity | $`\mathcal{O}(1)`$ — the graph is moved, not copied. |
 
 > **Check order.** Failure never destroys caller state: the precedence is
 > builder-null (`NULL_POINTER`) → out-null (`NULL_POINTER`, builder
@@ -687,7 +687,7 @@ LLING_API void lling_wfst_free(LlingWfst* wfst);
 | Returns | *(void — infallible)* |
 | Ownership | Ends the handle's lifetime (drops one retain on the underlying graph; the graph itself is freed when the last retain drops). |
 | Thread safety | Any thread; must not race another `lling_wfst_free` of the same pointer. |
-| Complexity | $`O(1)`$, plus teardown of uniquely-owned data when this was the last retain. |
+| Complexity | $`\mathcal{O}(1)`$, plus teardown of uniquely-owned data when this was the last retain. |
 
 ### `lling_wfst_import`
 
@@ -703,7 +703,7 @@ LLING_API LlingStatus lling_wfst_import(
 | Returns | `OK` · `NULL_POINTER` (null resource words; null `out_wfst`) · `INCOMPATIBLE_RESOURCE` · `PROVIDER_ERROR` (callback failure; invalid `state_info`/arc fields — including NaN or $`-\infty`$ weights; broken paging counts) · `LIMIT_EXCEEDED` (more than $`2^{32}-1`$ reachable states; a label exceeding the Unicode scalar range) · `PANIC` |
 | Ownership | Takes **no** ownership of `resource` (borrows it for the call). On `OK` the caller owns the new handle. |
 | Thread safety | Any thread. |
-| Complexity | $`O(\lvert Q\rvert + \lvert E\rvert)`$ over the *reachable* snapshot, with $`\lceil \deg(q)/256 \rceil`$ paged callbacks per state. |
+| Complexity | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ over the *reachable* snapshot, with $`\lceil \deg(q)/256 \rceil`$ paged callbacks per state. |
 
 Every weight crossing this boundary is validated with
 `TropicalWeight::is_valid_raw` — finite or $`+\infty`$; NaN **and**
@@ -737,7 +737,7 @@ LLING_API LlingStatus lling_wfst_compose(
 | Returns | `OK` · `NULL_POINTER` · `INCOMPATIBLE_RESOURCE` · `PROVIDER_ERROR` (discovery/snapshot/start callback failure) · `PANIC` |
 | Ownership | Borrows both inputs for the call; the composition holds its **own** snapshot retains, so the caller may release `first`/`second` immediately, in any order, without invalidating the result. |
 | Thread safety | Any thread; the produced handle expands product states concurrently (no resource-wide lock). |
-| Complexity | Construction $`O(1)`$. Expanding one product state $`(q_1, q_2, \phi)`$ costs $`O(d_1 + d_2 + d_1 d_2)`$ where $`d_i`$ is the component out-degree (the match pass scans label pairs), amortized once per product state thanks to the cache. |
+| Complexity | Construction $`\mathcal{O}(1)`$. Expanding one product state $`(q_1, q_2, \phi)`$ costs $`\mathcal{O}(d_1 + d_2 + d_1 d_2)`$ where $`d_i`$ is the component out-degree (the match pass scans label pairs), amortized once per product state thanks to the cache. |
 
 Provider failures and invalid weights (NaN, $`-\infty`$) discovered **during**
 lazy expansion surface as `VT_STATUS_PROVIDER_ERROR` on the exported vtable
@@ -776,7 +776,7 @@ LLING_API LlingStatus lling_wfst_resource(
 | Returns | `OK` · `NULL_POINTER` · `PANIC` |
 | Ownership | On `OK` the caller owns one retain in `*out_resource`; balance it with exactly one `lling_resource_release` (or hand it to a consumer that releases it). The retain keeps the graph alive independently of the handle. |
 | Thread safety | Any thread, concurrently. |
-| Complexity | $`O(1)`$ (an atomic reference-count increment). |
+| Complexity | $`\mathcal{O}(1)`$ (an atomic reference-count increment). |
 
 ### `lling_resource_release`
 
@@ -791,7 +791,7 @@ LLING_API void lling_resource_release(VtResource resource);
 | Returns | *(void — infallible)* |
 | Ownership | Consumes one retain. Releasing more times than retained is undefined behavior (a refcount underflow in the provider), per the family [refcount laws](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md#53-the-refcount-laws). |
 | Thread safety | Any thread. |
-| Complexity | $`O(1)`$ (atomic decrement; the last release tears down the resource). |
+| Complexity | $`\mathcal{O}(1)`$ (atomic decrement; the last release tears down the resource). |
 
 ## Weight domains ↔ semirings
 

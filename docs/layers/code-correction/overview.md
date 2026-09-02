@@ -276,7 +276,7 @@ CodeCorrectionConfig {
 |--------|---------------|
 | Lattice with 100 edges | ~1-2ms |
 | Lattice with 1000 edges | ~10-20ms |
-| Pattern matching | $`O(n \times p)`$ |
+| Pattern matching | $`\mathcal{O}(n \times p)`$ |
 | Memory overhead | ~10KB per layer |
 
 Where $`n`$ = number of tokens, $`p`$ = number of patterns.

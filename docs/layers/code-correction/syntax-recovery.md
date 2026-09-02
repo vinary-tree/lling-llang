@@ -29,7 +29,7 @@ balanced before reaching the accepting `Recovered` state. Every repair is added 
 a *parallel* lattice edge, so all candidates coexist and the lowest-cost path —
 $`\text{cost} = \text{original\_cost} + \sum \text{recovery\_costs}`$ — is preferred downstream.
 
-![State diagram: from Scanning, conditional transitions to Insertion (+insertion_cost), Deletion (+deletion_cost via an ε edge), and Replacement (+replacement_cost), each returning to Scanning; at end of input, green edges go to Balancing (if the bracket stack is non-empty) then to the green double-ringed Recovered state, or directly to Recovered when the stack is empty.](../../diagrams/layers/code-correction/syntax-recovery.svg)
+![State diagram: scanning can insert, delete through an empty-input edge, or replace and then resume scanning; at end of input, recovery either balances a nonempty bracket stack or finishes directly](../../diagrams/layers/code-correction/syntax-recovery.svg)
 
 *Amber = recovery states; bold green = the accepting transitions to the green
 double-ring `Recovered` state; guards in `[ … ]` are the strategy/cost/limit

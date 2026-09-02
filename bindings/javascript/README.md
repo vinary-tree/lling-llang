@@ -4,7 +4,7 @@
 facade for lling-llang's scalar WFSTs (weighted finite-state transducers):
 build Unicode/tropical transducers, export them as family resources, and
 compose them lazily with WFSTs produced by sibling packages — in process,
-in $`O(1)`$, without serialization.
+in $`\mathcal{O}(1)`$, without serialization.
 
 The facade owns no native code. It delegates to the single
 `@vinary-tree/javascript-runtime` shared runtime, so a WFST produced by the
@@ -159,7 +159,7 @@ their own runtime instance — handles must not be passed between instances
 
 ## Zero-copy paths
 
-- **Resource handoff is $`O(1)`$.** `compose` accepts any object implementing
+- **Resource handoff is $`\mathcal{O}(1)`$.** `compose` accepts any object implementing
   `vt.scalar-wfst.1` from the *same* runtime — including WFSTs produced by
   the `duallity` facade. The handoff passes a retained handle; no graph is
   copied or serialized.

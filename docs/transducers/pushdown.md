@@ -206,7 +206,7 @@ configuration.
   return false
 ```
 
-The chunk `` ⟨ input exhausted, mode satisfied ⟩ `` calls `is_config_accepting`,
+The chunk `input exhausted, mode satisfied` calls `is_config_accepting`,
 which applies the [acceptance mode](#acceptance-modes) table. The two arc loops
 correspond to the $`\varepsilon`$-transition and input-consuming branches of $`\vdash`$.
 
@@ -282,7 +282,7 @@ one kind.
 With the `levenshtein` feature, `integration::exact_dyck_correction` computes an
 exact unit-Levenshtein repair over numeric tokens: opener kind $`r`$ is token
 $`r`$ and its closer is $`k+r`$. The corrector uses interval dynamic programming
-in $`O(k n^3)`$ time and $`O(n^2)`$ space and returns a replayable minimum-cost
+in $`\mathcal{O}(k n^3)`$ time and $`\mathcal{O}(n^2)`$ space and returns a replayable minimum-cost
 witness. It has no nesting-depth approximation; its work ceiling bounds resource
 use, not the recognized language.
 

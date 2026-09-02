@@ -191,7 +191,7 @@ can produce from $`t`$ starting in state $`q`$.
       emit ( node(r.output_pattern.symbol, children),  r.weight ⊗ w_children )
 ```
 
-The chunk `` ⟨ recurse into input child i ⟩ `` is where variable **reordering**
+The chunk `recurse into input child i` is where variable **reordering**
 happens: `var_index` may point to any input child, in any order, so the swap rule
 above selects child 1 then child 0. **Copying** falls out for free — two
 `Variable` children with the same `var_index` recurse into the same input subtree
@@ -200,7 +200,7 @@ output pattern). The cartesian product threads weights with $`\otimes`$, so ambi
 inputs yield multiple weighted outputs.
 
 **Complexity.** For a linear, unambiguous transducer the work is
-$`O(\lvert t\rvert)`$ in the input tree size (one rule application per node). Copying
+$`\mathcal{O}(\lvert t\rvert)`$ in the input tree size (one rule application per node). Copying
 rules can duplicate subtrees, and ambiguity (several rules per `(state, symbol)`)
 multiplies the output set via the cartesian product, so the output count — and
 the time — can grow with the number of derivations.

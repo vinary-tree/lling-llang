@@ -27,9 +27,9 @@ commit `0fc05f0` (2026-08-08) unless noted otherwise.
 | [LLING-B6](#finding-lling-b6) | 2026-08-09 | `src/ffi.rs` `lling_wfst_builder_add_state` | state-mutation-on-failure | low | `b1acb7e` | FIXED |
 | [LLING-B7](#finding-lling-b7) | 2026-08-09 | `src/bindings.rs` `import_tropical_wfst` paging | abi-paging (F3 lling side) | medium | `b1acb7e` | FIXED |
 | [LLING-B8](#finding-lling-b8) | 2026-08-09 | label `> char::MAX` status (import vs expansion) | status-mapping-consistency | low | `1886a06` (arbitrated by `StatusMapping.v`, #20) | FIXED |
-| [LLING-B9](#finding-lling-b9) | 2026-08-09 | wire vs native finality at `+∞` weight | contract-nuance | info | ledger-only (documented contract) | RECORDED |
+| [LLING-B9](#finding-lling-b9) | 2026-08-09 | wire vs native finality at $`+\infty`$ weight | contract-nuance | info | ledger-only (documented contract) | RECORDED |
 | [LLING-B10](#finding-lling-b10) | 2026-08-09 | `.github/workflows/ci.yml` `rust` job | ci-integrity | high | `f84f784` | FIXED |
-| [LLING-B11](#finding-lling-b11) | 2026-08-09 | `apiRevision` policy for the `−∞` status tightening | version-coherence | info | ledger-only (recorded decision) | RECORDED |
+| [LLING-B11](#finding-lling-b11) | 2026-08-09 | `apiRevision` policy for the $`-\infty`$ status tightening | version-coherence | info | ledger-only (recorded decision) | RECORDED |
 | [LLING-B12](#finding-lling-b12) | 2026-08-09 | `scripts/run-sanitizers.sh`, `.github/workflows/ci.yml` `sanitizers` job | dynamic-analysis-coverage | medium | W8 leg (commit bearing this entry) | FIXED |
 
 ---
@@ -189,7 +189,7 @@ the change and its proof/test evidence are one reviewable increment.
 
 **Update (2026-08-09, commit `83f9595`).** The builder-surface sites 9-10
 landed: `lling_wfst_builder_set_final` and `lling_wfst_builder_add_arc` now
-reject with `TropicalWeight::is_valid_raw` before construction, so a `−∞`
+reject with `TropicalWeight::is_valid_raw` before construction, so a $`-\infty`$
 weight surfaces as `LLING_STATUS_INVALID_ARGUMENT` rather than the previous
 `catch_unwind`-downgraded `LLING_STATUS_PANIC`. Regression:
 `weight_ingestion_rejects_nan_and_negative_infinity`
@@ -372,7 +372,7 @@ expansion path (`expand_state`) already ran.
 three consumers; the proven arbiter is `ConsumerAcceptance.accepts_dec`
 (`liblevenshtein-rust/docs/verification/abi/theories/ConsumerAcceptance.v`, the
 llev side harmonized under LLEV-B8). On the import path a provider page whose
-`written` overshoots `total − offset` was buffered and only rejected on the
+`written` overshoots $`total - offset`$ was buffered and only rejected on the
 next iteration (via `offset > total`), after one extra provider callback and up
 to a page of extra buffered arcs. Two code paths in one crate applied two
 different predicates to the one interop paging law.
@@ -445,7 +445,7 @@ the import and composition surfaces.
 
 | Field | Value |
 |---|---|
-| Finding | LLING-B9 (wire vs native finality at `+∞` weight) |
+| Finding | LLING-B9 (wire vs native finality at $`+\infty`$ weight) |
 | Date | 2026-08-09 |
 | Component | `src/ffi.rs` `lling_wfst_builder_set_final` wire semantics vs `MutableWfst::set_final` |
 | Class | contract-nuance (documented) |
@@ -454,18 +454,19 @@ the import and composition surfaces.
 | Verification | `positive_infinity_survives_the_round_trip` (`tests/ffi_roundtrip_proptest.rs`) |
 | Status | RECORDED |
 
-**Evidence.** The C surface `lling_wfst_builder_set_final(s, +∞)` pins
-`is_final = 1` at weight `+∞` on the exported wire, while the native
-`MutableWfst::set_final` normalizes a `+∞` (`= zero`) final weight toward
+**Evidence.** Passing the tropical value $`+\infty`$ to
+`lling_wfst_builder_set_final` pins
+`is_final = 1` at weight $`+\infty`$ on the exported wire, while the native
+`MutableWfst::set_final` normalizes a $`+\infty`$ (`= zero`) final weight toward
 non-final in some paths.
 
-**Analysis.** `+∞` is the tropical additive identity (`zero` = "unreachable"),
-so a state made final at weight `+∞` is final-but-unreachable — a legal but
+**Analysis.** $`+\infty`$ is the tropical additive identity (`zero` = "unreachable"),
+so a state made final at weight $`+\infty`$ is final-but-unreachable — a legal but
 degenerate configuration. The wire faithfully preserves what the builder was
 told; the native constructor may treat zero-weight finality as non-final. This
 is a semantics nuance, not a defect: the round trip is exact for every finite
-and `+∞` weight, and the nuance only affects the interpretation of a
-final-at-`+∞` state. Recorded so consumers relying on wire-exact finality know
+and $`+\infty`$ weight, and the nuance only affects the interpretation of a
+final-at-$`+\infty`$ state. Recorded so consumers relying on wire-exact finality know
 the boundary; no behavior change.
 
 ---
@@ -505,7 +506,7 @@ matrix, not release machinery (release workflows pin exact tags instead).
 
 | Field | Value |
 |---|---|
-| Finding | LLING-B11 (apiRevision policy for the `−∞` status tightening) |
+| Finding | LLING-B11 (apiRevision policy for the $`-\infty`$ status tightening) |
 | Date | 2026-08-09 |
 | Component | `bindings/api.json`-class version policy vs commit `83f9595` |
 | Class | version-coherence (recorded decision) |
@@ -514,7 +515,7 @@ matrix, not release machinery (release workflows pin exact tags instead).
 | Verification | n/a (policy record) |
 | Status | RECORDED |
 
-**Evidence.** Commit `83f9595` changed the observable status for a `−∞` builder
+**Evidence.** Commit `83f9595` changed the observable status for a $`-\infty`$ builder
 weight from `LLING_STATUS_PANIC` to `LLING_STATUS_INVALID_ARGUMENT`
 ([LLING-B2] update).
 

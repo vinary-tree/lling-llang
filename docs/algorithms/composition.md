@@ -1,6 +1,6 @@
 # Lazy Composition
 
-lling-llang provides lazy composition operators for combining WFSTs with other WFSTs or context-free grammars. Product states are computed on-demand during traversal, avoiding the $`O(n \times m)`$ state explosion of eager composition. (WFST = **W**eighted **F**inite-**S**tate **T**ransducer; CFG = **C**ontext-**F**ree **G**rammar.)
+lling-llang provides lazy composition operators for combining WFSTs with other WFSTs or context-free grammars. Product states are computed on-demand during traversal, avoiding the $`\mathcal{O}(n \times m)`$ state explosion of eager composition. (WFST = **W**eighted **F**inite-**S**tate **T**ransducer; CFG = **C**ontext-**F**ree **G**rammar.)
 
 ## Terms & symbols
 
@@ -21,7 +21,7 @@ Defined centrally in [`../NOTATION.md`](../NOTATION.md); repeated locally for th
 
 **Composition** combines two transducers into one, chaining their transformations. If $`\mathrm{FST}_1`$ maps $`A \to B`$ and $`\mathrm{FST}_2`$ maps $`B \to C`$, their composition $`\mathrm{FST}_1 \circ \mathrm{FST}_2`$ maps $`A \to C`$. The product is built lazily: a state is a triple $`(s_1, s_2, \varphi)`$ pairing one state from each operand with an $`\varepsilon`$-filter state $`\varphi`$, and an arc exists when $`\mathrm{FST}_1`$'s output label matches $`\mathrm{FST}_2`$'s input label.
 
-![Composition product: two operand transducers T₁ (a:x) and T₂ (x:p) above, and the lazily-built product whose states are triples (s₁,s₂,φ) with an ε-filter inset showing the None/Eps1/Eps2 transitions, the composed path a:p drawn in green](../diagrams/algorithms/composition-product.svg)
+![Composition product: two operand transducers linked by label x, and the lazily built product whose states are triples containing both operand states and an epsilon-filter state, with the composed a-to-p path drawn in green](../diagrams/algorithms/composition-product.svg)
 
 *Blue panels = operands $`T_1`$, $`T_2`$; green panel = the lazy product (states $`(s_1, s_2, \varphi)`$, composed arc $`a{:}p / 1.0 \otimes 0.5`$); grey-dashed inset = the sequencing $`\varepsilon`$-filter that admits each $`\varepsilon`$-interleaving exactly once.*
 
@@ -444,7 +444,7 @@ prefixes reaching $`s_1`$ in $`\mathrm{FST}_1`$ and $`s_2`$ in $`\mathrm{FST}_2`
 ```
 
 The sequencing filter (the inset in the [product diagram](#what-is-composition)) is what
-makes `⟨ epsilon move (filter-gated) ⟩` enumerate each $`\varepsilon`$-interleaving exactly
+makes `epsilon move (filter-gated)` enumerate each $`\varepsilon`$-interleaving exactly
 once, so no path is duplicated or dropped.
 
 ### Algorithm: CFG $`\times`$ Lattice
@@ -458,25 +458,25 @@ The $`\mathrm{CFG} \times \mathrm{Lattice}`$ composition uses Earley parsing int
 4. Filter lattice to valid edges only
 
 This is more efficient than explicit product construction because:
-- Earley parsing is $`O(\lvert V\rvert^3)`$ in lattice size
+- Earley parsing is $`\mathcal{O}(\lvert V\rvert^3)`$ in lattice size
 - Product construction would be exponential in grammar size
 
 ### Time Complexity
 
 **$`\mathrm{FST} \circ \mathrm{FST}`$**:
-- Worst case: $`O(\lvert Q_1\rvert \times \lvert Q_2\rvert)`$ where $`\lvert Q_1\rvert`$, $`\lvert Q_2\rvert`$ are state counts
-- With lazy evaluation: $`O(k)`$ where $`k`$ is the number of visited states
+- Worst case: $`\mathcal{O}(\lvert Q_1\rvert \times \lvert Q_2\rvert)`$ where $`\lvert Q_1\rvert`$, $`\lvert Q_2\rvert`$ are state counts
+- With lazy evaluation: $`\mathcal{O}(k)`$ where $`k`$ is the number of visited states
 - In practice, $`k \ll \lvert Q_1\rvert \times \lvert Q_2\rvert`$ for most traversals
 
 **$`\mathrm{CFG} \times \mathrm{Lattice}`$**:
-- Parsing: $`O(\lvert V\rvert^3 \times \lvert G\rvert)`$ where $`\lvert V\rvert`$ = nodes, $`\lvert G\rvert`$ = grammar size
-- Filtering: $`O(\lvert E\rvert)`$ where $`\lvert E\rvert`$ = edges
+- Parsing: $`\mathcal{O}(\lvert V\rvert^3 \times \lvert G\rvert)`$ where $`\lvert V\rvert`$ = nodes, $`\lvert G\rvert`$ = grammar size
+- Filtering: $`\mathcal{O}(\lvert E\rvert)`$ where $`\lvert E\rvert`$ = edges
 
 ### Memory Complexity
 
-- **With `CacheAll`**: $`O(\text{visited states})`$
-- **With `Lru`**: $`O(\text{max\_states})`$
-- **With `NoCache`**: $`O(\text{current path depth})`$
+- **With `CacheAll`**: $`\mathcal{O}(\text{visited states})`$
+- **With `Lru`**: $`\mathcal{O}(\text{max\_states})`$
+- **With `NoCache`**: $`\mathcal{O}(\text{current path depth})`$
 
 ## Common Patterns
 
@@ -551,7 +551,7 @@ println!("Found {} paths, computed {} states",
 
 - [Mohri 2009](../BIBLIOGRAPHY.md#ref-mohri2009) — *Weighted Automata Algorithms*: the composition algorithm and the $`\varepsilon`$-filter (sequencing) construction that makes $`\varepsilon`$-interleavings unambiguous.
 - [Mohri 2002](../BIBLIOGRAPHY.md#ref-mohri2002) — *Weighted Finite-State Transducers in Speech Recognition*: cascaded composition $`H \circ C \circ L \circ G`$ and the $`\otimes`$-combination of arc weights.
-- [Earley 1970](../BIBLIOGRAPHY.md#ref-earley1970) — *An Efficient Context-Free Parsing Algorithm*: the $`O(\lvert V\rvert^3)`$ parser underlying $`\mathrm{CFG} \times \mathrm{Lattice}`$ composition (see [parsing.md](parsing.md)).
+- [Earley 1970](../BIBLIOGRAPHY.md#ref-earley1970) — *An Efficient Context-Free Parsing Algorithm*: the $`\mathcal{O}(\lvert V\rvert^3)`$ parser underlying $`\mathrm{CFG} \times \mathrm{Lattice}`$ composition (see [parsing.md](parsing.md)).
 - [Allauzen 2007](../BIBLIOGRAPHY.md#ref-allauzen2007) — *OpenFst*: the reference `Compose` operation and lazy/on-the-fly composition model this implementation follows.
 
 ## Related Topics

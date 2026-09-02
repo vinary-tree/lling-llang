@@ -12,7 +12,7 @@ weights — Boolean, Count, Tropical, Log, Probability (`src/semiring/basic/`) �
 with the compound, loss-augmented, and carrier-valued semirings that the higher
 tiers (differentiable decoding, online learning, error models, multi-objective
 search) build on. Every weight implements the single `Semiring` trait
-(`` `(K, ⊕, ⊗, 0̄, 1̄)` ``) plus whatever capability/marker traits its algebra
+($`(K, \oplus, \otimes, \bar{0}, \bar{1})`$) plus whatever capability or marker traits its algebra
 supports, so one algorithm runs over all of them. See
 [`../../architecture/semirings.md`](../../architecture/semirings.md),
 [`../../architecture/power-semiring.md`](../../architecture/power-semiring.md),
@@ -22,29 +22,29 @@ for the full theory.
 ### Components
 
 1. **Algebraic semirings** (`src/semiring/algebraic/`)
-   - **Expectation** `ExpectationWeight` — pairs `` `(p, v) ∈ ℝ × ℝ` `` with the
-     product-rule `` `⊗` ``; computes expected values (e.g. expected gradients)
+   - **Expectation** `ExpectationWeight`—pairs $`(p,v) \in \mathbb{R} \times \mathbb{R}`$ with the
+     product rule $`\otimes`$; computes expected values (for example, expected gradients)
      alongside probabilities.
-   - **Gödel** `GodelWeight` — `` `([0,1], max, min, 0, 1)` ``, fuzzy logic.
+   - **Gödel** `GodelWeight`—$`([0,1], \max, \min, 0, 1)`$, fuzzy logic.
    - **Lexicographic** `LexicographicWeight` / `Lexicographic3` / `Lexicographic4`
      — priority tuples ordered left-to-right for multi-objective search.
-   - **Power** `PowerWeight` — the `` `η` ``-power semiring `` `S_η` `` for soft
-     path selection and online learning (`PowerWeight::plus` = `(x^{1/η} + y^{1/η})^η`).
-   - **Product** `ProductWeight` — the component-wise pair `` `(W₁, W₂)` `` for
+   - **Power** `PowerWeight`—the $`\eta`$-power semiring $`S_{\eta}`$ for soft
+     path selection and online learning (`PowerWeight::plus` = $`(x^{1/\eta} + y^{1/\eta})^\eta`$).
+   - **Product** `ProductWeight`—the component-wise pair $`(W_1,W_2)`$ for
      running two objectives at once.
    - **Quantized** — 8-/4-bit weight quantization for compact storage.
 2. **String/set-carrier semirings** (`src/semiring/string_kind/`)
    - **Edit** `EditWeight` (+ `EditOp`, `EditSequence`, `EditOpCounts`,
      `EditWeightBuilder`) — explicit edit-operation tracking for error models.
    - **Set** `SetWeight` / `StrSetWeight` / `StringSetWeight` / `FeatureSetWeight`
-     — `` `∪`/`∩` `` set algebra.
+     using $`\cup`$/$`\cap`$ set algebra.
    - **String** `LeftStringWeight` / `RightStringWeight` — longest-common-prefix /
      -suffix with concatenation (documented as *not* a true semiring; see the
      architecture doc for the caveat).
 3. **Signed semiring** (`src/semiring/signed/`)
    - **Signed-tropical** `SignedTropicalWeight` — tropical extended with negative
      weights (rewards as negative costs); pairs with `FallibleStarSemiring`
-     because `` `a*` `` can diverge on negative weights (`StarDivergenceError`).
+     because $`a^*`$ can diverge on negative weights (`StarDivergenceError`).
 
 ---
 
@@ -74,7 +74,7 @@ the property matrix is summarized in
 
 ### Verification
 
-- Property tests (`proptest`) exercise associativity, commutativity of `` `⊕` ``,
+- Property tests (`proptest`) exercise associativity, commutativity of $`\oplus`$,
   distributivity, and the identity/annihilation laws per weight.
 - Coq proofs discharge the semiring laws as typeclass obligations with no
   `admit`/`Axiom`.
@@ -83,15 +83,15 @@ the property matrix is summarized in
 
 ## Summary
 
-| Weight | `⊕` | `⊗` | `0̄` | `1̄` | Notable traits |
+| Weight | $`\oplus`$ | $`\otimes`$ | $`\bar{0}`$ | $`\bar{1}`$ | Notable traits |
 |--------|-----|-----|-----|-----|----------------|
-| `ExpectationWeight` | `(p₁+p₂, v₁+v₂)` | product rule | `(0,0)` | `(1,0)` | divisible |
+| `ExpectationWeight` | $`(p_1+p_2,v_1+v_2)`$ | product rule | $`(0,0)`$ | $`(1,0)`$ | divisible |
 | `GodelWeight` | `max` | `min` | `0` | `1` | idempotent, commutative |
 | `LexicographicWeight` | lexicographic | componentwise | — | — | totally ordered |
-| `PowerWeight` (`η`) | `(x^{1/η}+y^{1/η})^η` | `+` | `∞` | `0` | online learning |
-| `ProductWeight` | componentwise | componentwise | `(0̄,0̄)` | `(1̄,1̄)` | inherits components |
-| `EditWeight` | min-cost | compose ops | `∞` | `[]` | edit tracking |
-| `SetWeight` | `∪` | `∩` | `∅` | `U` | idempotent |
-| `SignedTropicalWeight` | `min` | `+` | `+∞` | `0` | fallible star |
+| `PowerWeight` ($`\eta`$) | $`(x^{1/\eta}+y^{1/\eta})^\eta`$ | `+` | $`\infty`$ | `0` | online learning |
+| `ProductWeight` | componentwise | componentwise | $`(\bar{0},\bar{0})`$ | $`(\bar{1},\bar{1})`$ | inherits components |
+| `EditWeight` | min-cost | compose ops | $`\infty`$ | `[]` | edit tracking |
+| `SetWeight` | $`\cup`$ | $`\cap`$ | $`\emptyset`$ | `U` | idempotent |
+| `SignedTropicalWeight` | `min` | `+` | $`+\infty`$ | `0` | fallible star |
 
 All eight categories ship and are documented; this phase is **COMPLETED**.

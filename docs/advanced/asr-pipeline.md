@@ -49,8 +49,8 @@ Context-dependency transducers map context-independent phone sequences to contex
 ### Triphone Construction
 
 A triphone considers one phone of left and right context:
-- **States**: $`O(n^2)`$ for $`n`$ phones — representing (previous, current) pairs
-- **Arcs**: $`O(n^3)`$ — one arc per (previous, current, next) triple
+- **States**: $`\mathcal{O}(n^2)`$ for $`n`$ phones — representing (previous, current) pairs
+- **Arcs**: $`\mathcal{O}(n^3)`$ — one arc per (previous, current, next) triple
 
 ```rust
 use lling_llang::asr::{TriphoneBuilder, ContextDependencyConfig, PhoneId};
@@ -67,8 +67,8 @@ println!("Expected arcs: {}", builder.expected_arcs());     // 41 * 40 = 1640
 ### Tetraphone Construction
 
 A tetraphone extends context to two phones on each side:
-- **States**: $`O(n^3)`$
-- **Arcs**: $`O(n^4)`$
+- **States**: $`\mathcal{O}(n^3)`$
+- **Arcs**: $`\mathcal{O}(n^4)`$
 
 ```rust
 use lling_llang::asr::TetraploneBuilder;
@@ -135,7 +135,7 @@ Efficient WFST representation of n-gram LMs using backoff structure.
 
 ### Backoff Architecture
 
-Instead of $`O(\lvert V\rvert^2)`$ transitions for bigrams, we use:
+Instead of $`\mathcal{O}(\lvert V\rvert^2)`$ transitions for bigrams, we use:
 - **Seen n-gram**: Direct transition with probability weight
 - **Unseen n-gram**: $`\varepsilon`$-transition to backoff state, then unigram probability
 

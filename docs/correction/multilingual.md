@@ -167,7 +167,7 @@ $`t`$.
 where $`\tau(\ell', \ell) = b`$ if $`\ell' = \ell`$ else $`-s`$. With $`n`$
 words and $`m = \lvert \Lambda\rvert`$ languages the trellis has $`n \cdot m`$ cells, each
 relaxing $`m`$ predecessors, so decoding is
-$`O(n \cdot m^2)`$ time and $`O(n \cdot m)`$ space — the standard Viterbi bound
+$`\mathcal{O}(n \cdot m^2)`$ time and $`\mathcal{O}(n \cdot m)`$ space — the standard Viterbi bound
 (see [path-extraction](../algorithms/path-extraction.md)). The implementation
 in [`best_path`](../../src/multilingual/code_switch.rs) matches this chunk
 exactly.
@@ -178,7 +178,7 @@ $`\log P(\text{hello} \mid \text{es}) = -10`$, $`\log P(\text{mundo} \mid \text{
 the cell $`\text{best}[1][\text{es}]`$ maximizes over $`\text{best}[0][\text{en}] - s - 0.5`$ ($`\approx`$
 switch from en) versus $`\text{best}[0][\text{es}] + b - 0.5`$ (stay es). The switch path
 wins because staying in Spanish would have paid $`\log P(\text{hello} \mid \text{es}) = -10`$ at
-word 0. The recovered path is `[en, es]` with one switch point. ∎
+word 0. The recovered path is `[en, es]` with one switch point. This completes the derivation.
 
 ---
 

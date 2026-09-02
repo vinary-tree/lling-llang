@@ -79,8 +79,8 @@ The allowed phases are:
 
 The executor uses a ready queue and reverse dependency counts. No operation is
 recursive in input depth. With a compact adjacency representation, scheduling
-cost is $`O(\lvert V\rvert + \lvert E\rvert)`$ time and
-$`O(\lvert V\rvert)`$ auxiliary space, excluding domain work performed by each
+cost is $`\mathcal{O}(\lvert V\rvert + \lvert E\rvert)`$ time and
+$`\mathcal{O}(\lvert V\rvert)`$ auxiliary space, excluding domain work performed by each
 node.
 
 The loop invariant is:

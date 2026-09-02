@@ -32,7 +32,7 @@ Read these first — they govern every doc and are the canonical references:
 
 | Document | Description |
 |----------|-------------|
-| [Style guide](STYLE.md) | Authoring rules: MathJax-LaTeX math in GitHub `` $`…`$ ``/`math` delimiters, define-before-use, literate pseudocode, diagram embedding, citations |
+| [Style guide](STYLE.md) | Authoring rules: MathJax LaTeX in GitHub inline-math and fenced-`math` delimiters, define-before-use, literate pseudocode, diagram embedding, citations |
 | [Notation & glossary](NOTATION.md) | Every symbol ($`\oplus`$, $`\otimes`$, $`\bar{0}`$, $`\bar{1}`$, $`\circ`$, $`\pi`$, $`\eta`$, $`\infty`$, $`\varepsilon`$) and acronym (WFST, CTC, RNN-T, PDA, …), defined once — with the canonical Unicode → LaTeX map |
 | [Bibliography](BIBLIOGRAPHY.md) | Citation-checked references with verified DOIs |
 | [Diagramming conventions](diagrams/README.md) | Tool-per-concept matrix, color palette, and the `make diagrams` render pipeline |

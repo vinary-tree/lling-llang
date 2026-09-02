@@ -90,7 +90,7 @@ semiring you instantiate it with:
 | Semiring | $`\oplus`$ (combine alternatives) | $`\otimes`$ (combine in sequence) | $`\bar{0}`$ | $`\bar{1}`$ | Computes… |
 |---|---|---|---|---|---|
 | **Tropical** | $`\min`$ | $`+`$ | $`+\infty`$ | $`0`$ | shortest path (e.g. edit distance) |
-| **Log** | $`\oplus_{\log}`$ | $`+`$ | $`+\infty`$ | $`0`$ | total probability mass (in −log space) |
+| **Log** | $`\oplus_{\log}`$ | $`+`$ | $`+\infty`$ | $`0`$ | total probability mass (in negative-log space) |
 | **Probability** | $`+`$ | $`\times`$ | $`0`$ | $`1`$ | probabilities directly |
 | **Boolean** | $`\lor`$ (OR) | $`\land`$ (AND) | $`\text{false}`$ | $`\text{true}`$ | reachability (is there *any* path?) |
 | **Expectation** | $`+`$ | product-rule | $`(0, 0)`$ | $`(1, 0)`$ | expected values / gradients |
@@ -256,7 +256,7 @@ Boolean  (⊕ = ∨, ⊗ = ∧)      →  is the end reachable at all?
 ```
 
 To recover the *path* (not just its score), Viterbi additionally stores a back-pointer at each
-relaxation and walks them back from `end`. Complexity is $`O(\lvert V\rvert + \lvert E\rvert)`$ for acyclic lattices;
+relaxation and walks them back from `end`. Complexity is $`\mathcal{O}(\lvert V\rvert + \lvert E\rvert)`$ for acyclic lattices;
 general (cyclic) inputs use a queue discipline and semiring-specific closure
 (see [`docs/algorithms/shortest-distance.md`](docs/algorithms/shortest-distance.md)).
 

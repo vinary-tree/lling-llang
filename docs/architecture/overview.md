@@ -263,11 +263,11 @@ See [Layers](layers.md) for building custom layers.
 
 | Operation | Time Complexity | Space Complexity |
 |-----------|-----------------|------------------|
-| Lattice construction | $`O(E)`$ | $`O(V + E)`$ |
-| Topological sort | $`O(V + E)`$ | $`O(V)`$ |
-| Viterbi | $`O(V + E)`$ | $`O(V)`$ |
-| N-best extraction | $`O(k \log k)`$ | $`O(k \times L)`$ |
-| Beam search | $`O(V \times B \times D)`$ | $`O(B \times L)`$ |
+| Lattice construction | $`\mathcal{O}(E)`$ | $`\mathcal{O}(V + E)`$ |
+| Topological sort | $`\mathcal{O}(V + E)`$ | $`\mathcal{O}(V)`$ |
+| Viterbi | $`\mathcal{O}(V + E)`$ | $`\mathcal{O}(V)`$ |
+| N-best extraction | $`\mathcal{O}(k \log k)`$ | $`\mathcal{O}(k \times L)`$ |
+| Beam search | $`\mathcal{O}(V \times B \times D)`$ | $`\mathcal{O}(B \times L)`$ |
 | Lazy composition | Demand-driven | Depends on caching |
 
 Where:

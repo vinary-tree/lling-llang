@@ -1,24 +1,18 @@
 #!/usr/bin/env bash
 #
-# doc-mathlint.sh — MathJax-conformance gate for the lling-llang LIVING documentation.
+# doc-mathlint.sh — repository-wide MathJax-conformance gate for lling-llang.
 #
 # It runs the fence-aware scanner (scripts/doc-math-prescan.raku) in --lint mode over the
-# curated living-doc set, and fails if any of them still carries old-style math:
+# complete tracked Markdown corpus by default, and fails if any file carries old-style math:
 # Unicode-literal formulae (backticked or bare), bare undelimited `O(...)` in prose, leaked
 # bare-dollar LaTeX, or a letter abutting a `$ opening delimiter.
 #
-# The living-doc set is read from a manifest (one repo-relative path per line, `#` comments
-# allowed). This is deliberately an *allow-list*: append-only scientific records (the
-# docs/archive journal, the scientific ledgers) keep their notation and are never listed
-# here, and a file joins the manifest only once it passes the scanner.
-#
-#   Manifest resolution order:
-#     1. --manifest FILE
-#     2. any FILE/glob arguments given on the command line
-#     3. docs/.mathlint-include.txt   (the curated living-doc manifest)
+# A focused audit may still supply a manifest (one repo-relative path per line, `#` comments
+# allowed) or explicit paths. Historical and append-only documents are not exempt: their
+# observations stay immutable in meaning while their Markdown must follow current syntax.
 #
 # Usage:
-#   scripts/doc-mathlint.sh                        # lint the curated manifest
+#   scripts/doc-mathlint.sh                        # lint every tracked Markdown file
 #   scripts/doc-mathlint.sh --manifest FILE
 #   scripts/doc-mathlint.sh docs/api/*.md          # lint an explicit set
 #
@@ -30,7 +24,6 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 scanner="scripts/doc-math-prescan.raku"
-default_manifest="docs/.mathlint-include.txt"
 manifest=""
 declare -a files=()
 
@@ -50,12 +43,8 @@ if [[ -n "$manifest" ]]; then
   [[ -f "$manifest" ]] || { echo "error: manifest not found: $manifest" >&2; exit 2; }
   mapfile -t files < <(grep -vE '^\s*(#|$)' "$manifest")
 elif [[ ${#files[@]} -eq 0 ]]; then
-  [[ -f "$default_manifest" ]] || {
-    echo "error: no files given and $default_manifest is missing." >&2
-    echo "       pass paths/globs, or --manifest FILE, or create the manifest." >&2
-    exit 2
-  }
-  mapfile -t files < <(grep -vE '^\s*(#|$)' "$default_manifest")
+  command -v git >/dev/null 2>&1 || { echo "error: git not found on PATH" >&2; exit 2; }
+  mapfile -d '' -t files < <(git -c core.fsmonitor=false ls-files -z -- '*.md')
 fi
 
 # Keep only existing files (a manifest may list a path that was archived/renamed).
@@ -65,7 +54,7 @@ for f in "${files[@]}"; do
 done
 [[ ${#present[@]} -gt 0 ]] || { echo "error: no existing files to lint" >&2; exit 2; }
 
-echo "doc-mathlint: scanning ${#present[@]} living document(s) for MathJax conformance…"
+echo "doc-mathlint: scanning ${#present[@]} Markdown document(s) for MathJax conformance…"
 echo "──────────────────────────────────────────────────────────────────────────────"
 
 # Run the fence-aware scanner in lint mode; capture output and status.
@@ -75,7 +64,7 @@ status=$?
 set -e
 
 if [[ $status -eq 0 ]]; then
-  echo "✅ PASS — 0 old-style math constructs across ${#present[@]} living document(s)."
+  echo "✅ PASS — 0 old-style math constructs across ${#present[@]} Markdown document(s)."
   echo "         (all inline math is \$\`…\`\$; display math is \`\`\`math; no bare O(...) in prose.)"
   exit 0
 else

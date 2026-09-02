@@ -15,12 +15,12 @@ complexity argument.
 | Standard practice (Mohri; OpenFst) | Status in `lling-llang` | Evidence |
 |---|---|---|
 | **Semiring-generic algorithms** — one implementation parameterized over the weight semiring | ✅ Followed | Every algorithm is generic over `W: Semiring`; `Semiring: Clone + Copy` (`src/semiring/traits.rs:50`) so weight moves are register copies, and specializations (Tropical, Log, Probability, Expectation, String, Product, Lexicographic, Signed-Tropical, Power) share the same generic code paths. |
-| **ε-removal before determinization** | ✅ Followed | `determinize` runs an ε-removal prepass (`remove_epsilon`, then recurses with `remove_epsilon_first=false`) and rejects residual input-ε with `NotDeterminizable` (`src/algorithms/determinize.rs`). |
+| **$`\varepsilon`$-removal before determinization** | ✅ Followed | `determinize` runs an $`\varepsilon`$-removal prepass (`remove_epsilon`, then recurses with `remove_epsilon_first=false`) and rejects residual input-$`\varepsilon`$ with `NotDeterminizable` (`src/algorithms/determinize.rs`). |
 | **Weight pushing before minimization** | ✅ Followed | `minimize` pushes weights (`push_weights`, `src/algorithms/minimize.rs:243`) to canonicalize before partition refinement. |
 | **Deterministic canonical subset keys** (determinization) | ✅ Followed | Weighted subsets keyed by `BTreeMap` → deterministic ordering; bounded by `max_states` (default 1,000,000). |
 | **Lazy / on-the-fly composition** | ✅ Followed | `LazyComposition` computes product states on demand with pluggable cache policies (`CacheAll` / `NoCache` / `Lru`); `materialize` realizes the reachable part (`src/composition/`). A TLA⁺ model (`LazyComposition.tla`) proves the cache stays memory-bounded. |
 | **CSR representation for accelerator/GPU paths** | ✅ Followed | `src/gpu/csr.rs` provides a checked CSR builder with explicit `u32` overflow detection for the GPU boundary. |
-| **Partition-refinement minimization** | ✅ Followed | `minimize` uses a **worklist-driven (Hopcroft-family) partition refinement** (commit `3799e03`): a block is re-examined only when a successor's block changes. It replaced the earlier Moore full-pass refinement (retained as a `#[cfg(test)]` differential oracle) after a benchmark exposed Moore's `O(|Q|²)` chain behaviour — the worklist is **82–87 % faster** at scale with byte-identical output. |
+| **Partition-refinement minimization** | ✅ Followed | `minimize` uses a **worklist-driven (Hopcroft-family) partition refinement** (commit `3799e03`): a block is re-examined only when a successor's block changes. It replaced the earlier Moore full-pass refinement (retained as a `#[cfg(test)]` differential oracle) after a benchmark exposed Moore's $`\mathcal{O}(\lvert Q\rvert^{2})`$ chain behaviour—the worklist is **$`82\%`$ to $`87\%`$ faster** at scale with byte-identical output. |
 
 **Conclusion.** The library conforms to standard weighted-automata practice on
 every structural axis, minimization included (a worklist-driven, Hopcroft-family
@@ -46,12 +46,12 @@ partition refinement).
 | ID | Change | Evidence | Commit |
 |---|---|---|---|
 | A1 | Correct minimize docs (Moore, not Hopcroft) | Mandated doc-accuracy fix | `e0ad2b4` |
-| A2 | minimize: precompute canonical arc order once + reuse pass buffers | criterion −26…−43% (p<0.05) | `e0ad2b4` |
+| A2 | minimize: precompute canonical arc order once + reuse pass buffers | criterion $`-26\%`$ to $`-43\%`$ ($`p < 0.05`$) | `e0ad2b4` |
 | A3 | `reverse_shortest_distance`: preallocate reverse-adjacency by in-degree | complexity: removes doubling reallocs on the backward push path | `da14bdd` |
 | A4 | `materialize`: move labels instead of a second clone | halves per-decode label-clone traffic (owned `SmallVec`) | `da14bdd` |
 | A5 | Add a composition benchmark (infra) | unblocks R2/R3 evidence; baseline below | `073096d` |
-| A6 | minimize: worklist (Hopcroft-family) partition refinement (R7) | criterion −82…−87 % at scale (546 ms → 72 ms @ ≈4 000 states); differential-tested vs Moore | `3799e03` |
-| A7 | composition `reconcile_lru_order` O(cache²) → O(cache) (R3) | complexity; opt-in `Lru` path only | `4a35352` |
+| A6 | minimize: worklist (Hopcroft-family) partition refinement (R7) | criterion $`-82\%`$ to $`-87\%`$ at scale (546 ms → 72 ms at approximately 4,000 states); differential-tested vs Moore | `3799e03` |
+| A7 | composition `reconcile_lru_order` $`\mathcal{O}(cache^{2})`$ → $`\mathcal{O}(cache)`$ (R3) | complexity; opt-in `Lru` path only | `4a35352` |
 | A8 | tree `cartesian_product` output preallocation (R5) | complexity; reserves the exact product size | `4a35352` |
 
 **Composition baseline (criterion, taskset-pinned).** The new `composition` group
@@ -63,10 +63,10 @@ rather than adding speculative machinery:
 |---|---|
 | `composition/chain/10` | 1.84 µs |
 | `composition/chain/50` | 7.54 µs |
-| `composition/chain/100` | 14.65 µs (≈0.15 µs/product state, linear) |
+| `composition/chain/100` | 14.65 µs (approximately 0.15 µs/product state, linear) |
 
-A per-decode CTC composition (obs ∘ ctc ∘ lm) at realistic sizes therefore costs
-tens of microseconds. R3's `O(cache²)` LRU reconcile was still fixed to `O(cache)`
+A per-decode CTC composition $`\mathrm{obs} \circ \mathrm{ctc} \circ \mathrm{lm}`$ at realistic sizes therefore costs
+tens of microseconds. R3's $`\mathcal{O}(cache^{2})`$ LRU reconcile was still fixed to $`\mathcal{O}(cache)`$
 (commit `4a35352`); the R2 cross-`s2` index cache would only surface at far larger
 products and is retained as-is — both resolved, neither deferred.
 

@@ -311,17 +311,17 @@ where $`\rho(q)`$ is the final weight of state $`q`$.
 
 | Case | Complexity |
 |------|------------|
-| Worst case | $`O(2^{\lvert Q\rvert})`$ — exponential (powerset) |
-| Unambiguous input | $`O(\lvert Q\rvert + \lvert E\rvert)`$ — linear |
+| Worst case | $`\mathcal{O}(2^{\lvert Q\rvert})`$ — exponential (powerset) |
+| Unambiguous input | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ — linear |
 | Practical | Often near-linear for speech/NLP |
 
 ### Space Complexity
 
 | Structure | Size |
 |-----------|------|
-| Subset cache | $`O(\#\,\text{unique subsets})`$ |
-| Queue | $`O(\#\,\text{active subsets})`$ |
-| Output WFST | $`O(\lvert Q'\rvert + \lvert E'\rvert)`$ |
+| Subset cache | $`\mathcal{O}(\#\,\text{unique subsets})`$ |
+| Queue | $`\mathcal{O}(\#\,\text{active subsets})`$ |
+| Output WFST | $`\mathcal{O}(\lvert Q'\rvert + \lvert E'\rvert)`$ |
 
 ### Why Exponential Worst Case?
 

@@ -57,14 +57,14 @@ The frontier diagram below shows N-best/beam advancing left-to-right over a rich
 
 | Algorithm | Time | Space | Exact? | Use Case |
 |-----------|------|-------|--------|----------|
-| Viterbi | $`O(\lvert V\rvert + \lvert E\rvert)`$ | $`O(\lvert V\rvert)`$ | Yes | Single best path |
-| N-best | $`O(k \log k)`$ * | $`O(k \times L)`$ | Yes | Top-k paths |
-| Beam search | $`O(\lvert V\rvert \times B \times D)`$ | $`O(B \times L)`$ | No | Approximate top-k |
+| Viterbi | $`\mathcal{O}(\lvert V\rvert + \lvert E\rvert)`$ | $`\mathcal{O}(\lvert V\rvert)`$ | Yes | Single best path |
+| N-best | $`\mathcal{O}(k \log k)`$ * | $`\mathcal{O}(k \times L)`$ | Yes | Top-k paths |
+| Beam search | $`\mathcal{O}(\lvert V\rvert \times B \times D)`$ | $`\mathcal{O}(B \times L)`$ | No | Approximate top-k |
 
 Where:
 - $`\lvert V\rvert`$ = nodes, $`\lvert E\rvert`$ = edges, $`L`$ = path length
 - $`k`$ = number of paths, $`B`$ = beam width, $`D`$ = average out-degree
-- \* After an initial $`O(\lvert V\rvert + \lvert E\rvert)`$ topological sort
+- \* After an initial $`\mathcal{O}(\lvert V\rvert + \lvert E\rvert)`$ topological sort
 
 ### Core Types
 
@@ -150,8 +150,8 @@ pub struct ViterbiResult<W: Semiring> {
 
 ### Complexity
 
-- **Time**: $`O(\lvert V\rvert + \lvert E\rvert)`$ - each node and edge visited exactly once
-- **Space**: $`O(\lvert V\rvert)`$ - stores best score and backpointer for each node
+- **Time**: $`\mathcal{O}(\lvert V\rvert + \lvert E\rvert)`$ - each node and edge visited exactly once
+- **Space**: $`\mathcal{O}(\lvert V\rvert)`$ - stores best score and backpointer for each node
 
 ### When to Use Viterbi
 
@@ -209,8 +209,8 @@ for path in iter {
 
 ### Complexity
 
-- **Time**: $`O(k \log k)`$ for extracting $`k`$ paths (after $`O(\lvert V\rvert + \lvert E\rvert)`$ setup)
-- **Space**: $`O(k \times L)`$ where $`L`$ is average path length
+- **Time**: $`\mathcal{O}(k \log k)`$ for extracting $`k`$ paths (after $`\mathcal{O}(\lvert V\rvert + \lvert E\rvert)`$ setup)
+- **Space**: $`\mathcal{O}(k \times L)`$ where $`L`$ is average path length
 
 The key insight is that paths are enumerated lazily - if you only need 3 paths, only those 3 are fully computed.
 
@@ -270,8 +270,8 @@ let paths = beam_search_with_config(&mut lattice, config);
 
 ### Complexity
 
-- **Time**: $`O(\lvert V\rvert \times B \times D)`$ where $`B`$ = beam width, $`D`$ = average out-degree
-- **Space**: $`O(B \times L)`$ where $`L`$ = path length
+- **Time**: $`\mathcal{O}(\lvert V\rvert \times B \times D)`$ where $`B`$ = beam width, $`D`$ = average out-degree
+- **Space**: $`\mathcal{O}(B \times L)`$ where $`L`$ = path length
 
 ### Trade-offs
 

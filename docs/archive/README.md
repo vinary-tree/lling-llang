@@ -3,8 +3,8 @@
 This directory holds **frozen historical records** — dated, append-only scientific
 documents that are preserved *verbatim* rather than rewritten. They predate the
 documentation overhaul that migrated the rest of `docs/` to MathJax LaTeX, so they
-deliberately retain the **older Unicode-math-in-backticks notation** (e.g. `` `⊕` ``,
-`` `0̄` ``, `` `O(∣V∣ + ∣E∣)` ``). Rewriting a dated ledger's notation would alter the
+preserve their dated observations while following the current mathematical notation
+policy (for example, $`\oplus`$, $`\bar{0}`$, and $`\mathcal{O}(\lvert V\rvert + \lvert E\rvert)`$). Updating notation does not alter the
 record it exists to preserve, so these files are intentionally left as written.
 
 > **Do not rewrite these documents.** Correct a typo only if it is unambiguously a

@@ -231,7 +231,7 @@ With K-vectors (K=32):
 **Performance**:
 - K=32 provides **10× speedup** for lattice arc accumulation
 - Random distribution balances load across vectors
-- Final merge is $`O(K)`$ with no contention
+- Final merge is $`\mathcal{O}(K)`$ with no contention
 
 ### 5. Channels/Lanes for Batched Streaming
 

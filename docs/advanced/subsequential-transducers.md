@@ -43,8 +43,8 @@ properties ([Mohri 2000](../BIBLIOGRAPHY.md#ref-mohri2000)):
 
 | Property | Subsequential | Non-subsequential |
 |----------|---------------|-------------------|
-| Processing time | $`O(n)`$ for input length $`n`$ | Potentially exponential |
-| Memory usage | $`O(1)`$ active states | $`O(\lvert Q\rvert)`$ active states |
+| Processing time | $`\mathcal{O}(n)`$ for input length $`n`$ | Potentially exponential |
+| Memory usage | $`\mathcal{O}(1)`$ active states | $`\mathcal{O}(\lvert Q\rvert)`$ active states |
 | Backtracking | Never | May be required |
 | Streaming | Yes | Limited |
 | Composition | Efficient | Can explode in size |
@@ -437,9 +437,9 @@ fn find_ambiguity_points(wfst: &VectorWfst<L, W>) -> Vec<(StateId, usize)> {
 
 | Operation | Subsequential | Piecewise ($`k`$ pieces) |
 |-----------|---------------|----------------------|
-| `apply(input)` | $`O(n)`$ | $`O(k \times n)`$ |
-| `apply_unique(input)` | $`O(n)`$ | $`O(k \times n + m \log m)`$* |
-| `decompose(wfst)` | $`O(\lvert Q\rvert + \lvert E\rvert)`$ | $`O(\lvert Q\rvert + \lvert E\rvert)`$ |
+| `apply(input)` | $`\mathcal{O}(n)`$ | $`\mathcal{O}(k \times n)`$ |
+| `apply_unique(input)` | $`\mathcal{O}(n)`$ | $`\mathcal{O}(k \times n + m \log m)`$* |
+| `decompose(wfst)` | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ |
 
 *where $`m`$ = number of results before deduplication
 
@@ -447,9 +447,9 @@ fn find_ambiguity_points(wfst: &VectorWfst<L, W>) -> Vec<(StateId, usize)> {
 
 | Structure | Space |
 |-----------|-------|
-| SubsequentialTransducer | $`O(\lvert Q\rvert + \lvert E\rvert)`$ |
-| PiecewiseSubsequential | $`O(k \times (\lvert Q\rvert + \lvert E\rvert))`$ |
-| DecompositionStats | $`O(1)`$ |
+| SubsequentialTransducer | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ |
+| PiecewiseSubsequential | $`\mathcal{O}(k \times (\lvert Q\rvert + \lvert E\rvert))`$ |
+| DecompositionStats | $`\mathcal{O}(1)`$ |
 
 ### Degree of Ambiguity
 

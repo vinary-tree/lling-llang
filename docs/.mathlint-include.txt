@@ -1,15 +1,12 @@
-# Living-doc allow-list for scripts/doc-mathlint.sh. Seeded 2026-08-08 (wave W0).
+# Optional focused-audit manifest for scripts/doc-mathlint.sh. Seeded 2026-08-08.
 #
-# Contract (same as liblevenshtein's): this is an explicit allow-list of
-# verified-passing entries — a file is added only once it passes
-# `raku scripts/doc-math-prescan.raku --lint <file>` at the commit that adds it,
-# and every listed file must stay clean thereafter. Append-only scientific
-# records (docs/archive/journal.md, docs/scientific-ledger/) keep their
-# notation and are never listed.
+# Running `scripts/doc-mathlint.sh` without arguments checks every tracked Markdown
+# file, including archives and append-only scientific records. This list exists only
+# for intentionally focused local checks via
+# `scripts/doc-mathlint.sh --manifest docs/.mathlint-include.txt`; it grants no
+# exemptions from the repository-wide default gate.
 #
-# Deferred candidates (fail the scanner today; rework before listing):
-#   docs/STYLE.md     — quotes old-style delimiter forms verbatim as meta-examples
-#   docs/NOTATION.md  — same meta-example pattern
+# Entries below cover the public API and ABI reference subset.
 docs/api/backend-reference.md
 docs/api/c-abi-reference.md
 docs/architecture/resource-abi.md

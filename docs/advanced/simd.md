@@ -144,7 +144,7 @@ all-pairs shortest-distance kernel.
 
 ## Algorithms
 
-### ⟨ ISA-dispatch ladder ⟩
+### ISA-dispatch ladder
 
 The dispatch decision is the spine of every public kernel. In Knuth literate
 style: the intent is to *select the widest lane width the CPU supports and route
@@ -169,8 +169,8 @@ differs.
         result[i] ← a[i] ∘ b[i]
 ```
 
-Complexity is $`O(\lvert a\rvert / w)`$ SIMD instructions plus $`O(w)`$ tail steps,
-i.e. $`O(\lvert a\rvert)`$ work with a $`w`$-fold constant-factor speedup. The
+Complexity is $`\mathcal{O}(\lvert a\rvert / w)`$ SIMD instructions plus $`\mathcal{O}(w)`$ tail steps,
+i.e. $`\mathcal{O}(\lvert a\rvert)`$ work with a $`w`$-fold constant-factor speedup. The
 current build wires AVX2 ($`w = 4`$) on x86-64 and scalar elsewhere; the
 ladder is the contract that lets wider tiers drop in without touching callers.
 
@@ -202,7 +202,7 @@ slice pair (a, b): &[f64]
 
 </details>
 
-### ⟨ horizontal lane reduction ⟩
+### Horizontal lane reduction
 
 A reduction such as `simd_tropical_reduce_min` keeps a *vector accumulator* of
 $`w`$ running partials and absorbs the slice $`w`$ elements at a time

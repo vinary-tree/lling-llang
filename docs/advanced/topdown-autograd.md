@@ -465,7 +465,7 @@ fn chunked_backward(
 
 | Aspect | Bottom-Up | Top-Down |
 |--------|-----------|----------|
-| **Memory** | $`O(\text{ops} \times \lvert Q\rvert)`$ | $`O(\lvert Q\rvert + \lvert E\rvert)`$ |
+| **Memory** | $`\mathcal{O}(\text{ops} \times \lvert Q\rvert)`$ | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ |
 | **Numerical Stability** | Prone to underflow | Log-domain stable |
 | **Pruning** | Awkward | Natural |
 | **Implementation** | Framework-dependent | Algorithm-specific |

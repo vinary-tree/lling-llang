@@ -362,7 +362,7 @@ complete:  [Det → "the" •, 0] + [NP → • Det N, 0]
                                        ⇒ [NP → Det • N, 0]
 ```
 
-The only change from string Earley is in `⟨ scan from node j ⟩`: instead of
+The only change from string Earley is in `scan from node j`: instead of
 advancing one fixed position it follows *every* outgoing lattice edge with the matching
 terminal, which is what lets a single chart sweep parse all paths of the lattice at once.
 
@@ -383,11 +383,11 @@ This is used for:
 
 | Grammar Type | Time |
 |--------------|------|
-| Unambiguous | $`O(\lvert V\rvert^3)`$ |
-| Bounded ambiguity | $`O(\lvert V\rvert^2)`$ |
-| General CFG | $`O(\lvert V\rvert^3)`$ |
+| Unambiguous | $`\mathcal{O}(\lvert V\rvert^3)`$ |
+| Bounded ambiguity | $`\mathcal{O}(\lvert V\rvert^2)`$ |
+| General CFG | $`\mathcal{O}(\lvert V\rvert^3)`$ |
 
-Where $`\lvert V\rvert`$ = number of lattice nodes. In practice, most natural language grammars are closer to $`O(\lvert V\rvert^2)`$ ([Earley 1970](../BIBLIOGRAPHY.md#ref-earley1970)).
+Where $`\lvert V\rvert`$ = number of lattice nodes. In practice, most natural language grammars are closer to $`\mathcal{O}(\lvert V\rvert^2)`$ ([Earley 1970](../BIBLIOGRAPHY.md#ref-earley1970)).
 
 ## Common Patterns
 
@@ -469,7 +469,7 @@ See [Layers](../architecture/layers.md) for pipeline composition.
 
 ## References
 
-- [Earley 1970](../BIBLIOGRAPHY.md#ref-earley1970) — *An Efficient Context-Free Parsing Algorithm*: the predict/scan/complete chart algorithm, its $`O(\lvert V\rvert^3)`$ / $`O(\lvert V\rvert^2)`$ bounds, and the dotted-item formulation used here (generalized to lattice edges in the scanner).
+- [Earley 1970](../BIBLIOGRAPHY.md#ref-earley1970) — *An Efficient Context-Free Parsing Algorithm*: the predict/scan/complete chart algorithm, its $`\mathcal{O}(\lvert V\rvert^3)`$ / $`\mathcal{O}(\lvert V\rvert^2)`$ bounds, and the dotted-item formulation used here (generalized to lattice edges in the scanner).
 - [Goodman 1999](../BIBLIOGRAPHY.md#ref-goodman1999) — *Semiring Parsing*: the semiring view of chart parsing that underpins weighted/PCFG parse forests and `collect_used_edges`-style inside computations.
 
 ## Related Topics
