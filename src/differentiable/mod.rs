@@ -21,8 +21,8 @@
 //! | Forward Score | log-sum-exp over all paths | ✓ |
 //! | Viterbi Score | max over all paths | ✓ |
 //! | Viterbi Path | argmax path extraction | ✓ |
-//! | Intersection | A₁ ∩ A₂ (acceptors) | ✓ |
-//! | Composition | T₁ ∘ T₂ (transducers) | ✓ |
+//! | Intersection | $`A_1\cap A_2`$ (acceptors) | ✓ |
+//! | Composition | $`T_1\circ T_2`$ (transducers) | ✓ |
 //! | WFST Convolution | Apply kernel WFSTs to receptive fields | ✓ |
 //! | Token Graphs | CTC variants (Spike, Duration-Limited) | ✓ |
 //! | Marginalization | Word piece decomposition marginalization | ✓ |
@@ -33,7 +33,8 @@
 //! This module includes components for integrating WFSTs into deep learning:
 //!
 //! - **WFST Convolutional Layers**: Apply kernel WFSTs to hidden unit sequences
-//!   with far fewer parameters than a dense convolution (≈38× in Hannun et al. (2020)).
+//!   with far fewer parameters than a dense convolution (approximately 38× in
+//!   Hannun et al. (2020)).
 //!
 //! - **Token Graph Variants**: Encode different prior beliefs about alignments
 //!   (Spike CTC, Duration-Limited CTC, Equally Spaced CTC).

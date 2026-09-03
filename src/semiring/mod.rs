@@ -1,18 +1,19 @@
 //! Semiring algebra for WFST weight operations.
 //!
-//! A semiring (K, ⊕, ⊗, 0̄, 1̄) provides the algebraic structure for WFST weights.
+//! A semiring $`(K,\oplus,\otimes,\bar{0},\bar{1})`$ provides the
+//! algebraic structure for WFST weights.
 //! Different semirings enable different optimization objectives:
 //!
-//! | Semiring | ⊕ | ⊗ | 0̄ | 1̄ | Use Case |
+//! | Semiring | $`\oplus`$ | $`\otimes`$ | $`\bar{0}`$ | $`\bar{1}`$ | Use Case |
 //! |----------|---|---|---|---|----------|
-//! | Arctic | max | + | -∞ | 0 | Maximum-score path |
-//! | Tropical | min | + | ∞ | 0 | Shortest path |
-//! | Log | log-add | + | ∞ | 0 | Probabilities (log space) |
-//! | Probability | + | × | 0 | 1 | Probabilities (direct) |
+//! | Arctic | max | + | $`-\infty`$ | 0 | Maximum-score path |
+//! | Tropical | min | + | $`+\infty`$ | 0 | Shortest path |
+//! | Log | log-add | + | $`+\infty`$ | 0 | Probabilities (log space) |
+//! | Probability | + | $`\times`$ | 0 | 1 | Probabilities (direct) |
 //! | Boolean | OR | AND | false | true | Unweighted |
-//! | Product | component | component | (0̄,0̄) | (1̄,1̄) | Multi-objective |
-//! | Lexicographic | lex-min | component | (0̄,0̄) | (1̄,1̄) | Multi-level priority |
-//! | String | lcp/lcs | concat | ∞ | ε | Label accumulation |
+//! | Product | component | component | $`(\bar{0},\bar{0})`$ | $`(\bar{1},\bar{1})`$ | Multi-objective |
+//! | Lexicographic | lex-min | component | $`(\bar{0},\bar{0})`$ | $`(\bar{1},\bar{1})`$ | Multi-level priority |
+//! | String | lcp/lcs | concat | $`+\infty`$ | $`\varepsilon`$ | Label accumulation |
 //! | Expectation | + | product-rule | (0,0) | (1,0) | Expected values |
 //!
 //! Implementations are grouped by character into four sub-modules:

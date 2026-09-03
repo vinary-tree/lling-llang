@@ -1,12 +1,15 @@
 //! Expectation semiring for computing expected values over paths.
 //!
-//! The expectation semiring (ℝ × ℝ, ⊕, ⊗, (0,0), (1,0)) combines
-//! probabilities with expected value computation:
+//! The expectation semiring
+//! $`(\mathbb{R}\times\mathbb{R},\oplus,\otimes,(0,0),(1,0))`$
+//! combines probabilities with expected-value computation:
 //!
-//! - **(x₁, y₁) ⊕ (x₂, y₂) = (x₁ + x₂, y₁ + y₂)**: Sum probabilities and expectations
-//! - **(x₁, y₁) ⊗ (x₂, y₂) = (x₁·x₂, x₁·y₂ + x₂·y₁)**: Product rule for expectations
-//! - **0̄ = (0, 0)**: Zero probability, zero expectation
-//! - **1̄ = (1, 0)**: Certain event, zero cost
+//! - **$`(x_1,y_1)\oplus(x_2,y_2)=(x_1+x_2,y_1+y_2)`$**: sum
+//!   probabilities and expectations.
+//! - **$`(x_1,y_1)\otimes(x_2,y_2)=(x_1x_2,x_1y_2+x_2y_1)`$**: apply the
+//!   product rule for expectations.
+//! - **$`\bar{0}=(0,0)`$**: zero probability and zero expectation.
+//! - **$`\bar{1}=(1,0)`$**: a certain event with zero cost.
 //!
 //! # Components
 //!
@@ -22,10 +25,11 @@
 //!
 //! # Interpretation
 //!
-//! For a path with probability `p` and cost `c`:
-//! - Initial weight: `(p, p·c)`
-//! - After summing paths: `(Σp_i, Σp_i·c_i)`
-//! - Expected cost: `expectation / value = (Σp_i·c_i) / (Σp_i)`
+//! For a path with probability $`p`$ and cost $`c`$:
+//! - Initial weight: $`(p,pc)`$.
+//! - After summing paths: $`(\sum_i p_i,\sum_i p_i c_i)`$.
+//! - Expected cost:
+//!   $`\mathrm{expectation}/\mathrm{value}=(\sum_i p_i c_i)/(\sum_i p_i)`$.
 //!
 //! # Example
 //!
@@ -164,7 +168,7 @@ impl Semiring for ExpectationWeight {
 
     /// Addition: component-wise sum.
     ///
-    /// (x₁, y₁) ⊕ (x₂, y₂) = (x₁ + x₂, y₁ + y₂)
+    /// $`(x_1,y_1)\oplus(x_2,y_2)=(x_1+x_2,y_1+y_2)`$
     #[inline]
     fn plus(&self, other: &Self) -> Self {
         ExpectationWeight::new(
@@ -175,9 +179,10 @@ impl Semiring for ExpectationWeight {
 
     /// Multiplication: product rule for expectations.
     ///
-    /// (x₁, y₁) ⊗ (x₂, y₂) = (x₁·x₂, x₁·y₂ + x₂·y₁)
+    /// $`(x_1,y_1)\otimes(x_2,y_2)=(x_1x_2,x_1y_2+x_2y_1)`$.
     ///
-    /// This follows from: E[c₁ + c₂] = E[c₁] + E[c₂]
+    /// This follows from
+    /// $`\mathbb{E}[c_1+c_2]=\mathbb{E}[c_1]+\mathbb{E}[c_2]`$.
     /// When costs are additive along paths.
     #[inline]
     fn times(&self, other: &Self) -> Self {
@@ -227,12 +232,12 @@ impl Semiring for ExpectationWeight {
 impl DivisibleSemiring for ExpectationWeight {
     /// Division: inverse of multiplication.
     ///
-    /// For (x₁, y₁) ÷ (x₂, y₂), we need (a, b) such that:
-    /// (a, b) ⊗ (x₂, y₂) = (x₁, y₁)
-    /// (a·x₂, a·y₂ + x₂·b) = (x₁, y₁)
+    /// For $`(x_1,y_1)\div(x_2,y_2)`$, find $`(a,b)`$ such that
+    /// $`(a,b)\otimes(x_2,y_2)=(x_1,y_1)`$, hence
+    /// $`(ax_2,ay_2+x_2b)=(x_1,y_1)`$.
     ///
-    /// So: a = x₁/x₂
-    ///     b = (y₁ - a·y₂) / x₂ = (y₁ - x₁·y₂/x₂) / x₂ = (y₁·x₂ - x₁·y₂) / x₂²
+    /// Therefore $`a=x_1/x_2`$ and
+    /// $`b=(y_1-ay_2)/x_2=(y_1x_2-x_1y_2)/x_2^2`$.
     fn divide(&self, other: &Self) -> Option<Self> {
         let x1 = self.value.into_inner();
         let y1 = self.expectation.into_inner();
@@ -253,14 +258,16 @@ impl DivisibleSemiring for ExpectationWeight {
 impl StarSemiring for ExpectationWeight {
     /// Kleene closure for expectation semiring.
     ///
-    /// For (x, y), we need (x, y)* = Σ_{n=0}^∞ (x, y)ⁿ
+    /// For $`(x,y)`$, compute
+    /// $`(x,y)^*=\sum_{n=0}^{\infty}(x,y)^n`$.
     ///
-    /// This converges when |x| < 1:
-    /// - Value component: x* = 1/(1-x) (geometric series)
+    /// This converges when $`\lvert x\rvert<1`$:
+    /// - Value component: $`x^*=1/(1-x)`$ (geometric series).
     /// - Expectation component: Derived from d/dx of geometric series
     ///
-    /// The n-th power: (x, y)ⁿ = (xⁿ, n·xⁿ⁻¹·y)
-    /// Sum: (Σxⁿ, y·Σn·xⁿ⁻¹) = (1/(1-x), y·d/dx(1/(1-x))) = (1/(1-x), y/(1-x)²)
+    /// The $`n`$-th power is $`(x,y)^n=(x^n,nx^{n-1}y)`$, and its
+    /// sum is
+    /// $`(\sum_n x^n,y\sum_n nx^{n-1})=(1/(1-x),y/(1-x)^2)`$.
     fn star(&self) -> Option<Self> {
         let x = self.value.into_inner();
         let y = self.expectation.into_inner();
@@ -297,13 +304,14 @@ impl KClosedSemiring for ExpectationWeight {
 
 /// ExpectationWeight is zero-sum-free.
 ///
-/// (x₁, y₁) ⊕ (x₂, y₂) = (0, 0) implies x₁ + x₂ = 0 and y₁ + y₂ = 0.
-/// For non-negative values, this means x₁ = x₂ = 0 and y₁ = y₂ = 0.
+/// $`(x_1,y_1)\oplus(x_2,y_2)=(0,0)`$ implies
+/// $`x_1+x_2=0`$ and $`y_1+y_2=0`$. For non-negative values, this
+/// means $`x_1=x_2=0`$ and $`y_1=y_2=0`$.
 impl ZeroSumFreeSemiring for ExpectationWeight {}
 
 /// ExpectationWeight is weakly left divisible.
 ///
-/// For non-zero divisor (x₂, y₂), we can compute the left quotient.
+/// For a non-zero divisor $`(x_2,y_2)`$, the left quotient is computable.
 impl WeaklyLeftDivisibleSemiring for ExpectationWeight {
     fn left_divide(&self, divisor: &Self) -> Option<Self> {
         // left_divide computes c such that c ⊗ divisor = self
@@ -314,8 +322,12 @@ impl WeaklyLeftDivisibleSemiring for ExpectationWeight {
 
 /// ExpectationWeight has commutative multiplication.
 ///
-/// (x₁, y₁) ⊗ (x₂, y₂) = (x₁·x₂, x₁·y₂ + x₂·y₁)
-/// (x₂, y₂) ⊗ (x₁, y₁) = (x₂·x₁, x₂·y₁ + x₁·y₂) = (x₁·x₂, x₁·y₂ + x₂·y₁) ✓
+/// $`(x_1,y_1)\otimes(x_2,y_2)=(x_1x_2,x_1y_2+x_2y_1)`$, while
+/// ```math
+/// (x_2,y_2)\otimes(x_1,y_1)
+/// =(x_2x_1,x_2y_1+x_1y_2)
+/// =(x_1x_2,x_1y_2+x_2y_1)
+/// ```
 impl CommutativeTimesSemiring for ExpectationWeight {}
 
 // ============================================================================

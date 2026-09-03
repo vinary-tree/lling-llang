@@ -620,7 +620,8 @@ impl OwnedWfstResource {
         Self::new(ResourcePayload::Eager(Arc::new(wfst)))
     }
 
-    /// Wrap a related project's parallel/reentrant lazy WFST in O(1).
+    /// Wrap a related project's parallel/reentrant lazy WFST in
+    /// $`\mathcal{O}(1)`$.
     pub fn from_provider(provider: Arc<dyn ScalarWfstProvider>) -> Self {
         Self::new(ResourcePayload::Provider(Arc::new(ProviderResource {
             provider,
@@ -642,7 +643,7 @@ impl OwnedWfstResource {
 
     /// Lazily compose two captured scalar-WFST resources.
     ///
-    /// Each input snapshot is retained in O(1). Component and product states
+    /// Each input snapshot is retained in $`\mathcal{O}(1)`$. Component and product states
     /// are expanded on demand and cached; neither input graph nor the full
     /// product is materialized at construction.
     pub fn compose(first: VtResource, second: VtResource) -> Result<Self, BindingError> {
@@ -1015,7 +1016,7 @@ unsafe fn discover_wfst(resource: VtResource) -> Result<*const VtWfstVTable, Bin
 ///
 /// The traversal copies each reachable state and arc exactly once into lling-
 /// llang's compact eager representation. This is used at a cross-runtime
-/// composition boundary; native resource production itself is O(1).
+/// composition boundary; native resource production itself is $`\mathcal{O}(1)`$.
 pub fn import_tropical_wfst(
     resource: VtResource,
 ) -> Result<VectorWfst<char, TropicalWeight>, BindingError> {

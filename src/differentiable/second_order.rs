@@ -15,19 +15,23 @@
 //!
 //! Second-order differentiation extends the forward/backward passes:
 //!
-//! 1. **Forward pass**: Compute α values (path scores to each state)
-//! 2. **First backward pass**: Compute β values and first-order gradients
+//! 1. **Forward pass**: Compute $`\alpha`$ values (path scores to each state).
+//! 2. **First backward pass**: Compute $`\beta`$ values and first-order
+//!    gradients.
 //! 3. **Second backward pass**: Propagate gradient-of-gradient
 //!
-//! The Hessian H[i,j] = ∂²L/∂w_i∂w_j measures how the gradient of arc i
-//! changes with respect to arc j.
+//! The Hessian entry
+//! $`H_{ij}=\partial^2L/(\partial w_i\,\partial w_j)`$ measures how the
+//! gradient of arc $`i`$ changes with respect to arc $`j`$.
 //!
 //! ## Efficiency
 //!
-//! Full Hessian computation is O(|E|²) which is expensive. We provide:
-//! - Hessian-vector products (O(|E|))
-//! - Diagonal Hessian approximation (O(|E|))
-//! - Block-diagonal Hessian (O(|E| × block_size))
+//! Full Hessian computation costs $`\mathcal{O}(\lvert E\rvert^2)`$. This
+//! module also provides:
+//! - Hessian-vector products in $`\mathcal{O}(\lvert E\rvert)`$.
+//! - A diagonal Hessian approximation in $`\mathcal{O}(\lvert E\rvert)`$.
+//! - A block-diagonal Hessian in
+//!   $`\mathcal{O}(\lvert E\rvert\,\mathrm{block\_size})`$.
 //!
 //! ## References
 //!
@@ -221,15 +225,16 @@ impl<L: Clone + Send + Sync> SecondOrderWfst<L> {
 
 /// Compute the diagonal Hessian approximation.
 ///
-/// The diagonal Hessian H[i,i] = ∂²L/∂w_i² measures the curvature
-/// along each parameter axis.
+/// The diagonal Hessian
+/// $`H[i,i]=\partial^2L/\partial w_i^2`$ measures the curvature along each
+/// parameter axis.
 ///
 /// # Algorithm
 ///
 /// For the forward score (log-sum-exp), the diagonal Hessian is:
-/// H[i,i] = g[i] - g[i]²
+/// $`H[i,i]=g[i]-g[i]^2`$,
 ///
-/// where g[i] is the first-order gradient.
+/// where $`g[i]`$ is the first-order gradient.
 ///
 /// # Arguments
 ///
@@ -264,14 +269,16 @@ pub fn compute_diagonal_hessian<L: Clone + Send + Sync>(
 /// Compute Hessian-vector product without materializing the full Hessian.
 ///
 /// This is much more efficient than computing the full Hessian and then
-/// multiplying. Complexity: O(|E|) instead of O(|E|²).
+/// multiplying. Complexity is $`\mathcal{O}(\lvert E\rvert)`$ instead of
+/// $`\mathcal{O}(\lvert E\rvert^2)`$.
 ///
 /// # Algorithm
 ///
 /// Uses the R-operator (Pearlmutter, 1994):
-/// 1. Forward pass with perturbed weights: w + ε·v
+/// 1. Forward pass with perturbed weights: $`w+\varepsilon v`$.
 /// 2. Backward pass to get perturbed gradients
-/// 3. Hv ≈ (g(w + ε·v) - g(w)) / ε
+/// 3. Approximate the product as
+///    $`Hv\approx(g(w+\varepsilon v)-g(w))/\varepsilon`$.
 ///
 /// # Arguments
 ///
@@ -281,7 +288,7 @@ pub fn compute_diagonal_hessian<L: Clone + Send + Sync>(
 ///
 /// # Returns
 ///
-/// The Hessian-vector product H·v.
+/// The Hessian-vector product $`Hv`$.
 pub fn hessian_vector_product<L: Clone + Send + Sync>(
     so_wfst: &SecondOrderWfst<L>,
     v: &[f64],
@@ -367,10 +374,12 @@ fn create_perturbed_wfst<L: Clone + Send + Sync>(
 
 /// Compute Fisher information matrix approximation.
 ///
-/// The Fisher information F = E[∇log p · ∇log p^T] approximates the
-/// Hessian for probabilistic models.
+/// The Fisher information
+/// $`F=\mathbb{E}[\nabla\log p\,(\nabla\log p)^{\mathsf T}]`$
+/// approximates the Hessian for probabilistic models.
 ///
-/// For a single sample, F ≈ g · g^T where g is the gradient.
+/// For a single sample, $`F\approx gg^{\mathsf T}`$, where $`g`$ is the
+/// gradient.
 ///
 /// # Arguments
 ///
@@ -409,7 +418,7 @@ pub fn compute_diagonal_fisher(gradients: &GradientAccumulator) -> HessianMatrix
 
 /// Natural gradient: precondition gradient with inverse Fisher.
 ///
-/// The natural gradient ∇̃L = F^{-1} · ∇L often leads to faster
+/// The natural gradient $`\widetilde{\nabla}L=F^{-1}\nabla L`$ often leads to faster
 /// convergence than the standard gradient.
 ///
 /// # Arguments
@@ -669,8 +678,9 @@ mod property_tests {
             }
         }
 
-        /// Fisher matrix is positive semi-definite (all eigenvalues ≥ 0).
-        /// For diagonal, just check all diagonal elements ≥ 0.
+        /// Fisher matrix is positive semidefinite: all eigenvalues are
+        /// $`\ge 0`$. For a diagonal matrix, checking every diagonal element
+        /// is $`\ge 0`$ suffices.
         #[test]
         fn fisher_positive_semidefinite(fst in arb_parallel_wfst(4)) {
             let grad_wfst = GradientWfst::from_wfst(&fst);

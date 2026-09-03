@@ -1,7 +1,7 @@
 //! Rational Randomized Weighted-Majority (RRWM) algorithm.
 //!
 //! RRWM is an online learning algorithm for ensemble path expert prediction
-//! using the η-power semiring for rational loss functions. It provides a
+//! using the $`\eta`$-power semiring for rational loss functions. It provides a
 //! principled way to combine multiple WFST-based models with guaranteed
 //! regret bounds.
 //!
@@ -19,8 +19,8 @@
 //!
 //! RRWM achieves expected regret bound:
 //!
-//! ```text
-//! E[R_T] ≤ 2M√(T log N)
+//! ```math
+//! \mathbb{E}[R_T]\le 2M\sqrt{T\log N}
 //! ```
 //!
 //! where M is the maximum loss per round, T is the number of rounds,
@@ -71,11 +71,11 @@ use super::sample::{sample_path, SampleConfig, SampleError, SampledPath};
 /// Configuration for the RRWM algorithm.
 #[derive(Clone, Debug)]
 pub struct RrwmConfig {
-    /// η parameter for the power semiring.
+    /// The $`\eta`$ parameter for the power semiring.
     ///
     /// Controls the "softness" of the learning:
-    /// - Smaller η: More exploratory (approaches uniform)
-    /// - Larger η: More exploitative (approaches greedy)
+    /// - Smaller $`\eta`$: more exploratory (approaches uniform).
+    /// - Larger $`\eta`$: more exploitative (approaches greedy).
     pub eta: f64,
 
     /// Learning rate multiplier.
@@ -111,7 +111,7 @@ impl RrwmConfig {
         Self::default()
     }
 
-    /// Set the η parameter.
+    /// Set the $`\eta`$ parameter.
     pub fn eta(mut self, eta: f64) -> Self {
         self.eta = eta;
         self
@@ -265,7 +265,7 @@ where
         self.round
     }
 
-    /// Get the η parameter.
+    /// Get the $`\eta`$ parameter.
     pub fn eta(&self) -> f64 {
         self.config.eta
     }
@@ -356,12 +356,12 @@ where
 
     /// Get the regret bound estimate for the current state.
     ///
-    /// The theoretical regret bound is: E[R_T] ≤ 2M√(T log N)
+    /// The theoretical regret bound is $`\mathbb{E}[R_T] \le 2M\sqrt{T\log N}`$.
     ///
     /// # Arguments
     ///
-    /// * `max_loss` - Maximum loss per round (M)
-    /// * `num_experts` - Number of path experts (N)
+    /// * `max_loss` - Maximum loss per round, $`M`$.
+    /// * `num_experts` - Number of path experts, $`N`$.
     ///
     /// # Returns
     ///
@@ -427,7 +427,7 @@ where
         self
     }
 
-    /// Set the η parameter.
+    /// Set the $`\eta`$ parameter.
     pub fn eta(mut self, eta: f64) -> Self {
         self.config.eta = eta;
         self

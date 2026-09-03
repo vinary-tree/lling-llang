@@ -1059,8 +1059,8 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
     ///
     /// # Complexity
     ///
-    /// O(|Q| + |delta| * SAT), where SAT is the cost of one satisfiability
-    /// check on the algebra.
+    /// $`\mathcal{O}(\lvert Q\rvert+\lvert\delta\rvert C_{\mathrm{SAT}})`$,
+    /// where $`C_{\mathrm{SAT}}`$ is the cost of one satisfiability check.
     pub fn is_empty(&self) -> bool {
         let valid_initials: Vec<usize> = self.valid_initial_states().collect();
         if valid_initials.is_empty() {
@@ -1171,7 +1171,12 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
     ///
     /// # Complexity
     ///
-    /// O(|delta| + |w| * |delta_reachable|), where |w| is word length.
+    /// ```math
+    /// \mathcal{O}\!\left(\lvert\delta\rvert+
+    /// \lvert w\rvert\lvert\delta_{\mathrm{reachable}}\rvert\right)
+    /// ```
+    ///
+    /// Here $`\lvert w\rvert`$ is the word length.
     pub fn accepts(&self, word: &[A::Domain]) -> bool {
         let valid_initials: Vec<usize> = self.valid_initial_states().collect();
         if valid_initials.is_empty() {
@@ -1212,8 +1217,14 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
     ///
     /// # Complexity
     ///
-    /// O(|Q1| * |Q2| * |delta1| * |delta2| * AND), where AND is the cost
-    /// of one conjunction + satisfiability check on the algebra.
+    /// ```math
+    /// \mathcal{O}\!\left(
+    /// \lvert Q_1\rvert\lvert Q_2\rvert
+    /// \lvert\delta_1\rvert\lvert\delta_2\rvert C_{\land}
+    /// \right)
+    /// ```
+    ///
+    /// Here $`C_{\land}`$ is the cost of one conjunction and satisfiability check.
     pub fn intersect(&self, other: &Self) -> Self {
         let mut result = SymbolicAutomaton::new(self.algebra.clone());
 
@@ -1281,9 +1292,15 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
     ///
     /// # Complexity
     ///
-    /// O(|Q1| + |Q2| + |delta1| + |delta2|). Unlike intersection, no
-    /// product construction is performed; the union is purely
-    /// structural.
+    /// ```math
+    /// \mathcal{O}\!\left(
+    /// \lvert Q_1\rvert+\lvert Q_2\rvert+
+    /// \lvert\delta_1\rvert+\lvert\delta_2\rvert
+    /// \right)
+    /// ```
+    ///
+    /// Unlike intersection, no product construction is performed; the union is
+    /// purely structural.
     pub fn union(&self, other: &Self) -> Self {
         let mut result = SymbolicAutomaton::new(self.algebra.clone());
 
@@ -1353,7 +1370,8 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
     ///
     /// # Complexity
     ///
-    /// Dominated by determinization: worst case O(2^|Q|) states.
+    /// Dominated by determinization: at worst
+    /// $`\mathcal{O}(2^{\lvert Q\rvert})`$ states.
     pub fn complement(&self) -> Self {
         let det = self.determinize();
 
@@ -1427,8 +1445,9 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
     ///
     /// ## Complexity
     ///
-    /// Worst case O(2^|Q|) subset states, each with up to 2^k minterms
-    /// (k = number of distinct predicates on outgoing transitions).
+    /// At worst $`\mathcal{O}(2^{\lvert Q\rvert})`$ subset states, each with
+    /// up to $`2^k`$ minterms, where $`k`$ is the number of distinct predicates
+    /// on outgoing transitions.
     /// In practice, far fewer states and minterms are generated.
     pub fn determinize(&self) -> Self {
         let mut result = SymbolicAutomaton::new(self.algebra.clone());
@@ -1513,7 +1532,8 @@ impl<A: BooleanAlgebra> SymbolicAutomaton<A> {
     /// Equivalence check: do two SFAs accept the same language?
     ///
     /// Reduces to emptiness of the symmetric difference:
-    /// `L(A) = L(B)` iff `(L(A) ∩ L(B)^c) ∪ (L(A)^c ∩ L(B))` is empty.
+    /// $`L(A)=L(B)`$ iff
+    /// $`(L(A)\cap L(B)^c)\cup(L(A)^c\cap L(B))`$ is empty.
     ///
     /// # Complexity
     ///
@@ -1635,7 +1655,7 @@ impl<A: BooleanAlgebra> fmt::Display for SymbolicAutomaton<A> {
 ///
 /// # Complexity
 ///
-/// Worst case O(2^k) minterms for k predicates, but in practice many
+/// At worst $`\mathcal{O}(2^k)`$ minterms for $`k`$ predicates, but in practice many
 /// conjunctions are unsatisfiable and are pruned.
 pub fn compute_minterms<A: BooleanAlgebra>(
     algebra: &A,

@@ -1,6 +1,7 @@
 #!/usr/bin/env raku
 
-# doc-math-prescan.raku — fence-aware MathJax-conformance scanner for the lling-llang docs.
+# doc-math-prescan.raku — fence-aware MathJax-conformance scanner for
+# lling-llang Markdown and Rust API documentation.
 #
 # The documentation house style requires MathJax LaTeX for all mathematical prose:
 #   * inline math  = a dollar-delimited span whose content is a backtick code span, e.g.
@@ -141,9 +142,29 @@ sub scan-file(Str $path) {
     my $fence-marker = '';
     my $prev-row = Str;                 # previous non-fence line (candidate table header)
     my $tbl-cols = 0;                   # expected column count of the current table (0 = none)
+    my $rustdoc = $path.ends-with('.rs');
     my @lines = $path.IO.lines;
-    for @lines.kv -> $i, $line {
+    for @lines.kv -> $i, $source-line {
         my $lno = $i + 1;
+        my $line = $source-line;
+        if $rustdoc {
+            my $trimmed = $source-line.trim-leading;
+            if $trimmed.starts-with('///') && !$trimmed.starts-with('////') {
+                $line = $trimmed.substr(3);
+            }
+            elsif $trimmed.starts-with('//!') {
+                $line = $trimmed.substr(3);
+            }
+            else {
+                $in-fence = False;
+                $fence-marker = '';
+                $prev-row = Str;
+                $tbl-cols = 0;
+                next;
+            }
+            $line ~~ s/^ ' ' //;
+        }
+
         # fence tracking (``` or ~~~, length ≥ 3); info-strings ride the opening fence only
         my $lead = $line.trim-leading;
         if $lead.starts-with('```') || $lead.starts-with('~~~') {
@@ -157,6 +178,32 @@ sub scan-file(Str $path) {
         my %cs    = split-code-spans($line);
         my @spans = %cs<spans>.list;
         my $prose = %cs<prose>;
+
+        # Canonical inline math is deliberately line-local. A mismatched opening
+        # `$`` or closing ``$` usually means a formula was wrapped across source
+        # lines, which neither this scanner nor all downstream renderers can
+        # interpret consistently. Start with lexical marker counts, then remove
+        # the markers contributed by complete ordinary code spans whose content
+        # begins or ends with a literal dollar (for example, `$5` or `$`).
+        # A canonical math span has dollars immediately outside both backtick
+        # delimiters and must remain in the count.
+        my $math-opens = $line.comb('$`').elems;
+        my $math-closes = $line.comb('`$').elems;
+        for $line.match(/ ('`'+) ( .*? ) $0 /, :g) -> $m {
+            my $before = $m.from > 0 ?? $line.substr($m.from - 1, 1) !! '';
+            my $after = $m.to < $line.chars ?? $line.substr($m.to, 1) !! '';
+            next if $before eq '$' && $after eq '$';
+            my $contents = $m[1].Str;
+            $math-opens-- if $contents.ends-with('$');
+            $math-closes-- if $contents.starts-with('$');
+        }
+        if $math-opens != $math-closes {
+            @findings.push([
+                $lno,
+                'unbalanced-inline-math',
+                "opens=$math-opens closes=$math-closes",
+            ]);
+        }
 
         # (a) old-style math inside an inline code span. Greek-letter terminology (π-calculus,
         # λ-theory, ε-transition, α-approximation) is a proper-noun NAME, not a formula, so a span
@@ -176,8 +223,11 @@ sub scan-file(Str $path) {
         }
         # (b) bare Unicode math glyph in prose (display math written as plain text). Blank the same
         # Greek-hyphen-word terminology before the check so a bare `λ-calculus` is not flagged.
+        # Also preserve μKanren: that exact spelling is the published language and paper title,
+        # not a use of mu as a mathematical variable.
         my $proseb = $prose;
         $proseb ~~ s:g/ <[ \x[0391]..\x[03A9] \x[03B1]..\x[03C9] ]> '-' <?before <[A..Za..z]>> /-/;
+        $proseb ~~ s:g/ 'μKanren' /Kanren/;
         $proseb ~~ s:g/ '](' <-[)]>* ')' / /;   # blank Markdown link URLs — anchors are not math
         my @bare = $proseb.comb.grep(* ∈ MATH).unique;
         @findings.push([$lno, 'bare-unicode-math', @bare.join(' ')]) if @bare;
@@ -192,7 +242,18 @@ sub scan-file(Str $path) {
         }
         # (e) target-form hygiene: an ASCII word char abutting the '$`' opening delimiter. A letter
         #     directly before `$`` can suppress GitHub's math parse — keep a space/punctuation there.
-        if $line ~~ / <[0..9A..Za..z]> '$`' / {
+        my $target-line = $line.subst(
+            / ('`'+) ( .*? ) $0 /,
+            -> $m {
+                my $before = $m.from > 0 ?? $line.substr($m.from - 1, 1) !! '';
+                my $after = $m.to < $line.chars ?? $line.substr($m.to, 1) !! '';
+                $before eq '$' && $after eq '$'
+                    ?? $m.Str
+                    !! "\x[2420]" x $m.Str.chars
+            },
+            :g,
+        );
+        if $target-line ~~ / <[0..9A..Za..z]> '$`' / {
             @findings.push([$lno, 'letter-abuts-open', ~$/]);
         }
         # (f) markdown-table column consistency. An unescaped bare `|` in a cell (not `\|`, not in

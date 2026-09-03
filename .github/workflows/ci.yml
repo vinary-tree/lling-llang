@@ -41,6 +41,16 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-features --all-targets --no-deps -- -D warnings
 
+      - name: API documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --all-features --no-deps
+
+      - name: Documentation math conformance
+        run: |
+          bash scripts/test-doc-math-prescan.sh
+          scripts/doc-mathlint.sh
+
       - name: Test
         run: cargo test --all-features
 
@@ -174,7 +184,9 @@ jobs:
       # than Ubuntu's 2022.12 package.
       - uses: Raku/setup-raku@b8b1a4ebe85ef112edfc65e9edc8c57735367e3f
       - name: Documentation math conformance
-        run: scripts/doc-mathlint.sh
+        run: |
+          bash scripts/test-doc-math-prescan.sh
+          scripts/doc-mathlint.sh
       - name: Build native library and callback shim
         run: |
           cargo build --no-default-features --features raku-bindings

@@ -1,12 +1,12 @@
 //! Probability semiring for direct probability operations.
 //!
-//! The probability semiring (ℝ₊ ∪ {0}, +, ×, 0, 1) operates directly on
-//! probability values:
+//! The probability semiring $`(\mathbb{R}_{\ge0},+,\times,0,1)`$ operates
+//! directly on probability values:
 //!
-//! - **⊕ = +**: Sum probabilities for parallel paths
-//! - **⊗ = ×**: Multiply probabilities for sequential transitions
-//! - **0̄ = 0**: Represents impossible events
-//! - **1̄ = 1**: Represents certain events
+//! - **$`\oplus=+`$**: sum probabilities for parallel paths.
+//! - **$`\otimes=\times`$**: multiply probabilities for sequential transitions.
+//! - **$`\bar{0}=0`$**: represents impossible events.
+//! - **$`\bar{1}=1`$**: represents certain events.
 //!
 //! # Comparison with Log Semiring
 //!
@@ -47,7 +47,7 @@ use super::log::LogWeight;
 /// Probability semiring weight.
 ///
 /// Stores a non-negative probability value directly (not in log space).
-/// Values are clamped to [0, ∞).
+/// Values are clamped to $`[0,\infty)`$.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct ProbabilityWeight(pub OrderedFloat<f64>);
@@ -215,9 +215,9 @@ impl StarSemiring for ProbabilityWeight {
     /// Kleene closure for probability semiring.
     ///
     /// For probability p:
-    /// - p* = 1 + p + p² + p³ + ... = 1/(1-p) for |p| < 1
-    /// - p = 1: series diverges
-    /// - p > 1: series diverges
+    /// - $`p^*=1+p+p^2+p^3+\cdots=1/(1-p)`$ for $`\lvert p\rvert<1`$.
+    /// - For $`p=1`$, the series diverges.
+    /// - For $`p>1`$, the series diverges.
     fn star(&self) -> Option<Self> {
         let p = self.0.into_inner();
         if p >= 1.0 {
@@ -254,7 +254,8 @@ impl ZeroSumFreeSemiring for ProbabilityWeight {}
 
 /// ProbabilityWeight is weakly left-divisible.
 ///
-/// For probability semiring where ⊕ = + and ⊗ = ×:
+/// For the probability semiring, where $`\oplus=+`$ and
+/// $`\otimes=\times`$:
 /// - Given `a` and `divisor = a + b`, we need `c` such that `c × divisor = a`
 /// - This is `c = a / divisor`
 impl WeaklyLeftDivisibleSemiring for ProbabilityWeight {

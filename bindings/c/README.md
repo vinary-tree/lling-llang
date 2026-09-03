@@ -66,7 +66,7 @@ pointers only for the synchronous call.
 - Free every builder and WFST exactly once.
 - Release every resource returned by `lling_wfst_resource` exactly once.
 - Release cancellation with `lling_cancellation_v2_free(&slot)`; it nulls the slot.
-- Builder build moves the graph in `$`\mathcal{O}(1)`$; the builder shell still
+- Builder build moves the graph in $`\mathcal{O}(1)`$; the builder shell still
   requires `lling_wfst_builder_free`.
 - Composition captures one immutable snapshot per input at construction. Input
   resources can then be released in any order; the product owns independent
@@ -102,8 +102,8 @@ all users before freeing the cancellation handle.
 
 ## Performance and marshalling
 
-Resource export and composition capture are `$`\mathcal{O}(1)`$ retain
-operations. Import is `$`\mathcal{O}(|Q|+|E|)`$ because it validates and copies
+Resource export and composition capture are $`\mathcal{O}(1)`$ retain
+operations. Import is $`\mathcal{O}(\lvert Q\rvert+\lvert E\rvert)`$ because it validates and copies
 every reachable state and arc. Prefer retained handoff to serialization, reserve
 builder states when cardinality is known, and fetch arcs in the recommended
 batch size. Do not optimize away interface/version validation at a foreign

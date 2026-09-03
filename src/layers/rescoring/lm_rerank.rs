@@ -171,7 +171,12 @@ impl LanguageModelLayer {
     /// Combines the original edge weight with the language model score using
     /// linear interpolation in the cost/log-prob space.
     ///
-    /// Formula: w_new = (1 - λ) * w_orig + λ * (-lm_score)
+    /// Formula:
+    ///
+    /// ```math
+    /// w_{\mathrm{new}}=(1-\lambda)w_{\mathrm{orig}}
+    /// +\lambda(-s_{\mathrm{LM}})
+    /// ```
     ///
     /// Where lm_score is a log probability (negative values for probabilities < 1).
     #[inline]

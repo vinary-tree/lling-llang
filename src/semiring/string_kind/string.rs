@@ -1,10 +1,13 @@
 //! String semiring for label accumulation in WFSTs.
 //!
 //! The string semiring operates on strings with:
-//! - **⊕ = lcp/lcs**: Longest common prefix (left) or suffix (right)
-//! - **⊗ = ·**: String concatenation
-//! - **0̄ = ∞**: Infinite string (identity for lcp/lcs)
-//! - **1̄ = ε**: Empty string (identity for concatenation)
+//! - **$`\oplus=\operatorname{lcp}/\operatorname{lcs}`$**: longest
+//!   common prefix (left) or suffix (right).
+//! - **$`\otimes=\mathbin{\cdot}`$**: string concatenation.
+//! - **$`\bar{0}=\infty`$**: infinite string (identity for longest common
+//!   prefix/suffix).
+//! - **$`\bar{1}=\varepsilon`$**: empty string (identity for
+//!   concatenation).
 //!
 //! # Variants
 //!
@@ -16,8 +19,10 @@
 //! String semirings are only **weakly left/right distributive**, not fully
 //! distributive. For example, with LeftStringWeight:
 //!
-//! - Left-distributive: `a ⊗ (b ⊕ c) = (a ⊗ b) ⊕ (a ⊗ c)` ✓
-//! - Right-distributive: `(a ⊕ b) ⊗ c ≠ (a ⊗ c) ⊕ (b ⊗ c)` ✗
+//! - Left-distributive:
+//!   $`a\otimes(b\oplus c)=(a\otimes b)\oplus(a\otimes c)`$.
+//! - Not right-distributive:
+//!   $`(a\oplus b)\otimes c\ne(a\otimes c)\oplus(b\otimes c)`$.
 //!
 //! This is acceptable for many WFST algorithms that only require one-sided
 //! distributivity (e.g., determinization uses left-distributivity).
@@ -54,14 +59,17 @@
 /// Left string weight using longest common prefix.
 ///
 /// Uses `Option<Vec<u8>>` where:
-/// - `None` = ∞ (infinite string, additive identity)
-/// - `Some(vec![])` = ε (empty string, multiplicative identity)
+/// - `None` represents $`\infty`$ (infinite string, additive identity).
+/// - `Some(vec![])` represents $`\varepsilon`$ (empty string,
+///   multiplicative identity).
 ///
-/// This is left-distributive: `a ⊗ (b ⊕ c) = (a ⊗ b) ⊕ (a ⊗ c)`
+/// This is left-distributive:
+/// $`a\otimes(b\oplus c)=(a\otimes b)\oplus(a\otimes c)`$.
 ///
 /// # Note
 ///
-/// This type does not implement the [`Semiring`](super::Semiring) trait because
+/// This type does not implement the [`Semiring`](crate::semiring::Semiring)
+/// trait because
 /// it contains `Vec<u8>` which cannot be `Copy`. It provides semiring-like
 /// operations through inherent methods instead.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -197,8 +205,9 @@ impl LeftStringWeight {
     /// Kleene closure for string semiring.
     ///
     /// For string semirings, star always converges to epsilon because:
-    /// - ε* = ε (trivially)
-    /// - For non-empty s: lcp(ε, s, ss, sss, ...) = ε
+    /// - $`\varepsilon^*=\varepsilon`$ (trivially).
+    /// - For non-empty $`s`$,
+    ///   $`\operatorname{lcp}(\varepsilon,s,ss,sss,\ldots)=\varepsilon`$.
     pub fn star(&self) -> Self {
         // star(s) = ε for all s
         Self::one()
@@ -298,14 +307,17 @@ impl std::ops::Mul<&LeftStringWeight> for LeftStringWeight {
 /// Right string weight using longest common suffix.
 ///
 /// Uses `Option<Vec<u8>>` where:
-/// - `None` = ∞ (infinite string, additive identity)
-/// - `Some(vec![])` = ε (empty string, multiplicative identity)
+/// - `None` represents $`\infty`$ (infinite string, additive identity).
+/// - `Some(vec![])` represents $`\varepsilon`$ (empty string,
+///   multiplicative identity).
 ///
-/// This is right-distributive: `(a ⊕ b) ⊗ c = (a ⊗ c) ⊕ (b ⊗ c)`
+/// This is right-distributive:
+/// $`(a\oplus b)\otimes c=(a\otimes c)\oplus(b\otimes c)`$.
 ///
 /// # Note
 ///
-/// This type does not implement the [`Semiring`](super::Semiring) trait because
+/// This type does not implement the [`Semiring`](crate::semiring::Semiring)
+/// trait because
 /// it contains `Vec<u8>` which cannot be `Copy`. It provides semiring-like
 /// operations through inherent methods instead.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

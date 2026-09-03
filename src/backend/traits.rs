@@ -4,8 +4,10 @@
 ///
 /// This is a lightweight handle to an interned string stored in a backend.
 /// The actual representation depends on the backend:
-/// - For [`HashMapBackend`]: Sequential u32 index
-/// - For [`PathMapBackend`]: PathMap path identifier
+/// - For [`HashMapBackend`](crate::backend::HashMapBackend): sequential
+///   `u32` index
+/// - For `PathMapBackend` (the optional `f1r3fly` backend): PathMap path
+///   identifier
 pub type VocabId = u32;
 
 /// Backend trait for lattice edge storage and vocabulary management.
@@ -13,7 +15,7 @@ pub type VocabId = u32;
 /// This trait abstracts over different storage strategies for vocabulary
 /// interning. Implementations should:
 /// - Efficiently intern strings (deduplicate identical strings)
-/// - Provide O(1) or O(log n) lookup by ID
+/// - Provide $`\mathcal{O}(1)`$ or $`\mathcal{O}(\log n)`$ lookup by ID.
 /// - Be thread-safe (implement Send + Sync)
 ///
 /// # Type Parameters

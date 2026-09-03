@@ -6,12 +6,14 @@
 //!
 //! # Background
 //!
-//! For a path π, the **delay** is d[π] = |o[π]| - |i[π]| (output length minus input).
+//! For a path $`\pi`$, the **delay** is
+//! $`d[\pi]=\lvert o[\pi]\rvert-\lvert i[\pi]\rvert`$ (output length
+//! minus input length).
 //! A transducer has **bounded delays** iff all cycles have zero delay.
 //!
 //! The **string delay** represents the accumulated difference:
-//! - If d ≥ 0: suffix of output of length d
-//! - If d < 0: suffix of input of length |d|
+//! - If $`d\ge0`$: suffix of the output of length $`d`$.
+//! - If $`d<0`$: suffix of the input of length $`\lvert d\rvert`$.
 //!
 //! # Algorithm
 //!
@@ -26,7 +28,8 @@
 //!
 //! # Complexity
 //!
-//! O((|Q| + |E|)(|Σ|^d[T] + |Δ|^d[T])) where d[T] is the maximum delay.
+//! $`\mathcal{O}((|Q|+|E|)(|\Sigma|^{d[T]}+|\Delta|^{d[T]}))`$, where
+//! $`d[T]`$ is the maximum delay.
 //!
 //! # Example
 //!

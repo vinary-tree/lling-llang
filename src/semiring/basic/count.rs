@@ -1,10 +1,10 @@
 //! Counting semiring for path enumeration.
 //!
-//! The counting semiring (ℕ, +, ×, 0, 1) counts the number of paths
+//! The counting semiring $`(\mathbb{N},+,\times,0,1)`$ counts the number of paths
 //! or derivations in a weighted automaton:
 //!
-//! - **⊕ = +**: Sum counts for parallel paths
-//! - **⊗ = ×**: Multiply counts for sequential transitions
+//! - **$`\oplus=+`$**: sum counts for parallel paths.
+//! - **$`\otimes=\times`$**: multiply counts for sequential transitions.
 //! - **0̄ = 0**: Zero paths (impossible)
 //! - **1̄ = 1**: One path (single path)
 //!
@@ -16,7 +16,7 @@
 //!
 //! # Mathematical Properties
 //!
-//! - NOT idempotent: a + a = 2a ≠ a
+//! - Not idempotent: $`a+a=2a\ne a`$.
 //! - NOT k-closed: star operation diverges for n > 0
 //! - Zero-sum-free: a + b = 0 implies a = b = 0
 //! - Commutative multiplication: a × b = b × a

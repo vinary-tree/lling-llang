@@ -21,8 +21,8 @@
 //! - All states coaccessible (can reach final)
 //!
 //! # Composition Properties
-//! - Identity: `A ∘ I = A` and `I ∘ A = A`
-//! - Associativity: `(A ∘ B) ∘ C = A ∘ (B ∘ C)` for path weights
+//! - Identity: $`A\circ I=A`$ and $`I\circ A=A`$.
+//! - Associativity: $`(A\circ B)\circ C=A\circ(B\circ C)`$ for path weights.
 
 use lling_llang::semiring::{LogWeight, Semiring, TropicalWeight};
 use lling_llang::wfst::{MutableWfst, VectorWfst, Wfst};

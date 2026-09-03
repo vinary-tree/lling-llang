@@ -1,12 +1,13 @@
 //! Tropical semiring for shortest-path optimization.
 //!
-//! The tropical semiring (ℝ ∪ {∞}, min, +, ∞, 0) is the standard choice
-//! for shortest-path problems in WFSTs:
+//! The tropical semiring
+//! $`(\mathbb{R}\cup\{+\infty\},\min,+,+\infty,0)`$ is the standard
+//! choice for shortest-path problems in WFSTs:
 //!
-//! - **⊕ = min**: Selects the best (minimum cost) of parallel paths
-//! - **⊗ = +**: Accumulates costs along sequential transitions
-//! - **0̄ = ∞**: Represents unreachable states
-//! - **1̄ = 0**: Represents zero cost (free transitions)
+//! - **$`\oplus=\min`$**: selects the best (minimum-cost) parallel path.
+//! - **$`\otimes=+`$**: accumulates costs along sequential transitions.
+//! - **$`\bar{0}=+\infty`$**: represents unreachable states.
+//! - **$`\bar{1}=0`$**: represents zero-cost transitions.
 //!
 //! # Example
 //!
@@ -49,8 +50,9 @@ impl TropicalWeight {
 
     /// Create a new tropical weight from a raw `f64`.
     ///
-    /// The verified Rocq model is `R ∪ {+∞}`. This constructor rejects `NaN`
-    /// and `-∞`, which have no counterpart in that model and break semiring
+    /// The verified Rocq model is $`\mathbb{R}\cup\{+\infty\}`$. This
+    /// constructor rejects `NaN` and $`-\infty`$, which have no counterpart
+    /// in that model and break semiring
     /// laws under IEEE-754 arithmetic.
     #[inline]
     pub fn new(value: f64) -> Self {
@@ -115,7 +117,7 @@ impl Default for TropicalWeight {
 }
 
 impl Semiring for TropicalWeight {
-    /// Additive identity: ∞ (unreachable)
+    /// Additive identity: $`+\infty`$ (unreachable).
     #[inline]
     fn zero() -> Self {
         TropicalWeight::infinity()
@@ -196,7 +198,8 @@ impl StarSemiring for TropicalWeight {
     /// For tropical semiring:
     /// - If weight > 0: star = 0 (taking zero copies is optimal)
     /// - If weight = 0: star = 0 (any number of copies has cost 0)
-    /// - If weight < 0: series diverges to -∞ (no finite star)
+    /// - If the weight is negative, the series diverges to $`-\infty`$
+    ///   (there is no finite star).
     fn star(&self) -> Option<Self> {
         let v = self.0.into_inner();
         if v >= 0.0 {
@@ -231,12 +234,13 @@ impl KClosedSemiring for TropicalWeight {
     }
 }
 
-/// TropicalWeight is zero-sum-free: min(a, b) = ∞ only if both a = ∞ and b = ∞
+/// `TropicalWeight` is zero-sum-free: $`\min(a,b)=+\infty`$ only if
+/// $`a=b=+\infty`$.
 impl ZeroSumFreeSemiring for TropicalWeight {}
 
 /// TropicalWeight is weakly left-divisible.
 ///
-/// For tropical semiring where ⊕ = min and ⊗ = +:
+/// For the tropical semiring, where $`\oplus=\min`$ and $`\otimes=+`$:
 /// - Given `a` and `divisor = min(a, b)`, we need `c` such that `c + divisor = a`
 /// - This is `c = a - divisor`
 impl WeaklyLeftDivisibleSemiring for TropicalWeight {
@@ -309,7 +313,7 @@ impl StochasticSemiring for TropicalWeight {
 impl std::ops::Add for TropicalWeight {
     type Output = Self;
 
-    /// Operator `+` implements semiring ⊕ (min).
+    /// Operator `+` implements semiring $`\oplus`$ (minimum).
     #[inline]
     fn add(self, other: Self) -> Self {
         self.plus(&other)
@@ -319,7 +323,7 @@ impl std::ops::Add for TropicalWeight {
 impl std::ops::Mul for TropicalWeight {
     type Output = Self;
 
-    /// Operator `*` implements semiring ⊗ (+).
+    /// Operator `*` implements semiring $`\otimes`$ (addition).
     #[inline]
     fn mul(self, other: Self) -> Self {
         self.times(&other)

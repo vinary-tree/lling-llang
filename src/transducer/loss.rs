@@ -184,9 +184,13 @@ impl TransducerGradients {
 /// Compute transducer loss for a single utterance.
 ///
 /// This computes the negative log-likelihood:
-///   L = -log P(y|x) = -log Σ_π P(π|x)
 ///
-/// where the sum is over all valid alignments π that produce output y.
+/// ```math
+/// L=-\log P(y\mid x)=-\log\sum_\pi P(\pi\mid x)
+/// ```
+///
+/// The sum ranges over every valid alignment $`\pi`$ that produces output
+/// $`y`$.
 ///
 /// # Arguments
 /// * `lattice` - Transducer lattice with log-probabilities
@@ -335,14 +339,19 @@ where
 
 /// Compute transducer loss with external language model.
 ///
-/// This enables shallow fusion of neural transducer with n-gram LM:
-///   L = -log Σ_π P_AM(π|x) * P_LM(y)^λ
+/// This enables shallow fusion of a neural transducer with an n-gram language
+/// model:
+///
+/// ```math
+/// L=-\log\sum_\pi P_{\mathrm{AM}}(\pi\mid x)
+/// P_{\mathrm{LM}}(y)^\lambda
+/// ```
 ///
 /// # Arguments
 /// * `lattice` - Transducer lattice with acoustic log-probabilities
 /// * `targets` - Target label sequence
 /// * `lm` - Language model as WFST
-/// * `lm_weight` - Weight for LM scores (λ)
+/// * `lm_weight` - Weight $`\lambda`$ for language-model scores.
 ///
 /// # Panics
 /// Panics if any target label is outside `lattice.vocab_size`; use

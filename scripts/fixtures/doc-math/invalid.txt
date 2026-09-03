@@ -1,0 +1,12 @@
+Bare Unicode formula: α + β.
+Backticked Unicode formula: `α`.
+Bare complexity notation: O(n).
+Empty inline code: ` `.
+Transposed math delimiters: `$\alpha$`.
+Adjacent opening delimiter: word$`\delta`$.
+Unbalanced opening delimiter: $`\beta
+Unbalanced closing delimiter: \gamma`$
+
+| Header A | Header B |
+|----------|----------|
+| one | two | three |

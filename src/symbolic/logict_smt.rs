@@ -1,6 +1,8 @@
-//! SMT-backed [`ConstraintTheory`] backend (Z3 library, in-process) — Task #22 §4-B.
+//! SMT-backed [`ConstraintTheory`](crate::symbolic::logict::ConstraintTheory)
+//! backend (Z3 library, in-process) — Task #22 §4-B.
 //!
-//! Implementing [`ConstraintTheory`] for [`Z3Theory`] makes
+//! Implementing [`ConstraintTheory`](crate::symbolic::logict::ConstraintTheory)
+//! for [`Z3Theory`](crate::symbolic::logict_smt::Z3Theory) makes
 //! [`TheoryAlgebra<Z3Theory>`](crate::symbolic::logict::TheoryAlgebra) a
 //! [`BooleanAlgebra`](crate::symbolic::BooleanAlgebra) *for free* (see
 //! [`crate::symbolic::logict`]): every symbolic-automaton algorithm (emptiness,
@@ -10,20 +12,24 @@
 //!
 //! # Soundness: the `Sat3` channel for SMT `Unknown`
 //!
-//! [`ConstraintTheory::propagate`] is *two-valued* — `Some(store)` (consistent) or
+//! [`ConstraintTheory::propagate`](crate::symbolic::logict::ConstraintTheory::propagate)
+//! is *two-valued* — `Some(store)` (consistent) or
 //! `None` (inconsistent) — but an SMT solver may return **`Unknown`** (timeout,
 //! undecidable fragments, non-linear arithmetic). Collapsing `Unknown` to either side is
 //! unsound: as "consistent" it lets an unsatisfiable guard through; as "inconsistent"
-//! it rejects a satisfiable one. So the [`SmtStore`] carries a [`Sat3`]:
+//! it rejects a satisfiable one. So [`SmtStore`](crate::symbolic::logict_smt::SmtStore)
+//! carries [`Sat3`](crate::symbolic::algebra_tower::Sat3):
 //!
 //! - `propagate` returns `None` **only** on a proven `Unsat`; both `Sat` and `Unknown`
 //!   yield `Some(store)`, recording `Sat3::Sat` / `Sat3::DontKnow`.
-//! - [`ConstraintTheory::witness`] returns a model **only** on `Sat3::Sat` — never on
+//! - [`ConstraintTheory::witness`](crate::symbolic::logict::ConstraintTheory::witness)
+//!   returns a model **only** on `Sat3::Sat` — never on
 //!   `DontKnow`, so an undecided guard never fabricates a witness.
 //!
 //! Thus `Unknown` is treated as *possibly satisfiable* — the conservative
 //! over-approximation that keeps emptiness / language-inclusion checks sound — and
-//! [`Sat3::into_safe_bool`] forces callers to handle the undecided case rather than
+//! [`Sat3::into_safe_bool`](crate::symbolic::algebra_tower::Sat3::into_safe_bool)
+//! forces callers to handle the undecided case rather than
 //! silently treat it as `false`. This is exactly why the `algebra_tower`'s
 //! three-valued logic is load-bearing here.
 //!
@@ -34,7 +40,8 @@
 //! certificate path (`--produce-proofs` → Alethe/LFSC) is a *subprocess* and lives in
 //! the WFST sidecar, never here. A fresh Z3 `Context`/`Solver` is built per check, so
 //! no Z3 AST (which borrows its `Context`) is ever stored in a `Store` — keeping
-//! [`SmtStore`] `Clone + Send + Sync` and lifetime-free.
+//! [`SmtStore`](crate::symbolic::logict_smt::SmtStore)
+//! `Clone + Send + Sync` and lifetime-free.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -54,7 +61,7 @@ use super::logict::{ConstraintTheory, LogicStream};
 ///
 /// Kept independent of any Z3 `Context` so [`SmtConstraint`] satisfies
 /// `ConstraintTheory::Constraint: Clone + Eq + Hash`; translated to a fresh Z3 AST at
-/// solve time by [`Z3Env`].
+/// solve time by the private `Z3Env` translator.
 pub enum SmtTerm {
     /// Integer literal.
     IntLit(i64),
@@ -259,19 +266,19 @@ pub enum SmtConstraint {
     BoolVar(String),
     /// `a = b`.
     Eq(SmtTerm, SmtTerm),
-    /// `a ≤ b` (signed for integers, unsigned for bitvectors).
+    /// $`a\le b`$ (signed for integers, unsigned for bitvectors).
     Le(SmtTerm, SmtTerm),
     /// `a < b`.
     Lt(SmtTerm, SmtTerm),
-    /// `a ≥ b`.
+    /// $`a\ge b`$.
     Ge(SmtTerm, SmtTerm),
     /// `a > b`.
     Gt(SmtTerm, SmtTerm),
-    /// `¬a`.
+    /// $`\lnot a`$.
     Not(Box<SmtConstraint>),
-    /// `a ∧ b`.
+    /// $`a\land b`$.
     And(Box<SmtConstraint>, Box<SmtConstraint>),
-    /// `a ∨ b`.
+    /// $`a\lor b`$.
     Or(Box<SmtConstraint>, Box<SmtConstraint>),
 }
 

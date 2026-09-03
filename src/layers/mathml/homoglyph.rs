@@ -2,7 +2,8 @@
 //!
 //! Handles cases where visually similar characters have different meanings:
 //! - `x` (variable) vs `×` (multiplication)
-//! - `-` (minus) vs `−` (minus sign) vs `–` (en-dash)
+//! - `-` (U+002D HYPHEN-MINUS) vs `\u{2212}` (U+2212 MINUS SIGN) vs
+//!   `\u{2013}` (U+2013 EN DASH)
 //! - `0` (zero) vs `O` (capital O) vs `o` (lowercase o)
 
 use std::collections::HashMap;

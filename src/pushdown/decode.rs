@@ -14,31 +14,34 @@
 //!
 //! # Epsilon closure
 //!
-//! A PDA may interpose ε-transitions — transitions with no input symbol that
+//! A PDA may interpose $`\varepsilon`$-transitions—transitions with no input symbol that
 //! merely reshape the stack and/or change state — between two terminal reads.
 //! For example the `a^n b^n` grammar uses an ε-transition to switch from the
 //! "reading `a`s" phase to the "reading `b`s" phase, and the balanced-bracket
 //! grammar uses an ε-transition to return to its accepting state once the stack
 //! is rebalanced. To surface the correct terminal frontier we must first chase
-//! every ε-transition reachable from the current configuration. We compute the
-//! **ε-closure** over `(state, stack)` pairs: the set of configurations
-//! reachable by applying zero or more ε-transitions, visiting each `(state,
+//! every $`\varepsilon`$-transition reachable from the current configuration.
+//! We compute the **$`\varepsilon`$-closure** over `(state, stack)` pairs: the
+//! set of configurations reachable by applying zero or more
+//! $`\varepsilon`$-transitions, visiting each `(state,
 //! stack)` pair at most once.
 //!
-//! ## Termination: bounded even on ε-push-cycles
+//! ## Termination: bounded even on $`\varepsilon`$-push cycles
 //!
 //! The closure is bounded two ways. First, it deduplicates on the exact
-//! `(state, stack)` pair, so a *self-returning* ε-cycle (one that leaves the
-//! configuration unchanged) terminates. Second — because ε-transitions whose
+//! `(state, stack)` pair, so a *self-returning* $`\varepsilon`$-cycle (one
+//! that leaves the configuration unchanged) terminates. Second—because
+//! $`\varepsilon`$-transitions whose
 //! net stack change is positive (a `Push` with no input) could otherwise grow
 //! the stack without bound if they form a cycle — the closure refuses to
 //! descend past a configurable **maximum stack depth**
 //! ([`PdaDecoder::with_max_stack_depth`], default
-//! [`PdaDecoder::DEFAULT_MAX_STACK_DEPTH`]): any ε-successor deeper than the
+//! [`PdaDecoder::DEFAULT_MAX_STACK_DEPTH`]): any $`\varepsilon`$-successor deeper than the
 //! bound is simply not enqueued. Together these guarantee the closure is finite
-//! for *every* automaton — including an adversarial ε-`Push` cycle — while
+//! for *every* automaton—including an adversarial $`\varepsilon`$-`Push`
+//! cycle—while
 //! leaving every well-formed grammar (balanced brackets, `a^n b^n`, palindrome,
-//! the tape-DSL), whose reachable ε-closure never approaches the bound,
+//! the tape DSL), whose reachable $`\varepsilon`$-closure never approaches the bound,
 //! completely unaffected.
 
 use std::collections::hash_map::Entry;
@@ -63,14 +66,15 @@ use crate::semiring::Semiring;
 pub struct PdaDecoder<'a, L, W: Semiring> {
     /// The automaton whose configurations are being decoded.
     pda: &'a VectorPda<L, W>,
-    /// Maximum stack depth the ε-closure will build before refusing to descend
+    /// Maximum stack depth the $`\varepsilon`$-closure will build before refusing to descend
     /// further (see the module-level "Termination" note). Guarantees the
-    /// closure terminates even for an automaton with an ε-`Push` cycle.
+    /// closure terminates even for an automaton with an $`\varepsilon`$-`Push` cycle.
     max_stack_depth: usize,
 }
 
 impl<'a, L: Clone + PartialEq, W: Semiring> PdaDecoder<'a, L, W> {
-    /// Default ε-closure [`max_stack_depth`](Self::with_max_stack_depth) bound:
+    /// Default $`\varepsilon`$-closure
+    /// [`max_stack_depth`](Self::with_max_stack_depth) bound:
     /// deep enough that no well-formed DSL grammar approaches it, shallow enough
     /// that an adversarial ε-push-cycle is cut off promptly.
     pub const DEFAULT_MAX_STACK_DEPTH: usize = 4096;
@@ -185,13 +189,14 @@ impl<'a, L: Clone + PartialEq, W: Semiring> PdaDecoder<'a, L, W> {
         None
     }
 
-    /// Test whether `cfg` (or any configuration in its ε-closure) is accepting,
+    /// Test whether `cfg` (or any configuration in its $`\varepsilon`$-closure) is accepting,
     /// honoring the automaton's [`PdaAcceptMode`].
     ///
     /// Because acceptance may require traversing a trailing ε-transition (e.g.
-    /// `a^n b^n` reaches its final state via an ε-move once the stack is back
-    /// to `Z₀`), the whole ε-closure is consulted: `cfg` is accepting if any
-    /// ε-reachable configuration satisfies the accept mode.
+    /// `a^n b^n` reaches its final state via an $`\varepsilon`$-move once the
+    /// stack is back to $`Z_0`$), the whole $`\varepsilon`$-closure is
+    /// consulted: `cfg` is accepting if any $`\varepsilon`$-reachable
+    /// configuration satisfies the accept mode.
     pub fn is_accepting(&self, cfg: &PdaConfiguration<L>) -> bool {
         let mode = self.pda.get_accept_mode();
         self.epsilon_closure(cfg)
@@ -265,11 +270,12 @@ impl<'a, L: Clone + PartialEq, W: Semiring> PdaDecoder<'a, L, W> {
         closure
     }
 
-    /// The ε-closure of `cfg` paired with the best (`⊕`-combined) weight of an
-    /// ε-only path from `cfg` to each reachable configuration; the seed has
+    /// The $`\varepsilon`$-closure of `cfg` paired with the best
+    /// ($`\oplus`$-combined) weight of an $`\varepsilon`$-only path from
+    /// `cfg` to each reachable configuration; the seed has
     /// weight [`Semiring::one`]. Bounded identically to
     /// [`epsilon_closure`](Self::epsilon_closure) (the same `max_stack_depth`),
-    /// so it terminates even on ε-push-cycles. Backs the weighted surfaces
+    /// so it terminates even on $`\varepsilon`$-push cycles. Backs the weighted surfaces
     /// [`legal_next_weighted`](Self::legal_next_weighted) and
     /// [`acceptance_weight`](Self::acceptance_weight); the unweighted
     /// [`legal_next`](Self::legal_next) / [`is_accepting`](Self::is_accepting)
@@ -309,9 +315,9 @@ impl<'a, L: Clone + PartialEq, W: Semiring> PdaDecoder<'a, L, W> {
                         queue.push_back(next);
                     }
                     Entry::Occupied(mut slot) => {
-                        // ⊕-relax: keep the best weight; re-enqueue only when it
+                        // Semiring-add relax: keep the best weight; re-enqueue only when it
                         // strictly improves so the fixpoint is reached finitely
-                        // (⊕ is idempotent; tropical cost is bounded below).
+                        // (semiring addition is idempotent; tropical cost is bounded below).
                         let merged = slot.get().plus(&candidate);
                         if merged != *slot.get() {
                             slot.insert(merged);
@@ -330,9 +336,11 @@ impl<'a, L: Clone + PartialEq, W: Semiring> PdaDecoder<'a, L, W> {
     }
 
     /// Like [`legal_next`](Self::legal_next), but pairs each legal terminal with
-    /// the best (`⊕`) weight of reading it next: over every ε-path to an
-    /// enabling configuration `⊗` that terminal transition's own weight,
-    /// `⊕`-combined. This is the surface a *weighted* constrained decoder ranks
+    /// the best ($`\oplus`$) weight of reading it next: over every
+    /// $`\varepsilon`$-path to an enabling configuration, semiring-multiply
+    /// ($`\otimes`$) its path weight by that terminal transition's weight,
+    /// then combine alternatives with $`\oplus`$. This is the surface a
+    /// *weighted* constrained decoder ranks
     /// continuations with; [`legal_next`](Self::legal_next) is exactly its
     /// terminal projection. Terminal order follows first discovery.
     pub fn legal_next_weighted(&self, cfg: &PdaConfiguration<L>) -> Vec<(L, W)> {
@@ -364,12 +372,13 @@ impl<'a, L: Clone + PartialEq, W: Semiring> PdaDecoder<'a, L, W> {
         out
     }
 
-    /// The best (`⊕`) weight with which a complete, in-grammar string may end at
-    /// `cfg`, or [`Semiring::zero`] if no ε-reachable configuration accepts.
-    /// Each accepting ε-reachable configuration contributes its ε-path weight
-    /// `⊗` the accepting weight implied by the automaton's [`PdaAcceptMode`]
+    /// The best ($`\oplus`$) weight with which a complete, in-grammar string may
+    /// end at `cfg`, or [`Semiring::zero`] if no $`\varepsilon`$-reachable
+    /// configuration accepts. Each accepting $`\varepsilon`$-reachable
+    /// configuration contributes its $`\varepsilon`$-path weight
+    /// $`\otimes`$ the accepting weight implied by the automaton's [`PdaAcceptMode`]
     /// (the state's final weight for accepting-state modes, [`Semiring::one`]
-    /// for empty-stack acceptance); the contributions are `⊕`-combined. This is
+    /// for empty-stack acceptance); the contributions are $`\oplus`$-combined. This is
     /// the weighted counterpart of [`is_accepting`](Self::is_accepting).
     pub fn acceptance_weight(&self, cfg: &PdaConfiguration<L>) -> W {
         let mode = self.pda.get_accept_mode();

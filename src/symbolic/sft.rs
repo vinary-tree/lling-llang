@@ -7,20 +7,25 @@
 //! by BooleanAlgebra predicates. Each transition is guarded by a predicate and annotated with
 //! an output function that maps the consumed input element to a sequence of output elements.
 //!
-//! Formally, an SFT is a tuple (Q, A, B, δ, q₀, F) where:
-//! - Q is a finite set of states
-//! - A is the input Boolean algebra
-//! - B is the output Boolean algebra
-//! - δ ⊆ Q × φ(A) × (A::Domain → B::Domain*) × Q is the transition relation
-//! - q₀ ∈ Q is the initial state (or set of initial states for NFA-style)
-//! - F ⊆ Q is the set of accepting states
+//! Formally, an SFT is a tuple $`(Q,A,B,\delta,q_0,F)`$, where:
+//! - $`Q`$ is a finite set of states.
+//! - $`A`$ is the input Boolean algebra.
+//! - $`B`$ is the output Boolean algebra.
+//! - $`\delta\subseteq Q\times\varphi(A)\times(A{::}\mathrm{Domain}\to B{::}\mathrm{Domain}^*)\times Q`$
+//!   is the transition relation.
+//! - $`q_0\in Q`$ is the initial state (or set of initial states for an
+//!   NFA-style machine).
+//! - $`F\subseteq Q`$ is the set of accepting states.
 //!
 //! ## Key Operations
 //!
 //! - **Transduction** (`transduce`): NFA-style simulation, collecting all output sequences
-//! - **Composition** (`compose`): Chain two SFTs (A→B) ∘ (B→C) = (A→C)
-//! - **Pre-image** (`pre_image`): Given SFA over B, compute SFA over A
-//! - **Post-image** (`post_image`): Given SFA over A, compute SFA over B
+//! - **Composition** (`compose`): chain two SFTs as
+//!   $`(A\to B)\circ(B\to C)=(A\to C)`$.
+//! - **Pre-image** (`pre_image`): given an SFA over $`B`$, compute an SFA
+//!   over $`A`$.
+//! - **Post-image** (`post_image`): given an SFA over $`A`$, compute an SFA
+//!   over $`B`$.
 //! - **Functionality** (`is_functional`): Check if single-valued
 //! - **Equivalence** (`is_equivalent_functional`): Check equivalence for functional SFTs
 //!
@@ -49,12 +54,14 @@ use super::{BooleanAlgebra, SymbolicAutomaton};
 ///
 /// Identity/Constant/Epsilon cover >90% of practical cases without closures.
 pub enum OutputFunction<A: BooleanAlgebra, B: BooleanAlgebra> {
-    /// ε-output: produce nothing.
+    /// $`\varepsilon`$-output: produce nothing.
     Epsilon,
     /// Constant output (ignores input).
     Constant(Vec<B::Domain>),
     /// Identity: pass through input unchanged.
-    /// Conceptually requires `A::Domain ≈ B::Domain`; enforced at construction.
+    /// Conceptually requires
+    /// $`A{::}\mathrm{Domain}\approx B{::}\mathrm{Domain}`$; enforced at
+    /// construction.
     Identity,
     /// Single-element computed output.
     Map(Arc<dyn Fn(&A::Domain) -> B::Domain + Send + Sync>),
@@ -181,7 +188,8 @@ pub struct SftState {
 
 /// Symbolic Finite Transducer parameterized by input and output algebras.
 ///
-/// Formally: (Q, A, B, δ, q₀, F) where δ: Q × φ(A) → Q × f(A→B*).
+/// Formally, $`(Q,A,B,\delta,q_0,F)`$, where
+/// $`\delta:Q\times\varphi(A)\to Q\times f(A\to B^*)`$.
 /// D'Antoni & Veanes, POPL 2012.
 pub struct SymbolicFiniteTransducer<A: BooleanAlgebra, B: BooleanAlgebra> {
     /// Input Boolean algebra.
@@ -305,7 +313,8 @@ impl<A: BooleanAlgebra, B: BooleanAlgebra> SymbolicFiniteTransducer<A, B> {
     ///
     /// # Complexity
     ///
-    /// O(|w| · |Q| · |δ|), where |w| is word length.
+    /// $`\mathcal{O}(\lvert w\rvert\lvert Q\rvert\lvert\delta\rvert)`$,
+    /// where $`\lvert w\rvert`$ is the word length.
     pub fn transduce(&self, word: &[A::Domain]) -> Vec<Vec<B::Domain>>
     where
         A::Domain: Clone + Into<B::Domain>,
@@ -376,15 +385,17 @@ where
     A: BooleanAlgebra,
     B: BooleanAlgebra,
 {
-    /// Compose two SFTs: self (A → B) followed by other (B → C).
-    /// Result: A → C via product construction.
+    /// Compose two SFTs: `self` ($`A\to B`$) followed by `other`
+    /// ($`B\to C`$). The result maps $`A\to C`$ via a product
+    /// construction.
     ///
     /// Algorithm (D'Antoni & Veanes §4):
-    /// 1. States = Q₁ × Q₂ product
-    /// 2. For each pair of transitions (t₁ from q₁, t₂ from q₂):
-    ///    - Check if t₁'s output can satisfy t₂'s guard
+    /// 1. States are the $`Q_1\times Q_2`$ product.
+    /// 2. For each pair of transitions ($`t_1`$ from $`q_1`$ and
+    ///    $`t_2`$ from $`q_2`$):
+    ///    - Check whether $`t_1`$'s output can satisfy $`t_2`$'s guard.
     ///    - If so, compose guards and output functions
-    /// 3. Accepting = F₁ × F₂
+    /// 3. Accepting states are $`F_1\times F_2`$.
     ///
     /// For non-identity/non-constant output functions, this performs a
     /// conservative over-approximation using satisfiability checks.
@@ -1020,8 +1031,9 @@ where
     /// each input word produces at most one output word.
     ///
     /// Algorithm (D'Antoni & Veanes §5):
-    /// Build self-product SFT (self × self) over the same input.
-    /// Check if any reachable state pair (q₁, q₂) can produce
+    /// Build the self-product SFT ($`\mathrm{self}\times\mathrm{self}`$)
+    /// over the same input. Check whether any reachable state pair
+    /// $`(q_1,q_2)`$ can produce
     /// different outputs on the same guarded input.
     ///
     /// Conservative approximation: checks for structurally identical
@@ -1056,7 +1068,9 @@ where
     }
 
     /// Equivalence for functional SFTs.
-    /// T₁ ≡ T₂ iff domain(T₁) = domain(T₂) and ∀w: T₁(w) = T₂(w).
+    /// $`T_1\equiv T_2`$ if and only if
+    /// $`\operatorname{domain}(T_1)=\operatorname{domain}(T_2)`$ and
+    /// $`\forall w.\,T_1(w)=T_2(w)`$.
     ///
     /// Both SFTs must be functional; returns `Err(NotFunctional)` otherwise.
     pub fn is_equivalent_functional(&self, other: &Self) -> Result<bool, SftError> {

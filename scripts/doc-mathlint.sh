@@ -3,16 +3,17 @@
 # doc-mathlint.sh — repository-wide MathJax-conformance gate for lling-llang.
 #
 # It runs the fence-aware scanner (scripts/doc-math-prescan.raku) in --lint mode over the
-# complete tracked Markdown corpus by default, and fails if any file carries old-style math:
-# Unicode-literal formulae (backticked or bare), bare undelimited `O(...)` in prose, leaked
-# bare-dollar LaTeX, or a letter abutting a `$ opening delimiter.
+# complete tracked Markdown and Rust API-documentation corpus by default, and fails if any
+# file carries old-style math: Unicode-literal formulae (backticked or bare), bare
+# undelimited `O(...)` in prose, leaked bare-dollar LaTeX, or a letter abutting a `$`
+# opening delimiter.
 #
 # A focused audit may still supply a manifest (one repo-relative path per line, `#` comments
 # allowed) or explicit paths. Historical and append-only documents are not exempt: their
 # observations stay immutable in meaning while their Markdown must follow current syntax.
 #
 # Usage:
-#   scripts/doc-mathlint.sh                        # lint every tracked Markdown file
+#   scripts/doc-mathlint.sh                        # lint tracked Markdown + Rustdoc
 #   scripts/doc-mathlint.sh --manifest FILE
 #   scripts/doc-mathlint.sh docs/api/*.md          # lint an explicit set
 #
@@ -44,7 +45,9 @@ if [[ -n "$manifest" ]]; then
   mapfile -t files < <(grep -vE '^\s*(#|$)' "$manifest")
 elif [[ ${#files[@]} -eq 0 ]]; then
   command -v git >/dev/null 2>&1 || { echo "error: git not found on PATH" >&2; exit 2; }
-  mapfile -d '' -t files < <(git -c core.fsmonitor=false ls-files -z -- '*.md')
+  mapfile -d '' -t files < <(
+    git -c core.fsmonitor=false ls-files -z -- '*.md' '*.rs'
+  )
 fi
 
 # Keep only existing files (a manifest may list a path that was archived/renamed).
@@ -54,7 +57,7 @@ for f in "${files[@]}"; do
 done
 [[ ${#present[@]} -gt 0 ]] || { echo "error: no existing files to lint" >&2; exit 2; }
 
-echo "doc-mathlint: scanning ${#present[@]} Markdown document(s) for MathJax conformance…"
+echo "doc-mathlint: scanning ${#present[@]} documentation source(s) for MathJax conformance…"
 echo "──────────────────────────────────────────────────────────────────────────────"
 
 # Run the fence-aware scanner in lint mode; capture output and status.
@@ -64,7 +67,7 @@ status=$?
 set -e
 
 if [[ $status -eq 0 ]]; then
-  echo "✅ PASS — 0 old-style math constructs across ${#present[@]} Markdown document(s)."
+  echo "✅ PASS — 0 old-style math constructs across ${#present[@]} documentation source(s)."
   echo "         (all inline math is \$\`…\`\$; display math is \`\`\`math; no bare O(...) in prose.)"
   exit 0
 else

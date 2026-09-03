@@ -1,7 +1,8 @@
 //! FFI composition benchmarks (wave W8 / T7).
 //!
 //! Evidence base for the ABI composition path: these measure that
-//! `lling_wfst_compose` construction is O(1) in the inputs (it captures two
+//! `lling_wfst_compose` construction is $`\mathcal{O}(1)`$ in the inputs
+//! (it captures two
 //! snapshots and returns; no product-state expansion happens until the
 //! composed resource is traversed), versus the cost of building and exporting
 //! the operand WFSTs. All WFSTs are built through the public C ABI so the

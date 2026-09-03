@@ -31,7 +31,7 @@
 //! ```
 //!
 //! Where:
-//! - α = max active tokens after pruning
+//! - $`\alpha`$ = maximum active tokens after pruning.
 //! - n_c = maximum number of channels
 //! - n_l = maximum number of lanes
 //!

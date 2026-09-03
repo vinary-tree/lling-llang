@@ -190,7 +190,7 @@ mod verification {
         );
     }
 
-    /// Verify idempotent semiring: a ⊕ a = a
+    /// Verify the idempotent-semiring law $`a\oplus a=a`$.
     pub fn verify_idempotent<S: IdempotentSemiring>(a: S, epsilon: f64) {
         assert!(
             a.plus(&a).approx_eq(&a, epsilon),
@@ -198,7 +198,8 @@ mod verification {
         );
     }
 
-    /// Verify zero-sum-free: a ⊕ b = 0 implies a = b = 0
+    /// Verify the zero-sum-free law:
+    /// $`a\oplus b=\bar{0}\Longrightarrow a=b=\bar{0}`$.
     pub fn verify_zero_sum_free<S: ZeroSumFreeSemiring>(a: S, b: S, epsilon: f64) {
         let sum = a.plus(&b);
         if sum.approx_eq(&S::zero(), epsilon) {
@@ -213,7 +214,7 @@ mod verification {
         }
     }
 
-    /// Verify commutative times: a ⊗ b = b ⊗ a
+    /// Verify commutative multiplication: $`a\otimes b=b\otimes a`$.
     pub fn verify_commutative_times<S: CommutativeTimesSemiring>(a: S, b: S, epsilon: f64) {
         assert!(
             a.times(&b).approx_eq(&b.times(&a), epsilon),
@@ -221,7 +222,7 @@ mod verification {
         );
     }
 
-    /// Verify divisible semiring: (a ⊗ b) ÷ b = a
+    /// Verify division: $`(a\otimes b)/b=a`$.
     pub fn verify_divisible<S: DivisibleSemiring>(a: S, b: S, epsilon: f64) {
         if !b.is_zero() {
             let product = a.times(&b);
@@ -234,7 +235,7 @@ mod verification {
         }
     }
 
-    /// Verify star semiring: a* = 1 ⊕ (a ⊗ a*)
+    /// Verify the star law $`a^*=\bar{1}\oplus(a\otimes a^*)`$.
     pub fn verify_star<S: StarSemiring>(a: S, epsilon: f64) {
         if let Some(star_a) = a.star() {
             let expected = S::one().plus(&a.times(&star_a));
@@ -245,7 +246,8 @@ mod verification {
         }
     }
 
-    /// Verify weakly left divisible: left_divide(a, d) ⊗ d = a
+    /// Verify weak left divisibility:
+    /// $`\operatorname{left\_divide}(a,d)\otimes d=a`$.
     pub fn verify_weakly_left_divisible<S: WeaklyLeftDivisibleSemiring>(
         a: S,
         divisor: S,

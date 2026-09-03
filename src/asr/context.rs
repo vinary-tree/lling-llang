@@ -6,21 +6,22 @@
 //! ## Triphone Construction
 //!
 //! A triphone stores one phone of left-context history and emits labels that
-//! encode `(left-context, center-phone)`. For n phones:
-//! - States: O(n) - representing the empty context plus one-phone histories
-//! - Arcs: O(n²) - one arc per state and next phone
+//! encode `(left-context, center-phone)`. For $`n`$ phones:
+//! - States: $`\mathcal{O}(n)`$, representing the empty context plus
+//!   one-phone histories.
+//! - Arcs: $`\mathcal{O}(n^2)`$, one arc per state and next phone.
 //!
 //! ## Tetraphone Construction
 //!
-//! A tetraphone stores two phones of left-context history. For n phones:
-//! - States: O(n²) - representing histories up to length two
-//! - Arcs: O(n³) - one arc per state and next phone
+//! A tetraphone stores two phones of left-context history. For $`n`$ phones:
+//! - States: $`\mathcal{O}(n^2)`$, representing histories up to length two.
+//! - Arcs: $`\mathcal{O}(n^3)`$, one arc per state and next phone.
 //!
 //! ## Deterministic vs Non-deterministic
 //!
 //! - **Non-deterministic**: Center phone as input label (simpler construction)
 //! - **Deterministic**: Right phone as input label (no matching delay)
-//!   - Requires final subsequential symbol ($) to pad context
+//!   - Requires the final subsequential symbol `$` to pad context.
 //!
 //! ## References
 //!
@@ -950,8 +951,8 @@ impl<W: Semiring> TriphoneBuilder<W> {
     ///
     /// # Complexity
     ///
-    /// - States: O(n) for n phones
-    /// - Arcs: O(n²) for n phones
+    /// - States: $`\mathcal{O}(n)`$ for $`n`$ phones.
+    /// - Arcs: $`\mathcal{O}(n^2)`$ for $`n`$ phones.
     pub fn build(&self) -> VectorWfst<PhoneId, W> {
         self.inner.build()
     }
@@ -1023,8 +1024,8 @@ impl<W: Semiring> TetraploneBuilder<W> {
     ///
     /// # Complexity
     ///
-    /// - States: O(n²) for n phones
-    /// - Arcs: O(n³) for n phones
+    /// - States: $`\mathcal{O}(n^2)`$ for $`n`$ phones.
+    /// - Arcs: $`\mathcal{O}(n^3)`$ for $`n`$ phones.
     pub fn build(&self) -> VectorWfst<PhoneId, W> {
         self.inner.build()
     }

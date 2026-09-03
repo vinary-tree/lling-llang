@@ -9,7 +9,7 @@
 //! |--------------|-------------|---------|
 //! | Log-Semiring Pushing | Stochastic normalization for beam search | Up to 18× |
 //! | Token Grouping | Lazy evaluation for on-the-fly composition | 10-20× fewer ops |
-//! | N-gram Back-off | Compact LM representation | Avoids O(|V|²) |
+//! | N-gram Back-off | Compact LM representation | Avoids $`\mathcal{O}(\lvert V\rvert^2)`$ |
 //!
 //! ## Log-Semiring Weight Pushing
 //!
@@ -38,9 +38,10 @@
 //!
 //! ## N-gram Back-off Structure
 //!
-//! For large vocabulary language models, directly representing all n-grams creates
-//! O(|V|²) transitions. Using back-off states with ε-transitions to lower-order
-//! n-grams keeps the graph compact while preserving the language model distribution.
+//! For large-vocabulary language models, directly representing all n-grams creates
+//! $`\mathcal{O}(\lvert V\rvert^2)`$ transitions. Using back-off states with
+//! $`\varepsilon`$-transitions to lower-order n-grams keeps the graph compact while
+//! preserving the language-model distribution.
 
 pub mod log_push;
 pub mod lookahead;

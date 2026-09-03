@@ -3,8 +3,10 @@
 //! The choice of queue discipline significantly impacts the efficiency of
 //! shortest-distance computation:
 //!
-//! - **TopologicalQueue**: Best for acyclic graphs, O(|Q| + |E|)
-//! - **ShortestFirstQueue**: Best for tropical semiring (Dijkstra), O(|E| + |Q| log |Q|)
+//! - **TopologicalQueue**: best for acyclic graphs;
+//!   $`\mathcal{O}(\lvert Q\rvert+\lvert E\rvert)`$.
+//! - **ShortestFirstQueue**: best for the tropical semiring (Dijkstra);
+//!   $`\mathcal{O}(\lvert E\rvert+\lvert Q\rvert\log\lvert Q\rvert)`$.
 //! - **FifoQueue**: General-purpose for k-closed semirings
 //!
 //! # Theory
@@ -132,10 +134,11 @@ pub trait ShortestDistanceQueue<W: Semiring> {
 ///
 /// # Complexity
 ///
-/// - Insert: O(1)
-/// - Pop: O(1) amortized
-/// - Update: O(1)
-/// - Overall shortest-distance: O(C · |E|) where C is path length bound
+/// - Insert: $`\mathcal{O}(1)`$.
+/// - Pop: amortized $`\mathcal{O}(1)`$.
+/// - Update: $`\mathcal{O}(1)`$.
+/// - Overall shortest distance:
+///   $`\mathcal{O}(C\lvert E\rvert)`$, where $`C`$ bounds path length.
 #[derive(Clone, Debug)]
 pub struct FifoQueue {
     queue: VecDeque<StateId>,
@@ -249,9 +252,10 @@ impl<W: Semiring> ShortestDistanceQueue<W> for FifoQueue {
 ///
 /// # Complexity
 ///
-/// - Insert: O(1)
-/// - Pop: O(1)
-/// - Overall shortest-distance: O(|Q| + |E|)
+/// - Insert: $`\mathcal{O}(1)`$.
+/// - Pop: $`\mathcal{O}(1)`$.
+/// - Overall shortest distance:
+///   $`\mathcal{O}(\lvert Q\rvert+\lvert E\rvert)`$.
 #[derive(Clone, Debug)]
 pub struct TopologicalQueue {
     /// States indexed by topological order
@@ -450,9 +454,10 @@ impl<W: Semiring> Ord for ShortestFirstEntry<W> {
 ///
 /// # Complexity
 ///
-/// - Insert: O(log |Q|)
-/// - Pop: O(log |Q|)
-/// - Overall shortest-distance: O(|E| + |Q| log |Q|)
+/// - Insert: $`\mathcal{O}(\log\lvert Q\rvert)`$.
+/// - Pop: $`\mathcal{O}(\log\lvert Q\rvert)`$.
+/// - Overall shortest distance:
+///   $`\mathcal{O}(\lvert E\rvert+\lvert Q\rvert\log\lvert Q\rvert)`$.
 ///
 /// [`NonnegativeSemiring`]: crate::semiring::NonnegativeSemiring
 #[derive(Clone, Debug)]

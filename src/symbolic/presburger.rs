@@ -11,18 +11,22 @@
 //!
 //! ## Approach: Remainder-Based NFA Construction (Bartzis-Bultan)
 //!
-//! For an atomic constraint `a₁x₁ + a₂x₂ + ... + aₖxₖ ≤ b` over k variables:
+//! For an atomic constraint
+//! $`a_1x_1+a_2x_2+\cdots+a_kx_k \le b`$ over $`k`$ variables:
 //!
-//! 1. **Alphabet**: `{0,1}^k` — one bit per variable per position, read LSB-first.
-//!    Each symbol is a `u32` bitmask with bit `i` representing variable `xᵢ`.
+//! 1. **Alphabet**: $`\{0,1\}^k`$ — one bit per variable per position, read
+//!    least-significant bit (LSB) first. Each symbol is a `u32` bitmask with
+//!    bit $`i`$ representing variable $`x_i`$.
 //!
-//! 2. **States**: remainder values tracking `r = floor((b - S_j) / 2^j)` where
-//!    `S_j` is the partial sum from the first `j` bit positions.
-//!    - Initial remainder: `r₀ = b`
-//!    - At position `j`, reading bits `(d₁, ..., dₖ)`:
-//!      - ordinary low bit: `r' = floor((r - Σᵢ aᵢ · dᵢ) / 2)`
-//!      - final two's-complement sign bit: `r' = r + Σᵢ aᵢ · dᵢ`
-//!    - After `w` bits: accept iff `r ≥ 0`
+//! 2. **States**: remainder values tracking
+//!    $`r=\left\lfloor(b-S_j)/2^j\right\rfloor`$, where $`S_j`$ is
+//!    the partial sum from the first $`j`$ bit positions.
+//!    - Initial remainder: $`r_0=b`$
+//!    - At position $`j`$, reading bits $`(d_1,\ldots,d_k)`$:
+//!      - ordinary low bit:
+//!        $`r'=\left\lfloor(r-\sum_i a_i d_i)/2\right\rfloor`$
+//!      - final two's-complement sign bit: $`r'=r+\sum_i a_i d_i`$
+//!    - After $`w`$ bits: accept if and only if $`r\ge 0`$.
 //!
 //! 3. **Remainder bound**: reachable remainders are bounded by the coefficients,
 //!    so the state space is finite and typically small.
@@ -31,8 +35,9 @@
 //!    complement (depth-tracked determinization + terminal-state flip), existential
 //!    projection (drop one bit dimension, merge transitions).
 //!
-//! 5. **Negation**: handled algebraically via NNF conversion. `NOT(Σ aᵢxᵢ ≤ b)`
-//!    becomes `Σ (-aᵢ)xᵢ ≤ -(b+1)`. De Morgan's laws push negation inward.
+//! 5. **Negation**: handled algebraically via negation normal form (NNF)
+//!    conversion. $`\operatorname{NOT}(\sum_i a_i x_i\le b)`$ becomes
+//!    $`\sum_i(-a_i)x_i\le -(b+1)`$. De Morgan's laws push negation inward.
 //!    Complement construction is only needed for `NOT(EXISTS ...)` (FORALL).
 //!
 //! ## References
@@ -65,11 +70,12 @@ use super::BooleanAlgebra;
 /// Default bit width for bounded integer representations.
 ///
 /// Integers are represented in `BIT_WIDTH`-bit two's complement, giving a range
-/// of `[-2^(BIT_WIDTH-1), 2^(BIT_WIDTH-1) - 1]`. 16 bits covers `[-32768, 32767]`,
-/// sufficient for most grammar-level analysis while keeping NFA construction fast.
+/// of $`[-2^{\mathtt{BIT\_WIDTH}-1},2^{\mathtt{BIT\_WIDTH}-1}-1]`$.
+/// Sixteen bits covers $`[-32768,32767]`$, sufficient for most grammar-level
+/// analysis while keeping NFA construction fast.
 pub const DEFAULT_BIT_WIDTH: usize = 16;
 
-/// An atomic linear inequality: `Σ aᵢ·xᵢ ≤ b`.
+/// An atomic linear inequality: $`\sum_i a_i x_i\le b`$.
 ///
 /// Each term `(var_index, coefficient)` pairs a variable index with its integer
 /// coefficient. Variable indices are 0-based and must be consistent across all
@@ -77,8 +83,10 @@ pub const DEFAULT_BIT_WIDTH: usize = 16;
 ///
 /// # Examples
 ///
-/// - `x₀ + x₁ ≤ 5` → `LinearConstraint { terms: vec![(0, 1), (1, 1)], rhs: 5 }`
-/// - `2x₀ - 3x₁ ≤ -1` → `LinearConstraint { terms: vec![(0, 2), (1, -3)], rhs: -1 }`
+/// - $`x_0+x_1\le 5`$ maps to
+///   `LinearConstraint { terms: vec![(0, 1), (1, 1)], rhs: 5 }`.
+/// - $`2x_0-3x_1\le -1`$ maps to
+///   `LinearConstraint { terms: vec![(0, 2), (1, -3)], rhs: -1 }`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LinearConstraint {
     /// Coefficient terms: `(variable_index, coefficient)`.
@@ -88,7 +96,7 @@ pub struct LinearConstraint {
 }
 
 impl LinearConstraint {
-    /// Create a new linear constraint `Σ aᵢ·xᵢ ≤ b`.
+    /// Create a new linear constraint $`\sum_i a_i x_i\le b`$.
     pub fn new(terms: Vec<(usize, i64)>, rhs: i64) -> Self {
         LinearConstraint { terms, rhs }
     }
@@ -100,7 +108,8 @@ impl LinearConstraint {
 
     /// Evaluate this constraint on a concrete assignment.
     ///
-    /// Returns `true` iff `Σ aᵢ·assignment[xᵢ] ≤ b`.
+    /// Returns `true` if and only if
+    /// $`\sum_i a_i\,\operatorname{assignment}[x_i]\le b`$.
     pub fn evaluate(&self, assignment: &IntAssignment) -> bool {
         let sum: i64 = self
             .terms
@@ -112,10 +121,11 @@ impl LinearConstraint {
 
     // ── Normal form conversions ─────────────────────────────────────────
 
-    /// Convert `Σ aᵢ·xᵢ > b` to normal form: `-(Σ aᵢ·xᵢ) ≤ -(b+1)`,
-    /// i.e., `Σ (-aᵢ)·xᵢ ≤ -(b+1)`.
+    /// Convert $`\sum_i a_i x_i>b`$ to normal form
+    /// $`-(\sum_i a_i x_i)\le -(b+1)`$, equivalently
+    /// $`\sum_i(-a_i)x_i\le -(b+1)`$.
     ///
-    /// `a > b` ↔ `-(a) ≤ -(b+1)` ↔ `-(a) ≤ -b - 1`
+    /// $`a>b\Longleftrightarrow-a\le-(b+1)\Longleftrightarrow-a\le-b-1`$
     pub fn from_gt(terms: Vec<(usize, i64)>, rhs: i64) -> Self {
         let negated_terms: Vec<(usize, i64)> = terms.into_iter().map(|(v, c)| (v, -c)).collect();
         LinearConstraint {
@@ -124,9 +134,10 @@ impl LinearConstraint {
         }
     }
 
-    /// Convert `Σ aᵢ·xᵢ ≥ b` to normal form: `Σ (-aᵢ)·xᵢ ≤ -b`.
+    /// Convert $`\sum_i a_i x_i\ge b`$ to normal form
+    /// $`\sum_i(-a_i)x_i\le -b`$.
     ///
-    /// `a ≥ b` ↔ `-(a) ≤ -(b)` ↔ `Σ (-aᵢ)·xᵢ ≤ -b`
+    /// $`a\ge b\Longleftrightarrow-a\le-b\Longleftrightarrow\sum_i(-a_i)x_i\le-b`$
     pub fn from_gte(terms: Vec<(usize, i64)>, rhs: i64) -> Self {
         let negated_terms: Vec<(usize, i64)> = terms.into_iter().map(|(v, c)| (v, -c)).collect();
         LinearConstraint {
@@ -135,9 +146,10 @@ impl LinearConstraint {
         }
     }
 
-    /// Convert `Σ aᵢ·xᵢ < b` to normal form: `Σ aᵢ·xᵢ ≤ b - 1`.
+    /// Convert $`\sum_i a_i x_i<b`$ to normal form
+    /// $`\sum_i a_i x_i\le b-1`$.
     ///
-    /// `a < b` ↔ `a ≤ b - 1` (for integers)
+    /// $`a<b \Longleftrightarrow a\le b-1`$ for integers.
     pub fn from_lt(terms: Vec<(usize, i64)>, rhs: i64) -> Self {
         LinearConstraint {
             terms,
@@ -145,9 +157,10 @@ impl LinearConstraint {
         }
     }
 
-    /// Convert `Σ aᵢ·xᵢ = b` to a conjunction of two ≤ constraints.
+    /// Convert $`\sum_i a_i x_i=b`$ to a conjunction of two
+    /// $`\le`$ constraints.
     ///
-    /// `a = b` ↔ `a ≤ b ∧ a ≥ b` ↔ `a ≤ b ∧ -a ≤ -b`
+    /// $`a=b\Longleftrightarrow(a\le b\land a\ge b)\Longleftrightarrow(a\le b\land-a\le-b)`$
     pub fn from_eq(terms: Vec<(usize, i64)>, rhs: i64) -> (Self, Self) {
         let leq = LinearConstraint {
             terms: terms.clone(),
@@ -157,9 +170,10 @@ impl LinearConstraint {
         (leq, geq)
     }
 
-    /// Convert `Σ aᵢ·xᵢ ≠ b` to a disjunction of two ≤ constraints.
+    /// Convert $`\sum_i a_i x_i\ne b`$ to a disjunction of two
+    /// $`\le`$ constraints.
     ///
-    /// `a ≠ b` ↔ `a < b ∨ a > b` ↔ `a ≤ b-1 ∨ -a ≤ -b-1`
+    /// $`a\ne b\Longleftrightarrow(a<b\lor a>b)\Longleftrightarrow(a\le b-1\lor-a\le-b-1)`$
     pub fn from_neq(terms: Vec<(usize, i64)>, rhs: i64) -> (Self, Self) {
         let lt = LinearConstraint::from_lt(terms.clone(), rhs);
         let gt = LinearConstraint::from_gt(terms, rhs);
@@ -202,15 +216,15 @@ pub enum PresburgerPred {
     True,
     /// Always false.
     False,
-    /// Atomic constraint: `Σ aᵢ·xᵢ ≤ b`.
+    /// Atomic constraint: $`\sum_i a_i x_i\le b`$.
     Atom(LinearConstraint),
-    /// Conjunction: `φ ∧ ψ`.
+    /// Conjunction: $`\varphi\land\psi`$.
     And(Box<PresburgerPred>, Box<PresburgerPred>),
-    /// Disjunction: `φ ∨ ψ`.
+    /// Disjunction: $`\varphi\lor\psi`$.
     Or(Box<PresburgerPred>, Box<PresburgerPred>),
-    /// Negation: `¬φ`.
+    /// Negation: $`\lnot\varphi`$.
     Not(Box<PresburgerPred>),
-    /// Existential quantification: `∃ xᵥ. φ`.
+    /// Existential quantification: $`\exists x_v.\,\varphi`$.
     ///
     /// Implemented via NFA projection (drop the bit dimension for variable `var`).
     Exists {
@@ -220,27 +234,28 @@ pub enum PresburgerPred {
 }
 
 impl PresburgerPred {
-    /// Convenience: `a ≤ b` atom.
+    /// Convenience: an $`a\le b`$ atom.
     pub fn leq(terms: Vec<(usize, i64)>, rhs: i64) -> Self {
         PresburgerPred::Atom(LinearConstraint::new(terms, rhs))
     }
 
-    /// Convenience: `a ≥ b` atom (normalized to ≤ form).
+    /// Convenience: an $`a\ge b`$ atom, normalized to $`\le`$ form.
     pub fn geq(terms: Vec<(usize, i64)>, rhs: i64) -> Self {
         PresburgerPred::Atom(LinearConstraint::from_gte(terms, rhs))
     }
 
-    /// Convenience: `a < b` atom (normalized to ≤ form).
+    /// Convenience: an $`a<b`$ atom, normalized to $`\le`$ form.
     pub fn lt(terms: Vec<(usize, i64)>, rhs: i64) -> Self {
         PresburgerPred::Atom(LinearConstraint::from_lt(terms, rhs))
     }
 
-    /// Convenience: `a > b` atom (normalized to ≤ form).
+    /// Convenience: an $`a>b`$ atom, normalized to $`\le`$ form.
     pub fn gt(terms: Vec<(usize, i64)>, rhs: i64) -> Self {
         PresburgerPred::Atom(LinearConstraint::from_gt(terms, rhs))
     }
 
-    /// Convenience: `a = b` (conjunction of ≤ and ≥).
+    /// Convenience: $`a=b`$ as a conjunction of $`\le`$ and
+    /// $`\ge`$.
     pub fn eq(terms: Vec<(usize, i64)>, rhs: i64) -> Self {
         let (leq, geq) = LinearConstraint::from_eq(terms, rhs);
         PresburgerPred::And(
@@ -249,7 +264,7 @@ impl PresburgerPred {
         )
     }
 
-    /// Convenience: `a ≠ b` (disjunction of < and >).
+    /// Convenience: $`a\ne b`$ as a disjunction of $`<`$ and $`>`$.
     pub fn neq(terms: Vec<(usize, i64)>, rhs: i64) -> Self {
         let (lt, gt) = LinearConstraint::from_neq(terms, rhs);
         PresburgerPred::Or(
@@ -689,7 +704,8 @@ pub fn evaluate_presburger(
 // Presburger NFA — Sprint 5 (Büchi's automata-theoretic construction)
 // ══════════════════════════════════════════════════════════════════════════════
 
-/// An NFA over the alphabet `{0,1}^k` for Presburger arithmetic decision.
+/// An NFA over the alphabet $`\{0,1\}^k`$ for Presburger arithmetic
+/// decision.
 ///
 /// States are indexed by `usize`. The NFA reads one bit per variable per step,
 /// processing integers LSB-first. After `bit_width` steps, the NFA accepts iff
@@ -698,8 +714,9 @@ pub fn evaluate_presburger(
 /// Push negation inward to obtain Negation Normal Form (NNF).
 ///
 /// In NNF, `Not` only appears directly on atoms. For Presburger arithmetic,
-/// negating an atom `Σ aᵢxᵢ ≤ b` yields `Σ aᵢxᵢ > b`, which normalizes to
-/// `Σ (-aᵢ)xᵢ ≤ -(b+1)`.
+/// negating an atom $`\sum_i a_i x_i\le b`$ yields
+/// $`\sum_i a_i x_i>b`$, which normalizes to
+/// $`\sum_i(-a_i)x_i\le -(b+1)`$.
 ///
 /// De Morgan's laws are applied recursively:
 /// - `NOT(A AND B)` → `NOT(A) OR NOT(B)`
@@ -708,8 +725,10 @@ pub fn evaluate_presburger(
 /// - `NOT(TRUE)` → `FALSE`
 /// - `NOT(FALSE)` → `TRUE`
 /// - `NOT(EXISTS x. A)` → `FORALL x. NOT(A)` — but we don't have FORALL,
-///   so we handle this by noting: `NOT(EXISTS x. A) ≡ FORALL x. NOT(A)`.
-///   For bounded integers, `FORALL x ∈ D. P(x) ≡ NOT(EXISTS x ∈ D. NOT(P(x)))`.
+///   so we use the equivalence
+///   $`\operatorname{NOT}(\exists x.\,A)\equiv\forall x.\,\operatorname{NOT}(A)`$.
+///   For bounded integers,
+///   $`\forall x\in D.\,P(x)\equiv\operatorname{NOT}(\exists x\in D.\,\operatorname{NOT}(P(x)))`$.
 ///   So `NOT(EXISTS x. A)` becomes `NOT(EXISTS x. A)` — we keep it as-is
 ///   and handle it in the NFA compilation by complementing the projection.
 ///   Actually: for the NFA approach, `NOT(EXISTS x. A)` is handled by
@@ -807,7 +826,7 @@ fn normalize_with_polarity(pred: &PresburgerPred, negated: bool) -> PresburgerPr
 /// # Representation
 ///
 /// Each alphabet symbol is a `u32` bitmask encoding `k` bits, one per variable.
-/// Bit `i` of the symbol is the current bit of variable `xᵢ`.
+/// Bit $`i`$ of the symbol is the current bit of variable $`x_i`$.
 #[derive(Clone, Debug)]
 pub struct PresburgerNfa {
     /// Number of states (states are indexed `0..num_states`).
@@ -827,16 +846,19 @@ pub struct PresburgerNfa {
 impl PresburgerNfa {
     /// Compile an atomic `LinearConstraint` into an NFA (Büchi/Bartzis-Bultan construction).
     ///
-    /// For `Σ aᵢxᵢ ≤ b` with `k` variables and bit width `w`:
+    /// For $`\sum_i a_i x_i\le b`$ with $`k`$ variables and bit width
+    /// $`w`$:
     ///
     /// Uses the remainder-based construction (Bartzis & Bultan 2003):
-    /// - States represent the "remainder" `r = floor((b - Σ aᵢ·low_j(xᵢ)) / 2^j)`.
-    /// - Initial remainder: `r₀ = b`
-    /// - At an ordinary low-bit position `j`, reading bits `(d₁,...,dₖ)`:
-    ///   - `r' = floor((r - Σᵢ aᵢ·dᵢ) / 2)`
+    /// - States represent the remainder
+    ///   $`r=\left\lfloor(b-\sum_i a_i\operatorname{low}_j(x_i))/2^j\right\rfloor`$.
+    /// - Initial remainder: $`r_0=b`$
+    /// - At an ordinary low-bit position $`j`$, reading bits
+    ///   $`(d_1,\ldots,d_k)`$:
+    ///   - $`r'=\left\lfloor(r-\sum_i a_i d_i)/2\right\rfloor`$
     /// - At the final two's-complement sign bit:
-    ///   - `r' = r + Σᵢ aᵢ·dᵢ`
-    /// - After `w` positions, accept iff `r ≥ 0`.
+    ///   - $`r'=r+\sum_i a_i d_i`$
+    /// - After $`w`$ positions, accept if and only if $`r\ge 0`$.
     ///
     /// The construction unfolds the remainder automaton for exactly `w` time steps,
     /// creating at most `w * |reachable_remainders|` states.
@@ -1220,7 +1242,7 @@ impl PresburgerNfa {
     /// Decode a BFS path into an integer assignment.
     ///
     /// The path encodes bits LSB-first. Each symbol is a `u32` bitmask with
-    /// bit `i` being the bit of variable `xᵢ` at that position.
+    /// bit $`i`$ being the bit of variable $`x_i`$ at that position.
     fn decode_path(&self, parent: &HashMap<usize, (usize, u32)>, end: usize) -> IntAssignment {
         let sentinel = usize::MAX;
 

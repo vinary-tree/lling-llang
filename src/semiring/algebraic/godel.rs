@@ -1,10 +1,10 @@
 //! Gödel fuzzy logic semiring for soft constraint satisfaction.
 //!
-//! The Gödel semiring ([0,1], max, min, 0, 1) is used in fuzzy logic and
+//! The Gödel semiring $`([0,1],\max,\min,0,1)`$ is used in fuzzy logic and
 //! soft constraint satisfaction problems:
 //!
-//! - **⊕ = max**: Selects the best (maximum) of parallel fuzzy memberships
-//! - **⊗ = min**: Computes conjunction (AND) of fuzzy memberships
+//! - **$`\oplus=\max`$**: selects the best (maximum) parallel fuzzy membership.
+//! - **$`\otimes=\min`$**: computes conjunction (AND) of fuzzy memberships.
 //! - **0̄ = 0**: Represents complete non-membership (false)
 //! - **1̄ = 1**: Represents complete membership (true)
 //!
@@ -238,7 +238,7 @@ impl NumericalWeight for GodelWeight {
 impl std::ops::Add for GodelWeight {
     type Output = Self;
 
-    /// Operator `+` implements semiring ⊕ (max).
+    /// Operator `+` implements semiring $`\oplus`$ (maximum).
     #[inline]
     fn add(self, other: Self) -> Self {
         self.plus(&other)
@@ -248,7 +248,7 @@ impl std::ops::Add for GodelWeight {
 impl std::ops::Mul for GodelWeight {
     type Output = Self;
 
-    /// Operator `*` implements semiring ⊗ (min).
+    /// Operator `*` implements semiring $`\otimes`$ (minimum).
     #[inline]
     fn mul(self, other: Self) -> Self {
         self.times(&other)

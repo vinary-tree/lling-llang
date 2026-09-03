@@ -488,7 +488,8 @@ mod tests {
                 }
             }
 
-            /// Determinize is idempotent: det(det(F)) ≈ det(F).
+            /// Determinization is idempotent:
+            /// $`\det(\det(F))\approx\det(F)`$.
             #[test]
             fn determinize_idempotent(
                 fst in arb_deterministic_wfst_tropical(6, 2)

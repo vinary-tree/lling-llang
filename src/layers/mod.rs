@@ -10,7 +10,7 @@
 //! - [`rescoring`]: edge-weight rescoring (language models, phonetic).
 //! - [`syntactic`]: syntactic / semantic typing layers (POS tagging,
 //!   MeTTaIL types).
-//! - [`code_correction`] / [`latex`] / [`mathml`]: domain-specific structured
+//! - `code_correction` / `latex` / `mathml`: domain-specific structured
 //!   layers, each feature-gated.
 //!
 //! All concrete layer types are re-exported from this module for back-compat.
@@ -32,7 +32,7 @@
 //! | `LanguageModelLayer` | `lm-rerank` | LM-based reranking |
 //! | `PhoneticRescoreLayer` | `phonetic-rescore` | Phonetic similarity rescoring |
 //! | `MeTTaILTypeLayer` | `f1r3fly` | MeTTaIL semantic type filtering |
-//! | [`CodeCorrectionLayer`] | `code-correction` | Pattern-aware code syntax recovery |
+//! | `CodeCorrectionLayer` | `code-correction` | Pattern-aware code syntax recovery |
 
 pub mod filtering;
 pub mod rescoring;

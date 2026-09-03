@@ -7,9 +7,12 @@
 //!
 //! # Operations
 //!
-//! - **Union (T₁ ⊕ T₂)**: Accepts strings from either T₁ or T₂
-//! - **Concatenation (T₁ ⊗ T₂)**: Accepts strings from T₁ followed by T₂
-//! - **Kleene Closure (T*)**: Zero or more repetitions of T
+//! - **Union ($`T_1\oplus T_2`$)**: accepts strings from either $`T_1`$ or
+//!   $`T_2`$.
+//! - **Concatenation ($`T_1\otimes T_2`$)**: accepts strings from $`T_1`$
+//!   followed by strings from $`T_2`$.
+//! - **Kleene closure ($`T^*`$)**: accepts zero or more repetitions of
+//!   $`T`$.
 //!
 //! # Example
 //!
@@ -66,12 +69,12 @@ use super::vector::{VectorWfst, VectorWfstBuilder};
 ///
 /// State ID layout for Union:
 /// - State 0: Super-start state
-/// - States 1..=n1: States from T₁ (offset by 1)
-/// - States n1+1..=n1+n2: States from T₂ (offset by n1+1)
+/// - States `1..=n1`: states from $`T_1`$ (offset by one).
+/// - States `n1+1..=n1+n2`: states from $`T_2`$ (offset by $`n_1+1`$).
 ///
 /// State ID layout for Concat:
-/// - States 0..n1: States from T₁
-/// - States n1..n1+n2: States from T₂ (offset by n1)
+/// - States `0..n1`: states from $`T_1`$.
+/// - States `n1..n1+n2`: states from $`T_2`$ (offset by $`n_1`$).
 ///
 /// State ID layout for Closure:
 /// - State 0: Super-start state (also final)
@@ -89,10 +92,11 @@ fn add_offset(state: StateId, offset: usize) -> Option<StateId> {
 
 /// Lazy union of two WFSTs.
 ///
-/// Creates a new start state with ε-transitions to both input FSTs.
-/// Accepts strings from either T₁ or T₂.
+/// Creates a new start state with $`\varepsilon`$-transitions to both input
+/// FSTs. Accepts strings from either $`T_1`$ or $`T_2`$.
 ///
-/// Complexity: O(|T₁| + |T₂|) - states computed on demand.
+/// Complexity: $`\mathcal{O}(\lvert T_1\rvert+\lvert T_2\rvert)`$;
+/// states are computed on demand.
 #[derive(Clone)]
 pub struct UnionSource<L, W, T1, T2>
 where
@@ -297,7 +301,7 @@ pub type UnionWfst<L, W, T1, T2> = LazyWfstWrapper<UnionSource<L, W, T1, T2>, L,
 ///
 /// # Returns
 ///
-/// A lazy WFST representing T₁ ⊕ T₂
+/// A lazy WFST representing $`T_1\oplus T_2`$.
 pub fn union<L, W, T1, T2>(fst1: &T1, fst2: &T2) -> UnionWfst<L, W, T1, T2>
 where
     W: Semiring,
@@ -315,10 +319,13 @@ where
 
 /// Lazy concatenation of two WFSTs.
 ///
-/// Creates ε-transitions from T₁ final states to T₂ start state.
-/// Accepts strings from T₁ followed by strings from T₂.
+/// Creates $`\varepsilon`$-transitions from final states of $`T_1`$ to
+/// the start state of $`T_2`$. Accepts strings from $`T_1`$ followed by
+/// strings from $`T_2`$.
 ///
-/// Complexity: O(|T₁| + |T₂| + |F₁||I₂|) - states computed on demand.
+/// Complexity:
+/// $`\mathcal{O}(\lvert T_1\rvert+\lvert T_2\rvert+\lvert F_1\rvert\lvert I_2\rvert)`$;
+/// states are computed on demand.
 #[derive(Clone)]
 pub struct ConcatSource<L, W, T1, T2>
 where
@@ -525,7 +532,7 @@ pub type ConcatWfst<L, W, T1, T2> = LazyWfstWrapper<ConcatSource<L, W, T1, T2>, 
 ///
 /// # Returns
 ///
-/// A lazy WFST representing T₁ ⊗ T₂
+/// A lazy WFST representing $`T_1\otimes T_2`$.
 pub fn concat<L, W, T1, T2>(fst1: &T1, fst2: &T2) -> ConcatWfst<L, W, T1, T2>
 where
     W: Semiring,
@@ -543,11 +550,13 @@ where
 
 /// Lazy Kleene closure of a WFST.
 ///
-/// Creates a new start state (also final) with ε-transition to T start,
-/// and ε-transitions from T final states back to T start.
-/// Accepts zero or more repetitions of strings from T.
+/// Creates a new start state (also final) with an $`\varepsilon`$-transition
+/// to the start of $`T`$, and $`\varepsilon`$-transitions from final
+/// states of $`T`$ back to its start. Accepts zero or more repetitions of
+/// strings from $`T`$.
 ///
-/// Complexity: O(|T|) - states computed on demand.
+/// Complexity: $`\mathcal{O}(\lvert T\rvert)`$; states are computed on
+/// demand.
 #[derive(Clone)]
 pub struct ClosureSource<L, W, T>
 where
@@ -689,7 +698,7 @@ pub type ClosureWfst<L, W, T> = LazyWfstWrapper<ClosureSource<L, W, T>, L, W>;
 ///
 /// # Returns
 ///
-/// A lazy WFST representing T*
+/// A lazy WFST representing $`T^*`$.
 pub fn closure<L, W, T>(fst: &T) -> ClosureWfst<L, W, T>
 where
     W: Semiring,
@@ -700,9 +709,9 @@ where
     LazyWfstWrapper::new(source)
 }
 
-/// Create a lazy Kleene plus (T⁺) of a WFST.
+/// Create a lazy Kleene plus ($`T^+`$) of a WFST.
 ///
-/// Equivalent to T ⊗ T* - accepts one or more repetitions.
+/// Equivalent to $`T\otimes T^*`$; accepts one or more repetitions.
 ///
 /// This is implemented as concatenation of T with closure of T.
 pub fn closure_plus<L, W, T>(fst: &T) -> ConcatWfst<L, W, T, ClosureWfst<L, W, T>>
@@ -1228,7 +1237,8 @@ mod tests {
         use proptest::prelude::*;
 
         proptest! {
-            /// Union should have correct state count: 1 + |T₁| + |T₂|.
+            /// Union should have state count
+            /// $`1+\lvert T_1\rvert+\lvert T_2\rvert`$.
             #[test]
             fn union_state_count(
                 fst1 in arb_tropical_wfst(5, 2),
@@ -1254,7 +1264,8 @@ mod tests {
                 }
             }
 
-            /// Concatenation should have state count: |T₁| + |T₂|.
+            /// Concatenation should have state count
+            /// $`\lvert T_1\rvert+\lvert T_2\rvert`$.
             #[test]
             fn concat_state_count(
                 fst1 in arb_tropical_wfst(5, 2),

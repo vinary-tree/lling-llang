@@ -1,11 +1,13 @@
 //! Set semiring for ambiguity tracking and feature propagation.
 //!
-//! The set semiring (2^T, ∪, ∩, ∅, U) operates on finite sets with:
+//! The set semiring $`(2^T,\cup,\cap,\emptyset,U)`$ operates on finite
+//! sets with:
 //!
-//! - **⊕ = ∪**: Set union for combining alternatives from parallel paths
-//! - **⊗ = ∩**: Set intersection for combining features from sequential transitions
-//! - **0̄ = ∅**: Empty set (annihilator for intersection)
-//! - **1̄ = U**: Universe marker (identity for intersection)
+//! - **$`\oplus=\cup`$**: set union for combining alternatives from parallel paths.
+//! - **$`\otimes=\cap`$**: set intersection for combining features from sequential
+//!   transitions.
+//! - **$`\bar{0}=\emptyset`$**: the empty set, which annihilates intersection.
+//! - **$`\bar{1}=U`$**: the universe marker, which is the identity for intersection.
 //!
 //! # Use Cases
 //!
@@ -17,12 +19,13 @@
 //!
 //! Since representing the actual universal set is impractical, we use a special
 //! "universe" flag. When the universe flag is set:
-//! - `universe ∩ A = A` (identity for intersection)
-//! - `universe ∪ A = universe` (universe absorbs everything)
+//! - $`U\cap A=A`$ (identity for intersection).
+//! - $`U\cup A=U`$ (the universe absorbs everything).
 //!
 //! # Note on Semiring Trait
 //!
-//! `SetWeight` does NOT implement the [`Semiring`] trait because the trait requires
+//! `SetWeight` does NOT implement the
+//! [`Semiring`](crate::semiring::Semiring) trait because the trait requires
 //! `Copy`, and sets cannot be `Copy` due to their variable-size nature.
 //! Instead, `SetWeight` provides the same API via inherent methods (`zero()`,
 //! `one()`, `plus()`, `times()`), enabling manual semiring-style operations.
@@ -55,9 +58,10 @@
 //!
 //! # Mathematical Properties
 //!
-//! - Idempotent: A ∪ A = A and A ∩ A = A
-//! - Commutative: Both ⊕ and ⊗ are commutative
-//! - Zero-sum-free: A ∪ B = ∅ only when both A = ∅ and B = ∅
+//! - Idempotent: $`A\cup A=A`$ and $`A\cap A=A`$.
+//! - Commutative: both $`\oplus`$ and $`\otimes`$ are commutative.
+//! - Zero-sum-free: $`A\cup B=\emptyset`$ only when
+//!   $`A=B=\emptyset`$.
 //!
 //! # Small Set Optimization
 //!
@@ -233,7 +237,7 @@ impl<T> SetWeight<T> {
         Some(self.elements.into_iter().collect())
     }
 
-    /// Union of two sets (⊕ operation).
+    /// Union of two sets (the $`\oplus`$ operation).
     fn set_union(&self, other: &Self) -> Self
     where
         T: Clone + Ord,
@@ -288,7 +292,7 @@ impl<T> SetWeight<T> {
         }
     }
 
-    /// Intersection of two sets (⊗ operation).
+    /// Intersection of two sets (the $`\otimes`$ operation).
     fn set_intersection(&self, other: &Self) -> Self
     where
         T: Clone + Ord,
@@ -565,7 +569,7 @@ impl<T> SetWeight<T> {
         SetWeight::universe()
     }
 
-    /// Addition (⊕): set union
+    /// Addition ($`\oplus`$): set union.
     ///
     /// Combines elements from both sets.
     pub fn plus(&self, other: &Self) -> Self
@@ -575,7 +579,7 @@ impl<T> SetWeight<T> {
         self.set_union(other)
     }
 
-    /// Multiplication (⊗): set intersection
+    /// Multiplication ($`\otimes`$): set intersection.
     ///
     /// Returns elements present in both sets.
     pub fn times(&self, other: &Self) -> Self

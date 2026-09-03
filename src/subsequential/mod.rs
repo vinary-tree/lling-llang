@@ -18,11 +18,12 @@
 //! Any finite-state transducer that computes a function can be decomposed into
 //! a finite union of subsequential transducers:
 //!
-//! ```text
-//! T = T₁ ∪ T₂ ∪ ... ∪ Tₖ
+//! ```math
+//! T=T_1\cup T_2\cup\cdots\cup T_k
 //! ```
 //!
-//! where each Tᵢ is subsequential. The minimum k is called the **degree of ambiguity**.
+//! Each $`T_i`$ is subsequential. The minimum $`k`$ is called the
+//! **degree of ambiguity**.
 //!
 //! # Example
 //!

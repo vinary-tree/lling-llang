@@ -3,7 +3,8 @@
 //!
 //! Uses the in-repo [`TestWfst`] provider (metrics-instrumented adjacency
 //! lists) to PROVE, by callback counts rather than by inspection:
-//! - composition construction is O(1) in provider work: exactly one
+//! - composition construction is $`\mathcal{O}(1)`$ in provider work:
+//!   exactly one
 //!   `snapshot` per input, zero `state_info` / `state_arcs`;
 //! - expansion is demand-driven: reading only the composed start state
 //!   touches exactly the two component start states, even in 6-state inputs;

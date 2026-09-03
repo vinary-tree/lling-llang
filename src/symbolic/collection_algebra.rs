@@ -14,17 +14,21 @@
 //! 1. Take the **minterms** of all classes appearing in the predicate (maximal
 //!    satisfiable conjunctions of the classes and their negations, computed over
 //!    the element algebra). Every element falls in exactly one minterm, so a bag
-//!    is fully characterized by its per-minterm count vector `(c_0, …, c_{k-1})`.
+//!    is fully characterized by its per-minterm count vector
+//!    $`(c_0,\ldots,c_{k-1})`$.
 //! 2. Each `Count{class, [lo,hi]}` becomes a linear constraint
-//!    `Σ_{m ⊆ class} c_m ∈ [lo, hi]` on that vector.
-//! 3. Feasibility is integer-linear over `ℕ^k`; since every threshold is below
-//!    `B = 1 + max(all lo, all finite hi)`, counts `≥ B` are indistinguishable,
-//!    so a bounded search over `[0, B]^k` is **exact**.
+//!    $`\sum_{m\subseteq\mathrm{class}}c_m\in[\mathrm{lo},\mathrm{hi}]`$
+//!    on that vector.
+//! 3. Feasibility is integer-linear over $`\mathbb{N}^k`$. Every threshold
+//!    is below
+//!    $`B=1+\max(\text{all lo},\text{all finite hi})`$, so counts
+//!    $`\ge B`$ are indistinguishable and a bounded search over
+//!    $`[0,B]^k`$ is **exact**.
 //!
 //! `evaluate` uses the bag's actual counts (uncapped); `witness` materializes a
 //! bag from a feasible count vector. The search is exponential in the number of
-//! minterms (≤ `2^(#classes)`), which is small for real guards — correctness
-//! holds regardless of cost.
+//! minterms ($`\le 2^{\#\mathrm{classes}}`$), which is small for real
+//! guards—correctness holds regardless of cost.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -73,7 +77,13 @@ pub enum BagPred<P> {
     True,
     /// Satisfied by no bag.
     False,
-    /// `lo ≤ #{ e ∈ bag : e ⊨ class } ≤ hi` (`hi = None` is unbounded above).
+    /// ```math
+    /// \mathrm{lo}\le
+    /// \#\{e\in\mathrm{bag}:e\models\mathrm{class}\}
+    /// \le\mathrm{hi}
+    /// ```
+    ///
+    /// `hi = None` is unbounded above.
     Count { class: P, lo: u64, hi: Option<u64> },
     /// Conjunction.
     And(Box<BagPred<P>>, Box<BagPred<P>>),
@@ -272,7 +282,8 @@ impl<A: BooleanAlgebra> BagAlgebra<A> {
         BagAlgebra { elem }
     }
 
-    /// `∀ e ∈ bag. e ⊨ p` — equivalently, zero elements satisfy `¬p`.
+    /// $`\forall e\in\mathrm{bag}.\,e\models p`$—equivalently, zero
+    /// elements satisfy $`\lnot p`$.
     pub fn all(&self, p: A::Predicate) -> BagPred<A::Predicate> {
         BagPred::Count {
             class: self.elem.not(&p),
@@ -281,7 +292,8 @@ impl<A: BooleanAlgebra> BagAlgebra<A> {
         }
     }
 
-    /// `∃ e ∈ bag. e ⊨ p` — at least one element satisfies `p`.
+    /// $`\exists e\in\mathrm{bag}.\,e\models p`$—at least one element
+    /// satisfies $`p`$.
     pub fn any_elem(&self, p: A::Predicate) -> BagPred<A::Predicate> {
         BagPred::Count {
             class: p,
@@ -290,7 +302,8 @@ impl<A: BooleanAlgebra> BagAlgebra<A> {
         }
     }
 
-    /// `lo ≤ |bag| ≤ hi` (total cardinality).
+    /// $`\mathrm{lo}\le\lvert\mathrm{bag}\rvert\le\mathrm{hi}`$
+    /// (total cardinality).
     pub fn size(&self, lo: u64, hi: Option<u64>) -> BagPred<A::Predicate> {
         BagPred::Count {
             class: self.elem.true_pred(),
@@ -400,8 +413,9 @@ impl<A: BooleanAlgebra> BagAlgebra<A> {
         result.expect("the root bag predicate produces one result")
     }
 
-    /// The smallest count cap `B` such that counts `≥ B` are indistinguishable
-    /// from `B` for every atom (`1 + max threshold`).
+    /// The smallest count cap $`B`$ such that counts $`\ge B`$ are
+    /// indistinguishable from $`B`$ for every atom
+    /// ($`1+\text{maximum threshold}`$).
     fn count_cap(&self, pred: &BagPred<A::Predicate>) -> u64 {
         let mut acc = 0;
         let mut pending = vec![pred];
@@ -727,7 +741,11 @@ pub enum MapPred<KP, VP> {
     True,
     /// Satisfied by no map.
     False,
-    /// `lo ≤ #{ (k,v) : k ⊨ key_class ∧ v ⊨ val_class } ≤ hi`.
+    /// ```math
+    /// \mathrm{lo}\le
+    /// \#\{(k,v):k\models\mathrm{key\_class}\land
+    /// v\models\mathrm{val\_class}\}\le\mathrm{hi}
+    /// ```
     CountEntries {
         key_class: KP,
         val_class: VP,
@@ -955,7 +973,7 @@ impl<K: Singleton, V: BooleanAlgebra> MapAlgebra<K, V> {
         MapAlgebra { key, val }
     }
 
-    /// `lo ≤ |map| ≤ hi`.
+    /// $`\mathrm{lo}\le\lvert\mathrm{map}\rvert\le\mathrm{hi}`$.
     pub fn size(&self, lo: u64, hi: Option<u64>) -> MapPred<K::Predicate, V::Predicate> {
         MapPred::CountEntries {
             key_class: self.key.true_pred(),
@@ -965,7 +983,7 @@ impl<K: Singleton, V: BooleanAlgebra> MapAlgebra<K, V> {
         }
     }
 
-    /// `∃ (k,_) ∈ map. k ⊨ kp`.
+    /// $`\exists(k,\_)\in\mathrm{map}.\,k\models kp`$.
     pub fn has_key(&self, kp: K::Predicate) -> MapPred<K::Predicate, V::Predicate> {
         MapPred::CountEntries {
             key_class: kp,
@@ -975,7 +993,7 @@ impl<K: Singleton, V: BooleanAlgebra> MapAlgebra<K, V> {
         }
     }
 
-    /// `∃ (k,v) ∈ map. k ⊨ kp ∧ v ⊨ vp`.
+    /// $`\exists(k,v)\in\mathrm{map}.\,k\models kp\land v\models vp`$.
     pub fn entry(&self, kp: K::Predicate, vp: V::Predicate) -> MapPred<K::Predicate, V::Predicate> {
         MapPred::CountEntries {
             key_class: kp,
@@ -985,7 +1003,8 @@ impl<K: Singleton, V: BooleanAlgebra> MapAlgebra<K, V> {
         }
     }
 
-    /// `∀ (_,v) ∈ map. v ⊨ vp` (no entry has a value satisfying `¬vp`).
+    /// $`\forall(\_,v)\in\mathrm{map}.\,v\models vp`$; no entry has a
+    /// value satisfying $`\lnot vp`$.
     pub fn all_values(&self, vp: V::Predicate) -> MapPred<K::Predicate, V::Predicate> {
         MapPred::CountEntries {
             key_class: self.key.true_pred(),

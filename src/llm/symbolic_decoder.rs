@@ -1,13 +1,17 @@
 //! `SymbolicConstrainedDecoder` — behaviorally/structurally-constrained decoding
 //! driven by a `lling_llang::symbolic` SFA (Task #22 §4-C.1).
 //!
-//! **The materialize-φ mandate.** To drive a token mask from a symbolic state you must
-//! *materialize* the guard predicate `φ` into a [`TokenMask`]. This decoder does so at
+//! **The materialize-$`\varphi`$ mandate.** To drive a token mask from a
+//! symbolic state, materialize the guard predicate $`\varphi`$ into a
+//! [`TokenMask`]. This decoder does so at
 //! **build time**: for every vocabulary token whose domain element satisfies a state's
 //! outgoing transition guard, the token is set in that state's mask and recorded in the
-//! state's δ table. At **decode time** the mask is an O(1) table lookup — never a live
-//! SAT/SMT call in the hot loop. It slots beside [`super::WfstConstraint`] /
-//! [`super::CompressedFsmConstraint`] and composes with [`super::ConstrainedBeamSearch`].
+//! state's $`\delta`$ table. At **decode time** the mask is a
+//! $`\mathcal{O}(1)`$ table lookup—never a live
+//! SAT/SMT call in the hot loop. It slots beside
+//! [`WfstConstraint`](crate::llm::WfstConstraint) and
+//! [`CompressedFsmConstraint`](crate::llm::CompressedFsmConstraint), and it
+//! composes with [`ConstrainedBeamSearch`](crate::llm::ConstrainedBeamSearch).
 //!
 //! Because the precomputed tables are independent of the algebra `A`, the decoder type
 //! itself is non-generic — `build` accepts an SFA over *any* effective Boolean algebra
@@ -39,8 +43,10 @@ pub struct SymbolicConstrainedDecoder {
 
 impl SymbolicConstrainedDecoder {
     /// Build the decoder by materializing `sfa`'s guards against `vocab` (the mapping
-    /// `TokenId → A::Domain`, indexed by token id). O(states · |vocab|) once; O(1) per
-    /// decode step thereafter.
+    /// $`\mathrm{TokenId}\to A{::}\mathrm{Domain}`$, indexed by token ID).
+    /// Construction costs
+    /// $`\mathcal{O}(\lvert\mathrm{states}\rvert\lvert\mathrm{vocab}\rvert)`$
+    /// once; each decode step thereafter costs $`\mathcal{O}(1)`$.
     pub fn build<A: BooleanAlgebra>(sfa: &SymbolicAutomaton<A>, vocab: &[A::Domain]) -> Self {
         let n = sfa.states.len();
         let vocab_size = vocab.len();

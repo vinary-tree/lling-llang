@@ -28,7 +28,8 @@ impl ArcIndex {
 pub struct ArcGradient {
     /// Arc identifier.
     pub arc: ArcIndex,
-    /// Gradient value (∂loss/∂arc_weight).
+    /// Gradient value
+    /// $`\partial\mathrm{loss}/\partial\mathrm{arc\_weight}`$.
     pub gradient: f64,
 }
 
@@ -99,12 +100,12 @@ pub struct GradientWfst<L: Clone> {
     /// The underlying WFST (LogWeight for differentiable operations).
     fst: VectorWfst<L, LogWeight>,
 
-    /// Forward scores for each state (α values).
-    /// α[s] = total weight of all paths from start to s.
+    /// Forward scores for each state ($`\alpha`$ values).
+    /// $`\alpha[s]`$ is the total weight of all paths from the start to $`s`$.
     forward_scores: RefCell<Vec<LogWeight>>,
 
-    /// Backward scores for each state (β values).
-    /// β[s] = total weight of all paths from s to final states.
+    /// Backward scores for each state ($`\beta`$ values).
+    /// $`\beta[s]`$ is the total weight of all paths from $`s`$ to final states.
     backward_scores: RefCell<Vec<LogWeight>>,
 
     /// Whether forward pass has been computed.
@@ -247,10 +248,13 @@ impl<L: Clone + Send + Sync> GradientWfst<L> {
 ///
 /// # Algorithm
 ///
-/// 1. Initialize β[f] = final_weight for all final states
+/// 1. Initialize $`\beta[f]=\operatorname{final\_weight}[f]`$ for every
+///    final state $`f`$.
 /// 2. Process states in reverse topological order
-/// 3. For each arc (s, t, w): β[s] = β[s] ⊕ (w ⊗ β[t])
-/// 4. Compute arc gradients: ∂Z/∂w = exp(α[s] + w + β[t] - Z)
+/// 3. For each arc $`(s,t,w)`$, compute
+///    $`\beta[s]=\beta[s]\oplus(w\otimes\beta[t])`$.
+/// 4. Compute arc gradients as
+///    $`\partial Z/\partial w=\exp(\alpha[s]+w+\beta[t]-Z)`$.
 ///
 /// # Returns
 ///

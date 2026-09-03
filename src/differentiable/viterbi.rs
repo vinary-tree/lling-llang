@@ -26,14 +26,16 @@ pub struct ViterbiGradResult {
 ///
 /// # Algorithm
 ///
-/// 1. Initialize δ[start] = 0 (tropical one)
+/// 1. Initialize $`\delta[q_0]=0`$ (tropical one).
 /// 2. Process states in topological order
-/// 3. For each arc (s, t, w): δ[t] = min(δ[t], δ[s] + w)
-/// 4. Best score = min_{f ∈ F}(δ[f] + final_weight[f])
+/// 3. For each arc $`(s,t,w)`$, compute
+///    $`\delta[t]=\min(\delta[t],\delta[s]+w)`$.
+/// 4. Return
+///    $`\min_{f\in F}(\delta[f]+\operatorname{final\_weight}[f])`$.
 ///
 /// # Complexity
 ///
-/// O(|Q| + |E|) for acyclic WFSTs.
+/// $`\mathcal{O}(|Q|+|E|)`$ for acyclic WFSTs.
 ///
 /// # Example
 ///

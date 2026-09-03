@@ -18,9 +18,11 @@
 //!
 //! ## Algorithm
 //!
-//! 1. Compute backward potentials V(q) = -log(Σ_{paths from q to final} exp(-weight))
-//! 2. Reweight: w'(e) = w(e) + V(target) - V(source)
-//! 3. Result: At each state, Σ exp(-outgoing_weights) = 1
+//! 1. Compute backward potentials
+//!    $`V(q)=-\log\sum_{\pi:q\leadsto F}\exp(-w(\pi))`$.
+//! 2. Reweight:
+//!    $`w'(e)=w(e)+V(\operatorname{target}(e))-V(\operatorname{source}(e))`$.
+//! 3. Obtain, at each state, $`\sum_e\exp(-w(e))=1`$.
 //!
 //! ## Performance
 //!
@@ -40,7 +42,8 @@ use crate::wfst::{MutableWfst, StateId, WeightedTransition, Wfst, NO_STATE};
 pub struct LogPushConfig {
     /// Whether to verify stochasticity after pushing.
     pub verify_stochastic: bool,
-    /// Tolerance for stochasticity check (weights sum to 1 ± epsilon).
+    /// Tolerance $`\varepsilon`$ for the stochasticity check
+    /// (weights sum to $`1\pm\varepsilon`$).
     pub stochastic_epsilon: f64,
     /// Whether to normalize final states (set to LogWeight::one()).
     pub normalize_finals: bool,
@@ -173,7 +176,8 @@ where
 
 /// Compute backward log-semiring potentials.
 ///
-/// For each state q, V(q) = -log(Σ_{paths from q to final} exp(-path_weight))
+/// For each state $`q`$,
+/// $`V(q)=-\log\sum_{\pi:q\leadsto F}\exp(-w(\pi))`$.
 ///
 /// This is the total probability mass of all paths from state q to any final state.
 ///
@@ -186,7 +190,7 @@ where
 ///
 /// # Complexity
 ///
-/// O(|Q| + |E|) for acyclic WFSTs
+/// $`\mathcal{O}(\lvert Q\rvert+\lvert E\rvert)`$ for acyclic WFSTs.
 pub fn compute_log_potentials<L, F>(fst: &F) -> Result<Vec<LogWeight>, LogPushError>
 where
     L: Clone,
@@ -337,7 +341,8 @@ where
 /// A stochastic WFST has the property that at each state, the sum of
 /// outgoing transition probabilities (including final probability) equals 1.
 ///
-/// In log space, this means: logadd(all outgoing weights + final weight) ≈ 0
+/// In log space, this means the log-add of all outgoing weights and the final
+/// weight is approximately zero.
 fn verify_stochastic<L, F>(fst: &F, epsilon: f64) -> bool
 where
     L: Clone,

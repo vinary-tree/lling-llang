@@ -7,7 +7,7 @@ use std::fmt::{self, Debug, Display};
 pub struct StackSymbol(pub u32);
 
 impl StackSymbol {
-    /// The bottom-of-stack marker (Z₀).
+    /// The bottom-of-stack marker ($`Z_0`$).
     pub const BOTTOM: StackSymbol = StackSymbol(0);
 
     /// Create a new stack symbol with the given ID.

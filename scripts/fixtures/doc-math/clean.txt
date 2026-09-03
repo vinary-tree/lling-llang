@@ -1,0 +1,11 @@
+Canonical inline formula: $`\mathcal{O}(\lvert Q\rvert+\lvert E\rvert)`$.
+Literal currency remains code: `$5`; a literal dollar is `$`.
+MeTTa variables such as `$item` and the proper name μKanren are not formulae.
+
+```math
+\sum_{i=0}^{n} i=\frac{n(n+1)}{2}
+```
+
+```text
+Code fences may contain α, O(n), and $\alpha$ verbatim.
+```

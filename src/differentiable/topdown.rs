@@ -186,11 +186,13 @@ pub struct BackwardStats {
 /// Forward-backward scores at each state.
 #[derive(Debug, Clone)]
 pub struct ForwardBackwardScores {
-    /// Forward log-probabilities: α[s] = log P(reach s from start).
+    /// Forward log-probabilities:
+    /// $`\alpha[s]=\log P(\text{reach }s\text{ from start})`$.
     pub alpha: Vec<f64>,
-    /// Backward log-probabilities: β[s] = log P(reach final from s).
+    /// Backward log-probabilities:
+    /// $`\beta[s]=\log P(\text{reach final from }s)`$.
     pub beta: Vec<f64>,
-    /// Total log-probability (α at final states + final weights).
+    /// Total log-probability ($`\alpha`$ at final states plus final weights).
     pub total_log_prob: f64,
 }
 
@@ -204,7 +206,8 @@ impl ForwardBackwardScores {
         }
     }
 
-    /// Compute arc posterior: P(arc | observation) = exp(α + w + β - Z).
+    /// Compute arc posterior:
+    /// $`P(\mathrm{arc}\mid\mathrm{observation})=\exp(\alpha+w+\beta-Z)`$.
     #[inline]
     pub fn arc_posterior(&self, from_alpha: f64, arc_weight: f64, to_beta: f64) -> f64 {
         let log_posterior = from_alpha + arc_weight + to_beta - self.total_log_prob;
@@ -387,8 +390,13 @@ where
 /// Compute gradients using top-down (k2-style) approach.
 ///
 /// Given forward-backward scores, computes gradient for each arc weight.
-/// The gradient of arc (s, t, w) is:
-///   ∂Loss/∂w = -posterior(arc) = -exp(α[s] + w + β[t] - Z)
+/// The gradient of arc $`(s,t,w)`$ is:
+///
+/// ```math
+/// \frac{\partial\mathrm{Loss}}{\partial w}
+/// =-\operatorname{posterior}(\mathrm{arc})
+/// =-\exp(\alpha[s]+w+\beta[t]-Z)
+/// ```
 ///
 /// # Arguments
 /// * `fst` - The WFST
@@ -797,10 +805,19 @@ impl Default for ComposedArcMap {
 /// Efficiently propagates gradients from composed WFST back to both
 /// input WFSTs without materializing the full composition.
 ///
-/// The gradient for arc a₁ in fst1 is:
-///   ∂L/∂w(a₁) = Σ_{a₂} posterior(a₁ ∘ a₂) * output_grad
+/// The gradient for arc $`a_1`$ in `fst1` is:
 ///
-/// where posterior(arc) = exp(α[src] + w(arc) + β[dst] - Z)
+/// ```math
+/// \frac{\partial L}{\partial w(a_1)}
+/// =\sum_{a_2}\operatorname{posterior}(a_1\circ a_2)
+/// \cdot\mathrm{output\_grad}
+/// ```
+///
+/// where
+/// ```math
+/// \operatorname{posterior}(a)
+/// =\exp(\alpha[\mathrm{src}(a)]+w(a)+\beta[\mathrm{dst}(a)]-Z)
+/// ```
 ///
 /// Similarly for arcs in fst2.
 ///

@@ -5,16 +5,21 @@
 //! are equal, and so on.
 //!
 //! **Definition:**
-//! ```text
-//! S_lex = (W₁ × W₂ × ... × Wₖ, ⊕_lex, ⊗_lex, 0̄_lex, 1̄_lex)
+//! ```math
+//! S_{\mathrm{lex}} =
+//! (W_1\times W_2\times\cdots\times W_k,
+//! \oplus_{\mathrm{lex}},\otimes_{\mathrm{lex}},
+//! \bar{0}_{\mathrm{lex}},\bar{1}_{\mathrm{lex}})
 //!
-//! (a₁,...,aₖ) ⊕_lex (b₁,...,bₖ):
-//!   Compare lexicographically; return the smaller tuple
+//! (a_1,\ldots,a_k)\oplus_{\mathrm{lex}}(b_1,\ldots,b_k)
+//! = \min_{\mathrm{lex}}\{(a_1,\ldots,a_k),(b_1,\ldots,b_k)\}
 //!
-//! (a₁,...,aₖ) ⊗_lex (b₁,...,bₖ) = (a₁⊗b₁, ..., aₖ⊗bₖ)
+//! (a_1,\ldots,a_k)\otimes_{\mathrm{lex}}(b_1,\ldots,b_k)
+//! = (a_1\otimes b_1,\ldots,a_k\otimes b_k)
 //! ```
 //!
-//! Unlike [`ProductWeight`](super::ProductWeight) which applies ⊕ component-wise,
+//! Unlike [`ProductWeight`](super::ProductWeight), which applies
+//! $`\oplus`$ component-wise,
 //! `LexicographicWeight` uses lexicographic comparison: the first component is
 //! compared first, and subsequent components are only considered if earlier
 //! components are equal.
@@ -45,17 +50,18 @@
 //!
 //! | Operation | ProductWeight | LexicographicWeight |
 //! |-----------|--------------|---------------------|
-//! | ⊕ (plus) | Component-wise | Lexicographic min |
-//! | ⊗ (times) | Component-wise | Component-wise |
-//! | 0̄ (zero) | (0̄₁, 0̄₂) | (0̄₁, 0̄₂) |
-//! | 1̄ (one) | (1̄₁, 1̄₂) | (1̄₁, 1̄₂) |
+//! | $`\oplus`$ (plus) | Component-wise | Lexicographic minimum |
+//! | $`\otimes`$ (times) | Component-wise | Component-wise |
+//! | $`\bar{0}`$ (zero) | $`(\bar{0}_1,\bar{0}_2)`$ | $`(\bar{0}_1,\bar{0}_2)`$ |
+//! | $`\bar{1}`$ (one) | $`(\bar{1}_1,\bar{1}_2)`$ | $`(\bar{1}_1,\bar{1}_2)`$ |
 //!
 //! # Algebraic Properties
 //!
 //! - **Idempotent**: If both components are idempotent (lex-min(a, a) = a)
 //! - **K-closed**: If the first component is k-closed
 //! - **Zero-sum-free**: If the first component is zero-sum-free
-//! - **Commutative ⊗**: If both components have commutative ⊗
+//! - **Commutative $`\otimes`$**: if both components have commutative
+//!   $`\otimes`$.
 
 use super::super::traits::{
     CommutativeTimesSemiring, DivisibleSemiring, IdempotentSemiring, KClosedSemiring,
@@ -65,9 +71,9 @@ use super::super::traits::{
 
 /// Lexicographic semiring combining two semirings with priority ordering.
 ///
-/// The first component has absolute priority: ⊕ returns the tuple whose first
+/// The first component has absolute priority: $`\oplus`$ returns the tuple whose first
 /// component is smaller. The second component only matters when first components
-/// are equal. Multiplication (⊗) is applied component-wise.
+/// are equal. Multiplication ($`\otimes`$) is applied component-wise.
 ///
 /// # Type Parameters
 ///
@@ -162,13 +168,13 @@ where
     S1: Semiring + Ord,
     S2: Semiring + Ord,
 {
-    /// Component-wise zeros: (0̄₁, 0̄₂).
+    /// Component-wise zeros: $`(\bar{0}_1,\bar{0}_2)`$.
     #[inline]
     fn zero() -> Self {
         LexicographicWeight(S1::zero(), S2::zero())
     }
 
-    /// Component-wise ones: (1̄₁, 1̄₂).
+    /// Component-wise ones: $`(\bar{1}_1,\bar{1}_2)`$.
     #[inline]
     fn one() -> Self {
         LexicographicWeight(S1::one(), S2::one())
@@ -197,7 +203,8 @@ where
         }
     }
 
-    /// Component-wise multiplication: (a₁⊗b₁, a₂⊗b₂).
+    /// Component-wise multiplication:
+    /// $`(a_1\otimes b_1,a_2\otimes b_2)`$.
     #[inline]
     fn times(&self, other: &Self) -> Self {
         LexicographicWeight(self.0.times(&other.0), self.1.times(&other.1))
@@ -284,7 +291,7 @@ where
 
 /// LexicographicWeight is k-closed if both components are k-closed.
 ///
-/// Since ⊕ is lexicographic min, the star operation stabilizes when the
+/// Since $`\oplus`$ is lexicographic minimum, the star operation stabilizes when the
 /// first component stabilizes.
 impl<S1, S2> KClosedSemiring for LexicographicWeight<S1, S2>
 where
@@ -303,7 +310,8 @@ where
 
 /// LexicographicWeight is zero-sum-free if both components are zero-sum-free.
 ///
-/// lex_min(a, b) = (0̄₁, 0̄₂) only if both a and b are (0̄₁, 0̄₂).
+/// $`\min_{\mathrm{lex}}(a,b)=(\bar{0}_1,\bar{0}_2)`$ only if both
+/// $`a`$ and $`b`$ equal $`(\bar{0}_1,\bar{0}_2)`$.
 impl<S1, S2> ZeroSumFreeSemiring for LexicographicWeight<S1, S2>
 where
     S1: ZeroSumFreeSemiring + Ord,
@@ -313,7 +321,8 @@ where
 
 /// LexicographicWeight is weakly left-divisible if both components are.
 ///
-/// Note: The semantics are more complex than for ProductWeight because ⊕
+/// Note: The semantics are more complex than for ProductWeight because
+/// $`\oplus`$
 /// is not component-wise. We implement left division as component-wise,
 /// which works when the divisor is the result of a plus operation involving
 /// the dividend.
@@ -342,7 +351,12 @@ where
 
 /// LexicographicWeight has commutative multiplication if both components do.
 ///
-/// (a₁, a₂) ⊗ (b₁, b₂) = (a₁ ⊗ b₁, a₂ ⊗ b₂) = (b₁ ⊗ a₁, b₂ ⊗ a₂) = (b₁, b₂) ⊗ (a₁, a₂)
+/// ```math
+/// (a_1,a_2)\otimes(b_1,b_2)
+/// =(a_1\otimes b_1,a_2\otimes b_2)
+/// =(b_1\otimes a_1,b_2\otimes a_2)
+/// =(b_1,b_2)\otimes(a_1,a_2)
+/// ```
 impl<S1, S2> CommutativeTimesSemiring for LexicographicWeight<S1, S2>
 where
     S1: CommutativeTimesSemiring + Ord,

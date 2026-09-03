@@ -1,19 +1,22 @@
 //! Log semiring for probabilistic operations.
 //!
-//! The log semiring (ℝ ∪ {-∞}, ⊕_log, +, -∞, 0) operates in negative log
-//! probability space, which is numerically more stable than raw probabilities:
+//! The log semiring
+//! $`(\mathbb{R}\cup\{-\infty\},\oplus_{\log},+,-\infty,0)`$
+//! operates in negative-log probability space, which is numerically more stable
+//! than raw probabilities:
 //!
-//! - **⊕ = log-add**: `log(exp(-a) + exp(-b))` (probabilistic sum)
-//! - **⊗ = +**: Multiplication of probabilities (addition in log space)
-//! - **0̄ = ∞**: Represents probability 0 (impossible)
-//! - **1̄ = 0**: Represents probability 1 (certain)
+//! - **$`\oplus=\operatorname{logadd}`$**:
+//!   $`-\log(\exp(-a)+\exp(-b))`$ (probabilistic sum).
+//! - **$`\otimes=+`$**: multiplication of probabilities (addition in log space).
+//! - **$`\bar{0}=+\infty`$**: probability zero (impossible).
+//! - **$`\bar{1}=0`$**: probability one (certain).
 //!
 //! # Negative Log Probabilities
 //!
 //! We use *negative* log probabilities so that:
 //! - Lower values = higher probability (consistent with costs)
 //! - 0 = probability 1 (certain event)
-//! - ∞ = probability 0 (impossible event)
+//! - $`+\infty`$ = probability zero (impossible event).
 //!
 //! # Example
 //!
@@ -59,7 +62,7 @@ impl LogWeight {
 
     /// Create a new log weight from a raw negative log probability.
     ///
-    /// The checked algebra excludes `NaN` and `-∞`; both would break the
+    /// The checked algebra excludes `NaN` and $`-\infty`$; both would break the
     /// semiring laws under IEEE-754 arithmetic. Finite negative values are
     /// allowed because closure/intermediate computations may represent total
     /// probability mass greater than one.
@@ -172,7 +175,7 @@ impl Default for LogWeight {
 }
 
 impl Semiring for LogWeight {
-    /// Additive identity: ∞ (probability 0)
+    /// Additive identity: $`+\infty`$ (probability zero).
     #[inline]
     fn zero() -> Self {
         LogWeight::infinity()
@@ -255,12 +258,13 @@ impl NumericalWeight for LogWeight {
 impl StarSemiring for LogWeight {
     /// Kleene closure for log semiring.
     ///
-    /// The star of a weight w is: 1 ⊕ w ⊕ w² ⊕ w³ ⊕ ...
+    /// The star of weight $`w`$ is
+    /// $`\bar{1}\oplus w\oplus w^2\oplus w^3\oplus\cdots`$.
     ///
     /// In the log semiring:
-    /// - a* = -log(Σ_{n=0}^∞ exp(-n·w))
-    /// - For w > 0: exp(-w) < 1, so the geometric series converges
-    /// - a* = -log(1/(1-exp(-w))) = log(1-exp(-w))
+    /// - $`a^*=-\log(\sum_{n=0}^{\infty}\exp(-nw))`$.
+    /// - For $`w>0`$, $`\exp(-w)<1`$, so the geometric series converges.
+    /// - $`a^*=-\log(1/(1-\exp(-w)))=\log(1-\exp(-w))`$.
     ///
     /// Note: The result can be negative (representing accumulated weight > 1
     /// in probability space), which is mathematically valid for the closure.
@@ -308,12 +312,15 @@ impl KClosedSemiring for LogWeight {
     }
 }
 
-/// LogWeight is zero-sum-free: log-add(a, b) = ∞ only if both a = ∞ and b = ∞
+/// `LogWeight` is zero-sum-free:
+/// $`\operatorname{logadd}(a,b)=+\infty`$ only if
+/// $`a=b=+\infty`$.
 impl ZeroSumFreeSemiring for LogWeight {}
 
 /// LogWeight is weakly left-divisible.
 ///
-/// For log semiring where ⊕ = log-sum-exp and ⊗ = +:
+/// For the log semiring, where $`\oplus`$ is log-sum-exp and
+/// $`\otimes=+`$:
 /// - Given `a` and `divisor = log-sum-exp(a, b)`, we need `c` such that `c + divisor = a`
 /// - This is `c = a - divisor`
 impl WeaklyLeftDivisibleSemiring for LogWeight {
@@ -341,10 +348,11 @@ impl CommutativeTimesSemiring for LogWeight {}
 /// All real numbers (including infinity) are totally ordered.
 impl TotallyOrderedSemiring for LogWeight {}
 
-/// LogWeight values are non-negative (negative log probabilities are ≥ 0 for p ≤ 1).
+/// `LogWeight` values are non-negative: negative-log probabilities satisfy
+/// $`-\log p\ge 0`$ for $`p\le 1`$.
 ///
 /// For probabilities in (0, 1], the negative log is non-negative.
-/// For probability 0, the negative log is +∞.
+/// For probability zero, the negative log is $`+\infty`$.
 impl NonnegativeSemiring for LogWeight {}
 
 /// LogWeight can be quantized for approximate comparison.

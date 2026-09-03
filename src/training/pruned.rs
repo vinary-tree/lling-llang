@@ -14,7 +14,8 @@
 //!
 //! ## Benefits
 //!
-//! - Memory efficiency: O(beam_width) instead of O(V × T)
+//! - Memory efficiency: $`\mathcal{O}(b)`$ instead of
+//!   $`\mathcal{O}(VT)`$, where $`b`$ is the beam width.
 //! - Enables training with full LM on GPU
 //! - Critical for production-scale systems
 

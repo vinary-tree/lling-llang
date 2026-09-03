@@ -24,7 +24,7 @@ pub enum BuildError {
     /// A transition's matched top, or a pushed/replaced symbol, is a stack
     /// symbol id that was never allocated.
     UnknownStackSymbol(u32),
-    /// A transition pops while matching the bottom-of-stack marker `Z₀`, which
+    /// A transition pops while matching the bottom-of-stack marker $`Z_0`$, which
     /// would underflow the stack.
     BottomPop,
     /// The acceptance mode requires a final state, but none was declared.
@@ -193,7 +193,7 @@ impl<L: Clone + Eq + Hash, W: Semiring + Clone> PdaBuilder<L, W> {
         self.pda.set_start(state);
     }
 
-    /// Get the initial stack symbol (Z₀).
+    /// Get the initial stack symbol ($`Z_0`$).
     pub fn initial_stack(&self) -> StackSymbol {
         self.pda.get_initial_stack()
     }
@@ -322,7 +322,7 @@ impl<L: Clone + Eq + Hash, W: Semiring + Clone> PdaBuilder<L, W> {
     /// Validate the automaton *without consuming* the builder: the start state
     /// must be allocated; every transition must target an allocated state and
     /// match/push/replace only allocated stack symbols; no transition may pop
-    /// the bottom marker `Z₀`; and — when the acceptance mode is
+    /// the bottom marker $`Z_0`$; and—when the acceptance mode is
     /// [`FinalState`](PdaAcceptMode::FinalState) or [`Both`](PdaAcceptMode::Both)
     /// — at least one final state must exist.
     ///

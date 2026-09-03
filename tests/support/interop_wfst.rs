@@ -130,7 +130,8 @@ impl TestArc {
         }
     }
 
-    /// Well-formed input-epsilon arc `ε:output/weight`.
+    /// Well-formed input-epsilon arc
+    /// $`\varepsilon:\mathrm{output}/\mathrm{weight}`$.
     pub fn input_epsilon(output: char, to: u64, weight: f64) -> Self {
         Self {
             input_label: 0,
@@ -142,7 +143,8 @@ impl TestArc {
         }
     }
 
-    /// Well-formed output-epsilon arc `input:ε/weight`.
+    /// Well-formed output-epsilon arc
+    /// $`\mathrm{input}:\varepsilon/\mathrm{weight}`$.
     pub fn output_epsilon(input: char, to: u64, weight: f64) -> Self {
         Self {
             input_label: u64::from(input),

@@ -3,10 +3,10 @@
 //! The boolean semiring ({true, false}, OR, AND, false, true) represents
 //! simple reachability without weights:
 //!
-//! - **⊕ = OR**: Path exists if either alternative exists
-//! - **⊗ = AND**: Path exists if all transitions exist
-//! - **0̄ = false**: Represents no path (unreachable)
-//! - **1̄ = true**: Represents path exists (reachable)
+//! - **$`\oplus=\lor`$**: a path exists if either alternative exists.
+//! - **$`\otimes=\land`$**: a path exists if all transitions exist.
+//! - **$`\bar{0}=\mathrm{false}`$**: no path exists (unreachable).
+//! - **$`\bar{1}=\mathrm{true}`$**: a path exists (reachable).
 //!
 //! # Example
 //!
@@ -117,8 +117,17 @@ impl StarSemiring for BoolWeight {
     /// Kleene closure for boolean semiring.
     ///
     /// The star of any boolean value is true:
-    /// - false* = true ⊕ false ⊕ false² ⊕ ... = true (since true is identity for OR)
-    /// - true* = true ⊕ true ⊕ true² ⊕ ... = true
+    /// - For `false`:
+    ///   ```math
+    ///   \mathrm{false}^*=\mathrm{true}\oplus\mathrm{false}
+    ///   \oplus\mathrm{false}^2\oplus\cdots=\mathrm{true}
+    ///   ```
+    ///   Here `true` is the identity for OR.
+    /// - For `true`:
+    ///   ```math
+    ///   \mathrm{true}^*=\mathrm{true}\oplus\mathrm{true}
+    ///   \oplus\mathrm{true}^2\oplus\cdots=\mathrm{true}
+    ///   ```
     ///
     /// Always converges to true (the series always includes 1̄ = true).
     fn star(&self) -> Option<Self> {
@@ -138,8 +147,8 @@ impl IdempotentSemiring for BoolWeight {}
 /// BoolWeight is k-closed with k=0.
 ///
 /// The star operation always returns `true` immediately:
-/// - `false* = true ⊕ false = true`
-/// - `true* = true ⊕ true = true`
+/// - $`\mathrm{false}^*=\mathrm{true}\oplus\mathrm{false}=\mathrm{true}`$.
+/// - $`\mathrm{true}^*=\mathrm{true}\oplus\mathrm{true}=\mathrm{true}`$.
 impl KClosedSemiring for BoolWeight {
     fn closure_bound() -> Option<usize> {
         // Star converges immediately at k=0
@@ -158,7 +167,7 @@ impl CommutativeTimesSemiring for BoolWeight {}
 impl std::ops::BitOr for BoolWeight {
     type Output = Self;
 
-    /// Operator `|` implements semiring ⊕ (OR).
+    /// Operator `|` implements semiring $`\oplus`$ (OR).
     #[inline]
     fn bitor(self, other: Self) -> Self {
         self.plus(&other)
@@ -168,7 +177,7 @@ impl std::ops::BitOr for BoolWeight {
 impl std::ops::BitAnd for BoolWeight {
     type Output = Self;
 
-    /// Operator `&` implements semiring ⊗ (AND).
+    /// Operator `&` implements semiring $`\otimes`$ (AND).
     #[inline]
     fn bitand(self, other: Self) -> Self {
         self.times(&other)

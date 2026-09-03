@@ -402,7 +402,7 @@ pub struct CtcDecoder<W: Semiring> {
     /// Decoder configuration.
     config: CtcDecoderConfig,
 
-    /// Composed FST (CTC ∘ L ∘ G) - cached for reuse.
+    /// Composed FST ($`\mathrm{CTC}\circ L\circ G`$), cached for reuse.
     composed_fst: Option<Arc<VectorWfst<CtcLabel, W>>>,
 }
 

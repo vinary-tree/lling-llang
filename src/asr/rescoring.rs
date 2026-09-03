@@ -11,7 +11,7 @@
 //!
 //! ## Optimization
 //!
-//! Rescoring at the L∘G level provides:
+//! Rescoring at the $`L\circ G`$ level provides:
 //! - ~50% reduction in median lattice states/arcs
 //! - 9× speedup compared to unoptimized rescoring
 //!

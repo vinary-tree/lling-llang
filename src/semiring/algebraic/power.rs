@@ -1,31 +1,39 @@
-//! η-Power semiring for soft path selection.
+//! $`\eta`$-power semiring for soft path selection.
 //!
-//! The η-power semiring `S_η = (R+ ∪ {+∞}, ⊕_η, ×, 0, 1)` provides a parameterized
-//! family of semirings that interpolate between different optimization objectives:
+//! The $`\eta`$-power semiring
+//! $`S_\eta=(\mathbb{R}_{\ge 0}\cup\{+\infty\},\oplus_\eta,\times,0,1)`$
+//! provides a parameterized family of semirings
+//! that interpolate between different optimization objectives:
 //!
-//! - **⊕_η**: `x ⊕_η y = (x^(1/η) + y^(1/η))^η` (generalized addition)
-//! - **⊗**: `x ⊗ y = x × y` (standard multiplication)
-//! - **0̄**: `0` (additive identity)
-//! - **1̄**: `1` (multiplicative identity)
+//! - **$`\oplus_\eta`$**:
+//!   $`x\oplus_\eta y=(x^{1/\eta}+y^{1/\eta})^\eta`$ (generalized
+//!   addition).
+//! - **$`\otimes`$**: $`x\otimes y=x\times y`$ (standard multiplication).
+//! - **$`\bar{0}`$**: $`0`$ (additive identity).
+//! - **$`\bar{1}`$**: $`1`$ (multiplicative identity).
 //!
 //! # Properties
 //!
-//! The η parameter controls the "softness" of the addition operation:
+//! The $`\eta`$ parameter controls the “softness” of the addition operation:
 //!
-//! - As `η → 0`: approaches max semiring (winner-take-all)
-//! - At `η = 1`: equivalent to probability semiring (standard addition)
-//! - As `η → ∞`: approaches min semiring on inverse scale
+//! - As $`\eta\to 0`$: approaches the maximum semiring (winner-take-all).
+//! - At $`\eta=1`$: is equivalent to the probability semiring (standard
+//!   addition).
+//! - As $`\eta\to\infty`$: approaches the minimum semiring on an inverse
+//!   scale.
 //!
 //! # Isomorphism
 //!
-//! The η-power semiring is isomorphic to the probability semiring via:
+//! The $`\eta`$-power semiring is isomorphic to the probability semiring via:
 //!
-//! - `Ψ_η(x) = x^η` maps `(R+, +, ×, 0, 1) → S_η`
-//! - `Ψ_η^{-1}(x) = x^{1/η}` maps `S_η → (R+, +, ×, 0, 1)`
+//! - $`\Psi_\eta(x)=x^\eta`$ maps
+//!   $`(\mathbb{R}_{\ge0},+,\times,0,1)\to S_\eta`$.
+//! - $`\Psi_\eta^{-1}(x)=x^{1/\eta}`$ maps
+//!   $`S_\eta\to(\mathbb{R}_{\ge0},+,\times,0,1)`$.
 //!
 //! This isomorphism preserves semiring operations:
-//! - `Ψ_η(x + y) = Ψ_η(x) ⊕_η Ψ_η(y)`
-//! - `Ψ_η(x × y) = Ψ_η(x) × Ψ_η(y)`
+//! - $`\Psi_\eta(x+y)=\Psi_\eta(x)\oplus_\eta\Psi_\eta(y)`$.
+//! - $`\Psi_\eta(xy)=\Psi_\eta(x)\Psi_\eta(y)`$.
 //!
 //! # Use Cases
 //!
@@ -48,32 +56,33 @@ use super::super::traits::{
     TotallyOrderedSemiring, ZeroSumFreeSemiring,
 };
 
-/// Default η value (equivalent to probability semiring).
+/// Default $`\eta`$ value, equivalent to the probability semiring.
 pub const DEFAULT_ETA: f64 = 1.0;
 
-/// η-Power semiring weight.
+/// $`\eta`$-power semiring weight.
 ///
-/// Stores a value in the η-power semiring along with the η parameter.
-/// The η parameter determines the "softness" of the addition operation.
+/// Stores a value in the $`\eta`$-power semiring along with the $`\eta`$
+/// parameter. The $`\eta`$ parameter determines the “softness” of the
+/// addition operation.
 #[derive(Clone, Copy, Debug)]
 pub struct PowerWeight {
     /// The weight value in the power semiring.
     value: OrderedFloat<f64>,
-    /// The η parameter controlling the semiring behavior.
+    /// The $`\eta`$ parameter controlling the semiring behavior.
     eta: OrderedFloat<f64>,
 }
 
 impl PowerWeight {
-    /// Create a new power weight with the given value and η parameter.
+    /// Create a new power weight with the given value and $`\eta`$ parameter.
     ///
     /// # Arguments
     ///
     /// * `value` - The weight value (must be non-negative)
-    /// * `eta` - The η parameter (must be positive)
+    /// * `eta` - The $`\eta`$ parameter, which must be positive.
     ///
     /// # Panics
     ///
-    /// Panics if η ≤ 0.
+    /// Panics if $`\eta\le 0`$.
     #[inline]
     pub fn new(value: f64, eta: f64) -> Self {
         debug_assert!(eta > 0.0, "η must be positive, got {}", eta);
@@ -83,7 +92,7 @@ impl PowerWeight {
         }
     }
 
-    /// Create a new power weight with the default η = 1.0.
+    /// Create a new power weight with the default $`\eta=1`$.
     #[inline]
     pub fn with_default_eta(value: f64) -> Self {
         Self::new(value, DEFAULT_ETA)
@@ -95,7 +104,7 @@ impl PowerWeight {
         self.value.into_inner()
     }
 
-    /// Get the η parameter.
+    /// Get the $`\eta`$ parameter.
     #[inline]
     pub fn eta(&self) -> f64 {
         self.eta.into_inner()
@@ -137,20 +146,24 @@ impl PowerWeight {
         self.value.is_infinite()
     }
 
-    /// Convert from the probability semiring using the isomorphism Ψ_η(x) = x^η.
+    /// Convert from the probability semiring using the isomorphism
+    /// $`\Psi_\eta(x)=x^\eta`$.
     ///
-    /// This maps a probability value `p` to its representation in the η-power semiring.
+    /// This maps a probability value $`p`$ to its representation in the
+    /// $`\eta`$-power semiring.
     ///
     /// # Arguments
     ///
-    /// * `prob` - A probability value (typically in [0, 1] but can be any non-negative value)
-    /// * `eta` - The η parameter for the target power semiring
+    /// * `prob` - A probability value, typically in $`[0,1]`$ but allowed
+    ///   to be any non-negative value.
+    /// * `eta` - The $`\eta`$ parameter for the target power semiring.
     #[inline]
     pub fn from_probability(prob: f64, eta: f64) -> Self {
         Self::new(prob.powf(eta), eta)
     }
 
-    /// Convert to the probability semiring using the inverse isomorphism Ψ_η^{-1}(x) = x^{1/η}.
+    /// Convert to the probability semiring using the inverse isomorphism
+    /// $`\Psi_\eta^{-1}(x)=x^{1/\eta}`$.
     ///
     /// This recovers the original probability value from the power semiring representation.
     #[inline]
@@ -172,7 +185,7 @@ impl PowerWeight {
         }
     }
 
-    /// Re-express this weight with another η through probability space.
+    /// Re-express this weight with another $`\eta`$ through probability space.
     #[inline]
     pub fn with_eta(&self, eta: f64) -> Self {
         if (self.eta.into_inner() - eta).abs() < 1e-10 {
@@ -182,7 +195,8 @@ impl PowerWeight {
         }
     }
 
-    /// Compute the power semiring addition: x ⊕_η y = (x^{1/η} + y^{1/η})^η
+    /// Compute the power-semiring addition
+    /// $`x\oplus_\eta y=(x^{1/\eta}+y^{1/\eta})^\eta`$.
     #[inline]
     fn power_plus(&self, other: &Self) -> Self {
         let eta = self.eta.into_inner();
@@ -205,7 +219,7 @@ impl PowerWeight {
         Self::new(sum.powf(eta), eta)
     }
 
-    /// Convert another weight into this weight's η parameter.
+    /// Convert another weight into this weight's $`\eta`$ parameter.
     #[inline]
     fn align_eta(&self, other: &Self) -> Self {
         other.with_eta(self.eta.into_inner())
@@ -244,7 +258,7 @@ impl Ord for PowerWeight {
 }
 
 impl Default for PowerWeight {
-    /// Default is multiplicative identity (one) with default η.
+    /// Default is the multiplicative identity (one) with the default $`\eta`$.
     #[inline]
     fn default() -> Self {
         Self::one()
@@ -276,14 +290,14 @@ impl Semiring for PowerWeight {
         Self::one_with_eta(DEFAULT_ETA)
     }
 
-    /// Addition: x ⊕_η y = (x^{1/η} + y^{1/η})^η
+    /// Addition: $`x\oplus_\eta y=(x^{1/\eta}+y^{1/\eta})^\eta`$.
     #[inline]
     fn plus(&self, other: &Self) -> Self {
         let aligned = self.align_eta(other);
         self.power_plus(&aligned)
     }
 
-    /// Multiplication: x ⊗ y = x × y
+    /// Multiplication: $`x\otimes y=x\times y`$.
     #[inline]
     fn times(&self, other: &Self) -> Self {
         let aligned = self.align_eta(other);
@@ -351,17 +365,19 @@ impl DivisibleSemiring for PowerWeight {
 impl StarSemiring for PowerWeight {
     /// Kleene closure for the power semiring.
     ///
-    /// The power semiring is isomorphic to the probability semiring via Ψ_η(x) = x^η.
-    /// In the probability semiring, a* = 1/(1-a) for a < 1.
+    /// The power semiring is isomorphic to the probability semiring via
+    /// $`\Psi_\eta(x)=x^\eta`$. In the probability semiring,
+    /// $`a^*=1/(1-a)`$ for $`a<1`$.
     ///
-    /// Since we store values in the power semiring representation (y = a^η where a is
-    /// the probability value), the star must be computed as:
+    /// Values use the power-semiring representation $`y=a^\eta`$, where
+    /// $`a`$ is the probability value, so star is computed as follows:
     ///
-    /// - Convert to probability: a = y^{1/η}
-    /// - Compute probability star: a* = 1/(1-a)
-    /// - Convert back to power: (a*)^η
+    /// - Convert to probability: $`a=y^{1/\eta}`$.
+    /// - Compute probability star: $`a^*=1/(1-a)`$.
+    /// - Convert back to power: $`(a^*)^\eta`$.
     ///
-    /// This converges when the underlying probability a = y^{1/η} < 1.
+    /// This converges when the underlying probability
+    /// $`a=y^{1/\eta}<1`$.
     fn star(&self) -> Option<Self> {
         let v = self.value.into_inner();
         let eta = self.eta.into_inner();
@@ -412,12 +428,12 @@ impl KClosedSemiring for PowerWeight {
 /// PowerWeight is zero-sum-free.
 ///
 /// Since all values are non-negative (enforced by constructor),
-/// x ⊕_η y = 0 only when both x = 0 and y = 0.
+/// $`x\oplus_\eta y=0`$ only when $`x=0`$ and $`y=0`$.
 impl ZeroSumFreeSemiring for PowerWeight {}
 
 /// PowerWeight has commutative multiplication.
 ///
-/// x ⊗ y = x × y = y × x = y ⊗ x
+/// $`x\otimes y=x\times y=y\times x=y\otimes x`$
 impl CommutativeTimesSemiring for PowerWeight {}
 
 // ============================================================================
@@ -446,7 +462,8 @@ impl QuantizableSemiring for PowerWeight {
 
 /// PowerWeight can be converted to probability for sampling.
 ///
-/// Uses the existing `to_probability()` method which computes value^{1/η}.
+/// Uses the existing `to_probability()` method, which computes
+/// $`\mathrm{value}^{1/\eta}`$.
 impl StochasticSemiring for PowerWeight {
     fn to_probability(&self) -> f64 {
         PowerWeight::to_probability(self)
@@ -456,7 +473,7 @@ impl StochasticSemiring for PowerWeight {
 impl std::ops::Add for PowerWeight {
     type Output = Self;
 
-    /// Operator `+` implements semiring ⊕_η.
+    /// Operator `+` implements semiring $`\oplus_\eta`$.
     #[inline]
     fn add(self, other: Self) -> Self {
         self.plus(&other)
@@ -466,7 +483,7 @@ impl std::ops::Add for PowerWeight {
 impl std::ops::Mul for PowerWeight {
     type Output = Self;
 
-    /// Operator `*` implements semiring ⊗.
+    /// Operator `*` implements semiring $`\otimes`$.
     #[inline]
     fn mul(self, other: Self) -> Self {
         self.times(&other)

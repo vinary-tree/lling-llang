@@ -18,7 +18,8 @@
 //!
 //! ## Benefits
 //!
-//! - Far fewer parameters than a dense convolution (Hannun et al. (2020) report ≈38× on their setup)
+//! - Far fewer parameters than a dense convolution (Hannun et al. (2020)
+//!   report approximately 38× on their setup).
 //! - Better accuracy in many sequence modeling tasks
 //! - Parameters scale with token vocabulary, not input channels
 //!

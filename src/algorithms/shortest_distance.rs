@@ -3,7 +3,7 @@
 //! This module implements generalized shortest-distance algorithms from Mohri's
 //! weighted automata theory. These algorithms compute the total weight of all
 //! paths from one state to another, combining path weights using the semiring's
-//! ⊕ (plus) operation.
+//! $`\oplus`$ (plus) operation.
 //!
 //! # Single-Source Shortest Distance
 //!
@@ -82,7 +82,8 @@ impl ShortestDistanceConfig {
 /// Compute single-source shortest distances from the initial state.
 ///
 /// Returns a vector where `result[s]` is the total weight of all paths from
-/// the start state to state `s`, combined using the semiring's ⊕ operation.
+/// the start state to state `s`, combined using the semiring's
+/// $`\oplus`$ operation.
 ///
 /// # Arguments
 ///
@@ -107,9 +108,12 @@ impl ShortestDistanceConfig {
 ///
 /// # Complexity
 ///
-/// - Acyclic + TopologicalQueue: O(|Q| + |E|)
-/// - Tropical + ShortestFirstQueue: O(|E| + |Q| log |Q|)
-/// - General + FifoQueue: O(C · |E|) where C is path length bound
+/// - Acyclic plus `TopologicalQueue`:
+///   $`\mathcal{O}(\lvert Q\rvert+\lvert E\rvert)`$.
+/// - Tropical plus `ShortestFirstQueue`:
+///   $`\mathcal{O}(\lvert E\rvert+\lvert Q\rvert\log\lvert Q\rvert)`$.
+/// - General plus `FifoQueue`: $`\mathcal{O}(C\lvert E\rvert)`$, where
+///   $`C`$ bounds path length.
 pub fn single_source_shortest_distance<L, W, F>(
     fst: &F,
     config: ShortestDistanceConfig,
@@ -273,7 +277,7 @@ where
 /// # Requirements
 ///
 /// Requires a star semiring for handling cycles. The star operation
-/// computes: `a* = 1̄ ⊕ a ⊕ a² ⊕ a³ ⊕ ...`
+/// computes $`a^*=\bar{1}\oplus a\oplus a^2\oplus a^3\oplus\cdots`$.
 ///
 /// # Arguments
 ///
@@ -286,8 +290,9 @@ where
 ///
 /// # Complexity
 ///
-/// Time: Θ(|Q|³(T⊕ + T⊗ + T*))
-/// Space: Θ(|Q|²)
+/// - Time:
+///   $`\Theta(\lvert Q\rvert^3(T_{\oplus}+T_{\otimes}+T_*))`$.
+/// - Space: $`\Theta(\lvert Q\rvert^2)`$.
 pub fn all_pairs_shortest_distance<L, W, F>(fst: &F) -> Option<Vec<Vec<W>>>
 where
     L: Clone,

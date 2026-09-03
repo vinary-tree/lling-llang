@@ -242,11 +242,13 @@ impl<'a, W: Semiring, B: LatticeBackend> Iterator for NBestIterator<'a, W, B> {
 ///
 /// # Time Complexity
 ///
-/// O(V + E + P log P) for V nodes, E edges, and P explored partial paths.
+/// $`\mathcal{O}(V+E+P\log P)`$ for $`V`$ nodes, $`E`$ edges, and
+/// $`P`$ explored partial paths.
 ///
 /// # Space Complexity
 ///
-/// O(V + E + P × path_length) for suffix costs, adjacency, and queued paths.
+/// $`\mathcal{O}(V+E+P\ell)`$ for suffix costs, adjacency, and queued paths,
+/// where $`\ell`$ is path length.
 ///
 /// # Example
 ///

@@ -4,7 +4,8 @@
 //!
 //! - **Queue Disciplines**: Different traversal strategies for shortest-distance
 //!   - [`FifoQueue`]: General-purpose for k-closed semirings
-//!   - [`TopologicalQueue`]: Optimal for acyclic graphs O(|Q| + |E|)
+//!   - [`TopologicalQueue`]: Optimal for acyclic graphs in
+//!     $`\mathcal{O}(\lvert Q\rvert+\lvert E\rvert)`$ time
 //!   - [`ShortestFirstQueue`]: Dijkstra-style for tropical semiring
 //!
 //! - **Shortest-Distance Algorithms**:
@@ -38,9 +39,9 @@
 //!
 //! | Graph Type | Semiring | Recommended Queue | Complexity |
 //! |------------|----------|-------------------|------------|
-//! | Acyclic | Any | TopologicalQueue | O(|Q| + |E|) |
-//! | General | Tropical | ShortestFirstQueue | O(|E| + |Q| log |Q|) |
-//! | General | Log/k-closed | FifoQueue | O(C·|E|) |
+//! | Acyclic | Any | TopologicalQueue | $`\mathcal{O}(\lvert Q\rvert+\lvert E\rvert)`$ |
+//! | General | Tropical | ShortestFirstQueue | $`\mathcal{O}(\lvert E\rvert+\lvert Q\rvert\log\lvert Q\rvert)`$ |
+//! | General | Log/k-closed | FifoQueue | $`\mathcal{O}(C\lvert E\rvert)`$ |
 //!
 //! # References
 //!

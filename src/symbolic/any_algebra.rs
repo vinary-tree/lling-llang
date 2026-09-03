@@ -16,8 +16,9 @@
 //! ## Semantics
 //!
 //! Each leaf scalar follows the many-sorted projection semantics: a foreign-sort
-//! leaf predicate projects to `⊥` when an algebra of another sort interprets a
-//! formula (see [`fold_pred`]). Combinator variants **delegate** every operation
+//! leaf predicate projects to $`\bot`$ when an algebra of another sort interprets a
+//! formula (see the private `fold_pred` evaluator). Combinator variants
+//! **delegate** every operation
 //! to their boxed inner algebra (extract the inner combinator predicate from the
 //! `AnyPred` variant, call the inner algebra, re-wrap), so the recursion bottoms
 //! out at the scalar leaves.
@@ -217,7 +218,7 @@ impl AnyPred {
 
 /// Project an [`AnyPred`] onto a single sort's algebra `alg`, evaluating the
 /// boolean structure inside it. `leaf` extracts the inner predicate for `alg`'s
-/// sort; leaves of any other sort project to `⊥`.
+/// sort; leaves of any other sort project to $`\bot`$.
 fn fold_pred<A, F>(alg: &A, p: &AnyPred, leaf: &F) -> A::Predicate
 where
     A: BooleanAlgebra,

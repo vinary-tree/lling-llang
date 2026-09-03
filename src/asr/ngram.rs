@@ -5,11 +5,14 @@
 //!
 //! ## Backoff Structure
 //!
-//! Instead of O(|V|²) transitions for bigrams, we use:
+//! Instead of $`\mathcal{O}(\lvert V\rvert^2)`$ transitions for bigrams,
+//! we use:
 //! - Seen n-gram: Direct transition with probability weight
 //! - Unseen n-gram: ε-transition to backoff state, then transition with unigram prob
 //!
-//! This reduces the number of transitions from O(|V|^n) to O(seen_ngrams + |V|).
+//! This reduces the number of transitions from
+//! $`\mathcal{O}(\lvert V\rvert^n)`$ to
+//! $`\mathcal{O}(\mathrm{seen\_ngrams}+\lvert V\rvert)`$.
 //!
 //! ## Weight Format
 //!
@@ -316,7 +319,7 @@ impl<W: Semiring + Clone> NgramBuilder<W> {
     /// # Arguments
     ///
     /// * `history` - History words
-    /// * `weight` - Backoff weight β(history)
+    /// * `weight` - Back-off weight $`\beta(\mathrm{history})`$.
     pub fn set_backoff(&mut self, history: &[WordId], weight: W) {
         self.backoffs.insert(history.to_vec(), weight);
     }

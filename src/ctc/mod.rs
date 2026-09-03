@@ -10,7 +10,7 @@
 //!
 //! | Topology | States | Arcs | Memory | Accuracy |
 //! |----------|--------|------|--------|----------|
-//! | Correct-CTC | N | N² | Baseline | Best |
+//! | Correct-CTC | $`N`$ | $`N^2`$ | Baseline | Best |
 //! | Compact-CTC | N | 3N-2 | 1.5× smaller | Same |
 //! | Minimal-CTC | 1 | N | 2× smaller | Slight penalty |
 //! | Selfless variants | varies | fewer | varies | Better for wide context |

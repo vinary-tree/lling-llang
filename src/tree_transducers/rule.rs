@@ -295,12 +295,13 @@ impl<L: Clone> TreePattern<L> {
 
 /// A weighted tree transducer rule.
 ///
-/// Format: q(σ(x₁,...,xₙ)) → pattern, w
+/// Format:
+/// $`q(\sigma(x_1,\ldots,x_n))\to\mathrm{pattern},w`$.
 ///
 /// Where:
 /// - q is the current state
-/// - σ is the input symbol with arity n
-/// - x₁,...,xₙ are the input variable children
+/// - $`\sigma`$ is the input symbol with arity $`n`$.
+/// - $`x_1,\ldots,x_n`$ are the input variable children.
 /// - pattern is the output tree pattern
 /// - w is the weight
 #[derive(Debug, Clone)]

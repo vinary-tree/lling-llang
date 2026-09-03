@@ -130,7 +130,7 @@ impl GrammarBuilder {
         self
     }
 
-    /// Add an epsilon production (A → ε).
+    /// Add an epsilon production ($`A\to\varepsilon`$).
     pub fn epsilon_rule(self, lhs: &str) -> Self {
         self.rule(lhs, &["ε"])
     }

@@ -544,7 +544,7 @@ impl<A: BooleanAlgebra> SymbolicTreeAutomaton<A> {
             .min_by_key(term_size)
     }
 
-    /// Disjoint union: accepts `L(self) ∪ L(other)`.
+    /// Disjoint union: accepts $`L(\mathrm{self})\cup L(\mathrm{other})`$.
     pub fn union(&self, other: &Self) -> Self {
         let off = self.num_states;
         let mut result = self.clone();
@@ -566,7 +566,7 @@ impl<A: BooleanAlgebra> SymbolicTreeAutomaton<A> {
         result
     }
 
-    /// Product construction: accepts `L(self) ∩ L(other)`.
+    /// Product construction: accepts $`L(\mathrm{self})\cap L(\mathrm{other})`$.
     pub fn intersect(&self, other: &Self) -> Self {
         let mut result = SymbolicTreeAutomaton::new(self.algebra.clone());
         for (c, a) in &self.arities {

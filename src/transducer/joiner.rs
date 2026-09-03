@@ -257,15 +257,17 @@ pub struct FeedForwardJoiner {
     pub vocab_size: usize,
     /// Hidden dimension.
     pub hidden_dim: usize,
-    /// Encoder projection weights [hidden_dim, enc_dim].
+    /// Encoder projection matrix with shape $`[\mathrm{hidden\_dim},\mathrm{enc\_dim}]`$.
     pub w_enc: Vec<f32>,
-    /// Predictor projection weights [hidden_dim, pred_dim].
+    /// Predictor projection matrix with shape
+    /// $`[\mathrm{hidden\_dim},\mathrm{pred\_dim}]`$.
     pub w_pred: Vec<f32>,
-    /// Hidden bias [hidden_dim].
+    /// Hidden-bias vector with shape $`[\mathrm{hidden\_dim}]`$.
     pub b_hidden: Vec<f32>,
-    /// Output projection weights [vocab_size, hidden_dim].
+    /// Output projection matrix with shape
+    /// $`[\mathrm{vocab\_size},\mathrm{hidden\_dim}]`$.
     pub w_out: Vec<f32>,
-    /// Output bias [vocab_size].
+    /// Output-bias vector with shape $`[\mathrm{vocab\_size}]`$.
     pub b_out: Vec<f32>,
     /// Encoder input dimension.
     pub enc_dim: usize,
@@ -491,13 +493,14 @@ pub struct FactorizedJoiner {
     pub enc_dim: usize,
     /// Predictor dimension.
     pub pred_dim: usize,
-    /// Blank projection weights [enc_dim].
+    /// Blank-projection vector with shape $`[\mathrm{enc\_dim}]`$.
     pub w_blank: Vec<f32>,
     /// Blank bias.
     pub b_blank: f32,
-    /// Vocabulary projection weights [(vocab_size-1), pred_dim].
+    /// Vocabulary-projection matrix with shape
+    /// $`[\mathrm{vocab\_size}-1,\mathrm{pred\_dim}]`$.
     pub w_vocab: Vec<f32>,
-    /// Vocabulary bias [vocab_size-1].
+    /// Vocabulary-bias vector with shape $`[\mathrm{vocab\_size}-1]`$.
     pub b_vocab: Vec<f32>,
 }
 

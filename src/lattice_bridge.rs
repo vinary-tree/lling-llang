@@ -1,8 +1,9 @@
-//! `libdictenstein` lattice bridge — `IdempotentSemiring` ⇒ [`llattice::Lattice`].
+//! `libdictenstein` lattice bridge—from `IdempotentSemiring` to
+//! [`llattice::Lattice`].
 //!
 //! Feature-gated on `lattice`. Lets any lling-llang idempotent semiring be used
 //! as a `libdictenstein` dictionary value whose union-merge join is the semiring
-//! `plus` (⊕).
+//! `plus` ($`\oplus`$).
 //!
 //! Relocated from `libdictenstein` to break a dependency cycle: lling-llang owns
 //! the semiring types, so the orphan rule permits these impls to live here.
@@ -12,8 +13,9 @@ use llattice::Lattice;
 
 /// Marker trait for types that implement [`Lattice`] via [`IdempotentSemiring`].
 ///
-/// For an idempotent semiring, `plus` (⊕) satisfies the join-semilattice laws,
-/// so the semiring forms a join semilattice. `times` (⊗) is path composition,
+/// For an idempotent semiring, `plus` ($`\oplus`$) satisfies the
+/// join-semilattice laws, so the semiring forms a join semilattice. `times`
+/// ($`\otimes`$) is path composition,
 /// not lattice meet, so a true meet must be supplied separately.
 pub trait SemiringLattice: Semiring + IdempotentSemiring {}
 
@@ -21,8 +23,8 @@ impl<S> SemiringLattice for S where S: Semiring + IdempotentSemiring {}
 
 /// Adapter wrapping a semiring value so it can serve as a join-lattice.
 ///
-/// - `join` = semiring `plus` (⊕)
-/// - `meet` = semiring `times` (⊗) — note that `times` is path composition, which
+/// - `join` = semiring `plus` ($`\oplus`$).
+/// - `meet` = semiring `times` ($`\otimes`$). Note that `times` is path composition, which
 ///   coincides with lattice meet only for some semirings (e.g. Boolean, where
 ///   `times` = AND). For correct meet semantics on other semirings, implement
 ///   [`Lattice`] directly.

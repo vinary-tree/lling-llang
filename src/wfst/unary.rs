@@ -2,7 +2,7 @@
 //!
 //! These operations transform a single WFST into another WFST.
 //!
-//! - **Inversion (T⁻¹)**: Swap input and output labels (lazy)
+//! - **Inversion ($`T^{-1}`$)**: swap input and output labels (lazy).
 //! - **Projection (↓T, T↓)**: Keep only input or output labels (lazy)
 //! - **Reversal (T^R)**: Reverse direction of all transitions (constructive)
 //!
@@ -50,7 +50,7 @@ use crate::semiring::Semiring;
 use super::vector::VectorWfstBuilder;
 
 // =============================================================================
-// Inversion: T⁻¹
+// Inversion
 // =============================================================================
 
 /// Lazy inversion of a WFST.
@@ -58,7 +58,7 @@ use super::vector::VectorWfstBuilder;
 /// Swaps input and output labels on all transitions.
 /// For transducer T: (i:o) → (o:i)
 ///
-/// Complexity: O(|T|) - states computed on demand.
+/// Complexity: $`\mathcal{O}(\lvert T\rvert)`$; states are computed on demand.
 #[derive(Clone)]
 pub struct InvertSource<L, W, T>
 where
@@ -141,7 +141,7 @@ pub type InvertWfst<L, W, T> = LazyWfstWrapper<InvertSource<L, W, T>, L, W>;
 ///
 /// # Returns
 ///
-/// A lazy WFST representing T⁻¹
+/// A lazy WFST representing $`T^{-1}`$.
 pub fn invert<L, W, T>(fst: &T) -> InvertWfst<L, W, T>
 where
     W: Semiring,
@@ -153,7 +153,7 @@ where
 }
 
 // =============================================================================
-// Projection: ↓T (input) and T↓ (output)
+// Projection
 // =============================================================================
 
 /// Lazy projection of a WFST.
@@ -161,7 +161,7 @@ where
 /// Either keeps input labels and makes outputs epsilon (input projection),
 /// or keeps output labels and makes inputs epsilon (output projection).
 ///
-/// Complexity: O(|T|) - states computed on demand.
+/// Complexity: $`\mathcal{O}(\lvert T\rvert)`$; states are computed on demand.
 #[derive(Clone)]
 pub struct ProjectSource<L, W, T, const INPUT: bool>
 where
@@ -308,7 +308,7 @@ where
 /// This is NOT a lazy operation because it requires inspecting all states
 /// to build the reversed graph.
 ///
-/// Complexity: O(|Q| + |E|)
+/// Complexity: $`\mathcal{O}(\lvert Q\rvert+\lvert E\rvert)`$.
 ///
 /// # Arguments
 ///
@@ -943,7 +943,7 @@ mod tests {
                 prop_assert_eq!(inv.num_states(), fst.num_states());
             }
 
-            /// Inversion is involutive: (T⁻¹)⁻¹ ≡ T
+            /// Inversion is involutive: $`(T^{-1})^{-1}\equiv T`$.
             #[test]
             fn invert_is_involution(
                 fst in arb_tropical_wfst(5, 2)
@@ -990,7 +990,7 @@ mod tests {
                 prop_assert_eq!(pout.num_states(), fst.num_states());
             }
 
-            /// Input projection is idempotent: ↓(↓T) ≡ ↓T
+            /// Input projection is idempotent: $`\downarrow(\downarrow T)\equiv\downarrow T`$.
             #[test]
             fn project_input_idempotent(
                 fst in arb_tropical_wfst(5, 2)
@@ -1016,7 +1016,7 @@ mod tests {
                 }
             }
 
-            /// Output projection is idempotent: (T↓)↓ ≡ T↓
+            /// Output projection is idempotent: $`(T\downarrow)\downarrow\equiv T\downarrow`$.
             #[test]
             fn project_output_idempotent(
                 fst in arb_tropical_wfst(5, 2)

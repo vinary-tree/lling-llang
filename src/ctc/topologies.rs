@@ -1,7 +1,7 @@
 //! CTC topology implementations.
 //!
 //! This module provides WFST implementations of various CTC topologies:
-//! - Correct-CTC: Standard complete graph (N states, N² arcs)
+//! - Correct-CTC: standard complete graph ($`N`$ states, $`N^2`$ arcs).
 //! - Compact-CTC: Reduced graph with blank back-off (N states, 3N-2 arcs)
 //! - Minimal-CTC: Smallest possible graph (1 state, N arcs)
 //! - Selfless variants: Remove non-blank self-loops for wide context models
@@ -230,14 +230,15 @@ fn selfless_compact_arc_count(vocab_size: usize) -> Result<usize, CtcTopologyErr
 /// # Structure
 ///
 /// - **States**: N (one per vocabulary unit, including blank)
-/// - **Arcs**: N² (complete graph with self-loops)
+/// - **Arcs**: $`N^2`$ (complete graph with self-loops).
 /// - **Start state**: State 0 (blank)
 /// - **Final states**: All states are final
 ///
 /// # Transitions
 ///
 /// For each state s and label l:
-/// - Non-blank self-loop: s --l:ε--> s (repeat frame, emit nothing)
+/// - Non-blank self-loop: $`s\xrightarrow{l:\varepsilon}s`$ (repeat frame,
+///   emit nothing).
 /// - To other: s --l:l--> l (emit l and go to state l)
 ///
 /// Blank (label 0) also emits epsilon on output. These epsilon outputs encode
@@ -255,7 +256,7 @@ fn selfless_compact_arc_count(vocab_size: usize) -> Result<usize, CtcTopologyErr
 ///
 /// let ctc = correct_ctc::<LogWeight>(5);
 /// assert_eq!(ctc.info().num_states, 5);
-/// assert_eq!(ctc.info().num_arcs, 25); // 5²
+/// assert_eq!(ctc.info().num_arcs, 25); // 5 squared
 /// ```
 pub fn correct_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
     try_correct_ctc(vocab_size).unwrap_or_else(|err| panic!("{err}"))
@@ -264,7 +265,7 @@ pub fn correct_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
 /// Try to create a Correct-CTC topology without panicking.
 ///
 /// Returns [`CtcTopologyError`] when `vocab_size` is empty, exceeds the
-/// concrete WFST state-ID space, or its `N²` arc count cannot fit in `usize`.
+/// concrete WFST state-ID space, or its $`N^2`$ arc count cannot fit in `usize`.
 pub fn try_correct_ctc<W: Semiring>(vocab_size: usize) -> Result<CtcTopology<W>, CtcTopologyError> {
     validate_vocab_size(vocab_size)?;
 
@@ -489,8 +490,8 @@ pub fn try_minimal_ctc<W: Semiring>(vocab_size: usize) -> Result<CtcTopology<W>,
 ///
 /// | Context Window | Recommended |
 /// |----------------|-------------|
-/// | Short (γ=0.25, ~11 frames) | Standard (with self-loops) |
-/// | Long (γ=1.0) | Selfless |
+/// | Short ($`\gamma=0.25`$, approximately 11 frames) | Standard (with self-loops) |
+/// | Long ($`\gamma=1.0`$) | Selfless |
 /// | Unlimited (Conformer) | Selfless |
 ///
 /// # Parameters
@@ -516,7 +517,7 @@ pub fn selfless_correct_ctc<W: Semiring>(vocab_size: usize) -> CtcTopology<W> {
 /// Try to create a Selfless Correct-CTC topology without panicking.
 ///
 /// Returns [`CtcTopologyError`] when `vocab_size` is empty, exceeds the
-/// concrete WFST state-ID space, or its `N² - N + 1` arc count cannot fit in
+/// concrete WFST state-ID space, or its $`N^2-N+1`$ arc count cannot fit in
 /// `usize`.
 pub fn try_selfless_correct_ctc<W: Semiring>(
     vocab_size: usize,
@@ -1015,7 +1016,7 @@ mod property_tests {
         // Topology Size Properties
         // =====================================================================
 
-        /// Correct-CTC has N states and N² arcs.
+        /// Correct-CTC has $`N`$ states and $`N^2`$ arcs.
         #[test]
         fn correct_ctc_size(n in 1usize..50) {
             let ctc = correct_ctc::<LogWeight>(n);
@@ -1045,7 +1046,7 @@ mod property_tests {
             prop_assert_eq!(ctc.fst().total_transitions(), n);
         }
 
-        /// Selfless Correct-CTC has N states and N²-N+1 arcs.
+        /// Selfless Correct-CTC has $`N`$ states and $`N^2-N+1`$ arcs.
         #[test]
         fn selfless_correct_ctc_size(n in 1usize..50) {
             let ctc = selfless_correct_ctc::<LogWeight>(n);

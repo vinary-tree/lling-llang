@@ -8,7 +8,8 @@
 //! involutive complement, no excluded middle) and **NOT**
 //! [`BooleanAlgebra`](crate::symbolic::BooleanAlgebra): the symbolic-automaton
 //! classical operations are statically unavailable on it (the safety property of
-//! the [algebra tower](crate::algebra_tower)). Computation against a *fixed*
+//! the [algebra tower](crate::symbolic::algebra_tower)). Computation against a
+//! *fixed*
 //! finite snapshot is nonetheless decidable (closed-world over the snapshot),
 //! returning [`Sat3::Sat`]/[`Sat3::Unsat`]; only an exceeded search budget
 //! yields [`Sat3::DontKnow`].
@@ -124,9 +125,9 @@ pub enum Arg {
 /// What a modal operator matches on an LTS edge label.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ActionPattern {
-    /// Any action (`⟨-⟩` / `[-]`).
+    /// Any action ($`\langle-\rangle`$ or $`[-]`$).
     Any,
-    /// An internal/unlabeled step (`τ`): empty or `"tau"` label.
+    /// An internal/unlabeled step ($`\tau`$): an empty or `"tau"` label.
     Tau,
     /// A specific named action.
     Named(String),
@@ -163,13 +164,13 @@ pub enum BehavioralFormula {
     Bot,
     /// A relation atom `name(args)`.
     Relation { name: String, args: Vec<Arg> },
-    /// `∀ var ∈ domain. body`.
+    /// $`\forall\,\mathrm{var}\in\mathrm{domain}.\,\mathrm{body}`$.
     Forall {
         var: String,
         domain: QDomain,
         body: Box<BehavioralFormula>,
     },
-    /// `∃ var ∈ domain. body`.
+    /// $`\exists\,\mathrm{var}\in\mathrm{domain}.\,\mathrm{body}`$.
     Exists {
         var: String,
         domain: QDomain,
@@ -177,13 +178,15 @@ pub enum BehavioralFormula {
     },
     /// A state proposition: the LTS state's `label()` equals this string.
     Atom(String),
-    /// `⟨a⟩φ` — some `a`-labeled successor satisfies `φ`.
+    /// $`\langle a\rangle\varphi`$ — some $`a`$-labeled successor
+    /// satisfies $`\varphi`$.
     Diamond(ActionPattern, Box<BehavioralFormula>),
-    /// `[a]φ` — all `a`-labeled successors satisfy `φ`.
+    /// $`[a]\varphi`$ — all $`a`$-labeled successors satisfy
+    /// $`\varphi`$.
     BoxAll(ActionPattern, Box<BehavioralFormula>),
-    /// Least fixpoint `μX.φ` (liveness/eventuality).
+    /// Least fixpoint $`\mu X.\,\varphi`$ (liveness/eventuality).
     Mu(String, Box<BehavioralFormula>),
-    /// Greatest fixpoint `νX.φ` (safety/invariance).
+    /// Greatest fixpoint $`\nu X.\,\varphi`$ (safety/invariance).
     Nu(String, Box<BehavioralFormula>),
     /// A fixpoint variable.
     FixVar(String),
@@ -1476,32 +1479,37 @@ fn and(a: BehavioralFormula, b: BehavioralFormula) -> BehavioralFormula {
 fn or(a: BehavioralFormula, b: BehavioralFormula) -> BehavioralFormula {
     BehavioralFormula::Or(Box::new(a), Box::new(b))
 }
-/// `⟨-⟩⊤` — the state has at least one successor (is not a deadlock).
+/// $`\langle-\rangle\top`$ — the state has at least one successor and is
+/// therefore not a deadlock.
 fn can_progress() -> BehavioralFormula {
     diamond_any(BehavioralFormula::Top)
 }
 
-/// `AX φ` — all successors satisfy `φ` (vacuously true at a deadlock).
+/// $`\mathrm{AX}\,\varphi`$ — all successors satisfy $`\varphi`$
+/// (vacuously true at a deadlock).
 pub fn ax(phi: BehavioralFormula) -> BehavioralFormula {
     box_any(phi)
 }
-/// `EX φ` — some successor satisfies `φ`.
+/// $`\mathrm{EX}\,\varphi`$ — some successor satisfies $`\varphi`$.
 pub fn ex(phi: BehavioralFormula) -> BehavioralFormula {
     diamond_any(phi)
 }
-/// `EF φ` — `φ` is reachable on some run.
+/// $`\mathrm{EF}\,\varphi`$ — $`\varphi`$ is reachable on some run.
 pub fn ef(phi: BehavioralFormula) -> BehavioralFormula {
     mu(or(phi, diamond_any(fixvar())))
 }
-/// `AG φ` — `φ` holds on all states of all runs (safety/invariance).
+/// $`\mathrm{AG}\,\varphi`$ — $`\varphi`$ holds on all states of all
+/// runs (safety/invariance).
 pub fn ag(phi: BehavioralFormula) -> BehavioralFormula {
     nu(and(phi, box_any(fixvar())))
 }
-/// `AF φ` — `φ` holds eventually on every maximal run (false at a φ-free deadlock).
+/// $`\mathrm{AF}\,\varphi`$ — $`\varphi`$ eventually holds on every
+/// maximal run (false at a deadlock where $`\varphi`$ does not hold).
 pub fn af(phi: BehavioralFormula) -> BehavioralFormula {
     mu(or(phi, and(box_any(fixvar()), can_progress())))
 }
-/// `EG φ` — some maximal run keeps `φ` true throughout.
+/// $`\mathrm{EG}\,\varphi`$ — some maximal run keeps $`\varphi`$ true
+/// throughout.
 pub fn eg(phi: BehavioralFormula) -> BehavioralFormula {
     // φ ∧ (⟨-⟩X ∨ deadlock); deadlock = [-]⊥.
     nu(and(
@@ -1509,11 +1517,13 @@ pub fn eg(phi: BehavioralFormula) -> BehavioralFormula {
         or(diamond_any(fixvar()), box_any(BehavioralFormula::Bot)),
     ))
 }
-/// `A(φ U ψ)` — on every maximal run, `φ` holds until `ψ`.
+/// $`\mathrm{A}(\varphi\mathbin{\mathrm U}\psi)`$ — on every maximal
+/// run, $`\varphi`$ holds until $`\psi`$.
 pub fn au(phi: BehavioralFormula, psi: BehavioralFormula) -> BehavioralFormula {
     mu(or(psi, and(phi, and(box_any(fixvar()), can_progress()))))
 }
-/// `E(φ U ψ)` — some run has `φ` until `ψ`.
+/// $`\mathrm{E}(\varphi\mathbin{\mathrm U}\psi)`$ — some run has
+/// $`\varphi`$ until $`\psi`$.
 pub fn eu(phi: BehavioralFormula, psi: BehavioralFormula) -> BehavioralFormula {
     mu(or(psi, and(phi, diamond_any(fixvar()))))
 }

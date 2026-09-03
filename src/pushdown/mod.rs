@@ -6,15 +6,17 @@
 //!
 //! # Mathematical Definition
 //!
-//! A weighted pushdown automaton is a tuple P = (Q, Σ, Γ, q₀, Z₀, F, Δ, ρ) where:
-//! - Q: Finite set of states
-//! - Σ: Input alphabet
-//! - Γ: Stack alphabet
-//! - q₀: Initial state
-//! - Z₀: Initial stack symbol
-//! - F ⊆ Q: Final states
-//! - Δ: Transition relation
-//! - ρ: Final weight function
+//! A weighted pushdown automaton is a tuple
+//! $`P=(Q,\Sigma,\Gamma,q_0,Z_0,F,\Delta,\rho)`$, where:
+//!
+//! - $`Q`$: finite set of states.
+//! - $`\Sigma`$: input alphabet.
+//! - $`\Gamma`$: stack alphabet.
+//! - $`q_0`$: initial state.
+//! - $`Z_0`$: initial stack symbol.
+//! - $`F\subseteq Q`$: final states.
+//! - $`\Delta`$: transition relation.
+//! - $`\rho`$: final-weight function.
 //!
 //! # Transition Format
 //!
@@ -69,7 +71,7 @@ mod transition;
 mod vector;
 pub mod wpds;
 
-pub use builder::{BracketAlphabetError, BracketPair, DyckAlphabet, PdaBuilder};
+pub use builder::{BracketAlphabetError, BracketPair, BuildError, DyckAlphabet, PdaBuilder};
 pub use decode::PdaDecoder;
 pub use stack::{StackAction, StackSymbol};
 pub use traits::{PdaAcceptMode, PdaConfiguration, WeightedPda};

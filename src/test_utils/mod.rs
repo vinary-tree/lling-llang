@@ -6,10 +6,14 @@
 //!
 //! # Modules
 //!
-//! - [`arbitrary`]: `proptest` strategies for generating WFSTs, lattices, and weights
-//! - [`assertions`]: Custom assertion helpers for approximate equality and WFST properties
-//! - [`fixtures`]: Pre-built test WFSTs and lattices for common test scenarios
-//! - [`language`]: Language equivalence checking for WFSTs
+//! - [`arbitrary`](crate::test_utils::arbitrary): `proptest` strategies for
+//!   generating WFSTs, lattices, and weights
+//! - [`assertions`](crate::test_utils::assertions): custom assertion helpers for
+//!   approximate equality and WFST properties
+//! - [`fixtures`](crate::test_utils::fixtures): pre-built test WFSTs and
+//!   lattices for common test scenarios
+//! - [`language`](crate::test_utils::language): language-equivalence checking
+//!   for WFSTs
 //!
 //! # Example
 //!

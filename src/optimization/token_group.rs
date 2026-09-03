@@ -6,7 +6,8 @@
 //!
 //! ## Overview
 //!
-//! During on-the-fly composition (e.g., HCLG ∘ G_r where G_r is a residual
+//! During on-the-fly composition (for example, $`HCLG\circ G_r`$, where
+//! $`G_r`$ is a residual
 //! grammar), many tokens share the same base-graph state but differ in
 //! grammar state. These tokens can be grouped together:
 //!

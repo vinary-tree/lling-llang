@@ -354,7 +354,8 @@ fn build_equally_spaced_token_graph(
 ///
 /// # Returns
 ///
-/// A WFST representing (T₁ + T₂ + ... + T_n)* where T_i is the token graph for token i.
+/// A WFST representing $`(T_1+T_2+\cdots+T_n)^*`$, where $`T_i`$ is the
+/// token graph for token $`i`$.
 pub fn build_vocabulary_graph(
     vocab_size: usize,
     config: &TokenGraphConfig,

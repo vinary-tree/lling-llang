@@ -21,7 +21,8 @@
 //!
 //! # Why Not `Semiring` Trait?
 //!
-//! Edit weights contain `SmallVec` which cannot be `Copy`. The [`Semiring`](super::Semiring)
+//! Edit weights contain `SmallVec` which cannot be `Copy`. The
+//! [`Semiring`](crate::semiring::Semiring)
 //! trait requires `Copy` for efficiency in numeric weights. Edit weights provide the
 //! same API through inherent methods instead of trait implementations.
 //!
@@ -179,16 +180,18 @@ const MAX_EDIT_ALTERNATIVES: usize = 100;
 ///
 /// # Note
 ///
-/// This type does not implement the [`Semiring`](super::Semiring) trait because
+/// This type does not implement the [`Semiring`](crate::semiring::Semiring)
+/// trait because
 /// it contains `SmallVec` which cannot be `Copy`. It provides semiring-like
 /// operations through inherent methods instead.
 ///
 /// # Algebraic Properties
 ///
-/// - **Idempotent ⊕**: duplicate equal-cost alternatives are retained once
-/// - **Zero-sum-free**: Only zero (∅, ∞) produces zero sums
+/// - **Idempotent $`\oplus`$**: duplicate equal-cost alternatives are retained once.
+/// - **Zero-sum-free**: only zero $`(\emptyset,+\infty)`$ produces zero sums.
 /// - **NOT K-closed**: Star may not converge
-/// - **Generally non-commutative ⊗**: edit sequence order is semantically meaningful
+/// - **Generally non-commutative $`\otimes`$**: edit-sequence order is
+///   semantically meaningful.
 #[derive(Clone, Debug)]
 pub struct EditWeight {
     /// Alternative edit sequences (all with the same cost).

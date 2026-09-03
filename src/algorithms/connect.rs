@@ -11,7 +11,8 @@
 //!
 //! # Complexity
 //!
-//! O(|Q| + |E|) - Linear in the size of the automaton.
+//! $`\mathcal{O}(\lvert Q\rvert+\lvert E\rvert)`$—linear in the size of
+//! the automaton.
 //!
 //! # References
 //!

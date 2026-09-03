@@ -23,7 +23,8 @@
 //! that the sequencing filter conservatively rejects on BOTH paths alike.
 //!
 //! Formal-model correspondence (invariant registry owned by the coordinator):
-//! - `// INVARIANT-HOOK: LLING-COMP-1` — lazy ABI composition ≡ eager
+//! - `// INVARIANT-HOOK: LLING-COMP-1` — lazy ABI composition
+//!   $`\equiv`$ eager
 //!   native composition on every observable: paths, shortest distances,
 //!   and canonical structure.
 #![cfg(all(feature = "ffi", feature = "test-utils"))]
@@ -230,12 +231,15 @@ proptest! {
 
 /// Hand-computable pin: a trailing LEFT-side epsilon after the match.
 ///
-/// left:  0 -a:x/1-> 1 -b:ε/1-> 2, final(2)=0.25
-/// right: 0 -x:y/0.5-> 1,          final(1)=0.5
+/// - Left: $`0\xrightarrow{a:x/1}1\xrightarrow{b:\varepsilon/1}2`$,
+///   with $`\operatorname{final}(2)=0.25`$.
+/// - Right: $`0\xrightarrow{x:y/0.5}1`$, with
+///   $`\operatorname{final}(1)=0.5`$.
 ///
-/// One accepting path: match a:x⊗x:y (None filter), then the left b:ε move
-/// (allowed from None, enters Eps1), accept at (2, 1):
-/// input "ab", output "y", weight = (1+0.5) + 1 + (0.25+0.5) = 3.25.
+/// One accepting path matches $`a:x\otimes x:y`$ (the `None` filter), then
+/// takes the left $`b:\varepsilon`$ move (allowed from `None`, entering
+/// `Eps1`) and accepts at $`(2,1)`$. Its input is `"ab"`, output is
+/// `"y"`, and weight is $`(1+0.5)+1+(0.25+0.5)=3.25`$.
 #[test]
 fn epsilon_pin_trailing_left_epsilon_is_accepted() {
     let mut left: VectorWfst<char, TropicalWeight> = VectorWfst::new();
@@ -273,12 +277,16 @@ fn epsilon_pin_trailing_left_epsilon_is_accepted() {
 
 /// Hand-computable pin: a leading RIGHT-side epsilon before the match.
 ///
-/// left:  0 -a:x/1-> 1,             final(1)=0
-/// right: 0 -ε:c/0.5-> 1 -x:y/0.5-> 2, final(2)=0
+/// - Left: $`0\xrightarrow{a:x/1}1`$, with
+///   $`\operatorname{final}(1)=0`$.
+/// - Right:
+///   $`0\xrightarrow{\varepsilon:c/0.5}1\xrightarrow{x:y/0.5}2`$, with
+///   $`\operatorname{final}(2)=0`$.
 ///
-/// One accepting path: the right ε:c move (enters Eps2), then the match
-/// a:x⊗x:y (allowed from Eps2, resets to None), accept at (1, 2):
-/// input "a", output "cy", weight = 0.5 + (1+0.5) + 0 = 2.0.
+/// One accepting path takes the right $`\varepsilon:c`$ move (entering
+/// `Eps2`), then matches $`a:x\otimes x:y`$ (allowed from `Eps2`, resetting
+/// to `None`) and accepts at $`(1,2)`$. Its input is `"a"`, output is
+/// `"cy"`, and weight is $`0.5+(1+0.5)+0=2.0`$.
 #[test]
 fn epsilon_pin_leading_right_epsilon_is_accepted() {
     let mut left: VectorWfst<char, TropicalWeight> = VectorWfst::new();
@@ -315,13 +323,16 @@ fn epsilon_pin_leading_right_epsilon_is_accepted() {
 }
 
 /// Pin of the sequencing filter's conservative DOUBLE-SIDED epsilon
-/// behavior: when the only interleavings left are a left ε-output move and a
-/// right ε-input move in either order, the filter blocks both orders (Eps1
+/// behavior: when the only interleavings left are a left
+/// $`\varepsilon`$-output move and a right $`\varepsilon`$-input move in
+/// either order, the filter blocks both orders (`Eps1`
 /// forbids eps2 and vice versa), so NEITHER the eager oracle NOR the lazy
 /// ABI accepts — the correspondence holds on the rejecting side too.
 ///
-/// left:  0 -a:x/1-> 1 -b:ε/1-> 2, final(2)=0
-/// right: 0 -x:y/1-> 1 -ε:z/1-> 2, final(2)=0
+/// - Left: $`0\xrightarrow{a:x/1}1\xrightarrow{b:\varepsilon/1}2`$, with
+///   $`\operatorname{final}(2)=0`$.
+/// - Right: $`0\xrightarrow{x:y/1}1\xrightarrow{\varepsilon:z/1}2`$, with
+///   $`\operatorname{final}(2)=0`$.
 #[test]
 fn epsilon_pin_double_sided_trailing_epsilons_block_identically() {
     let mut left: VectorWfst<char, TropicalWeight> = VectorWfst::new();

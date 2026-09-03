@@ -5,7 +5,8 @@
 //!
 //! ## Problem
 //!
-//! Dense n-gram transition graphs have complexity O(C^n) where:
+//! Dense n-gram transition graphs have complexity $`\mathcal{O}(C^n)`$,
+//! where:
 //! - C = vocabulary size
 //! - n = n-gram order
 //!
@@ -13,7 +14,7 @@
 //!
 //! ## Solution
 //!
-//! 1. **Pruning**: Only keep n-grams observed ≥ k times in training data
+//! 1. **Pruning**: keep only n-grams observed at least $`k`$ times in training data.
 //! 2. **Back-off**: Missing n-grams fall back to (n-1)-gram probabilities
 //!
 //! ## Results

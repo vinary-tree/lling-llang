@@ -192,9 +192,10 @@ impl<T: Send + 'static> LogicStream<T> {
     ///
     /// # Fairness
     ///
-    /// For streams A = [a₁, a₂, a₃, ...] and B = [b₁, b₂, b₃, ...],
-    /// `interleave(A, B)` produces [a₁, b₁, a₂, b₂, a₃, b₃, ...].
-    /// Both A and B are explored at each step.
+    /// For streams $`A=[a_1,a_2,a_3,\ldots]`$ and
+    /// $`B=[b_1,b_2,b_3,\ldots]`$, `interleave(A, B)` produces
+    /// $`[a_1,b_1,a_2,b_2,a_3,b_3,\ldots]`$. Both streams are explored
+    /// at each step.
     pub fn interleave(self, other: LogicStream<T>) -> LogicStream<T> {
         let mut result = VecDeque::with_capacity(self.branches.len() + other.branches.len());
         let mut iter_a = self.branches.into_iter();
@@ -490,7 +491,8 @@ pub trait ConstraintTheory: Clone + fmt::Debug + Send + Sync + 'static {
 
 /// A first-order logic formula for quantified guard evaluation via LogicT.
 ///
-/// Used to express predicates like `∀y. (reachable(x,y) ⇒ safe(y))` in
+/// Used to express predicates such as
+/// $`\forall y.\,(\operatorname{reachable}(x,y)\Rightarrow\operatorname{safe}(y))`$ in
 /// behavioral guards. The evaluator resolves atoms against Ascent fixpoint
 /// relations and uses LogicT's `gnot`/`fair_conjoin` for quantifiers.
 ///
@@ -512,21 +514,23 @@ pub enum QuantifiedFormula {
         relation: String,
         args: Vec<QuantifiedArg>,
     },
-    /// Conjunction: `a ∧ b`
+    /// Conjunction: $`a\land b`$.
     And(Box<QuantifiedFormula>, Box<QuantifiedFormula>),
-    /// Disjunction: `a ∨ b`
+    /// Disjunction: $`a\lor b`$.
     Or(Box<QuantifiedFormula>, Box<QuantifiedFormula>),
-    /// Negation: `¬a`
+    /// Negation: $`\lnot a`$.
     Not(Box<QuantifiedFormula>),
-    /// Implication: `a ⇒ b` (sugar for `¬a ∨ b`)
+    /// Implication: $`a\Rightarrow b`$ (sugar for $`\lnot a\lor b`$).
     Implies(Box<QuantifiedFormula>, Box<QuantifiedFormula>),
-    /// Universal quantification: `∀var ∈ domain. body`
+    /// Universal quantification:
+    /// $`\forall\,\mathrm{var}\in\mathrm{domain}.\,\mathrm{body}`$.
     ForAll {
         var: String,
         domain: QuantifiedDomain,
         body: Box<QuantifiedFormula>,
     },
-    /// Existential quantification: `∃var ∈ domain. body`
+    /// Existential quantification:
+    /// $`\exists\,\mathrm{var}\in\mathrm{domain}.\,\mathrm{body}`$.
     Exists {
         var: String,
         domain: QuantifiedDomain,
@@ -810,27 +814,28 @@ impl QuantifiedFormula {
         }
     }
 
-    /// Convenience: `a ∧ b`
+    /// Convenience constructor for $`a\land b`$.
     pub fn and(a: QuantifiedFormula, b: QuantifiedFormula) -> Self {
         QuantifiedFormula::And(Box::new(a), Box::new(b))
     }
 
-    /// Convenience: `a ∨ b`
+    /// Convenience constructor for $`a\lor b`$.
     pub fn or(a: QuantifiedFormula, b: QuantifiedFormula) -> Self {
         QuantifiedFormula::Or(Box::new(a), Box::new(b))
     }
 
-    /// Convenience: `¬a`
+    /// Convenience constructor for $`\lnot a`$.
     pub fn not(a: QuantifiedFormula) -> Self {
         QuantifiedFormula::Not(Box::new(a))
     }
 
-    /// Convenience: `a ⇒ b`
+    /// Convenience constructor for $`a\Rightarrow b`$.
     pub fn implies(a: QuantifiedFormula, b: QuantifiedFormula) -> Self {
         QuantifiedFormula::Implies(Box::new(a), Box::new(b))
     }
 
-    /// Convenience: `∀var ∈ relation. body`
+    /// Convenience constructor for
+    /// $`\forall\,\mathrm{var}\in\mathrm{relation}.\,\mathrm{body}`$.
     pub fn forall(
         var: impl Into<String>,
         domain: QuantifiedDomain,
@@ -843,7 +848,8 @@ impl QuantifiedFormula {
         }
     }
 
-    /// Convenience: `∃var ∈ relation. body`
+    /// Convenience constructor for
+    /// $`\exists\,\mathrm{var}\in\mathrm{relation}.\,\mathrm{body}`$.
     pub fn exists(
         var: impl Into<String>,
         domain: QuantifiedDomain,
@@ -1018,8 +1024,8 @@ impl fmt::Display for QuantifiedArg {
 /// | `Or(a, b)` | `eval(a) \|\| eval(b)` (short-circuit) |
 /// | `Not(a)` | `!eval(a)` |
 /// | `Implies(a, b)` | `!eval(a) \|\| eval(b)` |
-/// | `ForAll(var, dom, body)` | `∀ tuple ∈ dom: eval(body[var↦tuple])` |
-/// | `Exists(var, dom, body)` | `∃ tuple ∈ dom: eval(body[var↦tuple])` |
+/// | `ForAll(var, dom, body)` | $`\forall t\in\mathrm{dom}.\,\operatorname{eval}(\mathrm{body}[\mathrm{var}\mapsto t])`$ |
+/// | `Exists(var, dom, body)` | $`\exists t\in\mathrm{dom}.\,\operatorname{eval}(\mathrm{body}[\mathrm{var}\mapsto t])`$ |
 ///
 /// For `ForAll` with `Bounded` domain, uses `collect_bounded(limit)` on
 /// the domain stream to ensure termination for semi-decidable (T3) theories.
@@ -1257,7 +1263,8 @@ impl TriState {
         }
     }
 
-    /// Three-valued implication: `a ⟹ b ≡ ¬a ∨ b`.
+    /// Three-valued implication:
+    /// $`a\Longrightarrow b\equiv\lnot a\lor b`$.
     pub fn implies(self, other: TriState) -> TriState {
         self.not().or(other)
     }

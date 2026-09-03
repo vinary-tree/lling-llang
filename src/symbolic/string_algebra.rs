@@ -2,7 +2,7 @@
 //! predicates are symbolic regular languages.
 //!
 //! This is the `A = CharClassAlgebra` instantiation of the generic
-//! symbolic-regex engine [`crate::regex_sfa`], with a `String` (rather than
+//! symbolic-regex engine [`crate::symbolic::regex_sfa`], with a `String` (rather than
 //! `Vec<char>`) domain and char-oriented conveniences (`Literal`, `Length`).
 //!
 //! A string predicate ([`StrPred`]) is a symbolic regex AST over Unicode
@@ -26,7 +26,7 @@ use super::{BooleanAlgebra, CharClassAlgebra, CharClassPred};
 
 /// A string predicate: a symbolic regular language over character classes.
 pub enum StrPred {
-    /// The empty language `∅`.
+    /// The empty language $`\emptyset`$.
     Empty,
     /// `{ "" }`.
     Epsilon,
@@ -34,7 +34,9 @@ pub enum StrPred {
     Class(CharClassPred),
     /// An exact literal string.
     Literal(String),
-    /// A length constraint `lo ≤ |s| ≤ hi` (`hi = None` is unbounded above).
+    /// A length constraint
+    /// $`\mathrm{lo}\le\lvert s\rvert\le\mathrm{hi}`$
+    /// (`hi = None` is unbounded above).
     Length(usize, Option<usize>),
     /// Concatenation.
     Concat(Box<StrPred>, Box<StrPred>),
@@ -44,7 +46,7 @@ pub enum StrPred {
     Star(Box<StrPred>),
     /// Intersection.
     Inter(Box<StrPred>, Box<StrPred>),
-    /// Complement (relative to `Σ*`).
+    /// Complement (relative to $`\Sigma^*`$).
     Compl(Box<StrPred>),
 }
 
@@ -256,7 +258,7 @@ impl Drop for StrPred {
 }
 
 impl StrPred {
-    /// `Σ*` — every string.
+    /// $`\Sigma^*`$—every string.
     pub fn any() -> StrPred {
         StrPred::Star(Box::new(StrPred::Class(CharClassPred::True)))
     }

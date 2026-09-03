@@ -1,28 +1,32 @@
 //! N-gram language model with back-off structure.
 //!
 //! This module provides compact representation of n-gram language models
-//! as WFSTs, using back-off states to avoid O(|V|²) transitions.
+//! as WFSTs, using back-off states to avoid
+//! $`\mathcal{O}(\lvert V\rvert^2)`$ transitions.
 //!
 //! ## Problem
 //!
 //! Naively representing an n-gram LM as a WFST requires:
-//! - O(|V|^{n-1}) states for (n-1)-gram contexts
-//! - O(|V|^n) arcs for all n-gram transitions
+//! - $`\mathcal{O}(\lvert V\rvert^{n-1})`$ states for
+//!   $`(n-1)`$-gram contexts.
+//! - $`\mathcal{O}(\lvert V\rvert^n)`$ arcs for all n-gram transitions.
 //!
 //! For large vocabularies, this becomes intractable.
 //!
 //! ## Solution: Back-off Structure
 //!
 //! Instead of explicit transitions for unseen n-grams, use:
-//! - **Back-off state b** reachable via ε-transition
-//! - **Seen bigram w₁w₂**: Direct transition from state w₁ to w₂
-//! - **Unseen bigram w₁w₃**: ε-transition from w₁ to b with weight -log(β(w₁)),
-//!   then transition from b to w₃ with weight -log(p̂(w₃))
+//! - **Back-off state $`b`$** reachable via an $`\varepsilon`$-transition.
+//! - **Seen bigram $`w_1w_2`$**: direct transition from state $`w_1`$ to
+//!   $`w_2`$.
+//! - **Unseen bigram $`w_1w_3`$**: an $`\varepsilon`$-transition from
+//!   $`w_1`$ to $`b`$ with weight $`-\log\beta(w_1)`$, then a transition
+//!   from $`b`$ to $`w_3`$ with weight $`-\log\hat p(w_3)`$.
 //!
 //! ## Benefits
 //!
 //! - Linear space in number of *observed* n-grams (not all possible)
-//! - Back-off ε-transitions enable graceful degradation
+//! - Back-off $`\varepsilon`$-transitions enable graceful degradation.
 //! - Compatible with standard WFST operations (composition, determinization)
 //! - Large reduction in training cost for big word-piece vocabularies via pruning
 //!
@@ -63,7 +67,7 @@ pub struct NgramEntry {
 pub struct BackoffWeight {
     /// The context for which this back-off applies.
     pub context: SmallVec<[VocabId; 4]>,
-    /// Back-off weight: -log β(context).
+    /// Back-off weight $`-\log\beta(\mathrm{context})`$.
     pub weight: f64,
 }
 
@@ -95,7 +99,7 @@ impl Default for NgramLmConfig {
 /// Builder for N-gram language model WFST.
 ///
 /// Constructs a compact WFST representation of an n-gram LM using
-/// back-off states to avoid O(|V|²) transitions.
+/// back-off states to avoid $`\mathcal{O}(\lvert V\rvert^2)`$ transitions.
 pub struct NgramLmBuilder {
     config: NgramLmConfig,
     /// Map from context to state ID.
@@ -152,7 +156,7 @@ impl NgramLmBuilder {
     /// # Arguments
     ///
     /// * `context` - The context for back-off
-    /// * `weight` - Back-off weight -log β(context)
+    /// * `weight` - Back-off weight $`-\log\beta(\mathrm{context})`$.
     pub fn add_backoff(&mut self, context: &[VocabId], weight: f64) {
         self.backoff_weights
             .insert(SmallVec::from_slice(context), weight);
@@ -188,7 +192,7 @@ impl NgramLmBuilder {
     /// The resulting WFST has:
     /// - States for each observed context
     /// - Direct arcs for observed n-grams
-    /// - Back-off arcs (ε or special symbol) to shorter contexts
+    /// - Back-off arcs ($`\varepsilon`$ or a special symbol) to shorter contexts.
     pub fn build(mut self) -> VectorWfst<VocabId, LogWeight> {
         let mut fst: VectorWfst<VocabId, LogWeight> = VectorWfst::new();
 
@@ -389,10 +393,11 @@ impl BigramLm {
         }
     }
 
-    /// Get probability P(w2 | w1).
+    /// Get probability $`P(w_2\mid w_1)`$.
     ///
     /// Uses back-off if bigram not observed:
-    /// P(w2 | w1) = P(w2) * β(w1) if (w1, w2) not seen
+    /// Uses $`P(w_2\mid w_1)=P(w_2)\beta(w_1)`$ if $`(w_1,w_2)`$
+    /// was not observed.
     pub fn prob(&self, w1: VocabId, w2: VocabId) -> f64 {
         // Try bigram first
         if let Some(&log_prob) = self.bigram_probs.get(&(w1, w2)) {

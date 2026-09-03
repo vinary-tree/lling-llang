@@ -6,8 +6,8 @@
 //!
 //! # Mathematical Definition
 //!
-//! ```text
-//! S = (ℝ ∪ {+∞}, min, +, +∞, 0)
+//! ```math
+//! S=(\mathbb{R}\cup\{+\infty\},\min,+,+\infty,0)
 //! ```
 //!
 //! Unlike the standard tropical semiring which assumes non-negative weights,
@@ -19,13 +19,15 @@
 //!
 //! # Star Operation
 //!
-//! The star operation w* = 1 ⊕ w ⊕ w² ⊕ ... diverges for negative weights:
+//! The star operation
+//! $`w^*=\bar{1}\oplus w\oplus w^2\oplus\cdots`$ diverges for negative
+//! weights:
 //!
-//! - If w ≥ 0: w* = 0 (the multiplicative identity)
-//! - If w < 0: w* diverges (returns None or error)
+//! - If $`w\ge0`$, then $`w^*=0`$ (the multiplicative identity).
+//! - If $`w<0`$, then $`w^*`$ diverges (returns `None` or an error).
 //!
 //! This is because repeatedly adding a negative value produces an unbounded
-//! sequence approaching -∞.
+//! sequence approaching $`-\infty`$.
 //!
 //! # Example
 //!
@@ -207,7 +209,7 @@ impl Display for SignedTropicalWeight {
 }
 
 impl Semiring for SignedTropicalWeight {
-    /// Additive identity: +∞ (unreachable).
+    /// Additive identity: $`+\infty`$ (unreachable).
     #[inline]
     fn zero() -> Self {
         SignedTropicalWeight::infinity()

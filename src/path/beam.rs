@@ -192,7 +192,8 @@ fn retain_best_completed<W: Semiring, B: LatticeBackend>(
 ///
 /// # Time Complexity
 ///
-/// O(V + E + P) where P is the number of generated partial hypotheses.
+/// $`\mathcal{O}(V+E+P)`$, where $`P`$ is the number of generated partial
+/// hypotheses.
 /// Each beam-pruning step uses linear-time top-k selection rather than sorting
 /// the full frontier. Acyclic lattices rank partial hypotheses by exact best
 /// suffix cost, so pruning uses the best possible complete-path cost through
@@ -200,8 +201,9 @@ fn retain_best_completed<W: Semiring, B: LatticeBackend>(
 ///
 /// # Space Complexity
 ///
-/// O(V + E + (beam_width + max_results) × path_length) for suffix costs,
-/// adjacency, active hypotheses, and retained completed hypotheses.
+/// $`\mathcal{O}(V+E+(b+r)\ell)`$ for suffix costs, adjacency, active
+/// hypotheses, and retained completed hypotheses, where $`b`$ is
+/// `beam_width`, $`r`$ is `max_results`, and $`\ell`$ is path length.
 ///
 /// # Example
 ///

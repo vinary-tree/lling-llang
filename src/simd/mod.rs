@@ -7,9 +7,9 @@
 //!
 //! | Operation | Description | Speedup |
 //! |-----------|-------------|---------|
-//! | `simd_tropical_min` | Parallel min for tropical ⊕ | ~4-8× |
+//! | `simd_tropical_min` | Parallel minimum for tropical $`\oplus`$ | approximately 4–8× |
 //! | `simd_log_add` | Vectorized log-sum-exp | ~2-4× |
-//! | `simd_add` | Parallel addition for ⊗ | ~4-8× |
+//! | `simd_add` | Parallel addition for $`\otimes`$ | approximately 4–8× |
 //! | `simd_forward_scores` | Batch forward score computation | ~3-6× |
 //!
 //! ## Example
@@ -116,7 +116,7 @@ impl SimdCapability {
 // Tropical Semiring Operations (min-based)
 // ============================================================================
 
-/// Compute element-wise minimum of two vectors (tropical ⊕).
+/// Compute the element-wise minimum of two vectors (tropical $`\oplus`$).
 ///
 /// Uses SIMD when available for significant speedup on large vectors.
 pub fn simd_tropical_min(a: &[f64], b: &[f64]) -> Vec<f64> {
@@ -207,10 +207,11 @@ unsafe fn simd_tropical_reduce_min_avx2(a: &[f64]) -> f64 {
 }
 
 // ============================================================================
-// Addition Operations (semiring ⊗)
+// Addition Operations
 // ============================================================================
 
-/// Compute element-wise sum of two vectors (semiring ⊗ for tropical/log).
+/// Compute the element-wise sum of two vectors (semiring $`\otimes`$ for
+/// tropical and log weights).
 pub fn simd_add(a: &[f64], b: &[f64]) -> Vec<f64> {
     assert_eq!(a.len(), b.len(), "vectors must have same length");
     let n = a.len();
@@ -303,7 +304,9 @@ unsafe fn simd_reduce_sum_avx2(a: &[f64]) -> f64 {
 
 /// Compute log-sum-exp across all elements (log semiring sum).
 ///
-/// Uses the numerically stable formula: log(Σ exp(a_i)) = max(a) + log(Σ exp(a_i - max(a)))
+/// Uses the numerically stable formula
+/// $`\log\sum_i\exp(a_i)=m+\log\sum_i\exp(a_i-m)`$, where
+/// $`m=\max_i a_i`$.
 pub fn simd_log_sum_exp(a: &[f64]) -> f64 {
     if a.is_empty() {
         return f64::NEG_INFINITY;
@@ -328,7 +331,7 @@ pub fn simd_log_sum_exp(a: &[f64]) -> f64 {
     max_val + sum.ln()
 }
 
-/// Element-wise log-add (log semiring ⊕).
+/// Element-wise log-add (log-semiring $`\oplus`$).
 ///
 /// Computes log(exp(a) + exp(b)) element-wise with numerical stability.
 pub fn simd_log_add(a: &[f64], b: &[f64]) -> Vec<f64> {
@@ -540,7 +543,7 @@ impl Default for BatchForwardScores {
 
 /// Compute pairwise min-plus distance update for dense matrices.
 ///
-/// Updates D[i,j] = min(D[i,j], D[i,k] + D[k,j]) for all i,j.
+/// Updates $`D[i,j]=\min(D[i,j],D[i,k]+D[k,j])`$ for every $`i,j`$.
 /// This is useful for Floyd-Warshall-style all-pairs shortest paths.
 pub fn simd_min_plus_update(d: &mut [f64], n: usize, k: usize) {
     assert_eq!(d.len(), n * n, "matrix must be n×n");

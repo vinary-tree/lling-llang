@@ -629,7 +629,7 @@ where
     /// Most recently computed state when caching is disabled.
     transient_state: Option<(StateId, LazyState<L, W>)>,
 
-    /// Intrusive O(1) LRU endpoints; links are stored in cache entries.
+    /// Intrusive $`\mathcal{O}(1)`$ LRU endpoints; links are stored in cache entries.
     lru_head: Option<StateId>,
     lru_tail: Option<StateId>,
 
@@ -868,7 +868,8 @@ where
         Some(entry)
     }
 
-    /// Evict the least-recently used persistent cached state in O(1).
+    /// Evict the least-recently used persistent cached state in
+    /// $`\mathcal{O}(1)`$ time.
     fn evict_lru(&mut self) {
         if let Some(head) = self.lru_head {
             self.remove_cached(head);

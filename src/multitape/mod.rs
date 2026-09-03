@@ -2,17 +2,20 @@
 //!
 //! This module implements multi-tape WFSTs for synchronized transduction
 //! over multiple input/output streams. Multi-tape transducers generalize
-//! standard two-tape transducers to k tapes.
+//! standard two-tape transducers to $`k`$ tapes.
 //!
 //! # Mathematical Definition
 //!
-//! A k-tape weighted transducer is a tuple T = (Q, Σ₁,...,Σₖ, q₀, F, E, ρ) where:
-//! - Q: Finite set of states
-//! - Σ₁,...,Σₖ: Tape alphabets (each tape has its own alphabet)
-//! - q₀: Initial state
-//! - F ⊆ Q: Final states
-//! - E: Transitions of the form (q, (a₁,...,aₖ), w, q') where aᵢ ∈ Σᵢ ∪ {ε}
-//! - ρ: Final weight function
+//! A $`k`$-tape weighted transducer is a tuple
+//! $`T=(Q,\Sigma_1,\ldots,\Sigma_k,q_0,F,E,\rho)`$, where:
+//!
+//! - $`Q`$: finite set of states.
+//! - $`\Sigma_1,\ldots,\Sigma_k`$: tape alphabets.
+//! - $`q_0`$: initial state.
+//! - $`F\subseteq Q`$: final states.
+//! - $`E`$: transitions $`(q,(a_1,\ldots,a_k),w,q')`$, where
+//!   $`a_i\in\Sigma_i\cup\{\varepsilon\}`$.
+//! - $`\rho`$: final-weight function.
 //!
 //! # Transition Format
 //!

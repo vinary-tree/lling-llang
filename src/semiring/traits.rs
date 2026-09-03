@@ -3,7 +3,8 @@
 //! Semirings provide the algebraic structure for weighted automata operations.
 //! The traits here form a hierarchy:
 //!
-//! - [`Semiring`]: Basic semiring operations (⊕, ⊗, 0̄, 1̄)
+//! - [`Semiring`]: Basic semiring operations ($`\oplus`$, $`\otimes`$,
+//!   $`\bar{0}`$, $`\bar{1}`$)
 //! - [`DivisibleSemiring`]: Semirings with division (for weight pushing)
 //! - [`StarSemiring`]: Semirings with Kleene closure (for epsilon removal)
 //!
@@ -12,59 +13,67 @@
 //! Additional marker traits encode algebraic properties that enable compile-time
 //! verification of algorithm requirements:
 //!
-//! - [`IdempotentSemiring`]: ⊕ is idempotent (`a ⊕ a = a`)
+//! - [`IdempotentSemiring`]: $`\oplus`$ is idempotent
+//!   ($`a \oplus a = a`$)
 //! - [`KClosedSemiring`]: Star operation converges in bounded iterations
-//! - [`ZeroSumFreeSemiring`]: `a ⊕ b = 0̄` implies `a = b = 0̄`
+//! - [`ZeroSumFreeSemiring`]: $`a \oplus b = \bar{0}`$ implies
+//!   $`a = b = \bar{0}`$
 //! - [`WeaklyLeftDivisibleSemiring`]: Left quotient exists for sums
-//! - [`CommutativeTimesSemiring`]: ⊗ is commutative (`a ⊗ b = b ⊗ a`)
+//! - [`CommutativeTimesSemiring`]: $`\otimes`$ is commutative
+//!   ($`a \otimes b = b \otimes a`$)
 
 use std::fmt::Debug;
 use std::hash::Hash;
 
 /// Algebraic semiring for WFST weight operations.
 ///
-/// A semiring (K, ⊕, ⊗, 0̄, 1̄) satisfies the following axioms:
+/// A semiring $`(K, \oplus, \otimes, \bar{0}, \bar{1})`$ satisfies the
+/// following axioms:
 ///
-/// 1. (K, ⊕, 0̄) is a commutative monoid:
-///    - Associativity: (a ⊕ b) ⊕ c = a ⊕ (b ⊕ c)
-///    - Commutativity: a ⊕ b = b ⊕ a
-///    - Identity: a ⊕ 0̄ = a
+/// 1. $`(K, \oplus, \bar{0})`$ is a commutative monoid:
+///    - Associativity: $`(a \oplus b) \oplus c = a \oplus (b \oplus c)`$
+///    - Commutativity: $`a \oplus b = b \oplus a`$
+///    - Identity: $`a \oplus \bar{0} = a`$
 ///
-/// 2. (K, ⊗, 1̄) is a monoid:
-///    - Associativity: (a ⊗ b) ⊗ c = a ⊗ (b ⊗ c)
-///    - Identity: a ⊗ 1̄ = 1̄ ⊗ a = a
+/// 2. $`(K, \otimes, \bar{1})`$ is a monoid:
+///    - Associativity: $`(a \otimes b) \otimes c = a \otimes (b \otimes c)`$
+///    - Identity: $`a \otimes \bar{1} = \bar{1} \otimes a = a`$
 ///
-/// 3. ⊗ distributes over ⊕:
-///    - Left: a ⊗ (b ⊕ c) = (a ⊗ b) ⊕ (a ⊗ c)
-///    - Right: (a ⊕ b) ⊗ c = (a ⊗ c) ⊕ (b ⊗ c)
+/// 3. $`\otimes`$ distributes over $`\oplus`$:
+///    - Left: $`a \otimes (b \oplus c) = (a \otimes b) \oplus (a \otimes c)`$
+///    - Right: $`(a \oplus b) \otimes c = (a \otimes c) \oplus (b \otimes c)`$
 ///
-/// 4. 0̄ is an annihilator for ⊗:
-///    - 0̄ ⊗ a = a ⊗ 0̄ = 0̄
+/// 4. $`\bar{0}`$ is an annihilator for $`\otimes`$:
+///    - $`\bar{0} \otimes a = a \otimes \bar{0} = \bar{0}`$
 ///
 /// # Semantic Interpretation
 ///
-/// - **⊕ (plus)**: Combines weights of parallel paths (e.g., min for shortest path)
-/// - **⊗ (times)**: Combines weights of sequential transitions (e.g., + for costs)
-/// - **0̄ (zero)**: Identity for ⊕, annihilator for ⊗ (e.g., ∞ for tropical)
-/// - **1̄ (one)**: Identity for ⊗ (e.g., 0 for tropical costs)
+/// - **$`\oplus`$ (plus)**: Combines weights of parallel paths (for example,
+///   minimum for a shortest path).
+/// - **$`\otimes`$ (times)**: Combines weights of sequential transitions
+///   (for example, addition for costs).
+/// - **$`\bar{0}`$ (zero)**: Identity for $`\oplus`$ and annihilator for
+///   $`\otimes`$ (for example, $`\infty`$ for the tropical semiring).
+/// - **$`\bar{1}`$ (one)**: Identity for $`\otimes`$ (for example,
+///   zero for tropical costs).
 pub trait Semiring: Clone + Copy + Debug + PartialEq + Send + Sync + 'static {
-    /// Additive identity (0̄).
+    /// Additive identity ($`\bar{0}`$).
     ///
     /// For any weight `a`: `a.plus(&Self::zero()) == a`
     fn zero() -> Self;
 
-    /// Multiplicative identity (1̄).
+    /// Multiplicative identity ($`\bar{1}`$).
     ///
     /// For any weight `a`: `a.times(&Self::one()) == a`
     fn one() -> Self;
 
-    /// Addition (⊕): combines parallel path weights.
+    /// Addition ($`\oplus`$): combines parallel path weights.
     ///
     /// In the tropical semiring, this is `min`.
     /// In the log semiring, this is `log(exp(a) + exp(b))`.
     fn plus(&self, other: &Self) -> Self;
 
-    /// Multiplication (⊗): combines sequential transition weights.
+    /// Multiplication ($`\otimes`$): combines sequential transition weights.
     ///
     /// In both tropical and log semirings, this is `+`.
     fn times(&self, other: &Self) -> Self;
@@ -111,7 +120,7 @@ pub trait Semiring: Clone + Copy + Debug + PartialEq + Send + Sync + 'static {
 ///
 /// # Requirements
 ///
-/// For a ∈ K and b ∈ K where b ≠ 0̄:
+/// For $`a \in K`$ and $`b \in K`$ where $`b \ne \bar{0}`$:
 /// - `(a.times(&b)).divide(&b) == Some(a)`
 pub trait DivisibleSemiring: Semiring {
     /// Division operation.
@@ -124,7 +133,11 @@ pub trait DivisibleSemiring: Semiring {
 /// Semiring with Kleene closure (star) operation.
 ///
 /// The star operation computes the infinite sum:
-/// `a* = 1̄ ⊕ a ⊕ (a ⊗ a) ⊕ (a ⊗ a ⊗ a) ⊕ ...`
+///
+/// ```math
+/// a^{*}=\bar{1}\oplus a\oplus(a\otimes a)
+/// \oplus(a\otimes a\otimes a)\oplus\cdots
+/// ```
 ///
 /// This is required for epsilon removal and other WFST algorithms that
 /// need to handle cycles.
@@ -136,9 +149,9 @@ pub trait DivisibleSemiring: Semiring {
 pub trait StarSemiring: Semiring {
     /// Kleene closure (star) operation.
     ///
-    /// Computes `a* = Σ_{n=0}^∞ aⁿ` where:
-    /// - `a⁰ = 1̄`
-    /// - `aⁿ = a ⊗ aⁿ⁻¹`
+    /// Computes $`a^{*} = \sum_{n=0}^{\infty} a^n`$ where:
+    /// - $`a^0 = \bar{1}`$
+    /// - $`a^n = a \otimes a^{n-1}`$
     ///
     /// Returns `None` if the series does not converge.
     fn star(&self) -> Option<Self>;
@@ -172,34 +185,37 @@ pub trait NumericalWeight: Semiring {
 // Algebraic Property Marker Traits
 // ============================================================================
 
-/// Marker trait for semirings where ⊕ is idempotent.
+/// Marker trait for semirings where $`\oplus`$ is idempotent.
 ///
 /// # Property
 ///
-/// For all `a ∈ K`: `a ⊕ a = a`
+/// For every $`a \in K`$, $`a \oplus a = a`$.
 ///
 /// # Implications
 ///
-/// - The semiring forms a join-semilattice under ⊕
+/// - The semiring forms a join-semilattice under $`\oplus`$.
 /// - Shortest-path algorithms (e.g., Dijkstra) work correctly
 /// - Epsilon removal can safely revisit states
 ///
 /// # Implementations
 ///
-/// - [`TropicalWeight`]: `min(a, a) = a`
-/// - [`BoolWeight`]: `a ∨ a = a`
+/// - [`TropicalWeight`](crate::semiring::TropicalWeight):
+///   $`\min(a, a) = a`$
+/// - [`BoolWeight`](crate::semiring::BoolWeight): $`a \lor a = a`$
 pub trait IdempotentSemiring: Semiring {}
 
 /// Trait for k-closed semirings where the star operation converges in bounded iterations.
 ///
 /// # Property
 ///
-/// For all `a ∈ K`, there exists `k ≥ 0` such that:
-/// ```text
-/// ⊕_{n=0}^{k+1} aⁿ = ⊕_{n=0}^{k} aⁿ
+/// For every $`a \in K`$, there exists $`k \ge 0`$ such that:
+/// ```math
+/// \bigoplus_{n=0}^{k+1} a^n = \bigoplus_{n=0}^{k} a^n
 /// ```
 ///
-/// That is, the infinite sum `a* = 1̄ ⊕ a ⊕ a² ⊕ ...` stabilizes after k iterations.
+/// That is, the infinite sum
+/// $`a^{*} = \bar{1} \oplus a \oplus a^2 \oplus \cdots`$ stabilizes
+/// after $`k`$ iterations.
 ///
 /// # Implications
 ///
@@ -209,9 +225,12 @@ pub trait IdempotentSemiring: Semiring {}
 ///
 /// # Implementations
 ///
-/// - [`TropicalWeight`]: k=0 for non-negative weights (min stabilizes immediately)
-/// - [`LogWeight`]: k=0 for weights ≥ 1 (log-sum-exp stabilizes)
-/// - `BoolWeight`: k=0 (`true* = true`, `false* = true`)
+/// - [`TropicalWeight`](crate::semiring::TropicalWeight): $`k=0`$ for
+///   non-negative weights (minimum stabilizes immediately).
+/// - [`LogWeight`](crate::semiring::LogWeight): $`k=0`$ for weights
+///   $`\ge 1`$ (log-sum-exp stabilizes).
+/// - `BoolWeight`: $`k=0`$ (`true.star() == true` and
+///   `false.star() == true`).
 pub trait KClosedSemiring: Semiring {
     /// Returns the closure bound k such that star converges in at most k+1 iterations.
     ///
@@ -230,7 +249,8 @@ pub trait KClosedSemiring: Semiring {
 ///
 /// # Property
 ///
-/// For all `a, b ∈ K`: `a ⊕ b = 0̄` implies `a = 0̄` and `b = 0̄`
+/// For all $`a,b \in K`$, $`a \oplus b = \bar{0}`$ implies
+/// $`a = \bar{0}`$ and $`b = \bar{0}`$.
 ///
 /// # Implications
 ///
@@ -241,20 +261,27 @@ pub trait KClosedSemiring: Semiring {
 /// # Implementations
 ///
 /// All numerical semirings with non-negative weights:
-/// - [`TropicalWeight`]: `min(a, b) = ∞` only if both are `∞`
-/// - [`LogWeight`]: `log-add(a, b) = ∞` only if both are `∞`
-/// - [`ProbabilityWeight`]: `a + b = 0` only if both are `0`
-/// - [`ExpectationWeight`]: Component-wise zero-sum-free
-/// - [`PowerWeight`]: `(a^{1/η} + b^{1/η})^η = 0` only if both are `0`
+/// - [`TropicalWeight`](crate::semiring::TropicalWeight):
+///   $`\min(a,b) = \infty`$ only if both are $`\infty`$.
+/// - [`LogWeight`](crate::semiring::LogWeight):
+///   $`\operatorname{logadd}(a,b) = \infty`$ only if both are
+///   $`\infty`$.
+/// - [`ProbabilityWeight`](crate::semiring::ProbabilityWeight):
+///   $`a+b=0`$ only if both are zero.
+/// - [`ExpectationWeight`](crate::semiring::ExpectationWeight): Component-wise zero-sum-free
+/// - [`PowerWeight`](crate::semiring::PowerWeight):
+///   $`\left(a^{1/\eta}+b^{1/\eta}\right)^{\eta}=0`$ only if both are
+///   zero.
 pub trait ZeroSumFreeSemiring: Semiring {}
 
 /// Trait for weakly left-divisible semirings.
 ///
 /// # Property
 ///
-/// For all `a, b ∈ K` where `a ⊕ b ≠ 0̄`, there exists `c ∈ K` such that:
-/// ```text
-/// c ⊗ (a ⊕ b) = a
+/// For all $`a,b \in K`$ where $`a \oplus b \ne \bar{0}`$, there
+/// exists $`c \in K`$ such that:
+/// ```math
+/// c \otimes (a \oplus b) = a
 /// ```
 ///
 /// This is weaker than full divisibility because it only requires left quotients
@@ -268,19 +295,21 @@ pub trait ZeroSumFreeSemiring: Semiring {}
 ///
 /// # Difference from [`DivisibleSemiring`]
 ///
-/// - `DivisibleSemiring`: `(a ⊗ b) / b = a` (product inverse)
-/// - `WeaklyLeftDivisibleSemiring`: `c ⊗ (a ⊕ b) = a` (left quotient for sums)
+/// - `DivisibleSemiring`: $`(a \otimes b)/b = a`$ (product inverse).
+/// - `WeaklyLeftDivisibleSemiring`: $`c \otimes (a \oplus b)=a`$
+///   (left quotient for sums).
 ///
 /// All divisible semirings are weakly left divisible, but not vice versa.
 ///
 /// # Implementations
 ///
-/// - [`TropicalWeight`]: `left_divide(a, min(a,b)) = 0` or `a - min(a,b)`
-/// - [`LogWeight`]: `left_divide(a, log-add(a,b)) = a - log-add(a,b)`
-/// - [`ProbabilityWeight`]: `left_divide(a, a+b) = a / (a+b)`
-/// - [`ExpectationWeight`]: Component-wise left division
+/// - [`TropicalWeight`](crate::semiring::TropicalWeight): `left_divide(a, min(a,b)) = 0` or `a - min(a,b)`
+/// - [`LogWeight`](crate::semiring::LogWeight): `left_divide(a, log-add(a,b)) = a - log-add(a,b)`
+/// - [`ProbabilityWeight`](crate::semiring::ProbabilityWeight): `left_divide(a, a+b) = a / (a+b)`
+/// - [`ExpectationWeight`](crate::semiring::ExpectationWeight): Component-wise left division
 pub trait WeaklyLeftDivisibleSemiring: Semiring {
-    /// Computes the left quotient `c` such that `c ⊗ divisor = self`.
+    /// Computes the left quotient $`c`$ such that
+    /// $`c \otimes \mathrm{divisor}=\mathrm{self}`$.
     ///
     /// Returns `None` if:
     /// - The divisor is zero
@@ -289,22 +318,24 @@ pub trait WeaklyLeftDivisibleSemiring: Semiring {
     ///
     /// # Arguments
     ///
-    /// * `divisor` - The sum `a ⊕ b` to divide by
+    /// * `divisor` - The sum $`a \oplus b`$ to divide by.
     ///
     /// # Returns
     ///
-    /// `Some(c)` where `c ⊗ divisor = self`, or `None` if undefined.
+    /// `Some(c)` where $`c \otimes \mathrm{divisor}=\mathrm{self}`$, or
+    /// `None` if undefined.
     fn left_divide(&self, divisor: &Self) -> Option<Self>;
 }
 
-/// Marker trait for semirings where ⊗ is commutative.
+/// Marker trait for semirings where $`\otimes`$ is commutative.
 ///
 /// # Property
 ///
-/// For all `a, b ∈ K`: `a ⊗ b = b ⊗ a`
+/// For all $`a,b \in K`$, $`a \otimes b=b \otimes a`$.
 ///
-/// Note: The base [`Semiring`] trait already requires ⊕ to be commutative.
-/// This trait additionally requires ⊗ to be commutative.
+/// Note: The base [`Semiring`] trait already requires $`\oplus`$ to be
+/// commutative. This trait additionally requires $`\otimes`$ to be
+/// commutative.
 ///
 /// # Implications
 ///
@@ -315,12 +346,13 @@ pub trait WeaklyLeftDivisibleSemiring: Semiring {
 /// # Implementations
 ///
 /// Most numerical semirings:
-/// - [`TropicalWeight`]: `a + b = b + a`
-/// - [`LogWeight`]: `a + b = b + a`
-/// - [`ProbabilityWeight`]: `a × b = b × a`
-/// - [`BoolWeight`]: `a ∧ b = b ∧ a`
-/// - [`ExpectationWeight`]: Component-wise commutative
-/// - [`PowerWeight`]: `a × b = b × a`
+/// - [`TropicalWeight`](crate::semiring::TropicalWeight): `a + b = b + a`
+/// - [`LogWeight`](crate::semiring::LogWeight): `a + b = b + a`
+/// - [`ProbabilityWeight`](crate::semiring::ProbabilityWeight): `a × b = b × a`
+/// - [`BoolWeight`](crate::semiring::BoolWeight):
+///   $`a \land b=b \land a`$
+/// - [`ExpectationWeight`](crate::semiring::ExpectationWeight): Component-wise commutative
+/// - [`PowerWeight`](crate::semiring::PowerWeight): `a × b = b × a`
 ///
 /// Not implemented for string semirings (concatenation is not commutative).
 pub trait CommutativeTimesSemiring: Semiring {}
@@ -333,7 +365,7 @@ pub trait CommutativeTimesSemiring: Semiring {}
 ///
 /// # Property
 ///
-/// For all `a, b ∈ K`, exactly one of these holds:
+/// For all $`a,b \in K`$, exactly one of these holds:
 /// - `a < b`
 /// - `a = b`
 /// - `a > b`
@@ -354,11 +386,11 @@ pub trait CommutativeTimesSemiring: Semiring {}
 /// # Implementations
 ///
 /// All numerical semirings with `OrderedFloat`:
-/// - [`TropicalWeight`]: Real numbers with infinity have total order
-/// - [`LogWeight`]: Negative log probabilities have total order
-/// - [`ProbabilityWeight`]: Non-negative reals have total order
-/// - [`PowerWeight`]: Non-negative reals with eta have total order
-/// - [`ExpectationWeight`]: Lexicographic order on (value, expectation)
+/// - [`TropicalWeight`](crate::semiring::TropicalWeight): Real numbers with infinity have total order
+/// - [`LogWeight`](crate::semiring::LogWeight): Negative log probabilities have total order
+/// - [`ProbabilityWeight`](crate::semiring::ProbabilityWeight): Non-negative reals have total order
+/// - [`PowerWeight`](crate::semiring::PowerWeight): Non-negative reals with eta have total order
+/// - [`ExpectationWeight`](crate::semiring::ExpectationWeight): Lexicographic order on (value, expectation)
 pub trait TotallyOrderedSemiring: Semiring + Ord {
     /// Total comparison, guaranteed to never return None.
     ///
@@ -373,7 +405,7 @@ pub trait TotallyOrderedSemiring: Semiring + Ord {
 ///
 /// # Property
 ///
-/// For all `a ∈ K`, the weight represents a non-negative quantity in its
+/// For every $`a \in K`$, the weight represents a non-negative quantity in its
 /// natural interpretation (costs, probabilities, distances).
 ///
 /// # Implications
@@ -396,10 +428,10 @@ pub trait TotallyOrderedSemiring: Semiring + Ord {
 ///
 /// # Implementations
 ///
-/// - [`TropicalWeight`]: When used with non-negative costs
-/// - [`LogWeight`]: Negative log probabilities are always non-negative
-/// - [`ProbabilityWeight`]: Probabilities are in [0, 1]
-/// - [`PowerWeight`]: Values are clamped to non-negative
+/// - [`TropicalWeight`](crate::semiring::TropicalWeight): When used with non-negative costs
+/// - [`LogWeight`](crate::semiring::LogWeight): Negative log probabilities are always non-negative
+/// - [`ProbabilityWeight`](crate::semiring::ProbabilityWeight): Probabilities are in [0, 1]
+/// - [`PowerWeight`](crate::semiring::PowerWeight): Values are clamped to non-negative
 pub trait NonnegativeSemiring: Semiring {}
 
 /// Trait for semirings whose weights can be quantized for approximate comparison.
@@ -463,14 +495,14 @@ pub trait QuantizableSemiring: Semiring {
 ///
 /// # Implementations
 ///
-/// - [`TropicalWeight`]: `exp(-x)` converts cost to probability-like value
-/// - [`LogWeight`]: `exp(-x)` recovers probability from negative log space
-/// - [`ProbabilityWeight`]: Direct probability value
-/// - [`PowerWeight`]: Via power-to-probability isomorphism
+/// - [`TropicalWeight`](crate::semiring::TropicalWeight): `exp(-x)` converts cost to probability-like value
+/// - [`LogWeight`](crate::semiring::LogWeight): `exp(-x)` recovers probability from negative log space
+/// - [`ProbabilityWeight`](crate::semiring::ProbabilityWeight): Direct probability value
+/// - [`PowerWeight`](crate::semiring::PowerWeight): Via power-to-probability isomorphism
 pub trait StochasticSemiring: Semiring {
     /// Convert weight to a non-negative value suitable for probability sampling.
     ///
-    /// The returned value should be in [0, ∞). Higher values indicate
+    /// The returned value should be in $`[0,\infty)`$. Higher values indicate
     /// higher probability of selection. Values will be normalized by the
     /// sampling algorithm.
     ///
@@ -584,7 +616,7 @@ pub mod tests {
 
     /// Helper function to verify idempotent semiring axioms.
     ///
-    /// Verifies that `a ⊕ a = a` for the given weight.
+    /// Verifies that $`a \oplus a=a`$ for the given weight.
     pub fn verify_idempotent_semiring<S: IdempotentSemiring>(a: S, epsilon: f64) {
         assert!(
             a.plus(&a).approx_eq(&a, epsilon),
@@ -594,7 +626,8 @@ pub mod tests {
 
     /// Helper function to verify zero-sum-free semiring axioms.
     ///
-    /// Verifies that `a ⊕ b = 0̄` implies `a = 0̄` and `b = 0̄`.
+    /// Verifies that $`a \oplus b=\bar{0}`$ implies
+    /// $`a=\bar{0}`$ and $`b=\bar{0}`$.
     pub fn verify_zero_sum_free_semiring<S: ZeroSumFreeSemiring>(a: S, b: S, epsilon: f64) {
         let sum = a.plus(&b);
         if sum.approx_eq(&S::zero(), epsilon) {
@@ -612,7 +645,7 @@ pub mod tests {
     /// Helper function to verify weakly left-divisible semiring axioms.
     ///
     /// Verifies that for non-zero divisor, `left_divide(a, divisor)` returns
-    /// `c` such that `c ⊗ divisor = a`.
+    /// $`c`$ such that $`c \otimes \mathrm{divisor}=a`$.
     pub fn verify_weakly_left_divisible_semiring<S: WeaklyLeftDivisibleSemiring>(
         a: S,
         divisor: S,
@@ -631,7 +664,7 @@ pub mod tests {
 
     /// Helper function to verify commutative times semiring axioms.
     ///
-    /// Verifies that `a ⊗ b = b ⊗ a`.
+    /// Verifies that $`a \otimes b=b \otimes a`$.
     pub fn verify_commutative_times_semiring<S: CommutativeTimesSemiring>(
         a: S,
         b: S,

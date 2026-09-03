@@ -221,11 +221,12 @@ impl LatticeTheory {
 
     /// Compute the transitive closure of the subtype relation.
     ///
-    /// Uses Warshall's algorithm (O(n^3) where n = |universe|). The
-    /// closure includes reflexive pairs (a <= a for all a in universe).
+    /// Uses Warshall's algorithm in
+    /// $`\mathcal{O}(n^3)`$ time, where $`n=\lvert\mathrm{universe}\rvert`$.
+    /// The closure includes every reflexive pair $`a\le a`$ in the universe.
     ///
     /// After computing the closure, detects non-trivial cycles
-    /// (a <= b and b <= a with a != b) and records them.
+    /// ($`a\le b`$ and $`b\le a`$ with $`a\ne b`$) and records them.
     pub fn compute_closure(&self, store: &mut LatticeStore) {
         if !store.closure_dirty && !store.closure.is_empty() {
             return;

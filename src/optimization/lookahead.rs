@@ -14,8 +14,8 @@
 //!
 //! ## Algorithm
 //!
-//! The lookahead score for state q is V(q), the backward potential:
-//! V(q) = -log(Σ_{paths from q to final} exp(-path_weight))
+//! The lookahead score for state $`q`$ is the backward potential $`V(q)`$:
+//! $`V(q)=-\log\sum_{\pi:q\leadsto F}\exp(-w(\pi))`$.
 //!
 //! This is exactly what log-semiring pushing computes, so we can reuse
 //! those potentials for lookahead.
@@ -159,7 +159,8 @@ impl LookaheadTable {
     ///
     /// # Returns
     ///
-    /// The combined score: accumulated ⊗ lookahead(state)
+    /// The combined score:
+    /// $`\mathrm{accumulated}\otimes\mathrm{lookahead}(\mathrm{state})`$.
     pub fn normalize_score(&self, state: StateId, accumulated: &LogWeight) -> LogWeight {
         accumulated.times(&self.get(state))
     }
@@ -182,7 +183,7 @@ impl LookaheadTable {
 ///
 /// # Complexity
 ///
-/// O(|Q| + |E|) for acyclic WFSTs
+/// $`\mathcal{O}(\lvert Q\rvert+\lvert E\rvert)`$ for acyclic WFSTs.
 ///
 /// # Example
 ///

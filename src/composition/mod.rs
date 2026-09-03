@@ -7,8 +7,8 @@
 //!
 //! | Operator | Description | Use Case |
 //! |----------|-------------|----------|
-//! | FST ∘ FST | WFST composition | Cascaded transducers |
-//! | NFA ∩ FST | NFA intersection | Phonetic matching |
+//! | FST $`\circ`$ FST | WFST composition | Cascaded transducers |
+//! | NFA $`\cap`$ FST | NFA intersection | Phonetic matching |
 //! | CFG × FST | CFG filtering | Grammar constraints |
 //!
 //! # Lazy Evaluation

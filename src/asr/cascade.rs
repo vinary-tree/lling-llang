@@ -2,28 +2,33 @@
 //!
 //! This module provides tools for building the full ASR recognition network:
 //!
-//! ```text
-//! N = π(min(det(H̃ ∘ det(C̃ ∘ det(L̃ ∘ G)))))
+//! ```math
+//! N=\pi\!\left(\min\!\left(\det\!\left(
+//! \widetilde{H}\circ\det\!\left(\widetilde{C}\circ
+//! \det\!\left(\widetilde{L}\circ G\right)\right)\right)\right)\right)
 //! ```
 //!
 //! ## Components
 //!
 //! - **G**: Word-level grammar (n-gram language model)
-//! - **L̃**: Pronunciation lexicon with auxiliary symbols
-//! - **C̃**: Context-dependency transducer (triphone/tetraphone)
-//! - **H̃**: HMM transducer with auxiliary distribution symbols
-//! - **π**: Erasing operation (auxiliary symbols → ε)
+//! - **$`\widetilde{L}`$**: pronunciation lexicon with auxiliary symbols.
+//! - **$`\widetilde{C}`$**: context-dependency transducer (triphone/tetraphone).
+//! - **$`\widetilde{H}`$**: HMM transducer with auxiliary distribution symbols.
+//! - **$`\pi`$**: erasing operation (auxiliary symbols to $`\varepsilon`$).
 //!
 //! ## Incremental Optimization
 //!
 //! The cascade is built incrementally, applying determinization after each
 //! composition to control graph size:
 //!
-//! 1. det(L̃ ∘ G) - Compose lexicon with grammar, determinize
-//! 2. det(C̃ ∘ result) - Add context-dependency, determinize
-//! 3. det(H̃ ∘ result) - Add HMM structure, determinize
+//! 1. $`\det(\widetilde{L}\circ G)`$ — compose the lexicon with the grammar,
+//!    then determinize.
+//! 2. $`\det(\widetilde{C}\circ\mathrm{result})`$ — add context dependency,
+//!    then determinize.
+//! 3. $`\det(\widetilde{H}\circ\mathrm{result})`$ — add HMM structure, then
+//!    determinize.
 //! 4. min(result) - Minimize final graph
-//! 5. π(result) - Erase auxiliary symbols
+//! 5. $`\pi(\mathrm{result})`$ — erase auxiliary symbols.
 //!
 //! ## Lazy Composition
 //!
@@ -123,7 +128,7 @@ impl Default for CascadeConfig {
 
 /// ASR transducer cascade.
 ///
-/// Represents the full recognition network H ∘ C ∘ L ∘ G.
+/// Represents the full recognition network $`H\circ C\circ L\circ G`$.
 pub struct AsrCascade<W: Semiring> {
     /// The composed transducer.
     pub fst: VectorWfst<PhoneId, W>,
@@ -138,13 +143,13 @@ pub struct AsrCascade<W: Semiring> {
 pub struct CascadeStats {
     /// Number of states in G (grammar).
     pub g_states: usize,
-    /// Number of states in L ∘ G.
+    /// Number of states in $`L\circ G`$.
     pub lg_states: usize,
-    /// Number of states in det(L ∘ G).
+    /// Number of states in $`\det(L\circ G)`$.
     pub det_lg_states: usize,
-    /// Number of states in C ∘ det(L ∘ G).
+    /// Number of states in $`C\circ\det(L\circ G)`$.
     pub clg_states: usize,
-    /// Number of states in det(C ∘ L ∘ G).
+    /// Number of states in $`\det(C\circ L\circ G)`$.
     pub det_clg_states: usize,
     /// Number of states in final result.
     pub final_states: usize,
@@ -230,7 +235,7 @@ where
     /// Input labels: phones (PhoneId)
     /// Output labels: words (WordId on first phone, epsilon on rest)
     ///
-    /// This version outputs WordId for L∘G composition.
+    /// This version outputs `WordId` for $`L\circ G`$ composition.
     fn build_lexicon_for_composition(&self) -> VectorWfst<u32, W> {
         let state_capacity = 1 + self
             .lexicon
@@ -307,7 +312,8 @@ where
     /// Build the full cascade (basic version).
     ///
     /// This version uses the lexicon directly without optimization algorithms.
-    /// For full determinization and minimization, use [`build_optimized`].
+    /// For full determinization and minimization, use
+    /// [`build_optimized`](Self::build_optimized).
     pub fn build(self) -> AsrCascade<W> {
         let mut stats = CascadeStats::default();
 
@@ -496,7 +502,8 @@ where
 {
     /// Build the full cascade with optimization algorithms.
     ///
-    /// Returns the composed transducer N = π(min(det(H ∘ det(C ∘ det(L ∘ G))))).
+    /// Returns
+    /// $`N=\pi(\min(\det(H\circ\det(C\circ\det(L\circ G)))))`$.
     ///
     /// This version applies determinization and minimization as configured.
     /// Requires the weight type to support division operations.

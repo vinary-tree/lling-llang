@@ -14,14 +14,16 @@ use crate::wfst::StateId;
 ///
 /// # Algorithm
 ///
-/// 1. Initialize α[start] = 1̄ (log semiring one = 0.0)
+/// 1. Initialize $`\alpha[q_0] = \bar{1}`$ (log-semiring one is `0.0`).
 /// 2. Process states in topological order
-/// 3. For each arc (s, t, w): α[t] = α[t] ⊕ (α[s] ⊗ w)
-/// 4. Total score = ⊕_{f ∈ F} (α[f] ⊗ final_weight[f])
+/// 3. For each arc $`(s,t,w)`$, compute
+///    $`\alpha[t] = \alpha[t] \oplus (\alpha[s] \otimes w)`$.
+/// 4. Return
+///    $`\bigoplus_{f\in F}(\alpha[f]\otimes\operatorname{final\_weight}[f])`$.
 ///
 /// # Complexity
 ///
-/// O(|Q| + |E|) for acyclic WFSTs.
+/// $`\mathcal{O}(|Q|+|E|)`$ for acyclic WFSTs.
 ///
 /// # Example
 ///

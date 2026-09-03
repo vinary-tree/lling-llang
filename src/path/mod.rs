@@ -11,9 +11,9 @@
 //!
 //! | Algorithm | Complexity | Memory | Use Case |
 //! |-----------|------------|--------|----------|
-//! | Viterbi | O(V + E) | O(V) | Single best path |
-//! | N-best | O(V + E + P log P) | O(V + E + P × path_len) | Exact top-k paths |
-//! | Beam | O(V + E + P) | O(V + E + beam_width × path_len) | Approximate top-k |
+//! | Viterbi | $`\mathcal{O}(V+E)`$ | $`\mathcal{O}(V)`$ | Single best path |
+//! | N-best | $`\mathcal{O}(V+E+P\log P)`$ | $`\mathcal{O}(V+E+P\ell)`$ | Exact top-$`k`$ paths |
+//! | Beam | $`\mathcal{O}(V+E+P)`$ | $`\mathcal{O}(V+E+b\ell)`$ | Approximate top-$`k`$ paths |
 //!
 //! # Example
 //!

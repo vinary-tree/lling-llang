@@ -1,25 +1,39 @@
 //! Epsilon removal algorithm for WFSTs.
 //!
-//! Epsilon removal eliminates epsilon (ε) transitions from a WFST while
+//! Epsilon removal eliminates $`\varepsilon`$-transitions from a WFST while
 //! preserving the weighted language. This is essential for:
 //!
-//! - **Determinization**: Most determinization algorithms require ε-free input
+//! - **Determinization**: most determinization algorithms require
+//!   $`\varepsilon`$-free input.
 //! - **Composition**: Simplified composition without epsilon filter
 //! - **Decoding**: Direct label matching without epsilon handling
 //!
 //! # Algorithm
 //!
-//! The algorithm computes the ε-closure for each state (all states reachable
-//! via ε-transitions with accumulated weights), then adds direct transitions
-//! that bypass ε-transitions.
+//! The algorithm computes the $`\varepsilon`$-closure for each state (all
+//! states reachable via $`\varepsilon`$-transitions with accumulated
+//! weights), then adds direct transitions that bypass those transitions.
 //!
-//! For a transition `p --a:b/w--> q` and ε-closure entry `(q, r, w')`:
-//! - Add new transition `p --a:b/(w ⊗ w')--> r`
+//! For a transition $`p\xrightarrow{a:b/w}q`$ and
+//! $`\varepsilon`$-closure entry $`(q,r,w')`$, add
+//! $`p\xrightarrow{a:b/(w\otimes w')}r`$.
 //!
 //! # Complexity
 //!
-//! - **Acyclic**: O(|Q|² + |Q||E|(T⊕ + T⊗))
-//! - **General (complete semiring)**: O(|Q|³(T⊕ + T⊗ + T*) + |Q||E|(T⊕ + T⊗))
+//! - **Acyclic**:
+//!   ```math
+//!   \mathcal{O}\!\left(
+//!   \lvert Q\rvert^2+
+//!   \lvert Q\rvert\lvert E\rvert(T_{\oplus}+T_{\otimes})
+//!   \right)
+//!   ```
+//! - **General (complete semiring)**:
+//!   ```math
+//!   \mathcal{O}\!\left(
+//!   \lvert Q\rvert^3(T_{\oplus}+T_{\otimes}+T_*)+
+//!   \lvert Q\rvert\lvert E\rvert(T_{\oplus}+T_{\otimes})
+//!   \right)
+//!   ```
 //!
 //! # References
 //!

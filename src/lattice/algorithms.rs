@@ -76,8 +76,9 @@ fn reachable_adjacency_from_edges<W: Semiring, B: LatticeBackend>(
 ///
 /// Returns `None` if the graph contains a cycle.
 ///
-/// Time complexity: O(V + E)
-/// Space complexity: O(V + E) for the edge adjacency table
+/// Time complexity: $`\mathcal{O}(V+E)`$.
+///
+/// Space complexity: $`\mathcal{O}(V+E)`$ for the edge-adjacency table.
 pub fn topological_sort<W: Semiring>(nodes: &[Node], edges: &[Edge<W>]) -> Option<Vec<NodeId>> {
     if nodes.is_empty() {
         return Some(Vec::new());
@@ -120,7 +121,7 @@ pub fn topological_sort<W: Semiring>(nodes: &[Node], edges: &[Edge<W>]) -> Optio
 
 /// Check if the graph is acyclic using DFS.
 ///
-/// Time complexity: O(V + E)
+/// Time complexity: $`\mathcal{O}(V+E)`$.
 pub fn is_acyclic(nodes: &[Node], edges: &[Edge<impl Semiring>]) -> bool {
     if nodes.is_empty() {
         return true;
@@ -168,7 +169,7 @@ pub fn is_acyclic(nodes: &[Node], edges: &[Edge<impl Semiring>]) -> bool {
 ///
 /// Returns `None` if the count would overflow or if graph has cycles.
 ///
-/// Time complexity: O(V + E) after topological sort
+/// Time complexity: $`\mathcal{O}(V+E)`$ after topological sorting.
 pub fn count_paths<W: Semiring, B: LatticeBackend>(lattice: &mut Lattice<W, B>) -> Option<usize> {
     let topo_order = lattice.topological_order()?.to_vec();
 

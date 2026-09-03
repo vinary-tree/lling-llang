@@ -41,7 +41,7 @@
 //! - |Q| = number of states
 //! - |E| = number of transitions
 //! - |E_E| = number of emitting transitions
-//! - α = max active tokens after pruning
+//! - $`\alpha`$ = maximum active tokens after pruning.
 //! - n_c = number of channels
 //! - n_l = number of lanes
 //!

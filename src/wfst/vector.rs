@@ -44,7 +44,7 @@ impl From<WfstStateError> for VectorWfstError {
 
 /// Eager WFST implementation storing all states in memory.
 ///
-/// Uses a vector of states for O(1) state access. Suitable for:
+/// Uses a vector of states for $`\mathcal{O}(1)`$ state access. Suitable for:
 /// - Small to medium WFSTs that fit in memory
 /// - WFSTs that are frequently traversed
 /// - Building WFSTs programmatically

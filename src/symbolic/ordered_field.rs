@@ -21,12 +21,12 @@
 //!
 //! Predicates are normalized unions of intervals whose endpoints are
 //! [`Bound`]s — `NegInf | PosInf | Incl(p) | Excl(p)` — so open/closed and
-//! ±∞ are all representable. Structural ordering of endpoints
+//! $`\pm\infty`$ are all representable. Structural ordering of endpoints
 //! (sorting/overlap) is *dense* (position-based), but **emptiness, witness
 //! generation, and gap detection route through the single density-aware oracle
 //! [`OrderedPoint::witness_in`]**. That one method per point type is what makes
 //! `not`/merge correct on *both* discrete and dense domains with shared code:
-//! e.g. `[1,2] ∪ [3,4]` collapses to `[1,4]` over `BigInt` (no integer strictly
+//! e.g. $`[1,2]\cup[3,4]`$ collapses to $`[1,4]`$ over `BigInt` (no integer strictly
 //! between 2 and 3) but stays split over `BigRational`.
 
 use std::cmp::Ordering;
@@ -47,13 +47,13 @@ use super::BooleanAlgebra;
 /// An interval endpoint over a point type `P`.
 ///
 /// As a *lower* bound: `NegInf` = unbounded below, `Incl(a)` = starts at `a`
-/// (`x ≥ a`), `Excl(a)` = starts just above `a` (`x > a`), `PosInf` = an empty
+/// ($`x\ge a`$), `Excl(a)` = starts just above `a` ($`x>a`$), `PosInf` = an empty
 /// start (never used in a non-empty interval). As an *upper* bound: dually.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Bound<P> {
-    /// Unbounded below (−∞).
+    /// Unbounded below ($`-\infty`$).
     NegInf,
-    /// Unbounded above (+∞).
+    /// Unbounded above ($`+\infty`$).
     PosInf,
     /// Closed endpoint at `p`.
     Incl(P),
@@ -351,7 +351,8 @@ fn upper_contains<P: Ord>(hi: &Bound<P>, x: &P) -> bool {
 // ══════════════════════════════════════════════════════════════════════════════
 
 /// A predicate over `P`: a normalized (sorted, disjoint, maximally-merged) union
-/// of intervals. The empty `Vec` is `⊥`; `[(NegInf, PosInf)]` is `⊤`.
+/// of intervals. The empty `Vec` is $`\bot`$; `[(NegInf, PosInf)]`
+/// is $`\top`$.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OrderedFieldPred<P> {
     intervals: Vec<(Bound<P>, Bound<P>)>,
@@ -382,12 +383,12 @@ impl<P: OrderedPoint> OrderedFieldPred<P> {
         OrderedFieldPred::from_intervals(vec![(Bound::Incl(lo), Bound::Excl(hi))])
     }
 
-    /// `{ x | x ≥ lo }`.
+    /// $`\{x\mid x\ge\mathrm{lo}\}`$.
     pub fn at_least(lo: P) -> Self {
         OrderedFieldPred::from_intervals(vec![(Bound::Incl(lo), Bound::PosInf)])
     }
 
-    /// `{ x | x ≤ hi }`.
+    /// $`\{x\mid x\le\mathrm{hi}\}`$.
     pub fn at_most(hi: P) -> Self {
         OrderedFieldPred::from_intervals(vec![(Bound::NegInf, Bound::Incl(hi))])
     }

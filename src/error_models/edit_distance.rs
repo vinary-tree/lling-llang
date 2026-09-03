@@ -25,9 +25,11 @@
 //!
 //! Each state has transitions for:
 //! - **Match**: Input char = Output char, advance both, no cost
-//! - **Substitution**: Input ≠ Output, advance both, cost 1
-//! - **Deletion**: Consume input char, produce ε, cost 1
-//! - **Insertion**: Consume ε, produce output char, cost 1
+//! - **Substitution**: input $`\ne`$ output; advance both at cost one.
+//! - **Deletion**: consume an input character and produce $`\varepsilon`$ at
+//!   cost one.
+//! - **Insertion**: consume $`\varepsilon`$ and produce an output character
+//!   at cost one.
 //! - **Transposition**: Swap adjacent chars (Damerau only), cost 1
 
 use std::marker::PhantomData;
@@ -151,7 +153,8 @@ impl EditDistanceConfig {
 ///
 /// # State Space
 ///
-/// For max distance k, the automaton has O(n × (2k+1)) states where n is
+/// For maximum distance $`k`$, the automaton has
+/// $`\mathcal{O}(n(2k+1))`$ states, where $`n`$ is
 /// the input length. The transducer version has additional output transitions.
 ///
 /// # Example

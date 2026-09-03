@@ -16,16 +16,17 @@
 //! - **L̃**: Pronunciation lexicon with auxiliary symbols
 //! - **C̃**: Context-dependency transducer (triphone/tetraphone)
 //! - **H̃**: HMM transducer with auxiliary distribution symbols
-//! - **π**: Erasing operation (auxiliary symbols → ε)
+//! - **$`\pi`$**: erasing operation (auxiliary symbols to $`\varepsilon`$).
 //!
 //! ## Module Organization
 //!
-//! - [`context`]: Context-dependency transducers (triphone, tetraphone)
-//! - [`ngram`]: N-gram language model transducers with backoff
-//! - [`cascade`]: ASR transducer cascade construction
-//! - [`factoring`]: Chain factoring for compact representation
-//! - [`rescoring`]: Lattice rescoring for multi-pass recognition
-//! - [`subword_lexicon`]: Subword lexicon with BPE/boundary marker support
+//! - [`ContextDependencyBuilder`]: context-dependency transducers (triphone,
+//!   tetraphone)
+//! - [`NgramBuilder`]: n-gram language-model transducers with backoff
+//! - [`CascadeBuilder`]: ASR transducer-cascade construction
+//! - [`chain_factor`]: chain factoring for compact representation
+//! - [`rescore_lattice`]: lattice rescoring for multi-pass recognition
+//! - [`SubwordLexiconBuilder`]: subword lexicons with BPE/boundary markers
 //!
 //! ## Example
 //!

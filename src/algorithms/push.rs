@@ -13,13 +13,15 @@
 //! Weight pushing uses potential functions based on shortest-distance:
 //!
 //! - **Forward Push**: Potential V(q) = shortest distance from initial to q
-//!   - Transition weight: w' = V(p(e))⁻¹ ⊗ w(e) ⊗ V(n(e))
-//!   - Final weight: ρ' = V(q)⁻¹ ⊗ ρ(q)
+//!   - Transition weight:
+//!     $`w'(e)=V(p(e))^{-1}\otimes w(e)\otimes V(n(e))`$.
+//!   - Final weight: $`\rho'(q)=V(q)^{-1}\otimes\rho(q)`$.
 //!
 //! - **Backward Push**: Potential V(q) = shortest distance from q to any final
-//!   - Transition weight: w' = w(e) ⊗ V(n(e)) ⊗ V(p(e))⁻¹
+//!   - Transition weight:
+//!     $`w'(e)=w(e)\otimes V(n(e))\otimes V(p(e))^{-1}`$.
 //!   - Final weight unchanged
-//!   - Initial weight: V(i)⁻¹ (absorbed into first transitions)
+//!   - Initial weight: $`V(i)^{-1}`$ (absorbed into first transitions).
 //!
 //! # Semiring Requirements
 //!

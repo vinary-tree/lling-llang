@@ -11,18 +11,21 @@
 //!
 //! ## Gain Function
 //!
-//! For a chain with input sequence σ:
+//! For a chain with input sequence $`\sigma`$:
 //!
-//! ```text
-//! G(σ) = Σ_{π∈chain(N), i[π]=σ} (|σ| − |o[π]| − 1)
+//! ```math
+//! G(\sigma)=
+//! \sum_{\substack{\pi\in\operatorname{chain}(N)\\i[\pi]=\sigma}}
+//! \left(\lvert\sigma\rvert-\lvert o[\pi]\rvert-1\right)
 //! ```
 //!
-//! A chain is only factored when G(σ) > 0.
+//! A chain is factored only when $`G(\sigma)>0`$.
 //!
 //! ## Result
 //!
 //! The factored transducer typically has ~1.4× the transitions of the word
-//! grammar alone, a significant reduction from the full H∘C∘L∘G cascade.
+//! grammar alone, a significant reduction from the full
+//! $`H\circ C\circ L\circ G`$ cascade.
 //!
 //! ## References
 //!
@@ -135,7 +138,7 @@ pub struct ChainFactorStats {
     /// Number of chains identified.
     pub chains_found: usize,
 
-    /// Number of chains actually factored (G(σ) > 0).
+    /// Number of chains actually factored ($`G(\sigma)>0`$).
     pub chains_factored: usize,
 
     /// Number of states removed.
@@ -273,9 +276,9 @@ where
 
 /// Compute the gain function for a chain.
 ///
-/// G(σ) = |σ| − |o| − 1
+/// $`G(\sigma)=\lvert\sigma\rvert-\lvert o\rvert-1`$.
 ///
-/// where σ is the input sequence and o is the output sequence.
+/// Here $`\sigma`$ is the input sequence and $`o`$ is the output sequence.
 pub fn compute_chain_gain<L, W>(chain: &Chain<L, W>) -> i64
 where
     L: Clone,

@@ -1,12 +1,14 @@
 //! Product semiring for multi-objective optimization.
 //!
-//! The product semiring (K₁ × K₂, ⊕, ⊗, (0̄₁, 0̄₂), (1̄₁, 1̄₂)) combines
+//! The product semiring
+//! $`(K_1\times K_2,\oplus,\otimes,(\bar{0}_1,\bar{0}_2),(\bar{1}_1,\bar{1}_2))`$
+//! combines
 //! two semirings component-wise:
 //!
-//! - **⊕ = (⊕₁, ⊕₂)**: Component-wise addition
-//! - **⊗ = (⊗₁, ⊗₂)**: Component-wise multiplication
-//! - **0̄ = (0̄₁, 0̄₂)**: Component-wise zeros
-//! - **1̄ = (1̄₁, 1̄₂)**: Component-wise ones
+//! - **$`\oplus=(\oplus_1,\oplus_2)`$**: component-wise addition.
+//! - **$`\otimes=(\otimes_1,\otimes_2)`$**: component-wise multiplication.
+//! - **$`\bar{0}=(\bar{0}_1,\bar{0}_2)`$**: component-wise zeros.
+//! - **$`\bar{1}=(\bar{1}_1,\bar{1}_2)`$**: component-wise ones.
 //!
 //! This enables optimizing multiple objectives simultaneously, such as
 //! finding the shortest path that also maximizes probability.
@@ -218,7 +220,8 @@ where
 
 /// ProductWeight is idempotent if both components are idempotent.
 ///
-/// (a₁, a₂) ⊕ (a₁, a₂) = (a₁ ⊕ a₁, a₂ ⊕ a₂) = (a₁, a₂) when both components are idempotent.
+/// $`(a_1,a_2)\oplus(a_1,a_2)=(a_1\oplus a_1,a_2\oplus a_2)=(a_1,a_2)`$
+/// when both components are idempotent.
 impl<S1, S2> IdempotentSemiring for ProductWeight<S1, S2>
 where
     S1: IdempotentSemiring,
@@ -244,8 +247,10 @@ where
 
 /// ProductWeight is zero-sum-free if both components are zero-sum-free.
 ///
-/// (a₁, a₂) ⊕ (b₁, b₂) = (0̄₁, 0̄₂) implies a₁ ⊕ b₁ = 0̄₁ and a₂ ⊕ b₂ = 0̄₂,
-/// which implies a₁ = b₁ = 0̄₁ and a₂ = b₂ = 0̄₂ when both components are zero-sum-free.
+/// $`(a_1,a_2)\oplus(b_1,b_2)=(\bar{0}_1,\bar{0}_2)`$ implies
+/// $`a_1\oplus b_1=\bar{0}_1`$ and $`a_2\oplus b_2=\bar{0}_2`$, which
+/// imply $`a_1=b_1=\bar{0}_1`$ and $`a_2=b_2=\bar{0}_2`$ when both
+/// components are zero-sum-free.
 impl<S1, S2> ZeroSumFreeSemiring for ProductWeight<S1, S2>
 where
     S1: ZeroSumFreeSemiring,
@@ -274,7 +279,12 @@ where
 
 /// ProductWeight has commutative multiplication if both components do.
 ///
-/// (a₁, a₂) ⊗ (b₁, b₂) = (a₁ ⊗ b₁, a₂ ⊗ b₂) = (b₁ ⊗ a₁, b₂ ⊗ a₂) = (b₁, b₂) ⊗ (a₁, a₂)
+/// ```math
+/// (a_1,a_2)\otimes(b_1,b_2)
+/// =(a_1\otimes b_1,a_2\otimes b_2)
+/// =(b_1\otimes a_1,b_2\otimes a_2)
+/// =(b_1,b_2)\otimes(a_1,a_2)
+/// ```
 impl<S1, S2> CommutativeTimesSemiring for ProductWeight<S1, S2>
 where
     S1: CommutativeTimesSemiring,

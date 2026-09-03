@@ -14,7 +14,8 @@
 //!
 //! [`RegexAlgebra<A>`] is therefore the **list algebra**: its domain is
 //! `Vec<A::Domain>` (sequences of elements). It is what the string algebra
-//! ([`crate::string_algebra`]) instantiates at `A = CharClassAlgebra`, and what
+//! ([`crate::symbolic::string_algebra`]) instantiates at
+//! `A = CharClassAlgebra`, and what
 //! the collection layer uses for `List`. Bags/maps (order-insensitive) use a
 //! separate multiset model.
 
@@ -31,13 +32,14 @@ use super::{BooleanAlgebra, SymbolicAutomaton};
 /// A symbolic regular expression whose character class is an element predicate
 /// `P` (`= A::Predicate`).
 pub enum RegexPred<P> {
-    /// `∅` — matches no sequence.
+    /// $`\emptyset`$—matches no sequence.
     Empty,
     /// `{ [] }` — matches only the empty sequence.
     Epsilon,
     /// One element drawn from the element predicate.
     Elem(P),
-    /// A length constraint `lo ≤ len ≤ hi` (`hi = None` is unbounded above).
+    /// A length constraint $`\mathrm{lo}\le\mathrm{len}\le\mathrm{hi}`$
+    /// (`hi = None` is unbounded above).
     Length(usize, Option<usize>),
     /// Concatenation.
     Concat(Box<RegexPred<P>>, Box<RegexPred<P>>),
@@ -47,7 +49,7 @@ pub enum RegexPred<P> {
     Star(Box<RegexPred<P>>),
     /// Intersection.
     Inter(Box<RegexPred<P>>, Box<RegexPred<P>>),
-    /// Complement (relative to `Σ*`).
+    /// Complement (relative to $`\Sigma^*`$).
     Compl(Box<RegexPred<P>>),
 }
 
@@ -565,17 +567,18 @@ impl<A: BooleanAlgebra> RegexAlgebra<A> {
         RegexAlgebra { elem }
     }
 
-    /// `Σ*` — every sequence.
+    /// $`\Sigma^*`$—every sequence.
     pub fn any(&self) -> RegexPred<A::Predicate> {
         RegexPred::Star(Box::new(RegexPred::Elem(self.elem.true_pred())))
     }
 
-    /// `∀ e ∈ xs. e ⊨ p` — every element satisfies `p` (includes the empty list).
+    /// $`\forall e\in xs.\,e\models p`$—every element satisfies `p`
+    /// (including the empty list).
     pub fn all(&self, p: A::Predicate) -> RegexPred<A::Predicate> {
         RegexPred::Star(Box::new(RegexPred::Elem(p)))
     }
 
-    /// `∃ e ∈ xs. e ⊨ p` — some element satisfies `p`.
+    /// $`\exists e\in xs.\,e\models p`$—some element satisfies `p`.
     pub fn any_elem(&self, p: A::Predicate) -> RegexPred<A::Predicate> {
         let sigma_star = self.any();
         RegexPred::Concat(

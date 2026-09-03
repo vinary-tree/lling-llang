@@ -44,8 +44,11 @@ use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst};
 ///
 /// # Complexity
 ///
-/// - Time: O(|V| + |E|) where V and E are the reachable states and transitions
-/// - Space: O(|V| + |E|) for the resulting VectorWfst plus O(|V|) for the mapping
+/// - Time: $`\mathcal{O}(\lvert V\rvert+\lvert E\rvert)`$, where $`V`$
+///   and $`E`$ are the reachable states and transitions.
+/// - Space: $`\mathcal{O}(\lvert V\rvert+\lvert E\rvert)`$ for the
+///   resulting `VectorWfst`, plus $`\mathcal{O}(\lvert V\rvert)`$ for the
+///   mapping.
 ///
 /// # Notes
 ///

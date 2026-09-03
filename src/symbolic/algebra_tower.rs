@@ -1,5 +1,7 @@
-//! The algebra tower: `RejectSafeAlgebra` ⊃ `HeytingAlgebra` ⊃ (classical)
-//! `BooleanAlgebra` — the type-level discipline that keeps a **semi-decidable**
+//! The algebra tower
+//! $`\mathtt{RejectSafeAlgebra}\supset\mathtt{HeytingAlgebra}\supset\mathtt{BooleanAlgebra}`$
+//! is the type-level
+//! discipline that keeps a **semi-decidable**
 //! algebra from ever being mistaken for a classical one.
 //!
 //! ## Why a tower
@@ -11,7 +13,8 @@
 //! only **semi-decidable**: their complement is unsound to treat classically
 //! (a bounded "no witness found" is not a proof of unsatisfiability). Such an
 //! algebra is a *Heyting* algebra (intuitionistic: no excluded middle, no
-//! involutive `¬¬`), and its satisfiability is three-valued ([`Sat3`]).
+//! involutive $`\lnot\lnot`$), and its satisfiability is three-valued
+//! ([`Sat3`]).
 //!
 //! The tower makes this a compile-time guarantee:
 //! - [`RejectSafeAlgebra`] — weakest: `and`/`or`/`pseudo_complement` +
@@ -19,7 +22,7 @@
 //!   double-negation-soundness only. **No involutive complement, no excluded
 //!   middle.**
 //! - [`HeytingAlgebra`] `: RejectSafeAlgebra` — adds intuitionistic `implies`
-//!   (`→`) and `regularize` (`¬¬`).
+//!   ($`\to`$) and `regularize` ($`\lnot\lnot`$).
 //! - [`BooleanAlgebra`](crate::symbolic::BooleanAlgebra) — the classical tier
 //!   (unchanged), with the involutive `not` and 2-valued `is_satisfiable` that
 //!   the symbolic-automaton complement/determinization/equivalence require.
@@ -30,7 +33,8 @@
 //! algebra is lifted into the reject-safe / Heyting tiers by wrapping it in
 //! [`Classical`], whose impls delegate to the classical operations
 //! (`pseudo_complement = not`, `regularize = id`, `is_satisfiable_3v` only ever
-//! `Sat`/`Unsat`, `implies = ¬a ∨ b`). A genuinely semi-decidable algebra (e.g.
+//! `Sat`/`Unsat`, $`\operatorname{implies}(a,b)=\lnot a\lor b`$).
+//! A genuinely semi-decidable algebra (for example,
 //! the forthcoming `BehavioralAlgebra`) implements [`HeytingAlgebra`] **directly
 //! and does not implement [`BooleanAlgebra`]** — so any operation bounded on
 //! `BooleanAlgebra` (every SFA complement/determinize/equivalence) is statically
@@ -64,7 +68,8 @@ pub enum Sat3 {
 }
 
 impl Sat3 {
-    /// Kleene strong conjunction (`Unsat` annihilates; `Sat ∧ Sat = Sat`).
+    /// Kleene strong conjunction (`Unsat` annihilates;
+    /// $`\mathtt{Sat}\land\mathtt{Sat}=\mathtt{Sat}`$).
     pub fn and(self, other: Sat3) -> Sat3 {
         use Sat3::*;
         match (self, other) {
@@ -74,7 +79,8 @@ impl Sat3 {
         }
     }
 
-    /// Kleene strong disjunction (`Sat` annihilates; `Unsat ∨ Unsat = Unsat`).
+    /// Kleene strong disjunction (`Sat` annihilates;
+    /// $`\mathtt{Unsat}\lor\mathtt{Unsat}=\mathtt{Unsat}`$).
     pub fn or(self, other: Sat3) -> Sat3 {
         use Sat3::*;
         match (self, other) {
@@ -118,7 +124,7 @@ impl Sat3 {
 // RejectSafeAlgebra — the weakest tier
 // ══════════════════════════════════════════════════════════════════════════════
 
-/// The weakest algebra tier: a bounded (`∧`, `∨`) structure with a
+/// The weakest algebra tier: a bounded ($`\land`$, $`\lor`$) structure with a
 /// *pseudo*-complement and a three-valued satisfiability oracle. No involutive
 /// complement and no excluded middle, so it is sound for a semi-decidable
 /// (behavioral) algebra to inhabit.
@@ -146,7 +152,8 @@ pub trait RejectSafeAlgebra: Clone + Debug + Send + Sync + 'static {
     /// Evaluate a predicate on a concrete element (always a finite check).
     fn evaluate(&self, pred: &Self::Predicate, elem: &Self::Domain) -> bool;
 
-    /// `¬¬`-regularization. Default = `pseudo_complement ∘ pseudo_complement`
+    /// $`\lnot\lnot`$-regularization. The default is
+    /// $`\operatorname{pseudo\_complement}\circ\operatorname{pseudo\_complement}`$
     /// (sound intuitionistic double negation, using only this tier's ops). A
     /// classical algebra overrides this to the identity.
     fn regularize(&self, a: &Self::Predicate) -> Self::Predicate {
@@ -165,14 +172,16 @@ pub trait RejectSafeAlgebra: Clone + Debug + Send + Sync + 'static {
 // ══════════════════════════════════════════════════════════════════════════════
 
 /// A Heyting algebra: a reject-safe algebra with a genuine intuitionistic
-/// implication `a → b` (relative pseudo-complement). Still no excluded middle and
-/// no involutive complement. The law `pseudo_complement(a) ≡ implies(a, ⊥)`
+/// implication $`a\to b`$ (relative pseudo-complement). Still no excluded
+/// middle and no involutive complement. The law
+/// $`\operatorname{pseudo\_complement}(a)\equiv\operatorname{implies}(a,\bot)`$
 /// relates the two.
 pub trait HeytingAlgebra: RejectSafeAlgebra {
-    /// Intuitionistic implication `a → b`.
+    /// Intuitionistic implication $`a\to b`$.
     fn implies(&self, a: &Self::Predicate, b: &Self::Predicate) -> Self::Predicate;
 
-    /// Heyting negation `a → ⊥` (provided; coincides with `pseudo_complement`).
+    /// Heyting negation $`a\to\bot`$ (provided; coincides with
+    /// `pseudo_complement`).
     fn heyting_not(&self, a: &Self::Predicate) -> Self::Predicate {
         self.implies(a, &self.false_pred())
     }
@@ -257,8 +266,10 @@ pub struct MixedPred<SP, BP>(pub Vec<(SP, BP)>);
 /// `BooleanAlgebra` — so the structural-classical / behavioral-reject-safe
 /// asymmetry is preserved at the type level (classical complement is statically
 /// unavailable on it). Negation is the asymmetric De Morgan
-/// `¬(a∧b) = (¬a ∧ ⊤) ∨ (⊤ ∧ ¬b)` with `¬a` exact (when `S = Classical`) and
-/// `¬b` reject-safe — proven a reject-safe over-approximation
+/// $`\lnot(a\land b)=(\lnot a\land\top)\lor(\top\land\lnot b)`$
+/// with $`\lnot a`$
+/// exact (when `S = Classical`) and $`\lnot b`$ reject-safe—proven a
+/// reject-safe over-approximation
 /// (`BehavioralNegation.mixed_negation_soundness`): if the complement fires, the
 /// product genuinely rejects, so a guarded receive never wrongly admits a Comm.
 ///

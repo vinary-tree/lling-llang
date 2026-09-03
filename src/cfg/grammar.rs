@@ -9,7 +9,8 @@ use super::types::{NonTerminal, RuleId, Symbol, Terminal};
 
 /// A production rule in the grammar.
 ///
-/// Represents a rule of the form: LHS → RHS₁ RHS₂ ... RHSₙ
+/// Represents a rule of the form
+/// $`\mathrm{LHS}\to\mathrm{RHS}_1\,\mathrm{RHS}_2\cdots\mathrm{RHS}_n`$.
 #[derive(Clone, Debug)]
 pub struct Production {
     /// Rule identifier.
@@ -48,7 +49,7 @@ impl Production {
         }
     }
 
-    /// Check if this is an epsilon production (A → ε).
+    /// Check whether this is an epsilon production ($`A\to\varepsilon`$).
     pub fn is_epsilon(&self) -> bool {
         self.rhs.is_empty() || (self.rhs.len() == 1 && self.rhs[0].is_epsilon())
     }
@@ -280,7 +281,8 @@ impl Grammar {
         self.vocab_names.get(&terminal).map(|s| s.as_str())
     }
 
-    /// Check if this grammar has nullable non-terminals (can derive ε).
+    /// Check whether this grammar has nullable nonterminals (can derive
+    /// $`\varepsilon`$).
     pub fn compute_nullable(&self) -> Vec<bool> {
         let mut nullable = vec![false; self.num_non_terminals];
         let mut changed = true;

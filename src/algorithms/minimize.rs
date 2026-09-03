@@ -22,19 +22,22 @@
 //!
 //! # Complexity
 //!
-//! Naive Moore refinement re-scans every state on every pass, which is `O(|Q|²)`
+//! Naive Moore refinement re-scans every state on every pass, which is
+//! $`\mathcal{O}(\lvert Q\rvert^2)`$
 //! on chain-shaped automata (each pass propagates a distinction only one hop). The
 //! worklist refinement instead re-examines only the blocks whose successors just
 //! changed, which on the same inputs is dramatically faster — measured **82–87 %**
 //! lower wall time on the `minimize/redundant_large` benchmark (e.g. 546 ms → 72 ms
-//! at ≈4 000 states), the improvement widening as `|Q|` grows. It computes the
+//! at approximately 4,000 states), with the improvement widening as
+//! $`\lvert Q\rvert`$ grows. It computes the
 //! coarsest stable partition and, after renumbering classes by first appearance in
 //! state order, the **byte-identical** partition vector as the Moore reference
 //! (asserted by a differential test), so minimized output is unchanged.
 //!
 //! # Requirements
 //!
-//! - Input must be deterministic (no input-ε; a unique input label per state)
+//! - Input must be deterministic (no input-$`\varepsilon`$ transition; a unique
+//!   input label per state).
 //! - Semiring must be divisible (for weight pushing)
 //!
 //! # References
@@ -281,7 +284,8 @@ where
 /// appearance in state order) the byte-identical partition vector — but only
 /// re-examines a block when one of its members' successor blocks actually
 /// changes, instead of re-scanning every state on every pass. On chain-shaped
-/// automata this replaces Moore's `O(|Q|²)` full-pass behaviour with near-linear
+/// automata this replaces Moore's $`\mathcal{O}(\lvert Q\rvert^2)`$
+/// full-pass behaviour with near-linear
 /// work while producing identical minimized output. Uses
 /// `QuantizableSemiring::quantize()` for approximate weight comparison.
 fn compute_partitions<L, W, F>(fst: &F, epsilon: f64) -> Result<Vec<usize>, MinimizeError>
@@ -431,7 +435,8 @@ where
 /// Reference partition refinement (Moore's iterative algorithm), retained as the
 /// correctness oracle for [`compute_partitions`] in the differential test below.
 /// It recomputes every state's signature on every pass until the partition stops
-/// changing — simple and obviously correct, but `O(|Q|²)` on chain-shaped inputs.
+/// changing—simple and obviously correct, but
+/// $`\mathcal{O}(\lvert Q\rvert^2)`$ on chain-shaped inputs.
 #[cfg(test)]
 fn compute_partitions_moore<L, W, F>(fst: &F, epsilon: f64) -> Result<Vec<usize>, MinimizeError>
 where
@@ -691,7 +696,8 @@ mod tests {
                 }
             }
 
-            /// Minimization is idempotent: min(min(F)) ≈ min(F).
+            /// Minimization is idempotent:
+            /// $`\min(\min(F))\approx\min(F)`$.
             ///
             /// Applying minimization twice should produce the same result as once.
             #[test]

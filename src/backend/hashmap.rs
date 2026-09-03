@@ -11,7 +11,8 @@ use super::traits::{LatticeBackend, VocabId};
 /// A simple HashMap-based backend for vocabulary storage.
 ///
 /// This backend uses an FxHashMap for fast string-to-id lookups and
-/// a Vec for id-to-string lookups. It provides O(1) operations for
+/// a `Vec` for ID-to-string lookups. It provides $`\mathcal{O}(1)`$
+/// operations for
 /// both directions.
 ///
 /// # Thread Safety

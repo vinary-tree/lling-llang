@@ -6,14 +6,16 @@
 //!
 //! # Mathematical Definition
 //!
-//! A weighted tree transducer is a tuple T = (Q, Σ, Δ, q₀, F, R, ρ) where:
-//! - Q: Finite set of states
-//! - Σ: Input ranked alphabet (symbols with arities)
-//! - Δ: Output ranked alphabet
-//! - q₀: Initial state
-//! - F ⊆ Q: Final states
-//! - R: Set of weighted rules
-//! - ρ: Final weight function
+//! A weighted tree transducer is a tuple
+//! $`T=(Q,\Sigma,\Delta,q_0,F,R,\rho)`$, where:
+//!
+//! - $`Q`$: finite set of states.
+//! - $`\Sigma`$: input ranked alphabet (symbols with arities).
+//! - $`\Delta`$: output ranked alphabet.
+//! - $`q_0`$: initial state.
+//! - $`F\subseteq Q`$: final states.
+//! - $`R`$: set of weighted rules.
+//! - $`\rho`$: final-weight function.
 //!
 //! # Rule Format
 //!

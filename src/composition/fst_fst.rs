@@ -1,18 +1,21 @@
-//! Lazy FST ∘ FST composition.
+//! Lazy FST $`\circ`$ FST composition.
 //!
 //! This module implements lazy composition of two WFSTs where product states
 //! are computed on-demand during traversal.
 //!
 //! # Algorithm
 //!
-//! Composition of FST₁ and FST₂ produces a new FST where:
-//! - States are pairs (s₁, s₂) from the component FSTs
-//! - Transitions match when FST₁ output = FST₂ input
+//! Composition of $`\mathrm{FST}_1`$ and $`\mathrm{FST}_2`$ produces a
+//! new FST where:
+//! - States are pairs $`(s_1,s_2)`$ from the component FSTs.
+//! - Transitions match when $`\mathrm{FST}_1`$ output equals
+//!   $`\mathrm{FST}_2`$ input.
 //! - Weights are combined using semiring multiplication
 //!
 //! # Lazy Evaluation
 //!
-//! Instead of computing all product states upfront (which can be O(n×m)),
+//! Instead of computing all product states upfront (which can require
+//! $`\mathcal{O}(nm)`$ states),
 //! states are computed lazily:
 //! - Only reachable states are ever computed
 //! - States cached according to cache policy
@@ -127,7 +130,7 @@ impl<L: Clone, W: Semiring> ComposedPath<L, W> {
 /// Lazy composition of two WFSTs.
 ///
 /// Product states are computed on-demand during traversal, avoiding
-/// the O(n×m) state explosion of eager composition.
+/// the $`\mathcal{O}(nm)`$ state explosion of eager composition.
 pub struct LazyComposition<F1, F2, L, W>
 where
     F1: Wfst<L, W>,
@@ -435,7 +438,8 @@ where
         }
     }
 
-    /// Index FST2 transitions by non-epsilon input label for O(outdegree) matching.
+    /// Index FST2 transitions by non-epsilon input label for
+    /// $`\mathcal{O}(d_{\mathrm{out}})`$ matching.
     fn input_transition_index<'a>(
         transitions: &'a [WeightedTransition<L, W>],
     ) -> FxHashMap<&'a L, SmallVec<[&'a WeightedTransition<L, W>; 4]>> {

@@ -238,7 +238,7 @@ fn test_wfst_identity_composition() {
     assert!(materialized.num_states() > 0);
 }
 
-/// Test transducer chain composition (A ∘ B ∘ C).
+/// Test transducer-chain composition ($`A\circ B\circ C`$).
 #[test]
 fn test_wfst_chain_composition() {
     // FST A: maps 1 -> 2
