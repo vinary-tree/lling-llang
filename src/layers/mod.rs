@@ -41,11 +41,14 @@ pub mod traits;
 
 pub use filtering::{
     damerau_levenshtein_distance, dvorak_keyboard_matrix, mobile_keyboard_matrix,
-    ocr_confusion_matrix, qwerty_keyboard_matrix, CfgFilterLayer, ConfusionLayer,
-    ConfusionLayerConfig, ConfusionMatrix, Dictionary, DisfluencyLayer, DisfluencyLayerConfig,
-    DisfluencyRuleBuilder, DisfluencySpan, DisfluencyType, EditDistanceLayer,
-    EditDistanceLayerConfig, InMemoryDictionary,
+    ocr_confusion_matrix, optimal_string_alignment_distance, qwerty_keyboard_matrix,
+    CfgFilterLayer, ConfusionLayer, ConfusionLayerConfig, ConfusionMatrix, Dictionary,
+    DictionaryError, DictionaryResult, DictionarySearchOptions, DisfluencyLayer,
+    DisfluencyLayerConfig, DisfluencyRuleBuilder, DisfluencySpan, DisfluencyType,
+    EditDistanceLayer, EditDistanceLayerConfig, EditDistanceMetric, InMemoryDictionary,
 };
+#[cfg(feature = "levenshtein")]
+pub use filtering::{ResourceDictionary, ResourceDictionaryNormalization};
 pub use traits::{
     CorrectionLayer, LayerError, LayerPipeline, LayerPipelineBuilder, LayerResult, LayerStats,
 };

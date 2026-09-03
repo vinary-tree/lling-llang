@@ -115,7 +115,14 @@ raku-bindings = ["native-bindings-full"]
 
 # === Core Optional Features ===
 # Integration with liblevenshtein for lexical correction
-levenshtein = ["dep:liblevenshtein", "dep:libdictenstein", "dep:rayon"]
+levenshtein = [
+    "bindings-core",
+    "dep:liblevenshtein",
+    "dep:libdictenstein",
+    "dep:rayon",
+    "liblevenshtein/bindings-core",
+    "libdictenstein/bindings-core",
+]
 
 # libdictenstein lattice bridge: lling-llang semirings as dictionary values (cycle-break)
 lattice = ["dep:llattice", "dep:libdictenstein"]
@@ -177,6 +184,10 @@ harness = false
 name = "ffi_compose_benchmarks"
 harness = false
 required-features = ["ffi"]
+
+[[example]]
+name = "resource_dictionary_layer"
+required-features = ["levenshtein"]
 
 [[bench]]
 name = "certified_bisimulation_benchmarks"

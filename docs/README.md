@@ -61,6 +61,7 @@ Core concepts and design of the framework:
 | [Resource ABI](architecture/resource-abi.md) | The scalar-WFST binding layer: providers, capture-once snapshots, the lazy composition product, the registry, and the raw-u32 status wire |
 | [Stack-safe execution](architecture/stack-safety.md) | Formal-first typed heap machines, SCC-wide recursion elimination, lifecycle safety, work/allocation bounds, concurrency, and evidence traceability |
 | [Foreign-language bindings](bindings/README.md) | C, C++, JavaScript, TypeScript, and ClojureScript package guides, executable evidence, ownership laws, and documentation governance |
+| [Dictionary providers](bindings/dictionary-providers.md) | Feed retained libdictenstein or custom host dictionaries into bounded liblevenshtein correction without reconstructing their keys |
 | [Layers](architecture/layers.md) | Correction-layer pipeline architecture |
 | [Lattice Bridge](architecture/lattice-bridge.md) | Semiring↔lattice bridge: semirings as `libdictenstein` dictionary values |
 

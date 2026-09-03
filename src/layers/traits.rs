@@ -113,6 +113,15 @@ pub trait CorrectionLayer<W: Semiring, B: LatticeBackend>: Send + Sync {
         true
     }
 
+    /// Perform a fallible applicability check.
+    ///
+    /// The pipeline uses this method so layers backed by external resources can
+    /// propagate provider failures. Existing purely local layers inherit the
+    /// boolean pre-check without paying for a second implementation.
+    fn check_applicability(&self, lattice: &Lattice<W, B>) -> LayerResult<bool> {
+        Ok(self.can_apply(lattice))
+    }
+
     /// Estimated reduction factor (e.g., 0.1 = reduces to 10% of paths).
     ///
     /// Used by the pipeline for optimization decisions. Default returns 1.0 (no reduction).
@@ -194,7 +203,7 @@ impl<W: Semiring, B: LatticeBackend> LayerPipeline<W, B> {
         let mut current = lattice.clone();
 
         for layer in &self.layers {
-            if !layer.can_apply(&current) {
+            if !layer.check_applicability(&current)? {
                 return Err(LayerError::CannotApply(format!(
                     "layer '{}' cannot process lattice",
                     layer.name()
@@ -215,7 +224,7 @@ impl<W: Semiring, B: LatticeBackend> LayerPipeline<W, B> {
         let mut all_stats = Vec::with_capacity(self.layers.len());
 
         for layer in &self.layers {
-            if !layer.can_apply(&current) {
+            if !layer.check_applicability(&current)? {
                 return Err(LayerError::CannotApply(format!(
                     "layer '{}' cannot process lattice",
                     layer.name()

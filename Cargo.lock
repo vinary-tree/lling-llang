@@ -601,6 +601,7 @@ dependencies = [
  "smallvec",
  "sysinfo",
  "thiserror",
+ "vinary-tree-interop",
  "xxhash-rust",
 ]
 
@@ -619,6 +620,7 @@ dependencies = [
  "smallvec",
  "thiserror",
  "unicode-normalization",
+ "vinary-tree-interop",
 ]
 
 [[package]]

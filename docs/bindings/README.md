@@ -24,6 +24,12 @@ consumer preserves domain identity, validates owned outputs, amortizes join
 and meet through bounded batches, and exposes finite law probes. See
 [Host-defined lattice values](../architecture/dynamic-lattices.md).
 
+Rust consumers can feed any Unicode-scalar `vt.dictionary.v1` provider
+directly into the lexical correction layer through the snapshot-pinned
+[`ResourceDictionary` adapter](dictionary-providers.md). The adapter
+preserves provider failures, bounded result production, metric selection, and
+an explicit normalization contract.
+
 | Guide | Languages | Package/boundary | Executable evidence |
 |---|---|---|---|
 | [C](../../bindings/c/README.md) | C17/C23 | CMake/pkg-config; direct `lling_*` | [`compose_demo.c`](../../bindings/c/examples/compose_demo.c) |

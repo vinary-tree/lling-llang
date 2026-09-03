@@ -20,6 +20,9 @@ pub use disfluency::{
     DisfluencyLayer, DisfluencyLayerConfig, DisfluencyRuleBuilder, DisfluencySpan, DisfluencyType,
 };
 pub use edit_distance::{
-    damerau_levenshtein_distance, Dictionary, EditDistanceLayer, EditDistanceLayerConfig,
-    InMemoryDictionary,
+    damerau_levenshtein_distance, optimal_string_alignment_distance, Dictionary, DictionaryError,
+    DictionaryResult, DictionarySearchOptions, EditDistanceLayer, EditDistanceLayerConfig,
+    EditDistanceMetric, InMemoryDictionary,
 };
+#[cfg(feature = "levenshtein")]
+pub use edit_distance::{ResourceDictionary, ResourceDictionaryNormalization};

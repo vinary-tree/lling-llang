@@ -1,0 +1,76 @@
+@startuml dictionary-resource-adapter
+' Snapshot-pinned dictionary provider flow.
+' Palette: docs/diagrams/README.md — lling #FCF3CF, foreign provider #FFCDD2,
+' resource handle #DCEDC8, validation #E1BEE7, caller #ECEFF1.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment left
+skinparam sequence {
+  ArrowColor #607D8B
+  LifeLineBorderColor #455A64
+  GroupBorderColor #455A64
+  GroupBackgroundColor #ECEFF1
+}
+skinparam note {
+  BackgroundColor #E1BEE7
+  BorderColor #6A1B9A
+}
+
+title <b>ResourceDictionary — capture once, search with explicit semantics</b>\n<size:11><i>no complete key copy; failures and normalization mismatches remain observable</i></size>
+
+actor "Rust application" as App #ECEFF1
+participant "libdictenstein or\nhost provider" as Provider #FFCDD2
+participant "VtResource" as Resource #DCEDC8
+participant "ResourceDictionary" as Adapter #FCF3CF
+participant "ResourceTransducer" as Search #FCF3CF
+participant "EditDistanceLayer" as Layer #FCF3CF
+
+== Construction ==
+App -> Provider : resource()
+Provider --> Resource : one owned retain
+App -> Adapter : from_resource_with_normalization(resource, policy)
+activate Adapter
+Adapter -> Search : validate Unicode domain + retain
+Search -> Provider : snapshot()
+Provider --> Search : immutable revision
+Search -> Provider : len()
+Provider --> Search : known count or unknown
+Adapter --> App : pinned adapter
+deactivate Adapter
+
+== One bounded correction query ==
+App -> Layer : find_corrections(input)
+activate Layer
+Layer -> Layer : validate finite non-negative costs\nselect Levenshtein or OSA metric
+Layer -> Adapter : find_within_distance(input, bound, limit, normalization)
+activate Adapter
+alt case-insensitive request over exact resource
+  Adapter --> Layer : UnsupportedNormalization
+else admitted request
+  Adapter -> Adapter : normalize query only when\nUnicodeLowercaseKeys was declared
+  Adapter -> Search : with_algorithm(metric)\n(shared snapshot; no provider retain)
+  loop pages until limit or exhaustion
+    Search -> Provider : bounded snapshot traversal
+    Provider --> Search : ordered match page
+  end
+  Search --> Adapter : distance-then-term matches
+  Adapter --> Layer : at most requested limit
+end
+deactivate Adapter
+Layer -> Layer : minimum weighted edit cost\n+ exact-match boost
+Layer --> App : corrections or typed LayerError
+deactivate Layer
+
+note over Resource,Search
+  Dropping the producer or borrowed resource does not invalidate
+  the adapter: its captured snapshot owns the required retain.
+end note
+
+legend right
+  |<#FCF3CF> lling-llang / liblevenshtein consumer |
+  |<#FFCDD2> provider callback boundary |
+  |<#DCEDC8> retained resource ownership |
+  |<#E1BEE7> validation and semantic guard |
+  |<#ECEFF1> application |
+endlegend
+@enduml
