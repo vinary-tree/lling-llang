@@ -8,9 +8,8 @@ import json
 import re
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
-REGISTRIES = frozenset({"validate-only", "npm", "crates-io"})
+REGISTRIES = frozenset({"validate-only", "npm", "pypi", "crates-io"})
 
 
 def validate(ref: str, ref_name: str, registry: str, version: str) -> None:

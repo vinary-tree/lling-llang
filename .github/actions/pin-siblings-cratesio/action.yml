@@ -1,0 +1,21 @@
+name: Pin family crates to crates.io
+description: Resolve release builds from exact registry versions, not sibling paths.
+
+runs:
+  using: composite
+  steps:
+    - name: Remove the development-only interop path
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 - <<'PY'
+        from pathlib import Path
+
+        manifest = Path("Cargo.toml")
+        source = manifest.read_text(encoding="utf-8")
+        needle = 'vinary-tree-interop = { path = "../vinary-tree-interop", '
+        if source.count(needle) != 1:
+            raise SystemExit("expected exactly one vinary-tree-interop path override")
+        manifest.write_text(source.replace(needle, "vinary-tree-interop = { "), encoding="utf-8")
+        PY
+        cargo generate-lockfile

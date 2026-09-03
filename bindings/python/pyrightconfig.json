@@ -1,0 +1,18 @@
+{
+  "include": [
+    "src",
+    "tests"
+  ],
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "extraPaths": [
+        "src",
+        "../../../vinary-tree-interop/bindings/python/src"
+      ]
+    }
+  ],
+  "pythonVersion": "3.10",
+  "typeCheckingMode": "strict",
+  "reportPrivateUsage": "none"
+}

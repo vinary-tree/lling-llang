@@ -28,6 +28,7 @@
   "packages": {
     "cratesIo": "lling-llang",
     "npm": "@vinary-tree/lling-llang",
+    "pypi": "lling-llang",
     "julia": "LlingLlang",
     "zef": "Lling-Llang"
   },
@@ -35,6 +36,7 @@
     "tier1": [
       "c",
       "cpp",
+      "python",
       "javascript",
       "typescript",
       "clojurescript",
@@ -72,6 +74,26 @@
         ],
         "guide": "bindings/cpp/README.md",
         "example": "bindings/cpp/tests/package_smoke.cpp",
+        "requiredHeadings": [
+          "Install",
+          "Quickstart",
+          "Ownership & memory model",
+          "Errors",
+          "Concurrency",
+          "Zero-copy paths",
+          "Security and provider trust",
+          "Troubleshooting",
+          "Version compatibility",
+          "Executable conformance evidence",
+          "Maintainer workflow"
+        ]
+      },
+      "python": {
+        "languages": [
+          "Python"
+        ],
+        "guide": "bindings/python/README.md",
+        "example": "bindings/python/examples/custom_providers.py",
         "requiredHeadings": [
           "Install",
           "Quickstart",
@@ -240,6 +262,7 @@
     },
     "HostScalarWfstProvider": {
       "languages": [
+        "Python",
         "Julia",
         "Raku"
       ],
@@ -629,6 +652,7 @@
       "cmake": "4.0.0-rc.6",
       "julia": "4.0.0-rc.6",
       "npm": "4.0.0-rc.6",
+      "pypi": "4.0.0rc6",
       "pkgConfig": "4.0.0-rc.6",
       "zef": "4.0.0-rc.6"
     },

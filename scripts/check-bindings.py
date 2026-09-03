@@ -43,6 +43,7 @@ model-loading error.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import random
 import re
@@ -60,6 +61,7 @@ FFI_MODULE_ROOT = ROOT / "src" / "ffi"
 HEADER_PATH = ROOT / "include" / "lling_llang.h"
 HPP_PATH = ROOT / "include" / "lling_llang.hpp"
 JS_ROOT = ROOT / "bindings" / "javascript"
+PYTHON_ROOT = ROOT / "bindings" / "python"
 JULIA_ROOT = ROOT / "bindings" / "julia" / "LlingLlang"
 RAKU_ROOT = ROOT / "bindings" / "raku"
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "release-bindings.yml"
@@ -313,6 +315,23 @@ def main() -> int:
             failures.append(
                 f"bindings/javascript/package.json version {package.get('version')!r} "
                 f"!= Cargo.toml version {cargo_version!r}"
+            )
+        python = tomllib.loads(read(PYTHON_ROOT / "pyproject.toml"))
+        python_project = python.get("project", {})
+        python_version = cargo_version.replace("-rc.", "rc")
+        if python_project.get("name") != model["packages"].get("pypi"):
+            failures.append("Python distribution name does not match bindings/api.json")
+        if python_project.get("version") != python_version:
+            failures.append(
+                f"Python version {python_project.get('version')!r} "
+                f"!= PEP 440 spelling {python_version!r}"
+            )
+        if python_project.get("dependencies") != [
+            f"vinary-tree-interop=={python_version}"
+        ]:
+            failures.append(
+                "Python distribution must exact-pin the coordinated "
+                "vinary-tree-interop release"
             )
         deps_cljs = read(JS_ROOT / "deps.cljs")
         pin = re.search(r'"@vinary-tree/lling-llang"\s+"([^"]+)"', deps_cljs)
@@ -611,7 +630,7 @@ def main() -> int:
 
     report.run("JS facade parity (exports, pins, d.ts/mjs/cjs/cljs)", js_parity)
 
-    # ── 4. Julia/Raku facade and generated-ABI parity ───────────────────────
+    # ── 4. Python/Julia/Raku facade and generated-ABI parity ────────────────
     def julia_raku_parity(failures: list[str], info: dict[str, object]) -> None:
         cargo = tomllib.loads(read(ROOT / "Cargo.toml"))
         version = cargo["package"]["version"]
@@ -619,6 +638,85 @@ def main() -> int:
             str(name): int(value)
             for name, value in model["enums"]["status"]["values"].items()
         }
+
+        python_abi = read(PYTHON_ROOT / "src" / "lling_llang" / "_abi.py")
+        python_symbols = set(re.findall(r'"(lling_[a-z0-9_]+)"', python_abi)) - {
+            "lling_llang"
+        }
+        modeled = {item["name"] for item in model["cFunctions"]}
+        if python_symbols != modeled:
+            failures.append(
+                "Python native symbol drift: "
+                f"missing={sorted(modeled - python_symbols)}, "
+                f"unmodeled={sorted(python_symbols - modeled)}"
+            )
+        python_status_block = re.search(
+            r"class Status\(IntEnum\):(.*?)(?:\n\nclass )",
+            python_abi,
+            re.DOTALL,
+        )
+        if python_status_block is None:
+            failures.append("Python ABI does not define Status")
+        else:
+            python_status = {
+                name: int(value)
+                for name, value in re.findall(
+                    r"^\s+([A-Z][A-Z0-9_]+)\s*=\s*(\d+)",
+                    python_status_block.group(1),
+                    re.MULTILINE,
+                )
+            }
+            if python_status != expected_status:
+                failures.append(
+                    f"Python Status mismatch: {python_status} != {expected_status}"
+                )
+        python_init = read(PYTHON_ROOT / "src" / "lling_llang" / "__init__.py")
+        init_tree = ast.parse(python_init)
+        exported: set[str] = set()
+        for statement in init_tree.body:
+            if not isinstance(statement, ast.Assign):
+                continue
+            if not any(
+                isinstance(target, ast.Name) and target.id == "__all__"
+                for target in statement.targets
+            ):
+                continue
+            if isinstance(statement.value, (ast.List, ast.Tuple)):
+                exported = {
+                    element.value
+                    for element in statement.value.elts
+                    if isinstance(element, ast.Constant)
+                    and isinstance(element.value, str)
+                }
+        required_python_exports = {
+            "Wfst",
+            "WfstBuilder",
+            "compose",
+            "import_wfst",
+            "ScalarWfstResource",
+            "LatticeResource",
+            "LatticeValue",
+            "SemiringResource",
+            "SemiringContext",
+            "Cancellation",
+        }
+        if not required_python_exports <= exported:
+            failures.append(
+                "Python facade exports are missing "
+                f"{sorted(required_python_exports - exported)}"
+            )
+        for relative in (
+            "LICENSE",
+            "MANIFEST.in",
+            "README.md",
+            "examples/custom_providers.py",
+            "pyproject.toml",
+            "pyrightconfig.json",
+            "setup.py",
+            "src/lling_llang/py.typed",
+            "tests/test_api.py",
+        ):
+            read(PYTHON_ROOT / relative)
 
         julia_project = tomllib.loads(read(JULIA_ROOT / "Project.toml"))
         if julia_project.get("name") != model["packages"].get("julia"):
@@ -687,7 +785,6 @@ def main() -> int:
         raku_source = read(RAKU_ROOT / "lib" / "Lling" / "Llang.rakumod")
         raku_symbols = set(re.findall(r"symbol\('(lling_[a-z0-9_]+)'\)", raku_source))
 
-        modeled = {item["name"] for item in model["cFunctions"]}
         expected_julia_symbols = modeled - {
             "lling_resource_release",
             "lling_wfst_import_ref",
@@ -729,9 +826,17 @@ def main() -> int:
             read(RAKU_ROOT / relative)
         info["julia_native_symbols"] = len(julia_symbols)
         info["raku_native_symbols"] = len(raku_symbols)
-        info["host_provider_languages"] = 2
+        expected_provider_languages = ["Python", "Julia", "Raku"]
+        provider_languages = model["objects"]["HostScalarWfstProvider"]["languages"]
+        if provider_languages != expected_provider_languages:
+            failures.append(
+                "host-provider language model must be exactly "
+                f"{expected_provider_languages}, found {provider_languages}"
+            )
+        info["python_native_symbols"] = len(python_symbols)
+        info["host_provider_languages"] = len(provider_languages)
 
-    report.run("Julia/Raku facade + generated ABI parity", julia_raku_parity)
+    report.run("Python/Julia/Raku facade + generated ABI parity", julia_raku_parity)
 
     # ── 5. workflow version-derivation guard [LLING-B1] ─────────────────────
     def workflow_guard(failures: list[str], info: dict[str, object]) -> None:

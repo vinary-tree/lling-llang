@@ -11,6 +11,7 @@ on:
         options:
           - validate-only
           - npm
+          - pypi
           - crates-io
 
 permissions:
@@ -141,6 +142,67 @@ jobs:
           path: dist/*.tgz
           if-no-files-found: error
 
+  python-wheels:
+    name: Python wheel ${{ matrix.platform }}
+    needs: contract
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux-x86_64
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            platform: linux-aarch64
+            arch: aarch64
+          - runner: macos-26
+            platform: macos-aarch64
+            arch: arm64
+          - runner: windows-2025
+            platform: windows-x86_64
+            arch: AMD64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with: { persist-credentials: false }
+      - name: Checkout exact Python interop dependency
+        shell: bash
+        run: >-
+          git clone --depth 1 --branch v4.0.0-rc.6
+          https://github.com/vinary-tree/vinary-tree-interop.git
+          .release-deps/vinary-tree-interop
+      - uses: dtolnay/rust-toolchain@1.95
+      - uses: ./.github/actions/pin-siblings-cratesio
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Build and test platform wheel
+        uses: pypa/cibuildwheel@v4.1.0
+        with:
+          package-dir: bindings/python
+          output-dir: wheelhouse
+        env:
+          CIBW_BUILD: cp310-*
+          CIBW_ARCHS: ${{ matrix.arch }}
+          CIBW_BUILD_VERBOSITY: "1"
+          CIBW_BEFORE_TEST: >-
+            python -m pip install --no-deps
+            {project}/.release-deps/vinary-tree-interop/bindings/python
+          CIBW_TEST_COMMAND: >-
+            python -m unittest discover
+            -s {project}/bindings/python/tests -v &&
+            python {project}/bindings/python/examples/custom_providers.py
+          CIBW_BEFORE_ALL_LINUX: >-
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+            sh -s -- -y --profile minimal --default-toolchain 1.95
+          CIBW_ENVIRONMENT_LINUX: >-
+            PATH=$HOME/.cargo/bin:$PATH
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-wheel-${{ matrix.platform }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
   npm:
     needs: npm-package
     if: github.event_name == 'workflow_dispatch' && github.ref_type == 'tag' && inputs.registry == 'npm'
@@ -156,6 +218,23 @@ jobs:
       - uses: actions/download-artifact@v7
         with: { name: npm-package, path: dist }
       - run: npm publish --access public --provenance --tag next ./dist/*.tgz
+
+  pypi:
+    name: Publish PyPI wheels
+    needs: python-wheels
+    if: github.event_name == 'workflow_dispatch' && github.ref_type == 'tag' && inputs.registry == 'pypi'
+    runs-on: ubuntu-24.04
+    environment: pypi
+    permissions: { id-token: write }
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: python-wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1.14
+        with:
+          packages-dir: dist
 
   crates-io:
     needs: contract
@@ -183,7 +262,7 @@ jobs:
         env: { CARGO_REGISTRY_TOKEN: "${{ steps.crates-io-auth.outputs.token }}" }
 
   github-release:
-    needs: [native, npm-package]
+    needs: [native, npm-package, python-wheels]
     if: >-
       github.event_name == 'workflow_dispatch' &&
       github.ref_type == 'tag' &&
@@ -196,6 +275,8 @@ jobs:
         with: { pattern: native-*, path: assets, merge-multiple: true }
       - uses: actions/download-artifact@v7
         with: { name: npm-package, path: assets }
+      - uses: actions/download-artifact@v7
+        with: { pattern: python-wheel-*, path: assets, merge-multiple: true }
       - run: cd assets && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > ../SHA256SUMS && mv ../SHA256SUMS SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:

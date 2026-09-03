@@ -18,6 +18,7 @@ GENERATED_TREE_PARTS = frozenset(
 )
 HISTORICAL_DOC_TREE_PARTS = frozenset({"archive", "releases"})
 NPM_PACKAGE = "@vinary-tree/lling-llang"
+PYPI_PACKAGE = "lling-llang"
 NPM_INTEROP_PACKAGE = "@vinary-tree/vinary-tree-interop"
 NPM_RUNTIME_PACKAGE = "@vinary-tree/javascript-runtime"
 DEPRECATED_NPM_COORDINATES = {
@@ -99,6 +100,9 @@ def write_versions(model: dict[str, object]) -> None:
     assert isinstance(deps, dict)
     assert isinstance(publication, dict)
     npm_package = str(coordinates["npmPackage"])
+    pypi_package = str(coordinates["pypiPackage"])
+    python_version = canonical.replace("-rc.", "rc")
+    python_interop_version = str(deps["vinary-tree-interop"]).replace("-rc.", "rc")
     replace("Cargo.toml", r'^version = "[^"]+"$', f'version = "{canonical}"')
     replace(
         "Cargo.toml",
@@ -130,6 +134,7 @@ def write_versions(model: dict[str, object]) -> None:
     def api(value: dict) -> None:
         value["productDescription"] = metadata["description"]
         value["packages"]["npm"] = npm_package
+        value["packages"]["pypi"] = pypi_package
         value["interop"]["npm"] = NPM_INTEROP_PACKAGE
         value["packageVersion"] = canonical
         value["javascript"]["package"] = npm_package
@@ -160,6 +165,37 @@ def write_versions(model: dict[str, object]) -> None:
         value.setdefault("publishConfig", {})["tag"] = publication["distTag"]
 
     update_json("bindings/javascript/package.json", npm)
+
+    replace(
+        "bindings/python/pyproject.toml",
+        r'^name = "[^"]+"$',
+        f'name = "{pypi_package}"',
+    )
+    replace(
+        "bindings/python/pyproject.toml",
+        r'^version = "[^"]+"$',
+        f'version = "{python_version}"',
+    )
+    replace(
+        "bindings/python/pyproject.toml",
+        r'^description = "[^"]+"$',
+        f'description = "{metadata["description"]}"',
+    )
+    replace(
+        "bindings/python/pyproject.toml",
+        r'^  "vinary-tree-interop==[^"]+",$',
+        f'  "vinary-tree-interop=={python_interop_version}",',
+    )
+    replace(
+        "bindings/python/pyproject.toml",
+        r'^(Documentation = "https://github.com/vinary-tree/lling-llang/tree/)[^/]+(/bindings/python")$',
+        rf"\g<1>v{canonical}\2",
+    )
+    replace(
+        "bindings/python/src/lling_llang/__init__.py",
+        r'^__version__ = "[^"]+"$',
+        f'__version__ = "{python_version}"',
+    )
 
     replace(
         "bindings/julia/LlingLlang/Project.toml",
@@ -231,8 +267,13 @@ def validate(model: dict[str, object]) -> list[str]:
     metadata = model.get("metadata")
     deps = model["dependencies"]
     publication = model.get("publication")
-    if coordinates != {"npmPackage": NPM_PACKAGE}:
-        failures.append(f"npm package coordinate must be exactly {NPM_PACKAGE}")
+    if coordinates != {
+        "npmPackage": NPM_PACKAGE,
+        "pypiPackage": PYPI_PACKAGE,
+    }:
+        failures.append(
+            f"package coordinates must be npm={NPM_PACKAGE} and PyPI={PYPI_PACKAGE}"
+        )
     expected_metadata = {
         "summary": "Build and compose weighted automata for speech, text, and language processing",
         "description": "Build, compose, optimize, and run semiring-generic weighted automata for speech recognition, text processing, and constrained generation.",
@@ -294,6 +335,7 @@ def validate(model: dict[str, object]) -> list[str]:
         "cmake": canonical,
         "julia": canonical,
         "npm": canonical,
+        "pypi": canonical.replace("-rc.", "rc"),
         "pkgConfig": canonical,
         "zef": canonical,
     }
@@ -330,6 +372,7 @@ def validate(model: dict[str, object]) -> list[str]:
         or api.get("productDescription") != expected_metadata["description"]
         or api.get("javascript", {}).get("version") != canonical
         or api.get("packages", {}).get("npm") != NPM_PACKAGE
+        or api.get("packages", {}).get("pypi") != PYPI_PACKAGE
         or api.get("javascript", {}).get("package") != NPM_PACKAGE
         or api.get("interop", {}).get("npm") != NPM_INTEROP_PACKAGE
         or api.get("wasm", {}).get("runtimePackage") != NPM_RUNTIME_PACKAGE
@@ -348,6 +391,38 @@ def validate(model: dict[str, object]) -> list[str]:
         or package.get("dependencies") != expected_npm_dependencies
     ):
         failures.append("npm package release identity is stale")
+    python = tomllib.loads(
+        (ROOT / "bindings/python/pyproject.toml").read_text(encoding="utf-8")
+    )
+    python_project = python.get("project", {})
+    python_dependency = "vinary-tree-interop==" + str(
+        deps["vinary-tree-interop"]
+    ).replace("-rc.", "rc")
+    python_documentation = (
+        f"https://github.com/vinary-tree/lling-llang/tree/v{canonical}/bindings/python"
+    )
+    if (
+        python_project.get("name") != PYPI_PACKAGE
+        or python_project.get("version") != expected_registries["pypi"]
+        or python_project.get("description") != expected_metadata["description"]
+        or python_project.get("dependencies") != [python_dependency]
+        or python_project.get("urls", {}).get("Documentation")
+        != python_documentation
+        or python.get("tool", {})
+        .get("uv", {})
+        .get("sources", {})
+        .get("vinary-tree-interop")
+        != {"path": "../../../vinary-tree-interop/bindings/python"}
+    ):
+        failures.append("Python distribution release identity is stale")
+    python_init = (ROOT / "bindings/python/src/lling_llang/__init__.py").read_text(
+        encoding="utf-8"
+    )
+    if (
+        re.search(r'^__version__ = "([^"]+)"$', python_init, re.MULTILINE) is None
+        or f'__version__ = "{expected_registries["pypi"]}"' not in python_init
+    ):
+        failures.append("Python facade version is stale")
     julia = tomllib.loads(
         (ROOT / "bindings/julia/LlingLlang/Project.toml").read_text(encoding="utf-8")
     )

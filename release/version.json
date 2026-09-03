@@ -3,7 +3,8 @@
   "component": "lling-llang",
   "canonical": "4.0.0-rc.6",
   "coordinates": {
-    "npmPackage": "@vinary-tree/lling-llang"
+    "npmPackage": "@vinary-tree/lling-llang",
+    "pypiPackage": "lling-llang"
   },
   "metadata": {
     "summary": "Build and compose weighted automata for speech, text, and language processing",
@@ -14,6 +15,7 @@
     "cmake": "4.0.0-rc.6",
     "julia": "4.0.0-rc.6",
     "npm": "4.0.0-rc.6",
+    "pypi": "4.0.0rc6",
     "pkgConfig": "4.0.0-rc.6",
     "zef": "4.0.0-rc.6"
   },

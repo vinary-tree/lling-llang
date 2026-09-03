@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=77", "wheel>=0.45"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lling-llang"
+version = "4.0.0rc6"
+description = "Build, compose, optimize, and run semiring-generic weighted automata for speech recognition, text processing, and constrained generation."
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Dylon Edwards", email = "dylon.devo@gmail.com" }]
+keywords = ["wfst", "lattice", "semiring", "speech-recognition", "constrained-generation"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Rust",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: Text Processing :: Linguistic",
+]
+dependencies = [
+  "vinary-tree-interop==4.0.0rc6",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[dependency-groups]
+documentation = ["pdoc==16.0.0"]
+
+[tool.uv.sources]
+vinary-tree-interop = { path = "../../../vinary-tree-interop/bindings/python" }
+
+[project.urls]
+Homepage = "https://github.com/vinary-tree/lling-llang"
+Repository = "https://github.com/vinary-tree/lling-llang"
+Documentation = "https://github.com/vinary-tree/lling-llang/tree/v4.0.0-rc.6/bindings/python"
+Issues = "https://github.com/vinary-tree/lling-llang/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+lling_llang = ["LICENSE", "py.typed", "native/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

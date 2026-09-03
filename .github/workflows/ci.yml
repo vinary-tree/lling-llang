@@ -120,6 +120,61 @@ jobs:
       - name: Test (ffi + test-utils)
         run: cargo test --no-default-features --features "ffi test-utils"
 
+  python:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.14"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/checkout-dev-siblings
+        with:
+          coordinated-ref: ${{ github.head_ref || github.ref_name }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install Python validation tools and interop source
+        run: |
+          python -m pip install --disable-pip-version-check \
+            build==1.6.0 pdoc==16.0.0 pyright==1.1.412 \
+            ruff==0.16.5 twine==6.2.0
+          python -m pip install --no-deps -e ../vinary-tree-interop/bindings/python
+      - name: Build native Python library
+        run: cargo build --no-default-features --features python-bindings
+      - name: Type, style, API, and documentation gates
+        env:
+          LLING_LLANG_LIBRARY: ${{ github.workspace }}/target/debug/liblling_llang.so
+          PYTHONPATH: ${{ github.workspace }}/bindings/python/src
+        run: |
+          ruff check bindings/python
+          ruff format --check bindings/python
+          pyright -p bindings/python/pyrightconfig.json
+          python scripts/check-bindings.py
+          python scripts/check-binding-docs.py
+          pdoc --output-directory target/python-api lling_llang
+      - name: Native integration and executable provider guide
+        env:
+          LLING_LLANG_LIBRARY: ${{ github.workspace }}/target/debug/liblling_llang.so
+          PYTHONPATH: ${{ github.workspace }}/bindings/python/src
+        run: |
+          python -m unittest discover -s bindings/python/tests -v
+          python bindings/python/examples/custom_providers.py
+      - name: Build and test a fresh wheel
+        if: matrix.python-version == '3.10'
+        env:
+          LLING_LLANG_PREBUILT_LIBRARY: ${{ github.workspace }}/target/debug/liblling_llang.so
+        run: |
+          python -m build --wheel --outdir target/python-dist bindings/python
+          python -m twine check target/python-dist/*.whl
+          python -m build --wheel --outdir target/python-interop-dist ../vinary-tree-interop/bindings/python
+          python -m venv target/python-consumer
+          target/python-consumer/bin/python -m pip install --no-deps target/python-interop-dist/*.whl
+          target/python-consumer/bin/python -m pip install --no-deps target/python-dist/*.whl
+          target/python-consumer/bin/python bindings/python/examples/custom_providers.py
+
   julia:
     name: Julia ${{ matrix.julia-version }}
     runs-on: ubuntu-latest
