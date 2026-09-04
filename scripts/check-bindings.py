@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dependency-free binding-surface drift gate for lling-llang.
+"""Binding-surface drift gate for lling-llang.
 
 Verifies, against the committed binding model ``bindings/api.json``:
 
@@ -52,7 +52,10 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 compatibility
+    import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = ROOT / "bindings" / "api.json"

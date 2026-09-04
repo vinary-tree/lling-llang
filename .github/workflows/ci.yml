@@ -140,7 +140,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check \
             build==1.6.0 pdoc==16.0.0 pyright==1.1.411 \
-            ruff==0.16.5 twine==6.2.0
+            ruff==0.16.5 tomli==2.2.1 twine==6.2.0
           python -m pip install --no-deps -e ../vinary-tree-interop/bindings/python
       - name: Build native Python library
         run: cargo build --no-default-features --features python-bindings
@@ -359,7 +359,7 @@ jobs:
           curl -fsSL \
             -o "$RUNNER_TEMP/tla2tools.jar" \
             https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
-          echo "eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a  $RUNNER_TEMP/tla2tools.jar" \
+          echo "16b8cd970e07147ff91f126baecba7edd98202e5ab33220a42f8f4358ee94b2b  $RUNNER_TEMP/tla2tools.jar" \
             | sha256sum --check --strict
           echo "TLA2TOOLS_JAR=$RUNNER_TEMP/tla2tools.jar" >> "$GITHUB_ENV"
       - name: Verify portable invariant registries and finite models

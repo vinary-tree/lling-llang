@@ -16,9 +16,9 @@ inputs:
     required: false
     default: ""
   llattice-ref:
-    description: Immutable llattice release ref.
+    description: Development llattice ref containing the coordinated binding sources.
     required: false
-    default: v0.1.0
+    default: master
 
 runs:
   using: composite
