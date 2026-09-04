@@ -139,7 +139,7 @@ jobs:
       - name: Install Python validation tools and interop source
         run: |
           python -m pip install --disable-pip-version-check \
-            build==1.6.0 pdoc==16.0.0 pyright==1.1.412 \
+            build==1.6.0 pdoc==16.0.0 pyright==1.1.411 \
             ruff==0.16.5 twine==6.2.0
           python -m pip install --no-deps -e ../vinary-tree-interop/bindings/python
       - name: Build native Python library

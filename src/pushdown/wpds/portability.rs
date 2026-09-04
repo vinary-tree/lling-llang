@@ -481,11 +481,8 @@ impl PortableWitness {
                         .ok_or(ReplayRejection::LengthOverflow)?;
                     let raw_premises = decoder.take(premise_bytes)?;
                     let mut premises = Vec::with_capacity(premise_count);
-                    for raw in raw_premises.chunks_exact(4) {
-                        let premise = u32::from_le_bytes(
-                            raw.try_into()
-                                .map_err(|_| ReplayRejection::MalformedEncoding)?,
-                        );
+                    for raw in raw_premises.as_chunks::<4>().0 {
+                        let premise = u32::from_le_bytes(*raw);
                         if premise as usize >= index {
                             return Err(ReplayRejection::PremiseNotEarlier);
                         }
