@@ -34,7 +34,7 @@ algorithms/StrongBisimulation.v
 
 # Resource ABI: the f64 weight bridge over the seven VtWeightDomains
 abi/WeightBridge.v
-# Resource ABI: the LlingStatus / VtStatus classification contract
+# Resource ABI: the LlingLlangStatus / VtStatus classification contract
 abi/StatusMapping.v
 # Resource ABI: the lazy-composition product-state interner
 abi/ProductRegistry.v

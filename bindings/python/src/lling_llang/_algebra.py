@@ -321,6 +321,35 @@ class SemiringContext:
         """Multiply two weights in this exact provider context."""
         return self._binary(left, right, "times")
 
+    def _many(self, values: Sequence[SemiringWeight], operation: str) -> SemiringWeight:
+        weights = tuple(values)
+        handles = (ctypes.c_void_p * len(weights))(
+            *(
+                self._checked_weight(value, f"semiring_{operation}_many")
+                for value in weights
+            )
+        )
+        output = ctypes.c_void_p()
+        function = getattr(lib, f"lling_semiring_{operation}_many")
+        check(
+            function(
+                self._open_handle(f"semiring_{operation}_many"),
+                handles,
+                len(weights),
+                ctypes.byref(output),
+            ),
+            f"semiring_{operation}_many",
+        )
+        return self._adopt(output)
+
+    def plus_many(self, values: Sequence[SemiringWeight]) -> SemiringWeight:
+        """Add an ordered sequence through the bounded provider batch path."""
+        return self._many(values, "plus")
+
+    def times_many(self, values: Sequence[SemiringWeight]) -> SemiringWeight:
+        """Multiply an ordered sequence through the bounded provider batch path."""
+        return self._many(values, "times")
+
     def equal(self, left: SemiringWeight, right: SemiringWeight) -> bool:
         """Compare two weights for exact semantic equality."""
         return self._compare(left, right, "equal")
@@ -499,14 +528,18 @@ class SemiringContext:
             )
         return output.value if known.value else None
 
-    def stable_bytes(self, value: SemiringWeight) -> bytes:
-        """Copy one weight's canonical provider-defined bytes."""
-        handle = self._checked_weight(value, "semiring_stable_bytes")
+    def _bytes(self, value: SemiringWeight | None, operation: str) -> bytes:
+        handle = (
+            None
+            if value is None
+            else self._checked_weight(value, f"semiring_{operation}")
+        )
         written = ctypes.c_size_t()
         required = ctypes.c_size_t()
-        context = self._open_handle("semiring_stable_bytes")
+        context = self._open_handle(f"semiring_{operation}")
+        function = getattr(lib, f"lling_semiring_{operation}")
         check(
-            lib.lling_semiring_stable_bytes(
+            function(
                 context,
                 handle,
                 None,
@@ -514,12 +547,12 @@ class SemiringContext:
                 ctypes.byref(written),
                 ctypes.byref(required),
             ),
-            "semiring_stable_bytes",
+            f"semiring_{operation}",
         )
         output = (ctypes.c_uint8 * required.value)()
         second_required = ctypes.c_size_t()
         check(
-            lib.lling_semiring_stable_bytes(
+            function(
                 context,
                 handle,
                 output,
@@ -527,15 +560,23 @@ class SemiringContext:
                 ctypes.byref(written),
                 ctypes.byref(second_required),
             ),
-            "semiring_stable_bytes",
+            f"semiring_{operation}",
         )
         if written.value != required.value or second_required.value != required.value:
             raise NativeError(
                 Status.PROVIDER_ERROR,
-                "semiring_stable_bytes",
-                "provider changed stable bytes between sizing and copy",
+                f"semiring_{operation}",
+                "provider changed its byte result between sizing and copy",
             )
         return bytes(output)
+
+    def stable_bytes(self, value: SemiringWeight) -> bytes:
+        """Copy one weight's canonical provider-defined bytes."""
+        return self._bytes(value, "stable_bytes")
+
+    def diagnostic(self, value: SemiringWeight | None = None) -> str:
+        """Copy the provider's advisory UTF-8 diagnostic."""
+        return self._bytes(value, "diagnostic").decode("utf-8")
 
     def validate_laws(
         self, weights: Sequence[SemiringWeight], *, epsilon: float = 0.0
@@ -625,6 +666,10 @@ class SemiringWeight:
     def stable_bytes(self) -> bytes:
         """Copy this weight's canonical provider-defined bytes."""
         return self.context.stable_bytes(self)
+
+    def diagnostic(self) -> str:
+        """Copy this weight's provider-defined diagnostic."""
+        return self.context.diagnostic(self)
 
     def close(self) -> None:
         """Release the weight exactly once."""

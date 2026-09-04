@@ -2,7 +2,7 @@ unit module Lling::Llang::GeneratedAbi;
 
 # Generated from bindings/api.json. Do not edit by hand.
 our constant ABI-VERSION is export = 1;
-our constant API-REVISION is export = 5;
+our constant API-REVISION is export = 6;
 our constant TYPED-ABI-VERSION is export = 2;
 our constant DESCRIPTOR-SIGNATURE-KNOWN is export = 1 +< 0;
 our constant DESCRIPTOR-SNAPSHOT-PRESENT is export = 1 +< 1;

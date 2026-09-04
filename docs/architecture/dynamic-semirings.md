@@ -186,11 +186,12 @@ parallel context to another thread, and injects unknown statuses, malformed
 booleans, malformed order values, non-finite probabilities, context confusion,
 and a false base algebra.
 
-The Julia suite adds 14 assertions over a Julia-owned arena and the Raku suite
-adds 14 over a Raku-owned arena. Each publishes base and optional capabilities,
+The Julia suite adds 18 assertions over a Julia-owned arena and the Raku suite
+adds 18 over a Raku-owned arena. Each publishes base and optional capabilities,
 closes the original resource after native import, runs operations through
-Rust, validates declared laws, clones an owned token, and proves the operation
-context remains independently retained until deterministic close.
+Rust, exercises bounded folds and domain/value diagnostics, validates declared
+laws, clones an owned token, and proves the operation context remains
+independently retained until deterministic close.
 
 The mathematical basis follows Goodman’s semiring parsing formulation
 ([Goodman 1999](../BIBLIOGRAPHY.md#ref-goodman1999)) and the weighted-automata

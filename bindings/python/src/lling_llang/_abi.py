@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 5
+API_REVISION = 6
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -321,7 +321,7 @@ def _bind(
 
 
 _bind("lling_abi_version", [])
-_bind("lling_api_revision", [])
+_bind("lling_llang_api_revision", [])
 _bind("lling_last_error_message", [], ctypes.c_char_p)
 
 _bind("lling_wfst_builder_new", [ctypes.POINTER(ctypes.c_void_p)])
@@ -460,6 +460,27 @@ _bind(
     ],
 )
 _bind(
+    "lling_semiring_diagnostic",
+    [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_size_t),
+    ],
+)
+for _name in ("lling_semiring_plus_many", "lling_semiring_times_many"):
+    _bind(
+        _name,
+        [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.c_size_t,
+            ctypes.POINTER(ctypes.c_void_p),
+        ],
+    )
+_bind(
     "lling_semiring_validate_laws",
     [
         ctypes.c_void_p,
@@ -572,7 +593,7 @@ def abi_version() -> int:
 
 def api_revision() -> int:
     """Return the loaded additive API revision."""
-    return int(lib.lling_api_revision())
+    return int(lib.lling_llang_api_revision())
 
 
 if abi_version() != ABI_VERSION:

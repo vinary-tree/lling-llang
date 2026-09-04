@@ -597,11 +597,17 @@ impl<M: SemiringAccess> SemiringContext<M> {
 
     /// Copy the canonical byte representation of one value.
     pub fn stable_bytes(&self, value: &SemiringWeight<M>) -> Result<Vec<u8>, DynamicSemiringError> {
+        let callback = self
+            .inner
+            .table()
+            .stable_bytes
+            .filter(|_| self.flags() & semiring_flags::STABLE_BYTES != 0)
+            .ok_or(DynamicSemiringError::MissingCapability("stable bytes"))?;
         let value = self.token(value)?;
         self.copy_bytes(
             "stable_bytes",
             |bytes, capacity, written, required| unsafe {
-                (self.inner.table().stable_bytes.unwrap())(
+                callback(
                     self.inner.context(),
                     value,
                     bytes,
@@ -1252,10 +1258,11 @@ fn validate_semiring(table: &VtSemiringVTable) -> Result<(), DynamicSemiringErro
         || table.equal.is_none()
         || table.approx_equal.is_none()
         || table.natural_order.is_none()
-        || table.stable_bytes.is_none()
-        || table.flags & semiring_flags::STABLE_BYTES == 0
     {
         return Err(DynamicSemiringError::IncompatibleInterface("base"));
+    }
+    if (table.flags & semiring_flags::STABLE_BYTES != 0) != table.stable_bytes.is_some() {
+        return Err(DynamicSemiringError::IncompatibleInterface("stable bytes"));
     }
     if table.flags & semiring_flags::BATCH != 0
         && (table.plus_many.is_none() || table.times_many.is_none())

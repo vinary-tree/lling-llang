@@ -170,7 +170,7 @@ direction** — is implemented here exactly as the
   own vtable edge; lling-llang cannot catch a C++ exception thrown across a
   callback. The status channel exists precisely so contained provider
   faults arrive as `VtStatus` values — which lling-llang then decodes,
-  range-checks, and maps totally into `LlingStatus`
+  range-checks, and maps totally into `LlingLlangStatus`
   ([status table](../api/c-abi-reference.md#status-codes)).
 
 ## Threading trust

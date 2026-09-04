@@ -3,39 +3,39 @@
 use crate::dynamic_lattice::{DynamicLatticeError, DynamicLatticeValue};
 use vinary_tree_interop::{VtInterfaceId, VtResource};
 
-use super::{boundary, copy_bytes_to_c, required_mut, set_error, LlingStatus};
+use super::{boundary, copy_bytes_to_c, required_mut, set_error, LlingLlangStatus};
 
 /// Opaque same-thread handle for one immutable host-defined lattice value.
 pub struct LlingLatticeValue {
     value: DynamicLatticeValue,
 }
 
-fn map_lattice_error(error: DynamicLatticeError) -> LlingStatus {
+fn map_lattice_error(error: DynamicLatticeError) -> LlingLlangStatus {
     set_error(error.to_string());
     match error {
-        DynamicLatticeError::NullResource => LlingStatus::NullPointer,
+        DynamicLatticeError::NullResource => LlingLlangStatus::NullPointer,
         DynamicLatticeError::IncompatibleResourceAbi
         | DynamicLatticeError::MissingLatticeInterface
         | DynamicLatticeError::IncompatibleInterface(_)
-        | DynamicLatticeError::MissingCapability(_) => LlingStatus::IncompatibleResource,
+        | DynamicLatticeError::MissingCapability(_) => LlingLlangStatus::IncompatibleResource,
         DynamicLatticeError::DomainMismatch | DynamicLatticeError::InvalidArgument(_) => {
-            LlingStatus::InvalidArgument
+            LlingLlangStatus::InvalidArgument
         }
-        DynamicLatticeError::ResourceLimit => LlingStatus::LimitExceeded,
+        DynamicLatticeError::ResourceLimit => LlingLlangStatus::LimitExceeded,
         DynamicLatticeError::Provider { .. }
         | DynamicLatticeError::InvalidProviderOutput { .. }
         | DynamicLatticeError::WrongThread
         | DynamicLatticeError::ConcurrentCall
-        | DynamicLatticeError::LawViolation(_) => LlingStatus::ProviderError,
+        | DynamicLatticeError::LawViolation(_) => LlingLlangStatus::ProviderError,
     }
 }
 
 fn lattice_value(
     value: *const LlingLatticeValue,
-) -> Result<&'static DynamicLatticeValue, LlingStatus> {
+) -> Result<&'static DynamicLatticeValue, LlingLlangStatus> {
     if value.is_null() {
         set_error("lattice value is null");
-        Err(LlingStatus::NullPointer)
+        Err(LlingLlangStatus::NullPointer)
     } else {
         // SAFETY: the C caller promises this is a live opaque handle.
         Ok(unsafe { &(*value).value })
@@ -45,7 +45,7 @@ fn lattice_value(
 fn write_lattice_value(
     output: *mut *mut LlingLatticeValue,
     create: impl FnOnce() -> Result<DynamicLatticeValue, DynamicLatticeError>,
-) -> Result<(), LlingStatus> {
+) -> Result<(), LlingLlangStatus> {
     let output = required_mut(output, "out_value")?;
     *output = std::ptr::null_mut();
     let value = create().map_err(map_lattice_error)?;
@@ -56,10 +56,10 @@ fn write_lattice_value(
 unsafe fn lattice_values(
     values: *const *const LlingLatticeValue,
     count: usize,
-) -> Result<Vec<DynamicLatticeValue>, LlingStatus> {
+) -> Result<Vec<DynamicLatticeValue>, LlingLlangStatus> {
     if count != 0 && values.is_null() {
         set_error("lattice values are null with nonzero count");
-        return Err(LlingStatus::NullPointer);
+        return Err(LlingLlangStatus::NullPointer);
     }
     let pointers = if count == 0 {
         &[][..]
@@ -84,11 +84,11 @@ unsafe fn lattice_values(
 pub unsafe extern "C" fn lling_lattice_open(
     resource: *const VtResource,
     out_value: *mut *mut LlingLatticeValue,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         if resource.is_null() {
             set_error("resource is null");
-            return Err(LlingStatus::NullPointer);
+            return Err(LlingLlangStatus::NullPointer);
         }
         write_lattice_value(out_value, || DynamicLatticeValue::borrow_raw(*resource))
     })
@@ -111,7 +111,7 @@ pub unsafe extern "C" fn lling_lattice_free(value: *mut LlingLatticeValue) {
 pub extern "C" fn lling_lattice_domain_id(
     value: *const LlingLatticeValue,
     out_domain: *mut VtInterfaceId,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let value = lattice_value(value)?;
         *required_mut(out_domain, "out_domain")? = value.domain_id();
@@ -124,7 +124,7 @@ pub extern "C" fn lling_lattice_domain_id(
 pub extern "C" fn lling_lattice_flags(
     value: *const LlingLatticeValue,
     out_flags: *mut u64,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let value = lattice_value(value)?;
         *required_mut(out_flags, "out_flags")? = value.flags();
@@ -137,7 +137,7 @@ fn binary_lattice(
     right: *const LlingLatticeValue,
     output: *mut *mut LlingLatticeValue,
     join: bool,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let left = lattice_value(left)?;
         let right = lattice_value(right)?;
@@ -157,7 +157,7 @@ pub extern "C" fn lling_lattice_join(
     left: *const LlingLatticeValue,
     right: *const LlingLatticeValue,
     out_value: *mut *mut LlingLatticeValue,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     binary_lattice(left, right, out_value, true)
 }
 
@@ -167,7 +167,7 @@ pub extern "C" fn lling_lattice_meet(
     left: *const LlingLatticeValue,
     right: *const LlingLatticeValue,
     out_value: *mut *mut LlingLatticeValue,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     binary_lattice(left, right, out_value, false)
 }
 
@@ -177,7 +177,7 @@ pub extern "C" fn lling_lattice_equal(
     left: *const LlingLatticeValue,
     right: *const LlingLatticeValue,
     out_equal: *mut u8,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let left = lattice_value(left)?;
         let right = lattice_value(right)?;
@@ -194,7 +194,7 @@ unsafe fn write_lattice_bytes(
     out_written: *mut usize,
     out_required: *mut usize,
     diagnostic: bool,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let value = lattice_value(value)?;
         let bytes = if diagnostic {
@@ -218,7 +218,7 @@ pub unsafe extern "C" fn lling_lattice_stable_bytes(
     capacity: usize,
     out_written: *mut usize,
     out_required: *mut usize,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     write_lattice_bytes(value, out_bytes, capacity, out_written, out_required, false)
 }
 
@@ -233,7 +233,7 @@ pub unsafe extern "C" fn lling_lattice_diagnostic(
     capacity: usize,
     out_written: *mut usize,
     out_required: *mut usize,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     write_lattice_bytes(value, out_bytes, capacity, out_written, out_required, true)
 }
 
@@ -243,7 +243,7 @@ unsafe fn fold_lattice(
     count: usize,
     output: *mut *mut LlingLatticeValue,
     join: bool,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let receiver = lattice_value(receiver)?;
         let others = lattice_values(others, count)?;
@@ -267,7 +267,7 @@ pub unsafe extern "C" fn lling_lattice_join_many(
     others: *const *const LlingLatticeValue,
     count: usize,
     out_value: *mut *mut LlingLatticeValue,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     fold_lattice(receiver, others, count, out_value, true)
 }
 
@@ -281,7 +281,7 @@ pub unsafe extern "C" fn lling_lattice_meet_many(
     others: *const *const LlingLatticeValue,
     count: usize,
     out_value: *mut *mut LlingLatticeValue,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     fold_lattice(receiver, others, count, out_value, false)
 }
 
@@ -293,7 +293,7 @@ pub unsafe extern "C" fn lling_lattice_meet_many(
 pub unsafe extern "C" fn lling_lattice_validate_laws(
     values: *const *const LlingLatticeValue,
     count: usize,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let values = lattice_values(values, count)?;
         DynamicLatticeValue::validate_laws(&values).map_err(map_lattice_error)

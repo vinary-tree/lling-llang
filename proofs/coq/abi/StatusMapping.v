@@ -1,14 +1,14 @@
 (** * StatusMapping — the lling-llang ABI status contract
 
     Two status alphabets meet at the lling-llang ABI: the crate's own
-    [LlingStatus] (returned by every `lling_*` C entry point) and the family
+    [LlingLlangStatus] (returned by every `lling_*` C entry point) and the family
     interop [VtStatus] (returned by the vtable callbacks of a re-exported
     resource to its downstream consumer). This file is the formal model of how a
     binding-layer error is classified into each — obligation #20, the formal
     home of invariants LLING-STAT-1..3 (registry: proofs/doc/abi-invariants.tsv).
 
     It mirrors two Rust functions:
-      - `map_error` (src/ffi.rs) : BindingError -> LlingStatus, the C-ABI
+      - `map_error` (src/ffi.rs) : BindingError -> LlingLlangStatus, the C-ABI
         classification;
       - `expansion_error_status` (src/bindings.rs) : BindingError -> VtStatus,
         the re-export classification a composed resource reports downstream.
@@ -43,8 +43,8 @@ Inductive VtStatus : Type :=
   | VLimitExceeded
   | VProviderError.
 
-(** The lling-llang status alphabet (LlingStatus, discriminants 0..7). *)
-Inductive LlingStatus : Type :=
+(** The lling-llang status alphabet (LlingLlangStatus, discriminants 0..7). *)
+Inductive LlingLlangStatus : Type :=
   | LOk
   | LInvalidArgument
   | LNullPointer
@@ -70,7 +70,7 @@ Inductive BindingError : Type :=
 (** ** The two classification functions *)
 
 (** `map_error` — the C-ABI classification (src/ffi.rs). *)
-Definition map_error (e : BindingError) : LlingStatus :=
+Definition map_error (e : BindingError) : LlingLlangStatus :=
   match e with
   | Provider _ => LProviderError
   | InvalidProviderOutput => LProviderError
@@ -153,10 +153,10 @@ Proof. split; discriminate. Qed.
     Panic. *)
 Inductive boundary_outcome : Type :=
   | Success
-  | Failure (s : LlingStatus)
+  | Failure (s : LlingLlangStatus)
   | Panicked.
 
-Definition boundary_status (o : boundary_outcome) : LlingStatus :=
+Definition boundary_status (o : boundary_outcome) : LlingLlangStatus :=
   match o with
   | Success => LOk
   | Failure s => s

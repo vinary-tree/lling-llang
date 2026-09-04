@@ -145,7 +145,7 @@ JavaScript has a single error channel: **failed operations throw.**
 
 The native diagnostics are the same messages C callers read from
 `lling_last_error_message()`; the full status taxonomy is the
-[`LlingStatus` table](https://github.com/vinary-tree/lling-llang/blob/master/docs/api/c-abi-reference.md#status-codes).
+[`LlingLlangStatus` table](https://github.com/vinary-tree/lling-llang/blob/master/docs/api/c-abi-reference.md#status-codes).
 Both guards throw **before** anything crosses into native code.
 
 ## Concurrency
@@ -182,7 +182,7 @@ their own runtime instance — handles must not be passed between instances
 
 ## Version compatibility
 
-- Package `4.0.0-rc.6` = crate `4.0.0-rc.6`; native ABI v1, API revision 5 — the same
+- Package `4.0.0-rc.6` = crate `4.0.0-rc.6`; native ABI v1, API revision 6 — the same
   contract the [C ABI reference](https://github.com/vinary-tree/lling-llang/blob/master/docs/api/c-abi-reference.md)
   documents (the API revision only grows within an ABI version).
 - `@vinary-tree/*` dependencies are exact pins; the drift gate

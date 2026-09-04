@@ -12,7 +12,7 @@ use lling_llang::dynamic_lattice::{
 use lling_llang::ffi::{
     lling_lattice_domain_id, lling_lattice_equal, lling_lattice_flags, lling_lattice_free,
     lling_lattice_join, lling_lattice_join_many, lling_lattice_open, lling_lattice_stable_bytes,
-    lling_lattice_validate_laws, LlingLatticeValue, LlingStatus,
+    lling_lattice_validate_laws, LlingLatticeValue, LlingLlangStatus,
 };
 use vinary_tree_interop::{
     lattice_flags, VtInterfaceId, VtLatticeVTable, VtResource, VtResourceVTable, VtStatus,
@@ -505,29 +505,32 @@ fn c_surface_owns_computes_batches_and_validates_the_same_dynamic_values() {
     let mut right: *mut LlingLatticeValue = std::ptr::null_mut();
     assert_eq!(
         unsafe { lling_lattice_open(&two.raw, &mut left) },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(
         unsafe { lling_lattice_open(&five.raw, &mut right) },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
 
     let mut domain = VtInterfaceId { bytes: [0; 16] };
     let mut flags = 0;
-    assert_eq!(lling_lattice_domain_id(left, &mut domain), LlingStatus::Ok);
-    assert_eq!(lling_lattice_flags(left, &mut flags), LlingStatus::Ok);
+    assert_eq!(
+        lling_lattice_domain_id(left, &mut domain),
+        LlingLlangStatus::Ok
+    );
+    assert_eq!(lling_lattice_flags(left, &mut flags), LlingLlangStatus::Ok);
     assert_eq!(domain, DOMAIN);
     assert_eq!(flags, BASE_FLAGS);
 
     let mut joined: *mut LlingLatticeValue = std::ptr::null_mut();
     assert_eq!(
         lling_lattice_join(left, right, &mut joined),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let mut equal = u8::MAX;
     assert_eq!(
         lling_lattice_equal(joined, right, &mut equal),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(equal, 1);
 
@@ -537,7 +540,7 @@ fn c_surface_owns_computes_batches_and_validates_the_same_dynamic_values() {
         unsafe {
             lling_lattice_stable_bytes(joined, std::ptr::null_mut(), 0, &mut written, &mut required)
         },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!((written, required), (0, 8));
     let mut bytes = [0_u8; 8];
@@ -551,7 +554,7 @@ fn c_surface_owns_computes_batches_and_validates_the_same_dynamic_values() {
                 &mut required,
             )
         },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(bytes, 5_u64.to_be_bytes());
 
@@ -559,12 +562,12 @@ fn c_surface_owns_computes_batches_and_validates_the_same_dynamic_values() {
     let mut batched: *mut LlingLatticeValue = std::ptr::null_mut();
     assert_eq!(
         unsafe { lling_lattice_join_many(left, operands.as_ptr(), operands.len(), &mut batched) },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let samples = [left as *const LlingLatticeValue, right];
     assert_eq!(
         unsafe { lling_lattice_validate_laws(samples.as_ptr(), samples.len()) },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
 
     unsafe {

@@ -92,7 +92,7 @@ sub provider-library(--> Str:D) {
 sub lling-abi-version(--> uint32)
     is native(&native-library) is symbol('lling_abi_version') { * }
 sub lling-api-revision(--> uint32)
-    is native(&native-library) is symbol('lling_api_revision') { * }
+    is native(&native-library) is symbol('lling_llang_api_revision') { * }
 sub lling-last-error-message(--> Str)
     is native(&native-library) is symbol('lling_last_error_message') { * }
 sub lling-abi-v2-validate-header(Pointer, uint32, uint64 --> uint32)
@@ -190,6 +190,13 @@ sub lling-semiring-closure-bound(Pointer, size_t is rw, uint8 is rw --> uint32)
 sub lling-semiring-stable-bytes(
     Pointer, Pointer, Pointer, size_t, size_t is rw, size_t is rw --> uint32
 ) is native(&native-library) is symbol('lling_semiring_stable_bytes') { * }
+sub lling-semiring-diagnostic(
+    Pointer, Pointer, Pointer, size_t, size_t is rw, size_t is rw --> uint32
+) is native(&native-library) is symbol('lling_semiring_diagnostic') { * }
+sub lling-semiring-plus-many(Pointer, Pointer, size_t, Pointer is rw --> uint32)
+    is native(&native-library) is symbol('lling_semiring_plus_many') { * }
+sub lling-semiring-times-many(Pointer, Pointer, size_t, Pointer is rw --> uint32)
+    is native(&native-library) is symbol('lling_semiring_times_many') { * }
 sub lling-semiring-validate-laws(
     Pointer, Pointer, size_t, num64 --> uint32
 ) is native(&native-library) is symbol('lling_semiring_validate_laws') { * }
@@ -779,6 +786,28 @@ class SemiringContext is export {
         self!binary($left, $right, &lling-semiring-times, 'semiring-times')
     }
 
+    method !many(Positional:D $weights, &operation, Str:D $name
+        --> SemiringWeight:D) {
+        my $pointers = CArray[Pointer].new;
+        for $weights.list.kv -> $index, $weight {
+            die 'semiring operand is not a SemiringWeight'
+                unless $weight ~~ SemiringWeight;
+            $pointers[$index] = self!same($weight);
+        }
+        my Pointer $result .= new;
+        check-status(operation(self.native-handle,
+            nativecast(Pointer, $pointers), $weights.elems, $result), $name);
+        SemiringWeight.new(context => self, handle => $result)
+    }
+
+    method plus-many(Positional:D $weights --> SemiringWeight:D) {
+        self!many($weights, &lling-semiring-plus-many, 'semiring-plus-many')
+    }
+
+    method times-many(Positional:D $weights --> SemiringWeight:D) {
+        self!many($weights, &lling-semiring-times-many, 'semiring-times-many')
+    }
+
     method equal(SemiringWeight:D $left, SemiringWeight:D $right --> Bool:D) {
         my uint8 $result = 255;
         check-status(lling-semiring-equal(self.native-handle, self!same($left),
@@ -876,18 +905,32 @@ class SemiringContext is export {
         $known == 1 ?? $result.Int !! Int
     }
 
-    method stable-bytes(SemiringWeight:D $value --> Blob:D) {
+    method !bytes(Pointer $value, &operation, Str:D $name --> Blob:D) {
         my size_t $written = 0;
         my size_t $required = 0;
-        check-status(lling-semiring-stable-bytes(self.native-handle,
-            self!same($value), Pointer, 0, $written, $required),
-            'semiring-stable-bytes-size');
+        check-status(operation(self.native-handle, $value, Pointer, 0,
+            $written, $required), "{$name}-size");
         my $storage = CArray[uint8].new;
         $storage[$_] = 0 for ^$required;
-        check-status(lling-semiring-stable-bytes(self.native-handle,
-            self!same($value), nativecast(Pointer, $storage), $required,
-            $written, $required), 'semiring-stable-bytes');
+        check-status(operation(self.native-handle, $value,
+            nativecast(Pointer, $storage), $required, $written, $required),
+            $name);
         Blob.new((^$written).map({ $storage[$_] }))
+    }
+
+    method stable-bytes(SemiringWeight:D $value --> Blob:D) {
+        self!bytes(self!same($value), &lling-semiring-stable-bytes,
+            'semiring-stable-bytes')
+    }
+
+    multi method diagnostic(--> Str:D) {
+        self!bytes(Pointer, &lling-semiring-diagnostic,
+            'semiring-diagnostic').decode('utf8')
+    }
+
+    multi method diagnostic(SemiringWeight:D $value --> Str:D) {
+        self!bytes(self!same($value), &lling-semiring-diagnostic,
+            'semiring-diagnostic').decode('utf8')
     }
 
     method validate-laws(
@@ -942,7 +985,9 @@ role SemiringProvider is export {
     }
     method natural-order(Mu:D, Mu:D --> Int:D) { ... }
     method stable-bytes(Mu:D --> Blob:D) { ... }
-    method diagnostic(Mu:D $value --> Str:D) { $value.raku }
+    method diagnostic(Mu $value = Mu --> Str:D) {
+        $value.defined ?? $value.raku !! self.^name
+    }
     method divide(Mu:D, Mu:D --> Mu) { Mu }
     method left-divide(Mu:D, Mu:D --> Mu) { Mu }
     method star(Mu:D --> Mu) { Mu }
@@ -1289,13 +1334,14 @@ sub write-provider-bytes(Blob:D $bytes, Pointer $output, size_t $capacity,
     nativecast(CArray[size_t], $written)[0] = $count;
 }
 
-sub semiring-bytes-provider(Pointer:D $raw-context, Pointer:D $value,
+sub semiring-bytes-provider(Pointer:D $raw-context, Pointer $value,
     Pointer $output, size_t $capacity, Pointer:D $written, Pointer:D $required,
     Bool:D :$diagnostic = False, --> int32) {
     my int32 $status = Vinary::Tree::Interop::PROVIDER-ERROR;
     try {
         my $context = semiring-provider-context($raw-context);
-        my $resolved = $context.resolve(|token-words($value));
+        my $resolved = $value.defined
+            ?? $context.resolve(|token-words($value)) !! Mu;
         my Blob $bytes = $diagnostic
             ?? $context.implementation.diagnostic($resolved).encode('utf8')
             !! $context.implementation.stable-bytes($resolved);
@@ -1310,7 +1356,7 @@ sub semiring-stable-provider(Pointer:D $c, Pointer:D $v, Pointer $o,
     size_t $n, Pointer:D $w, Pointer:D $r --> int32) {
     semiring-bytes-provider($c, $v, $o, $n, $w, $r)
 }
-sub semiring-diagnostic-provider(Pointer:D $c, Pointer:D $v, Pointer $o,
+sub semiring-diagnostic-provider(Pointer:D $c, Pointer $v, Pointer $o,
     size_t $n, Pointer:D $w, Pointer:D $r --> int32) {
     semiring-bytes-provider($c, $v, $o, $n, $w, $r, :diagnostic)
 }

@@ -9,11 +9,12 @@ use lling_llang::dynamic_semiring::{
 };
 #[cfg(feature = "ffi")]
 use lling_llang::ffi::{
-    lling_semiring_divide, lling_semiring_equal, lling_semiring_free, lling_semiring_natural_order,
-    lling_semiring_numerical_value, lling_semiring_one, lling_semiring_open, lling_semiring_plus,
-    lling_semiring_properties, lling_semiring_stable_bytes, lling_semiring_validate_laws,
-    lling_semiring_weight_free, lling_semiring_zero, LlingSemiring, LlingSemiringWeight,
-    LlingStatus,
+    lling_semiring_diagnostic, lling_semiring_divide, lling_semiring_equal, lling_semiring_free,
+    lling_semiring_natural_order, lling_semiring_numerical_value, lling_semiring_one,
+    lling_semiring_open, lling_semiring_plus, lling_semiring_plus_many, lling_semiring_properties,
+    lling_semiring_stable_bytes, lling_semiring_times_many, lling_semiring_validate_laws,
+    lling_semiring_weight_free, lling_semiring_zero, LlingLlangStatus, LlingSemiring,
+    LlingSemiringWeight,
 };
 use vinary_tree_interop::{
     semiring_flags, semiring_order, semiring_properties, VtInterfaceId, VtResource,
@@ -137,7 +138,9 @@ unsafe extern "C" fn mock_query(
     let id = *interface_id;
     let table =
         if id == VT_SEMIRING_INTERFACE_ID && minimum_version <= VT_SEMIRING_INTERFACE_VERSION {
-            if state(context).parallel {
+            if state(context).hostile.load(Ordering::Relaxed) == 6 {
+                (&UNSTABLE_SEMIRING_VTABLE as *const VtSemiringVTable).cast()
+            } else if state(context).parallel {
                 (&PARALLEL_SEMIRING_VTABLE as *const VtSemiringVTable).cast()
             } else {
                 (&SERIAL_SEMIRING_VTABLE as *const VtSemiringVTable).cast()
@@ -156,6 +159,7 @@ unsafe extern "C" fn mock_query(
             (&NUMERIC_VTABLE as *const VtSemiringNumericVTable).cast()
         } else if id == VT_SEMIRING_PROPERTIES_INTERFACE_ID
             && minimum_version <= VT_SEMIRING_PROPERTIES_INTERFACE_VERSION
+            && state(context).hostile.load(Ordering::Relaxed) != 6
         {
             (&PROPERTIES_VTABLE as *const VtSemiringPropertiesVTable).cast()
         } else {
@@ -494,7 +498,7 @@ static RESOURCE_VTABLE: VtResourceVTable = VtResourceVTable {
 const BASE_FLAGS: u64 = semiring_flags::STABLE_BYTES | semiring_flags::BATCH;
 
 macro_rules! semiring_vtable {
-    ($flags:expr) => {
+    ($flags:expr, $stable_bytes:expr) => {
         VtSemiringVTable {
             struct_size: size_of::<VtSemiringVTable>(),
             interface_version: VT_SEMIRING_INTERFACE_VERSION,
@@ -510,7 +514,7 @@ macro_rules! semiring_vtable {
             equal: Some(equal),
             approx_equal: Some(approx_equal),
             natural_order: Some(natural_order),
-            stable_bytes: Some(stable_bytes),
+            stable_bytes: $stable_bytes,
             diagnostic: Some(diagnostic),
             plus_many: Some(plus_many),
             times_many: Some(times_many),
@@ -518,9 +522,12 @@ macro_rules! semiring_vtable {
     };
 }
 
-static SERIAL_SEMIRING_VTABLE: VtSemiringVTable = semiring_vtable!(BASE_FLAGS);
-static PARALLEL_SEMIRING_VTABLE: VtSemiringVTable =
-    semiring_vtable!(BASE_FLAGS | semiring_flags::PARALLEL_REENTRANT);
+static SERIAL_SEMIRING_VTABLE: VtSemiringVTable = semiring_vtable!(BASE_FLAGS, Some(stable_bytes));
+static PARALLEL_SEMIRING_VTABLE: VtSemiringVTable = semiring_vtable!(
+    BASE_FLAGS | semiring_flags::PARALLEL_REENTRANT,
+    Some(stable_bytes)
+);
+static UNSTABLE_SEMIRING_VTABLE: VtSemiringVTable = semiring_vtable!(semiring_flags::BATCH, None);
 
 static DIVISION_VTABLE: VtSemiringDivisionVTable = VtSemiringDivisionVTable {
     struct_size: size_of::<VtSemiringDivisionVTable>(),
@@ -668,6 +675,20 @@ fn context_identity_and_hostile_outputs_are_rejected_before_safe_use() {
 }
 
 #[test]
+fn stable_bytes_are_an_independently_negotiated_capability() {
+    let resource = TestResource::new(false);
+    resource.state().hostile.store(6, Ordering::Relaxed);
+    let context = unsafe { DynamicSemiringContext::borrow_raw(resource.raw) }.unwrap();
+    let one = context.one().unwrap();
+    assert!(matches!(
+        context.stable_bytes(&one),
+        Err(DynamicSemiringError::MissingCapability("stable bytes"))
+    ));
+    one.close().unwrap();
+    assert_eq!(resource.state().live_tokens.load(Ordering::Relaxed), 0);
+}
+
+#[test]
 fn only_parallel_reentrant_contexts_cross_threads() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<ParallelDynamicSemiringContext>();
@@ -734,44 +755,47 @@ fn c_surface_consumes_the_same_validated_context_and_owned_weights() {
     let mut semiring: *mut LlingSemiring = std::ptr::null_mut();
     assert_eq!(
         unsafe { lling_semiring_open(&resource.raw, &mut semiring) },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert!(!semiring.is_null());
 
     let mut properties = 0;
     assert_eq!(
         lling_semiring_properties(semiring, &mut properties),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_ne!(properties & semiring_properties::HASHABLE, 0);
 
     let mut zero: *mut LlingSemiringWeight = std::ptr::null_mut();
     let mut one: *mut LlingSemiringWeight = std::ptr::null_mut();
     let mut two: *mut LlingSemiringWeight = std::ptr::null_mut();
-    assert_eq!(lling_semiring_zero(semiring, &mut zero), LlingStatus::Ok);
-    assert_eq!(lling_semiring_one(semiring, &mut one), LlingStatus::Ok);
+    assert_eq!(
+        lling_semiring_zero(semiring, &mut zero),
+        LlingLlangStatus::Ok
+    );
+    assert_eq!(lling_semiring_one(semiring, &mut one), LlingLlangStatus::Ok);
     assert_eq!(
         lling_semiring_plus(semiring, one, one, &mut two),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
 
     let mut numerical = f64::NAN;
     assert_eq!(
         lling_semiring_numerical_value(semiring, two, &mut numerical),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(numerical, 2.0);
 
     let mut equal = u8::MAX;
     assert_eq!(
         lling_semiring_equal(semiring, one, two, &mut equal),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(equal, 0);
     let mut order = i32::MIN;
     assert_eq!(
         lling_semiring_natural_order(semiring, one, two, &mut order),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(order, semiring_order::BETTER);
 
@@ -788,7 +812,7 @@ fn c_surface_consumes_the_same_validated_context_and_owned_weights() {
                 &mut required,
             )
         },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!((written, required), (0, 8));
     let mut bytes = [0_u8; 8];
@@ -803,15 +827,47 @@ fn c_surface_consumes_the_same_validated_context_and_owned_weights() {
                 &mut required,
             )
         },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(bytes, 2.0_f64.to_bits().to_be_bytes());
+
+    let mut diagnostic = [0_u8; 32];
+    assert_eq!(
+        unsafe {
+            lling_semiring_diagnostic(
+                semiring,
+                two,
+                diagnostic.as_mut_ptr(),
+                diagnostic.len(),
+                &mut written,
+                &mut required,
+            )
+        },
+        LlingLlangStatus::Ok
+    );
+    assert_eq!(
+        std::str::from_utf8(&diagnostic[..written]).expect("mock diagnostic is UTF-8"),
+        "mock real semiring"
+    );
+
+    let inputs = [one as *const _, two as *const _];
+    let mut three: *mut LlingSemiringWeight = std::ptr::null_mut();
+    assert_eq!(
+        unsafe { lling_semiring_plus_many(semiring, inputs.as_ptr(), inputs.len(), &mut three) },
+        LlingLlangStatus::Ok
+    );
+    let mut product: *mut LlingSemiringWeight = std::ptr::null_mut();
+    assert_eq!(
+        unsafe { lling_semiring_times_many(semiring, inputs.as_ptr(), inputs.len(), &mut product) },
+        LlingLlangStatus::Ok
+    );
+    assert_eq!(resource.state().batch_calls.load(Ordering::Relaxed), 2);
 
     let mut undefined: *mut LlingSemiringWeight = std::ptr::null_mut();
     let mut defined = u8::MAX;
     assert_eq!(
         lling_semiring_divide(semiring, two, zero, &mut undefined, &mut defined),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(defined, 0);
     assert!(undefined.is_null());
@@ -819,10 +875,12 @@ fn c_surface_consumes_the_same_validated_context_and_owned_weights() {
     let samples = [one as *const _, two as *const _];
     assert_eq!(
         unsafe { lling_semiring_validate_laws(semiring, samples.as_ptr(), samples.len(), 0.0) },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
 
     unsafe {
+        lling_semiring_weight_free(product);
+        lling_semiring_weight_free(three);
         lling_semiring_weight_free(two);
         lling_semiring_weight_free(one);
         lling_semiring_weight_free(zero);

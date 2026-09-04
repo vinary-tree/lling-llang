@@ -15,7 +15,7 @@ consumers, and typed cancellation in eight ownership-aware types under
 | `semiring_weight` | `LlingSemiringWeight*` | move-only owned provider token; explicit `clone()` is the only ownership duplication |
 | `lattice_value` | `LlingLatticeValue*` | move-only retained host value; checked join/meet/folds and law probes |
 | `cancellation` | `LlingCancellationV2*` | move-only; atomic first-reason-wins request; single release on destruction |
-| `error` | `LlingStatus` + message | thrown by `check()` on any non-OK status |
+| `error` | `LlingLlangStatus` + message | thrown by `check()` on any non-OK status |
 
 The pointer-free descriptor, budget, and outcome structures and their five
 validators remain directly available from the included C header.
@@ -140,18 +140,25 @@ auto one = semiring.one();
 auto sum = zero.plus(one);
 auto product = one.times(one);
 
+std::array<const semiring_weight*, 2> operands{&one, &sum};
+auto three = semiring.plus_many(operands);
+auto repeated = semiring.times_many(operands);
+
 if (!sum.equivalent(one)) return 2;
 auto quotient = product.divide(one); // std::nullopt when undefined
 auto closure = zero.star();           // std::nullopt when divergent
 
-std::array<const semiring_weight*, 4> samples{&zero, &one, &sum, &product};
+std::array<const semiring_weight*, 5> samples{&zero, &one, &sum, &product, &three};
 semiring.validate_laws(samples, 1e-12);
 const auto canonical_identity = product.stable_bytes();
+const auto context_description = semiring.diagnostic();
+const auto value_description = three.diagnostic();
 ```
 
 The facade covers equality and approximate equality, natural order, division
 and left division, Kleene star, numerical value, quantization, probability,
-declared properties, closure bounds, stable bytes, and bounded law probes.
+declared properties, closure bounds, stable bytes, context/value diagnostics,
+provider-accelerated batch folds, and bounded law probes.
 Partial provider operations map to `std::optional`; unavailable or malformed
 capabilities remain typed native errors. Weights from different operation
 contexts are rejected before a binary native call, even when their domain IDs
@@ -224,7 +231,7 @@ handle.*
 
 `check()` converts every non-OK status into a thrown
 `vinary_tree::lling_llang::error` whose `what()` is the thread-local native
-diagnostic and whose `status()` is the exact `LlingStatus`:
+diagnostic and whose `status()` is the exact `LlingLlangStatus`:
 
 | `status()` | Typical trigger |
 |---|---|
@@ -295,8 +302,8 @@ implicitly `noexcept`.
 
 - Requires C++20 (`std::exchange`, `[[nodiscard]]`; the package smoke test
   compiles with `cxx_std_20`).
-- ABI v1, API revision 5: call `lling_abi_version()` /
-  `lling_api_revision()` for a runtime handshake when loading the library
+- ABI v1, API revision 6: call `lling_abi_version()` /
+  `lling_llang_api_revision()` for a runtime handshake when loading the library
   dynamically; the revision only grows within an ABI version (see the
   [C ABI reference](../../docs/api/c-abi-reference.md#version-constants-and-the-handshake)).
 - Typed metadata carries the independent `LLING_ABI_V2 == 2` format version.

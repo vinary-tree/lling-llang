@@ -15,7 +15,7 @@ use lling_llang::ffi::{
     validate_abi_v2_header, validate_budget_v2, validate_descriptor_v2, validate_outcome_v2,
     LlingAbiV2Header, LlingApplicabilityV2, LlingBudgetV2, LlingCancellationReasonV2,
     LlingCancellationV2, LlingCompletenessV2, LlingDigest256, LlingEvidenceStateV2, LlingId128,
-    LlingOutcomeV2, LlingPrecisionV2, LlingStatus, LlingTerminationV2, LlingWfstDescriptorV2,
+    LlingLlangStatus, LlingOutcomeV2, LlingPrecisionV2, LlingTerminationV2, LlingWfstDescriptorV2,
     LLING_ABI_V2, LLING_BUDGET_ARCS, LLING_BUDGET_BYTES, LLING_BUDGET_STATES, LLING_BUDGET_WORK,
     LLING_DESCRIPTOR_CONTEXT_PRESENT, LLING_DESCRIPTOR_SIGNATURE_KNOWN,
     LLING_DESCRIPTOR_SNAPSHOT_PRESENT,
@@ -328,36 +328,36 @@ fn v2_c_validators_reject_null_misaligned_malformed_and_non_boolean_inputs() {
 
     assert_eq!(
         lling_abi_v2_validate_header(&descriptor.header, 120, 0b111),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(
         lling_abi_v2_validate_descriptor(&descriptor, &mut answer),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(answer, 1);
-    assert_eq!(lling_abi_v2_validate_budget(&budget), LlingStatus::Ok);
+    assert_eq!(lling_abi_v2_validate_budget(&budget), LlingLlangStatus::Ok);
     assert_eq!(
         lling_abi_v2_validate_outcome(&result, 1, 1, &mut answer),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(answer, 1);
 
     assert_eq!(
         lling_abi_v2_validate_header(ptr::null(), 24, 0),
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
     assert_eq!(
         lling_abi_v2_validate_descriptor(ptr::null(), &mut answer),
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
     assert_eq!(
         lling_abi_v2_validate_descriptor(&descriptor, ptr::null_mut()),
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
     answer = 0xa5;
     assert_eq!(
         lling_abi_v2_validate_outcome(&result, 2, 0, &mut answer),
-        LlingStatus::InvalidArgument
+        LlingLlangStatus::InvalidArgument
     );
     assert_eq!(answer, 0xa5);
 
@@ -367,7 +367,7 @@ fn v2_c_validators_reject_null_misaligned_malformed_and_non_boolean_inputs() {
     let misaligned = unsafe { storage.0.as_ptr().add(1) }.cast::<LlingWfstDescriptorV2>();
     assert_eq!(
         lling_abi_v2_validate_descriptor(misaligned, &mut answer),
-        LlingStatus::InvalidArgument
+        LlingLlangStatus::InvalidArgument
     );
 }
 
@@ -379,21 +379,21 @@ fn v2_c_identity_comparison_is_total_and_does_not_write_on_failure() {
     let mut answer = 0xff;
     assert_eq!(
         lling_abi_v2_identity_matches(&expected, &observed, &mut answer),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(answer, 1);
 
     observed.context.bytes[0] ^= 1;
     assert_eq!(
         lling_abi_v2_identity_matches(&expected, &observed, &mut answer),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(answer, 0);
 
     answer = 0xa5;
     assert_eq!(
         lling_abi_v2_identity_matches(ptr::null(), &observed, &mut answer),
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
     assert_eq!(answer, 0xa5);
 }
@@ -405,42 +405,42 @@ fn v2_cancellation_is_sticky_queryable_and_single_release() {
     let mut cancellation: *mut LlingCancellationV2 = ptr::null_mut();
     assert_eq!(
         lling_cancellation_v2_new(&mut cancellation),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert!(!cancellation.is_null());
 
     let mut reason = u32::MAX;
     assert_eq!(
         lling_cancellation_v2_reason(cancellation, &mut reason),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(reason, 0);
     assert_eq!(
         lling_cancellation_v2_request(cancellation, LlingCancellationReasonV2::Deadline.to_raw()),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(
         lling_cancellation_v2_request(cancellation, LlingCancellationReasonV2::Source.to_raw()),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(
         lling_cancellation_v2_reason(cancellation, &mut reason),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(reason, LlingCancellationReasonV2::Deadline.to_raw());
 
     assert_eq!(
         lling_cancellation_v2_free(&mut cancellation),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert!(cancellation.is_null());
     assert_eq!(
         lling_cancellation_v2_free(&mut cancellation),
-        LlingStatus::Closed
+        LlingLlangStatus::Closed
     );
     assert_eq!(
         lling_cancellation_v2_free(ptr::null_mut()),
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
 }
 
@@ -450,21 +450,21 @@ fn v2_cancellation_rejects_unknown_reasons_without_changing_state() {
     let mut cancellation: *mut LlingCancellationV2 = ptr::null_mut();
     assert_eq!(
         lling_cancellation_v2_new(&mut cancellation),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(
         lling_cancellation_v2_request(cancellation, 99),
-        LlingStatus::InvalidArgument
+        LlingLlangStatus::InvalidArgument
     );
     let mut reason = u32::MAX;
     assert_eq!(
         lling_cancellation_v2_reason(cancellation, &mut reason),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(reason, 0);
     assert_eq!(
         lling_cancellation_v2_free(&mut cancellation),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
 }
 
@@ -474,7 +474,7 @@ fn v2_concurrent_cancellation_preserves_one_first_reason() {
     let mut cancellation: *mut LlingCancellationV2 = ptr::null_mut();
     assert_eq!(
         lling_cancellation_v2_new(&mut cancellation),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let address = cancellation as usize;
     let threads: Vec<_> = [
@@ -494,29 +494,29 @@ fn v2_concurrent_cancellation_preserves_one_first_reason() {
     for thread in threads {
         assert_eq!(
             thread.join().expect("request thread did not panic"),
-            LlingStatus::Ok
+            LlingLlangStatus::Ok
         );
     }
 
     let mut first = 0;
     assert_eq!(
         lling_cancellation_v2_reason(cancellation, &mut first),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert!(LlingCancellationReasonV2::from_raw(first).is_some());
     assert_eq!(
         lling_cancellation_v2_request(cancellation, LlingCancellationReasonV2::Requested.to_raw(),),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let mut after = 0;
     assert_eq!(
         lling_cancellation_v2_reason(cancellation, &mut after),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(after, first);
     assert_eq!(
         lling_cancellation_v2_free(&mut cancellation),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
 }
 
@@ -526,7 +526,7 @@ fn v2_cancellation_constructor_never_overwrites_a_live_slot() {
     let original = cancellation;
     assert_eq!(
         lling_cancellation_v2_new(&mut cancellation),
-        LlingStatus::InvalidArgument
+        LlingLlangStatus::InvalidArgument
     );
     assert_eq!(cancellation, original);
 }

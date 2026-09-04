@@ -1,5 +1,5 @@
 @startuml c-abi-surface
-' The complete lling-llang C ABI surface: all 61 exported lling_* functions,
+' The complete lling-llang C ABI surface: all 64 exported lling_* functions,
 ' grouped by role, with algebra/WFST/cancellation handles, typed metadata,
 ' and the family two-word VtResource. Palette: docs/diagrams/README.md —
 ' lling #FCF3CF, VtResource handle #DCEDC8, foreign trust boundary #FFCDD2.
@@ -24,17 +24,17 @@ skinparam note {
 hide empty members
 hide circle
 
-title <b>lling-llang C ABI surface — 61 exported functions</b>\n<size:11><i>Project ABI v1, API revision 5 · typed metadata headers carry format version 2</i></size>
+title <b>lling-llang C ABI surface — 64 exported functions</b>\n<size:11><i>Project ABI v1, API revision 6 · typed metadata headers carry format version 2</i></size>
 
 package "Versioning (2)" {
-  class "lling_abi_version() : uint32_t\nlling_api_revision() : uint32_t" as VERS #FCF3CF
+  class "lling_abi_version() : uint32_t\nlling_llang_api_revision() : uint32_t" as VERS #FCF3CF
 }
 
 package "Diagnostics (1)" {
   class "lling_last_error_message() : const char*" as ERR #FCF3CF
 }
 
-package "Host-defined semiring (21)" {
+package "Host-defined semiring (24)" {
   class "LlingSemiring" as SEMIRING #FCF3CF {
     validated retained operation context
     same-thread checked facade
@@ -47,7 +47,8 @@ package "Host-defined semiring (21)" {
     +equal / approx_equal / natural_order
     +divide / left_divide / star
     +numerical_value / quantize / to_probability
-    +closure_bound / stable_bytes / validate_laws
+    +closure_bound / stable_bytes / diagnostic
+    +plus_many / times_many / validate_laws
   }
   class "LlingSemiringWeight" as WEIGHT #FCF3CF {
     one owned provider token
@@ -129,7 +130,7 @@ package "Cooperative cancellation (4)" {
   }
 }
 
-class "LlingStatus : uint32_t" as STATUS #ECEFF1 {
+class "LlingLlangStatus : uint32_t" as STATUS #ECEFF1 {
   OK = 0
   INVALID_ARGUMENT = 1
   NULL_POINTER = 2

@@ -9,7 +9,7 @@
 //! (overshooting `out_written`, unstable `out_total`, injected raw statuses
 //! including values outside the published `VtStatus` range).
 //!
-//! Status pins are exact: the `BindingError -> LlingStatus` mapping is part
+//! Status pins are exact: the `BindingError -> LlingLlangStatus` mapping is part
 //! of the ABI contract (`bindings/api.json`), so each arm asserts the precise
 //! status, and where the composition layer surfaces the same defect through
 //! the raw wire the expected `VtStatus::…::to_raw()` value is pinned too.
@@ -28,7 +28,7 @@ mod support;
 
 use lling_llang::ffi::{
     lling_last_error_message, lling_resource_release, lling_wfst_compose, lling_wfst_free,
-    lling_wfst_import, lling_wfst_resource, LlingStatus, LlingWfst,
+    lling_wfst_import, lling_wfst_resource, LlingLlangStatus, LlingWfst,
 };
 use std::ffi::CStr;
 use std::ptr;
@@ -52,7 +52,7 @@ fn clean_provider() -> TestWfst {
 
 /// Assert that importing `resource` fails with `expected`, leaving the
 /// out-pointer untouched, and that the error message mentions `fragment`.
-fn assert_import_rejected(resource: VtResource, expected: LlingStatus, fragment: &str) {
+fn assert_import_rejected(resource: VtResource, expected: LlingLlangStatus, fragment: &str) {
     let mut out: *mut LlingWfst = ptr::null_mut();
     assert_eq!(
         lling_wfst_import(resource, &mut out),
@@ -73,19 +73,19 @@ fn null_resources_report_null_pointer() {
     let mut out: *mut LlingWfst = ptr::null_mut();
     assert_eq!(
         lling_wfst_import(VtResource::NULL, &mut out),
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
     assert!(out.is_null());
 
     let clean = clean_provider();
     assert_eq!(
         lling_wfst_compose(VtResource::NULL, clean.as_raw(), &mut out),
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
     assert!(out.is_null());
     assert_eq!(
         lling_wfst_compose(clean.as_raw(), VtResource::NULL, &mut out),
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
     assert!(out.is_null());
     // A half-null resource (context without vtable) is the same class.
@@ -93,7 +93,10 @@ fn null_resources_report_null_pointer() {
         context: clean.as_raw().context,
         vtable: ptr::null(),
     };
-    assert_eq!(lling_wfst_import(half, &mut out), LlingStatus::NullPointer);
+    assert_eq!(
+        lling_wfst_import(half, &mut out),
+        LlingLlangStatus::NullPointer
+    );
 
     let metrics = clean.metrics();
     drop(clean);
@@ -105,7 +108,7 @@ fn dictionary_resource_is_incompatible() {
     let dictionary = TestDictionaryResource::new();
     assert_import_rejected(
         dictionary.as_raw(),
-        LlingStatus::IncompatibleResource,
+        LlingLlangStatus::IncompatibleResource,
         "no scalar WFST interface",
     );
 
@@ -114,12 +117,12 @@ fn dictionary_resource_is_incompatible() {
     let mut out: *mut LlingWfst = ptr::null_mut();
     assert_eq!(
         lling_wfst_compose(dictionary.as_raw(), clean.as_raw(), &mut out),
-        LlingStatus::IncompatibleResource
+        LlingLlangStatus::IncompatibleResource
     );
     assert!(out.is_null());
     assert_eq!(
         lling_wfst_compose(clean.as_raw(), dictionary.as_raw(), &mut out),
-        LlingStatus::IncompatibleResource
+        LlingLlangStatus::IncompatibleResource
     );
     assert!(out.is_null());
 
@@ -147,7 +150,7 @@ fn wrong_weight_domain_is_incompatible() {
         );
         assert_import_rejected(
             provider.as_raw(),
-            LlingStatus::IncompatibleResource,
+            LlingLlangStatus::IncompatibleResource,
             "expected tropical",
         );
 
@@ -155,12 +158,12 @@ fn wrong_weight_domain_is_incompatible() {
         let mut out: *mut LlingWfst = ptr::null_mut();
         assert_eq!(
             lling_wfst_compose(provider.as_raw(), clean.as_raw(), &mut out),
-            LlingStatus::IncompatibleResource,
+            LlingLlangStatus::IncompatibleResource,
             "compose must refuse a {domain:?} left operand"
         );
         assert_eq!(
             lling_wfst_compose(clean.as_raw(), provider.as_raw(), &mut out),
-            LlingStatus::IncompatibleResource,
+            LlingLlangStatus::IncompatibleResource,
             "compose must refuse a {domain:?} right operand"
         );
 
@@ -180,7 +183,7 @@ fn wrong_unit_domain_is_incompatible() {
         );
         assert_import_rejected(
             provider.as_raw(),
-            LlingStatus::IncompatibleResource,
+            LlingLlangStatus::IncompatibleResource,
             "Unicode scalar",
         );
     }
@@ -202,7 +205,7 @@ fn non_tropical_weights_reject_at_import() {
         let provider = TestWfst::tropical(states, 0);
         assert_import_rejected(
             provider.as_raw(),
-            LlingStatus::ProviderError,
+            LlingLlangStatus::ProviderError,
             "invalid arc fields",
         );
         let metrics = provider.metrics();
@@ -219,7 +222,7 @@ fn non_tropical_weights_reject_at_import() {
         let provider = TestWfst::tropical(states, 0);
         assert_import_rejected(
             provider.as_raw(),
-            LlingStatus::ProviderError,
+            LlingLlangStatus::ProviderError,
             "invalid state_info fields",
         );
     }
@@ -245,13 +248,13 @@ fn non_tropical_weights_reject_during_composition_expansion() {
         let mut composed: *mut LlingWfst = ptr::null_mut();
         assert_eq!(
             lling_wfst_compose(poisoned.as_raw(), clean.as_raw(), &mut composed),
-            LlingStatus::Ok,
+            LlingLlangStatus::Ok,
             "lazy compose must succeed before expansion"
         );
         let mut resource = VtResource::NULL;
         assert_eq!(
             unsafe { lling_wfst_resource(composed, &mut resource) },
-            LlingStatus::Ok
+            LlingLlangStatus::Ok
         );
 
         unsafe {
@@ -326,7 +329,7 @@ fn label_beyond_char_max_pins_exact_statuses() {
         let provider = TestWfst::tropical(states.clone(), 0);
         assert_import_rejected(
             provider.as_raw(),
-            LlingStatus::LimitExceeded,
+            LlingLlangStatus::LimitExceeded,
             "representation",
         );
 
@@ -341,12 +344,12 @@ fn label_beyond_char_max_pins_exact_statuses() {
         let mut composed: *mut LlingWfst = ptr::null_mut();
         assert_eq!(
             lling_wfst_compose(poisoned.as_raw(), clean.as_raw(), &mut composed),
-            LlingStatus::Ok
+            LlingLlangStatus::Ok
         );
         let mut resource = VtResource::NULL;
         assert_eq!(
             unsafe { lling_wfst_resource(composed, &mut resource) },
-            LlingStatus::Ok
+            LlingLlangStatus::Ok
         );
         unsafe {
             let table = &*discover_scalar_wfst(resource);
@@ -385,7 +388,7 @@ fn presence_flag_two_rejects_at_both_layers() {
     let provider = TestWfst::tropical(states.clone(), 0);
     assert_import_rejected(
         provider.as_raw(),
-        LlingStatus::ProviderError,
+        LlingLlangStatus::ProviderError,
         "invalid arc fields",
     );
 
@@ -394,12 +397,12 @@ fn presence_flag_two_rejects_at_both_layers() {
     let mut composed: *mut LlingWfst = ptr::null_mut();
     assert_eq!(
         lling_wfst_compose(poisoned.as_raw(), clean.as_raw(), &mut composed),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let mut resource = VtResource::NULL;
     assert_eq!(
         unsafe { lling_wfst_resource(composed, &mut resource) },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     unsafe {
         let table = &*discover_scalar_wfst(resource);
@@ -432,7 +435,7 @@ fn overshooting_out_written_is_rejected() {
     );
     assert_import_rejected(
         provider.as_raw(),
-        LlingStatus::ProviderError,
+        LlingLlangStatus::ProviderError,
         "invalid arc page counts",
     );
 }
@@ -446,7 +449,7 @@ fn unstable_out_total_is_rejected() {
     );
     assert_import_rejected(
         provider.as_raw(),
-        LlingStatus::ProviderError,
+        LlingLlangStatus::ProviderError,
         "invalid arc page counts",
     );
 }
@@ -462,7 +465,7 @@ fn out_of_range_raw_status_is_a_provider_error_never_ub() {
     );
     assert_import_rejected(
         info_liar.as_raw(),
-        LlingStatus::ProviderError,
+        LlingLlangStatus::ProviderError,
         "out-of-range status",
     );
 
@@ -473,7 +476,7 @@ fn out_of_range_raw_status_is_a_provider_error_never_ub() {
     );
     assert_import_rejected(
         arcs_liar.as_raw(),
-        LlingStatus::ProviderError,
+        LlingLlangStatus::ProviderError,
         "out-of-range status",
     );
 }
@@ -486,7 +489,11 @@ fn in_range_provider_failures_are_forwarded() {
         TestWfstConfig::default()
             .with_misbehavior(Misbehavior::StateInfoStatus(VtStatus::IoError.to_raw())),
     );
-    assert_import_rejected(io_failure.as_raw(), LlingStatus::ProviderError, "IoError");
+    assert_import_rejected(
+        io_failure.as_raw(),
+        LlingLlangStatus::ProviderError,
+        "IoError",
+    );
 
     let limit_failure = TestWfst::new(
         chain_states(&[('a', 'x')], 1.0, 0.0),
@@ -497,7 +504,7 @@ fn in_range_provider_failures_are_forwarded() {
     );
     assert_import_rejected(
         limit_failure.as_raw(),
-        LlingStatus::ProviderError,
+        LlingLlangStatus::ProviderError,
         "LimitExceeded",
     );
 }

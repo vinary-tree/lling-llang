@@ -214,7 +214,7 @@ resource plane. The separation is intentional:
 - `LlingCancellationV2` carries the first cooperative-cancellation reason in
   one atomic word.
 
-![The complete lling-llang C ABI: the original builder, immutable WFST, and VtResource plane is joined by pointer-free typed ABI-v2 metadata validators and the atomic cooperative-cancellation handle, with every fallible edge returning LlingStatus.](../diagrams/api/c-abi-surface.svg)
+![The complete lling-llang C ABI: the original builder, immutable WFST, and VtResource plane is joined by pointer-free typed ABI-v2 metadata validators and the atomic cooperative-cancellation handle, with every fallible edge returning LlingLlangStatus.](../diagrams/api/c-abi-surface.svg)
 
 *Yellow = project-owned WFST surface; green = family resources; purple =
 typed metadata; teal = cancellation; grey = status and diagnostics.*

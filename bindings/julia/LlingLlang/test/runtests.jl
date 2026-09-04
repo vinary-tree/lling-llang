@@ -144,10 +144,16 @@ LlingLlang.semiring_closure_bound(::TropicalProvider) = 1
     one = semiring_one(context)
     sum = one + zero
     product = one * one
+    sum_many = semiring_plus_many(context, [zero, one])
+    product_many = semiring_times_many(context, [one, one])
     quotient = semiring_divide(context, product, one)
     closure = semiring_star(context, one)
 
     @test semiring_equal(context, sum, one)
+    @test semiring_equal(context, sum_many, one)
+    @test semiring_equal(context, product_many, one)
+    @test semiring_diagnostic(context) == "TropicalProvider()"
+    @test semiring_diagnostic(context, one) == "0.0"
     @test semiring_approx_equal(context, product, one, 1e-12)
     @test semiring_natural_order(context, one, zero) == VTI.SEMIRING_ORDER_BETTER
     @test semiring_numerical_value(context, product) == 0.0
@@ -164,7 +170,7 @@ LlingLlang.semiring_closure_bound(::TropicalProvider) = 1
     copied = copy(one)
     close(one)
     @test semiring_equal(context, copied, product)
-    for weight in (zero, sum, product, quotient, closure, copied)
+    for weight in (zero, sum, product, sum_many, product_many, quotient, closure, copied)
         close(weight)
     end
     close(context)

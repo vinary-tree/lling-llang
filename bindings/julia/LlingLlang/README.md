@@ -126,6 +126,10 @@ owns one token reference, `copy` invokes the provider's clone operation, and
 `close` releases exactly once. A stale or cross-context token is rejected.
 Use `validate_semiring_laws` with representative identities, boundaries, and
 workload values before enabling algorithms that trust declared properties.
+`semiring_plus_many` and `semiring_times_many` preserve left-fold order while
+using bounded provider batches when available. `semiring_diagnostic(algebra)`
+describes the domain, while `semiring_diagnostic(algebra, weight)` describes an
+owned weight without exposing its provider token.
 
 ### Send an LLattice value through lling-llang
 
@@ -239,7 +243,7 @@ their work and do not expose secrets through callbacks.
 |---|---:|
 | LlingLlang.jl | `4.0.0-rc.6` |
 | lling-llang C ABI | `1` |
-| lling-llang API revision | at least `4` |
+| lling-llang API revision | at least `6` |
 | VinaryTreeInterop.jl | major version `4` |
 | Julia | `1.10` or newer |
 

@@ -19,7 +19,7 @@ mod support;
 
 use lling_llang::ffi::{
     lling_wfst_builder_add_state, lling_wfst_builder_free, lling_wfst_builder_new,
-    lling_wfst_compose, lling_wfst_import, LlingStatus,
+    lling_wfst_compose, lling_wfst_import, LlingLlangStatus,
 };
 use std::ptr;
 use support::interop_wfst::{chain_states, TestWfst};
@@ -42,7 +42,7 @@ fn compose_with_null_out_pointer_captures_nothing() {
     let right_metrics = right.metrics();
 
     let status = lling_wfst_compose(left.as_raw(), right.as_raw(), ptr::null_mut());
-    assert_eq!(status, LlingStatus::NullPointer);
+    assert_eq!(status, LlingLlangStatus::NullPointer);
     assert_eq!(
         left_metrics.snapshots(),
         0,
@@ -69,7 +69,7 @@ fn import_with_null_out_pointer_does_no_provider_work() {
     let source_metrics = source.metrics();
 
     let status = lling_wfst_import(source.as_raw(), ptr::null_mut());
-    assert_eq!(status, LlingStatus::NullPointer);
+    assert_eq!(status, LlingLlangStatus::NullPointer);
     assert_eq!(
         source_metrics.snapshots(),
         0,
@@ -86,23 +86,23 @@ fn import_with_null_out_pointer_does_no_provider_work() {
 #[test]
 fn add_state_with_null_out_pointer_adds_no_orphan() {
     let mut builder = ptr::null_mut();
-    assert_eq!(lling_wfst_builder_new(&mut builder), LlingStatus::Ok);
+    assert_eq!(lling_wfst_builder_new(&mut builder), LlingLlangStatus::Ok);
 
     let mut s0 = u32::MAX;
     assert_eq!(
         lling_wfst_builder_add_state(builder, &mut s0),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
 
     assert_eq!(
         lling_wfst_builder_add_state(builder, ptr::null_mut()),
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
 
     let mut s1 = u32::MAX;
     assert_eq!(
         lling_wfst_builder_add_state(builder, &mut s1),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(
         s1,

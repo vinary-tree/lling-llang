@@ -18,16 +18,16 @@ namespace vinary_tree::lling_llang {
 
 class error final : public std::runtime_error {
 public:
-    explicit error(LlingStatus status)
+    explicit error(LlingLlangStatus status)
         : std::runtime_error(lling_last_error_message()), status_(status) {}
-    error(LlingStatus status, std::string message)
+    error(LlingLlangStatus status, std::string message)
         : std::runtime_error(std::move(message)), status_(status) {}
-    [[nodiscard]] LlingStatus status() const noexcept { return status_; }
+    [[nodiscard]] LlingLlangStatus status() const noexcept { return status_; }
 private:
-    LlingStatus status_;
+    LlingLlangStatus status_;
 };
 
-inline void check(LlingStatus status) {
+inline void check(LlingLlangStatus status) {
     if (status != LLING_STATUS_OK) throw error(status);
 }
 
@@ -199,15 +199,27 @@ public:
             "semiring stable-byte sequence");
     }
 
+    [[nodiscard]] std::string diagnostic() const {
+        const auto bytes = detail::read_bounded_bytes(
+            [this](
+                std::uint8_t* output, std::size_t capacity,
+                std::size_t* written, std::size_t* required) {
+                return lling_semiring_diagnostic(
+                    state_->value, value_, output, capacity, written, required);
+            },
+            "semiring weight diagnostic");
+        return std::string(bytes.begin(), bytes.end());
+    }
+
     [[nodiscard]] LlingSemiringWeight* get() const noexcept { return value_; }
 
 private:
     friend class semiring_context;
 
-    using binary_operation = LlingStatus (*)(
+    using binary_operation = LlingLlangStatus (*)(
         const LlingSemiring*, const LlingSemiringWeight*,
         const LlingSemiringWeight*, LlingSemiringWeight**);
-    using optional_binary_operation = LlingStatus (*)(
+    using optional_binary_operation = LlingLlangStatus (*)(
         const LlingSemiring*, const LlingSemiringWeight*,
         const LlingSemiringWeight*, LlingSemiringWeight**, std::uint8_t*);
 
@@ -280,6 +292,28 @@ public:
         return identity(lling_semiring_one);
     }
 
+    [[nodiscard]] std::string diagnostic() const {
+        const auto bytes = detail::read_bounded_bytes(
+            [this](
+                std::uint8_t* output, std::size_t capacity,
+                std::size_t* written, std::size_t* required) {
+                return lling_semiring_diagnostic(
+                    state_->value, nullptr, output, capacity, written, required);
+            },
+            "semiring context diagnostic");
+        return std::string(bytes.begin(), bytes.end());
+    }
+
+    [[nodiscard]] semiring_weight plus_many(
+        std::span<const semiring_weight* const> weights) const {
+        return fold(weights, lling_semiring_plus_many);
+    }
+
+    [[nodiscard]] semiring_weight times_many(
+        std::span<const semiring_weight* const> weights) const {
+        return fold(weights, lling_semiring_times_many);
+    }
+
     [[nodiscard]] std::optional<std::size_t> closure_bound() const {
         std::size_t result = 0;
         std::uint8_t known = 0;
@@ -291,6 +325,40 @@ public:
     void validate_laws(
         std::span<const semiring_weight* const> weights,
         double epsilon) const {
+        const auto handles = checked_handles(weights);
+        check(lling_semiring_validate_laws(
+            state_->value, handles.data(), handles.size(), epsilon));
+    }
+
+private:
+    using identity_operation = LlingLlangStatus (*)(
+        const LlingSemiring*, LlingSemiringWeight**);
+    using fold_operation = LlingLlangStatus (*)(
+        const LlingSemiring*, const LlingSemiringWeight* const*, std::size_t,
+        LlingSemiringWeight**);
+
+    explicit semiring_context(
+        std::shared_ptr<detail::semiring_state> state) noexcept
+        : state_(std::move(state)) {}
+
+    [[nodiscard]] semiring_weight identity(
+        identity_operation operation) const {
+        LlingSemiringWeight* result = nullptr;
+        check(operation(state_->value, &result));
+        return semiring_weight(state_, result);
+    }
+
+    [[nodiscard]] semiring_weight fold(
+        std::span<const semiring_weight* const> weights,
+        fold_operation operation) const {
+        const auto handles = checked_handles(weights);
+        LlingSemiringWeight* result = nullptr;
+        check(operation(state_->value, handles.data(), handles.size(), &result));
+        return semiring_weight(state_, result);
+    }
+
+    [[nodiscard]] std::vector<const LlingSemiringWeight*> checked_handles(
+        std::span<const semiring_weight* const> weights) const {
         std::vector<const LlingSemiringWeight*> handles;
         handles.reserve(weights.size());
         for (const semiring_weight* weight : weights) {
@@ -304,23 +372,7 @@ public:
             }
             handles.push_back(weight->value_);
         }
-        check(lling_semiring_validate_laws(
-            state_->value, handles.data(), handles.size(), epsilon));
-    }
-
-private:
-    using identity_operation = LlingStatus (*)(
-        const LlingSemiring*, LlingSemiringWeight**);
-
-    explicit semiring_context(
-        std::shared_ptr<detail::semiring_state> state) noexcept
-        : state_(std::move(state)) {}
-
-    [[nodiscard]] semiring_weight identity(
-        identity_operation operation) const {
-        LlingSemiringWeight* result = nullptr;
-        check(operation(state_->value, &result));
-        return semiring_weight(state_, result);
+        return handles;
     }
 
     std::shared_ptr<detail::semiring_state> state_;
@@ -404,12 +456,12 @@ public:
     }
 
 private:
-    using binary_operation = LlingStatus (*)(
+    using binary_operation = LlingLlangStatus (*)(
         const LlingLatticeValue*, const LlingLatticeValue*, LlingLatticeValue**);
-    using fold_operation = LlingStatus (*)(
+    using fold_operation = LlingLlangStatus (*)(
         const LlingLatticeValue*, const LlingLatticeValue* const*, std::size_t,
         LlingLatticeValue**);
-    using byte_operation = LlingStatus (*)(
+    using byte_operation = LlingLlangStatus (*)(
         const LlingLatticeValue*, std::uint8_t*, std::size_t, std::size_t*,
         std::size_t*);
 

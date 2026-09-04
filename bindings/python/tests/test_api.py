@@ -269,6 +269,8 @@ class ApiTests(unittest.TestCase):
             one = stack.enter_context(context.one())
             sum_weight = stack.enter_context(zero + one)
             product = stack.enter_context(one * one)
+            batch_sum = stack.enter_context(context.plus_many((zero, one)))
+            batch_product = stack.enter_context(context.times_many((one, one)))
             quotient = context.divide(product, one)
             self.assertIsNotNone(quotient)
             if quotient is None:
@@ -277,6 +279,10 @@ class ApiTests(unittest.TestCase):
             clone = stack.enter_context(one.clone())
 
             self.assertEqual(sum_weight, one)
+            self.assertEqual(batch_sum, one)
+            self.assertEqual(batch_product, one)
+            self.assertEqual(context.diagnostic(), "probability")
+            self.assertEqual(one.diagnostic(), "1.0")
             self.assertTrue(context.approximately_equal(product, one, 1e-12))
             self.assertEqual(
                 context.natural_order(zero, one), lling.SemiringOrder.BETTER

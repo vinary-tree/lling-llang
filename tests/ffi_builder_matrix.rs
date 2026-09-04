@@ -10,7 +10,7 @@
 //! The status wire rule at the interop layer is raw `u32`: anywhere this file
 //! touches a `vt.scalar-wfst.1` callback it compares against
 //! `VtStatus::…::to_raw()`; the project-level `lling_*` functions return the
-//! typed `LlingStatus` directly.
+//! typed `LlingLlangStatus` directly.
 //!
 //! Formal-model correspondence (invariant registry owned by the coordinator):
 //! - `// INVARIANT-HOOK: LLING-BRIDGE-4` — NaN and -inf rejected at every
@@ -20,13 +20,13 @@
 #![cfg(feature = "ffi")]
 
 use lling_llang::ffi::{
-    lling_abi_version, lling_api_revision, lling_last_error_message, lling_resource_release,
+    lling_abi_version, lling_last_error_message, lling_llang_api_revision, lling_resource_release,
     lling_wfst_builder_add_arc, lling_wfst_builder_add_state, lling_wfst_builder_build,
     lling_wfst_builder_clear_final, lling_wfst_builder_free, lling_wfst_builder_new,
     lling_wfst_builder_reserve_states, lling_wfst_builder_set_final, lling_wfst_builder_set_start,
     lling_wfst_compose, lling_wfst_compose_refs, lling_wfst_free, lling_wfst_import,
-    lling_wfst_import_ref, lling_wfst_resource, LlingStatus, LlingWfst, LlingWfstBuilder,
-    LLING_ABI_VERSION, LLING_API_REVISION,
+    lling_wfst_import_ref, lling_wfst_resource, LlingLlangStatus, LlingWfst, LlingWfstBuilder,
+    LLING_ABI_VERSION, LLING_LLANG_API_REVISION,
 };
 use std::ffi::CStr;
 use std::ptr;
@@ -46,7 +46,7 @@ fn last_error() -> String {
 /// Allocate a fresh builder, panicking on failure.
 fn new_builder() -> *mut LlingWfstBuilder {
     let mut builder = ptr::null_mut();
-    assert_eq!(lling_wfst_builder_new(&mut builder), LlingStatus::Ok);
+    assert_eq!(lling_wfst_builder_new(&mut builder), LlingLlangStatus::Ok);
     assert!(!builder.is_null(), "builder_new must write a live pointer");
     builder
 }
@@ -56,7 +56,7 @@ fn add_state(builder: *mut LlingWfstBuilder) -> u32 {
     let mut state = u32::MAX;
     assert_eq!(
         lling_wfst_builder_add_state(builder, &mut state),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     state
 }
@@ -66,14 +66,17 @@ fn two_state_builder() -> *mut LlingWfstBuilder {
     let builder = new_builder();
     let s0 = add_state(builder);
     let s1 = add_state(builder);
-    assert_eq!(lling_wfst_builder_set_start(builder, s0), LlingStatus::Ok);
+    assert_eq!(
+        lling_wfst_builder_set_start(builder, s0),
+        LlingLlangStatus::Ok
+    );
     assert_eq!(
         lling_wfst_builder_set_final(builder, s1, 0.0),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(
         lling_wfst_builder_add_arc(builder, s0, u64::from('a'), 1, u64::from('b'), 1, s1, 0.25),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     builder
 }
@@ -83,7 +86,7 @@ fn build(builder: *mut LlingWfstBuilder) -> *mut LlingWfst {
     let mut wfst = ptr::null_mut();
     assert_eq!(
         lling_wfst_builder_build(builder, &mut wfst),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert!(!wfst.is_null(), "build must write a live handle");
     wfst
@@ -134,36 +137,36 @@ unsafe fn state_info(resource: VtResource, state: u64) -> (u8, u8, f64) {
 #[test]
 fn abi_version_and_api_revision_are_pinned() {
     assert_eq!(lling_abi_version(), 1);
-    assert_eq!(lling_api_revision(), 5);
+    assert_eq!(lling_llang_api_revision(), 6);
     assert_eq!(LLING_ABI_VERSION, 1);
-    assert_eq!(LLING_API_REVISION, 5);
+    assert_eq!(LLING_LLANG_API_REVISION, 6);
 }
 
 #[test]
 fn status_discriminants_are_pinned() {
     // Exhaustive match: adding a variant without extending this pin (and
     // bindings/api.json) becomes a compile error here.
-    fn pinned(status: LlingStatus) -> u32 {
+    fn pinned(status: LlingLlangStatus) -> u32 {
         match status {
-            LlingStatus::Ok => 0,
-            LlingStatus::InvalidArgument => 1,
-            LlingStatus::NullPointer => 2,
-            LlingStatus::Panic => 3,
-            LlingStatus::IncompatibleResource => 4,
-            LlingStatus::ProviderError => 5,
-            LlingStatus::LimitExceeded => 6,
-            LlingStatus::Closed => 7,
+            LlingLlangStatus::Ok => 0,
+            LlingLlangStatus::InvalidArgument => 1,
+            LlingLlangStatus::NullPointer => 2,
+            LlingLlangStatus::Panic => 3,
+            LlingLlangStatus::IncompatibleResource => 4,
+            LlingLlangStatus::ProviderError => 5,
+            LlingLlangStatus::LimitExceeded => 6,
+            LlingLlangStatus::Closed => 7,
         }
     }
     for status in [
-        LlingStatus::Ok,
-        LlingStatus::InvalidArgument,
-        LlingStatus::NullPointer,
-        LlingStatus::Panic,
-        LlingStatus::IncompatibleResource,
-        LlingStatus::ProviderError,
-        LlingStatus::LimitExceeded,
-        LlingStatus::Closed,
+        LlingLlangStatus::Ok,
+        LlingLlangStatus::InvalidArgument,
+        LlingLlangStatus::NullPointer,
+        LlingLlangStatus::Panic,
+        LlingLlangStatus::IncompatibleResource,
+        LlingLlangStatus::ProviderError,
+        LlingLlangStatus::LimitExceeded,
+        LlingLlangStatus::Closed,
     ] {
         assert_eq!(pinned(status), status as u32);
     }
@@ -173,7 +176,7 @@ fn status_discriminants_are_pinned() {
 fn builder_new_rejects_null_out_pointer() {
     assert_eq!(
         lling_wfst_builder_new(ptr::null_mut()),
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
     assert!(last_error().contains("out_builder"));
 }
@@ -186,29 +189,32 @@ fn mutators_reject_absent_states() {
     // No such state 7 in a one-state builder.
     assert_eq!(
         lling_wfst_builder_set_start(builder, 7),
-        LlingStatus::InvalidArgument
+        LlingLlangStatus::InvalidArgument
     );
     assert!(last_error().contains("start state"));
     assert_eq!(
         lling_wfst_builder_set_final(builder, 7, 0.0),
-        LlingStatus::InvalidArgument
+        LlingLlangStatus::InvalidArgument
     );
     assert_eq!(
         lling_wfst_builder_clear_final(builder, 7),
-        LlingStatus::InvalidArgument
+        LlingLlangStatus::InvalidArgument
     );
     // Absent source and absent target are both rejected.
     assert_eq!(
         lling_wfst_builder_add_arc(builder, 7, u64::from('a'), 1, u64::from('a'), 1, s0, 0.0),
-        LlingStatus::InvalidArgument
+        LlingLlangStatus::InvalidArgument
     );
     assert_eq!(
         lling_wfst_builder_add_arc(builder, s0, u64::from('a'), 1, u64::from('a'), 1, 7, 0.0),
-        LlingStatus::InvalidArgument
+        LlingLlangStatus::InvalidArgument
     );
 
     // The failures above must not have poisoned the builder.
-    assert_eq!(lling_wfst_builder_set_start(builder, s0), LlingStatus::Ok);
+    assert_eq!(
+        lling_wfst_builder_set_start(builder, s0),
+        LlingLlangStatus::Ok
+    );
     unsafe { lling_wfst_builder_free(builder) };
 }
 
@@ -220,12 +226,15 @@ fn weight_ingestion_rejects_nan_and_negative_infinity() {
     let builder = new_builder();
     let s0 = add_state(builder);
     let s1 = add_state(builder);
-    assert_eq!(lling_wfst_builder_set_start(builder, s0), LlingStatus::Ok);
+    assert_eq!(
+        lling_wfst_builder_set_start(builder, s0),
+        LlingLlangStatus::Ok
+    );
 
     for poison in [f64::NAN, f64::NEG_INFINITY] {
         assert_eq!(
             lling_wfst_builder_set_final(builder, s1, poison),
-            LlingStatus::InvalidArgument,
+            LlingLlangStatus::InvalidArgument,
             "set_final must reject {poison}"
         );
         assert!(last_error().contains("finite or +infinity"));
@@ -240,7 +249,7 @@ fn weight_ingestion_rejects_nan_and_negative_infinity() {
                 s1,
                 poison
             ),
-            LlingStatus::InvalidArgument,
+            LlingLlangStatus::InvalidArgument,
             "add_arc must reject {poison}"
         );
     }
@@ -248,11 +257,11 @@ fn weight_ingestion_rejects_nan_and_negative_infinity() {
     // The rejected weights left no trace: the builder still finishes cleanly.
     assert_eq!(
         lling_wfst_builder_set_final(builder, s1, 0.5),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(
         lling_wfst_builder_add_arc(builder, s0, u64::from('a'), 1, u64::from('b'), 1, s1, 1.0),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let wfst = build(builder);
     unsafe {
@@ -269,10 +278,13 @@ fn positive_infinity_weight_is_accepted() {
     let builder = new_builder();
     let s0 = add_state(builder);
     let s1 = add_state(builder);
-    assert_eq!(lling_wfst_builder_set_start(builder, s0), LlingStatus::Ok);
+    assert_eq!(
+        lling_wfst_builder_set_start(builder, s0),
+        LlingLlangStatus::Ok
+    );
     assert_eq!(
         lling_wfst_builder_set_final(builder, s1, f64::INFINITY),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(
         lling_wfst_builder_add_arc(
@@ -285,13 +297,13 @@ fn positive_infinity_weight_is_accepted() {
             s1,
             f64::INFINITY
         ),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let wfst = build(builder);
     let mut resource = VtResource::NULL;
     assert_eq!(
         unsafe { lling_wfst_resource(wfst, &mut resource) },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let (valid, is_final, final_weight) = unsafe { state_info(resource, 1) };
     assert_eq!((valid, is_final), (1, 1));
@@ -307,7 +319,10 @@ fn positive_infinity_weight_is_accepted() {
 fn labels_must_be_unicode_scalars() {
     let builder = new_builder();
     let s0 = add_state(builder);
-    assert_eq!(lling_wfst_builder_set_start(builder, s0), LlingStatus::Ok);
+    assert_eq!(
+        lling_wfst_builder_set_start(builder, s0),
+        LlingLlangStatus::Ok
+    );
 
     let beyond_max = u64::from(u32::from(char::MAX)) + 1; // 0x110000
     let surrogate = 0xD800_u64;
@@ -315,13 +330,13 @@ fn labels_must_be_unicode_scalars() {
     for bad_label in [beyond_max, surrogate, beyond_u32] {
         assert_eq!(
             lling_wfst_builder_add_arc(builder, s0, bad_label, 1, u64::from('a'), 1, s0, 0.0),
-            LlingStatus::InvalidArgument,
+            LlingLlangStatus::InvalidArgument,
             "input label {bad_label:#x} must be rejected"
         );
         assert!(last_error().contains("input label"));
         assert_eq!(
             lling_wfst_builder_add_arc(builder, s0, u64::from('a'), 1, bad_label, 1, s0, 0.0),
-            LlingStatus::InvalidArgument,
+            LlingLlangStatus::InvalidArgument,
             "output label {bad_label:#x} must be rejected"
         );
         assert!(last_error().contains("output label"));
@@ -333,7 +348,10 @@ fn labels_must_be_unicode_scalars() {
 fn presence_flags_must_be_zero_or_one() {
     let builder = new_builder();
     let s0 = add_state(builder);
-    assert_eq!(lling_wfst_builder_set_start(builder, s0), LlingStatus::Ok);
+    assert_eq!(
+        lling_wfst_builder_set_start(builder, s0),
+        LlingLlangStatus::Ok
+    );
 
     for bad_flag in [2_u8, 255_u8] {
         assert_eq!(
@@ -347,7 +365,7 @@ fn presence_flags_must_be_zero_or_one() {
                 s0,
                 0.0
             ),
-            LlingStatus::InvalidArgument,
+            LlingLlangStatus::InvalidArgument,
             "has_input={bad_flag} must be rejected"
         );
         assert!(last_error().contains("presence flag"));
@@ -362,7 +380,7 @@ fn presence_flags_must_be_zero_or_one() {
                 s0,
                 0.0
             ),
-            LlingStatus::InvalidArgument,
+            LlingLlangStatus::InvalidArgument,
             "has_output={bad_flag} must be rejected"
         );
     }
@@ -375,10 +393,13 @@ fn epsilon_presence_ignores_label_payload() {
     // no Unicode scalar could ever occupy is accepted and denotes epsilon.
     let builder = new_builder();
     let s0 = add_state(builder);
-    assert_eq!(lling_wfst_builder_set_start(builder, s0), LlingStatus::Ok);
+    assert_eq!(
+        lling_wfst_builder_set_start(builder, s0),
+        LlingLlangStatus::Ok
+    );
     assert_eq!(
         lling_wfst_builder_add_arc(builder, s0, u64::MAX, 0, u64::MAX, 0, s0, 0.0),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     unsafe { lling_wfst_builder_free(builder) };
 }
@@ -390,13 +411,13 @@ fn build_without_start_reports_invalid_argument_and_restores_builder() {
     let s1 = add_state(builder);
     assert_eq!(
         lling_wfst_builder_set_final(builder, s1, 0.0),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
 
     let mut wfst = ptr::null_mut();
     assert_eq!(
         lling_wfst_builder_build(builder, &mut wfst),
-        LlingStatus::InvalidArgument
+        LlingLlangStatus::InvalidArgument
     );
     assert!(wfst.is_null(), "failed build must not write a handle");
     assert!(last_error().contains("no start state"));
@@ -405,9 +426,12 @@ fn build_without_start_reports_invalid_argument_and_restores_builder() {
     // builder keeps accepting mutations and a corrected build succeeds.
     assert_eq!(
         lling_wfst_builder_add_arc(builder, s0, u64::from('a'), 1, u64::from('b'), 1, s1, 1.0),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
-    assert_eq!(lling_wfst_builder_set_start(builder, s0), LlingStatus::Ok);
+    assert_eq!(
+        lling_wfst_builder_set_start(builder, s0),
+        LlingLlangStatus::Ok
+    );
     let wfst = build(builder);
     unsafe {
         lling_wfst_free(wfst);
@@ -423,7 +447,7 @@ fn build_with_null_out_pointer_preserves_builder() {
     let builder = two_state_builder();
     assert_eq!(
         lling_wfst_builder_build(builder, ptr::null_mut()),
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
     let wfst = build(builder);
     unsafe {
@@ -439,35 +463,35 @@ fn operations_after_build_report_closed() {
 
     assert_eq!(
         lling_wfst_builder_reserve_states(builder, 4),
-        LlingStatus::Closed
+        LlingLlangStatus::Closed
     );
     let mut state = 0;
     assert_eq!(
         lling_wfst_builder_add_state(builder, &mut state),
-        LlingStatus::Closed
+        LlingLlangStatus::Closed
     );
     assert_eq!(
         lling_wfst_builder_set_start(builder, 0),
-        LlingStatus::Closed
+        LlingLlangStatus::Closed
     );
     assert_eq!(
         lling_wfst_builder_set_final(builder, 0, 0.0),
-        LlingStatus::Closed
+        LlingLlangStatus::Closed
     );
     assert_eq!(
         lling_wfst_builder_clear_final(builder, 0),
-        LlingStatus::Closed
+        LlingLlangStatus::Closed
     );
     assert_eq!(
         lling_wfst_builder_add_arc(builder, 0, u64::from('a'), 1, u64::from('a'), 1, 1, 0.0),
-        LlingStatus::Closed
+        LlingLlangStatus::Closed
     );
 
     // Double build: the graph was consumed by the first build.
     let mut second = ptr::null_mut();
     assert_eq!(
         lling_wfst_builder_build(builder, &mut second),
-        LlingStatus::Closed
+        LlingLlangStatus::Closed
     );
     assert!(second.is_null());
     assert!(last_error().contains("already been consumed"));
@@ -476,7 +500,7 @@ fn operations_after_build_report_closed() {
     // so a NaN weight still answers InvalidArgument on a consumed builder.
     assert_eq!(
         lling_wfst_builder_set_final(builder, 0, f64::NAN),
-        LlingStatus::InvalidArgument
+        LlingLlangStatus::InvalidArgument
     );
 
     unsafe {
@@ -504,7 +528,7 @@ fn null_out_params_report_null_pointer() {
     let builder = new_builder();
     assert_eq!(
         lling_wfst_builder_add_state(builder, ptr::null_mut()),
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
     assert!(last_error().contains("out_state"));
     unsafe { lling_wfst_builder_free(builder) };
@@ -515,40 +539,40 @@ fn null_out_params_report_null_pointer() {
 
     assert_eq!(
         unsafe { lling_wfst_resource(ptr::null(), &mut resource) },
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
     assert_eq!(
         unsafe { lling_wfst_resource(wfst, ptr::null_mut()) },
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
 
     assert_eq!(
         unsafe { lling_wfst_resource(wfst, &mut resource) },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(
         lling_wfst_import(resource, ptr::null_mut()),
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
     assert_eq!(
         lling_wfst_compose(resource, resource, ptr::null_mut()),
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
     assert_eq!(
         unsafe { lling_wfst_import_ref(ptr::null(), ptr::null_mut()) },
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
     assert_eq!(
         unsafe { lling_wfst_import_ref(&resource, ptr::null_mut()) },
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
     assert_eq!(
         unsafe { lling_wfst_compose_refs(ptr::null(), &resource, ptr::null_mut()) },
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
     assert_eq!(
         unsafe { lling_wfst_compose_refs(&resource, ptr::null(), ptr::null_mut()) },
-        LlingStatus::NullPointer
+        LlingLlangStatus::NullPointer
     );
 
     lling_resource_release(resource);
@@ -564,7 +588,7 @@ fn last_error_is_thread_local() {
     // Trigger a distinctive error on this thread.
     assert_eq!(
         lling_wfst_builder_set_start(builder, 42),
-        LlingStatus::InvalidArgument
+        LlingLlangStatus::InvalidArgument
     );
     let main_message = last_error();
     assert!(main_message.contains("start state"));
@@ -574,15 +598,15 @@ fn last_error_is_thread_local() {
         let initial = last_error();
         // ...and its own failures write only its own slot.
         let mut builder = ptr::null_mut();
-        assert_eq!(lling_wfst_builder_new(&mut builder), LlingStatus::Ok);
+        assert_eq!(lling_wfst_builder_new(&mut builder), LlingLlangStatus::Ok);
         let mut state = 0;
         assert_eq!(
             lling_wfst_builder_add_state(builder, &mut state),
-            LlingStatus::Ok
+            LlingLlangStatus::Ok
         );
         assert_eq!(
             lling_wfst_builder_set_final(builder, state, f64::NAN),
-            LlingStatus::InvalidArgument
+            LlingLlangStatus::InvalidArgument
         );
         let after = last_error();
         unsafe { lling_wfst_builder_free(builder) };
@@ -602,17 +626,23 @@ fn last_error_is_thread_local() {
 fn clear_final_resets_finality() {
     let builder = new_builder();
     let s0 = add_state(builder);
-    assert_eq!(lling_wfst_builder_set_start(builder, s0), LlingStatus::Ok);
+    assert_eq!(
+        lling_wfst_builder_set_start(builder, s0),
+        LlingLlangStatus::Ok
+    );
     assert_eq!(
         lling_wfst_builder_set_final(builder, s0, 2.5),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
-    assert_eq!(lling_wfst_builder_clear_final(builder, s0), LlingStatus::Ok);
+    assert_eq!(
+        lling_wfst_builder_clear_final(builder, s0),
+        LlingLlangStatus::Ok
+    );
     let wfst = build(builder);
     let mut resource = VtResource::NULL;
     assert_eq!(
         unsafe { lling_wfst_resource(wfst, &mut resource) },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let (valid, is_final, final_weight) = unsafe { state_info(resource, 0) };
     assert_eq!((valid, is_final), (1, 0));

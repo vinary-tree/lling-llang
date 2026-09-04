@@ -28,7 +28,7 @@ use lling_llang::ffi::{
     lling_resource_release, lling_wfst_builder_add_arc, lling_wfst_builder_add_state,
     lling_wfst_builder_build, lling_wfst_builder_free, lling_wfst_builder_new,
     lling_wfst_builder_reserve_states, lling_wfst_builder_set_final, lling_wfst_builder_set_start,
-    lling_wfst_free, lling_wfst_import, lling_wfst_resource, LlingStatus, LlingWfst,
+    lling_wfst_free, lling_wfst_import, lling_wfst_resource, LlingLlangStatus, LlingWfst,
     LlingWfstBuilder,
 };
 use lling_llang::semiring::TropicalWeight;
@@ -44,23 +44,23 @@ use vinary_tree_interop::{VtResource, VtStatus, VtWfstArc};
 /// Feed a native graph through the 19-function C builder surface.
 fn drive_builder(wfst: &VectorWfst<char, TropicalWeight>) -> *mut LlingWfst {
     let mut builder: *mut LlingWfstBuilder = ptr::null_mut();
-    assert_eq!(lling_wfst_builder_new(&mut builder), LlingStatus::Ok);
+    assert_eq!(lling_wfst_builder_new(&mut builder), LlingLlangStatus::Ok);
     assert_eq!(
         lling_wfst_builder_reserve_states(builder, wfst.num_states()),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let mut ids = Vec::with_capacity(wfst.num_states());
     for _ in 0..wfst.num_states() {
         let mut id = u32::MAX;
         assert_eq!(
             lling_wfst_builder_add_state(builder, &mut id),
-            LlingStatus::Ok
+            LlingLlangStatus::Ok
         );
         ids.push(id);
     }
     assert_eq!(
         lling_wfst_builder_set_start(builder, ids[wfst.start() as usize]),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     for state in 0..wfst.num_states() as u32 {
         if wfst.is_final(state) {
@@ -70,7 +70,7 @@ fn drive_builder(wfst: &VectorWfst<char, TropicalWeight>) -> *mut LlingWfst {
                     ids[state as usize],
                     wfst.final_weight(state).value()
                 ),
-                LlingStatus::Ok
+                LlingLlangStatus::Ok
             );
         }
         for transition in wfst.transitions(state) {
@@ -91,14 +91,14 @@ fn drive_builder(wfst: &VectorWfst<char, TropicalWeight>) -> *mut LlingWfst {
                     ids[transition.to as usize],
                     transition.weight.value(),
                 ),
-                LlingStatus::Ok
+                LlingLlangStatus::Ok
             );
         }
     }
     let mut handle: *mut LlingWfst = ptr::null_mut();
     assert_eq!(
         lling_wfst_builder_build(builder, &mut handle),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     unsafe { lling_wfst_builder_free(builder) };
     handle
@@ -109,7 +109,7 @@ fn resource_of(handle: *mut LlingWfst) -> VtResource {
     let mut resource = VtResource::NULL;
     assert_eq!(
         unsafe { lling_wfst_resource(handle, &mut resource) },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     resource
 }
@@ -152,7 +152,7 @@ proptest! {
         let mut imported: *mut LlingWfst = ptr::null_mut();
         prop_assert_eq!(
             lling_wfst_import(built_resource, &mut imported),
-            LlingStatus::Ok
+            LlingLlangStatus::Ok
         );
         let imported_resource = resource_of(imported);
         let imported_canonical = canonical_of_resource(imported_resource, 3);
@@ -305,7 +305,7 @@ fn epsilon_arcs_survive_the_round_trip() {
     let mut imported: *mut LlingWfst = ptr::null_mut();
     assert_eq!(
         lling_wfst_import(built_resource, &mut imported),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let imported_resource = resource_of(imported);
     let imported_canonical = canonical_of_resource(imported_resource, 1);
@@ -348,21 +348,24 @@ fn epsilon_arcs_survive_the_round_trip() {
 #[test]
 fn positive_infinity_survives_the_round_trip() {
     let mut builder: *mut LlingWfstBuilder = ptr::null_mut();
-    assert_eq!(lling_wfst_builder_new(&mut builder), LlingStatus::Ok);
+    assert_eq!(lling_wfst_builder_new(&mut builder), LlingLlangStatus::Ok);
     let mut s0 = u32::MAX;
     let mut s1 = u32::MAX;
     assert_eq!(
         lling_wfst_builder_add_state(builder, &mut s0),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(
         lling_wfst_builder_add_state(builder, &mut s1),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
-    assert_eq!(lling_wfst_builder_set_start(builder, s0), LlingStatus::Ok);
+    assert_eq!(
+        lling_wfst_builder_set_start(builder, s0),
+        LlingLlangStatus::Ok
+    );
     assert_eq!(
         lling_wfst_builder_set_final(builder, s1, f64::INFINITY),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(
         lling_wfst_builder_add_arc(
@@ -375,16 +378,16 @@ fn positive_infinity_survives_the_round_trip() {
             s1,
             f64::INFINITY
         ),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     assert_eq!(
         lling_wfst_builder_add_arc(builder, s0, u64::from('c'), 1, u64::from('d'), 1, s1, 1.5),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let mut built: *mut LlingWfst = ptr::null_mut();
     assert_eq!(
         lling_wfst_builder_build(builder, &mut built),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     unsafe { lling_wfst_builder_free(builder) };
 
@@ -396,7 +399,7 @@ fn positive_infinity_survives_the_round_trip() {
     let mut imported: *mut LlingWfst = ptr::null_mut();
     assert_eq!(
         lling_wfst_import(built_resource, &mut imported),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let imported_resource = resource_of(imported);
     let imported_canonical = canonical_of_resource(imported_resource, 2);

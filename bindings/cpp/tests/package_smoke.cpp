@@ -601,9 +601,12 @@ bool check_semiring() {
         auto closure = zero.star();
         const std::array<const semiring_weight*, 4> samples{
             &zero, &one, &sum, &product};
+        auto folded_sum = semiring.plus_many(samples);
+        auto folded_product = semiring.times_many(samples);
         semiring.validate_laws(samples, 0.0);
 
         if (!sum.equivalent(one) || !product.equivalent(copied) ||
+            !folded_sum.equivalent(one) || !folded_product.equivalent(zero) ||
             !one.approximately_equivalent(product, 0.0) ||
             zero.compare(one) != natural_order::better ||
             !quotient.has_value() || undefined.has_value() ||
@@ -611,6 +614,8 @@ bool check_semiring() {
             one.quantize(0.25) != 1 || one.to_probability() != 1.0 ||
             semiring.closure_bound() != std::optional<std::size_t>{1} ||
             one.stable_bytes() != std::vector<std::uint8_t>{'1'} ||
+            semiring.diagnostic() != "C++ Boolean semiring" ||
+            one.diagnostic() != "C++ Boolean semiring" ||
             !semiring.declares(VT_SEMIRING_PROPERTY_HASHABLE |
                                VT_SEMIRING_PROPERTY_IDEMPOTENT_PLUS)) {
             return false;

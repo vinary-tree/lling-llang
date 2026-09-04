@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static void require_ok(LlingStatus status, const char* operation) {
+static void require_ok(LlingLlangStatus status, const char* operation) {
     if (status != LLING_STATUS_OK) {
         fprintf(stderr, "%s failed (%u): %s\n", operation, (unsigned)status,
                 lling_last_error_message());
@@ -73,7 +73,7 @@ static void exercise_typed_v2_contract(void) {
 
 int main(void) {
     if (lling_abi_version() != LLING_ABI_VERSION ||
-        lling_api_revision() < LLING_API_REVISION) {
+        lling_llang_api_revision() < LLING_LLANG_API_REVISION) {
         fprintf(stderr, "incompatible lling-llang binary\n");
         return EXIT_FAILURE;
     }

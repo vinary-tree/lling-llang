@@ -174,7 +174,7 @@
   },
   "packageVersion": "4.0.0-rc.6",
   "abiVersion": 1,
-  "apiRevision": 5,
+  "apiRevision": 6,
   "cPrefix": "lling_",
   "headers": {
     "c": "include/lling_llang.h",
@@ -200,9 +200,9 @@
   },
   "enums": {
     "status": {
-      "cType": "LlingStatus",
+      "cType": "LlingLlangStatus",
       "cPrefix": "LLING_STATUS_",
-      "rustType": "LlingStatus",
+      "rustType": "LlingLlangStatus",
       "values": {
         "OK": 0,
         "INVALID_ARGUMENT": 1,
@@ -361,7 +361,7 @@
       "rustModule": "ffi"
     },
     {
-      "name": "lling_api_revision",
+      "name": "lling_llang_api_revision",
       "rustModule": "ffi"
     },
     {
@@ -446,6 +446,18 @@
     },
     {
       "name": "lling_semiring_stable_bytes",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_diagnostic",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_plus_many",
+      "rustModule": "ffi"
+    },
+    {
+      "name": "lling_semiring_times_many",
       "rustModule": "ffi"
     },
     {

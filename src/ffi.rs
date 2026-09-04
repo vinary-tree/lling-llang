@@ -20,12 +20,12 @@ pub use lattice::*;
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_API_REVISION: u32 = 5;
+pub const LLING_LLANG_API_REVISION: u32 = 6;
 
 /// Status returned by lling-llang C functions.
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum LlingStatus {
+pub enum LlingLlangStatus {
     /// Operation completed successfully.
     Ok = 0,
     /// An argument was invalid.
@@ -73,57 +73,57 @@ fn set_error(message: impl Into<String>) {
     });
 }
 
-fn map_error(error: BindingError) -> LlingStatus {
+fn map_error(error: BindingError) -> LlingLlangStatus {
     set_error(error.to_string());
     match error {
         BindingError::Provider(_) | BindingError::InvalidProviderOutput(_) => {
-            LlingStatus::ProviderError
+            LlingLlangStatus::ProviderError
         }
-        BindingError::RepresentationLimit => LlingStatus::LimitExceeded,
-        BindingError::NullResource => LlingStatus::NullPointer,
+        BindingError::RepresentationLimit => LlingLlangStatus::LimitExceeded,
+        BindingError::NullResource => LlingLlangStatus::NullPointer,
         BindingError::IncompatibleResourceAbi
         | BindingError::MissingWfstInterface
         | BindingError::IncompatibleWfstInterface
         | BindingError::UnitDomainMismatch(_)
-        | BindingError::WeightDomainMismatch(_) => LlingStatus::IncompatibleResource,
+        | BindingError::WeightDomainMismatch(_) => LlingLlangStatus::IncompatibleResource,
     }
 }
 
-fn map_semiring_error(error: DynamicSemiringError) -> LlingStatus {
+fn map_semiring_error(error: DynamicSemiringError) -> LlingLlangStatus {
     set_error(error.to_string());
     match error {
-        DynamicSemiringError::NullResource => LlingStatus::NullPointer,
+        DynamicSemiringError::NullResource => LlingLlangStatus::NullPointer,
         DynamicSemiringError::IncompatibleResourceAbi
         | DynamicSemiringError::MissingSemiringInterface
         | DynamicSemiringError::IncompatibleInterface(_)
-        | DynamicSemiringError::MissingCapability(_) => LlingStatus::IncompatibleResource,
+        | DynamicSemiringError::MissingCapability(_) => LlingLlangStatus::IncompatibleResource,
         DynamicSemiringError::ContextMismatch | DynamicSemiringError::InvalidArgument(_) => {
-            LlingStatus::InvalidArgument
+            LlingLlangStatus::InvalidArgument
         }
-        DynamicSemiringError::ResourceLimit => LlingStatus::LimitExceeded,
+        DynamicSemiringError::ResourceLimit => LlingLlangStatus::LimitExceeded,
         DynamicSemiringError::Provider { .. }
         | DynamicSemiringError::InvalidProviderOutput { .. }
         | DynamicSemiringError::WrongThread
         | DynamicSemiringError::ConcurrentCall
-        | DynamicSemiringError::LawViolation(_) => LlingStatus::ProviderError,
+        | DynamicSemiringError::LawViolation(_) => LlingLlangStatus::ProviderError,
     }
 }
 
-fn boundary(operation: impl FnOnce() -> Result<(), LlingStatus>) -> LlingStatus {
+fn boundary(operation: impl FnOnce() -> Result<(), LlingLlangStatus>) -> LlingLlangStatus {
     match catch_unwind(AssertUnwindSafe(operation)) {
-        Ok(Ok(())) => LlingStatus::Ok,
+        Ok(Ok(())) => LlingLlangStatus::Ok,
         Ok(Err(status)) => status,
         Err(_) => {
             set_error("panic caught at lling-llang C boundary");
-            LlingStatus::Panic
+            LlingLlangStatus::Panic
         }
     }
 }
 
-fn required_mut<'a, T>(pointer: *mut T, name: &'static str) -> Result<&'a mut T, LlingStatus> {
+fn required_mut<'a, T>(pointer: *mut T, name: &'static str) -> Result<&'a mut T, LlingLlangStatus> {
     if pointer.is_null() {
         set_error(format!("{name} is null"));
-        Err(LlingStatus::NullPointer)
+        Err(LlingLlangStatus::NullPointer)
     } else {
         Ok(unsafe { &mut *pointer })
     }
@@ -135,12 +135,12 @@ unsafe fn copy_bytes_to_c(
     capacity: usize,
     out_written: *mut usize,
     out_required: *mut usize,
-) -> Result<(), LlingStatus> {
+) -> Result<(), LlingLlangStatus> {
     let written = required_mut(out_written, "out_written")?;
     let required = required_mut(out_required, "out_required")?;
     if capacity != 0 && out_bytes.is_null() {
         set_error("out_bytes is null with nonzero capacity");
-        return Err(LlingStatus::NullPointer);
+        return Err(LlingLlangStatus::NullPointer);
     }
     *required = bytes.len();
     *written = capacity.min(bytes.len());
@@ -152,22 +152,22 @@ unsafe fn copy_bytes_to_c(
 
 fn graph(
     builder: *mut LlingWfstBuilder,
-) -> Result<&'static mut VectorWfst<char, TropicalWeight>, LlingStatus> {
+) -> Result<&'static mut VectorWfst<char, TropicalWeight>, LlingLlangStatus> {
     required_mut(builder, "builder")?
         .graph
         .as_mut()
         .ok_or_else(|| {
             set_error("builder has already been consumed");
-            LlingStatus::Closed
+            LlingLlangStatus::Closed
         })
 }
 
 fn dynamic_semiring(
     semiring: *const LlingSemiring,
-) -> Result<&'static DynamicSemiringContext, LlingStatus> {
+) -> Result<&'static DynamicSemiringContext, LlingLlangStatus> {
     if semiring.is_null() {
         set_error("semiring is null");
-        Err(LlingStatus::NullPointer)
+        Err(LlingLlangStatus::NullPointer)
     } else {
         // SAFETY: the C caller promises this is a live opaque handle.
         Ok(unsafe { &(*semiring).context })
@@ -176,10 +176,10 @@ fn dynamic_semiring(
 
 fn dynamic_weight(
     weight: *const LlingSemiringWeight,
-) -> Result<&'static DynamicSemiringWeight, LlingStatus> {
+) -> Result<&'static DynamicSemiringWeight, LlingLlangStatus> {
     if weight.is_null() {
         set_error("semiring weight is null");
-        Err(LlingStatus::NullPointer)
+        Err(LlingLlangStatus::NullPointer)
     } else {
         // SAFETY: the C caller promises this is a live opaque handle.
         Ok(unsafe { &(*weight).weight })
@@ -189,7 +189,7 @@ fn dynamic_weight(
 fn write_dynamic_weight(
     output: *mut *mut LlingSemiringWeight,
     create: impl FnOnce() -> Result<DynamicSemiringWeight, DynamicSemiringError>,
-) -> Result<(), LlingStatus> {
+) -> Result<(), LlingLlangStatus> {
     let output = required_mut(output, "out_weight")?;
     let weight = create().map_err(map_semiring_error)?;
     *output = Box::into_raw(Box::new(LlingSemiringWeight { weight }));
@@ -200,7 +200,7 @@ fn write_optional_dynamic_weight(
     output: *mut *mut LlingSemiringWeight,
     out_defined: *mut u8,
     create: impl FnOnce() -> Result<Option<DynamicSemiringWeight>, DynamicSemiringError>,
-) -> Result<(), LlingStatus> {
+) -> Result<(), LlingLlangStatus> {
     let output = required_mut(output, "out_weight")?;
     let defined = required_mut(out_defined, "out_defined")?;
     match create().map_err(map_semiring_error)? {
@@ -224,8 +224,8 @@ pub extern "C" fn lling_abi_version() -> u32 {
 
 /// Return the additive project API revision.
 #[no_mangle]
-pub extern "C" fn lling_api_revision() -> u32 {
-    LLING_API_REVISION
+pub extern "C" fn lling_llang_api_revision() -> u32 {
+    LLING_LLANG_API_REVISION
 }
 
 /// Return this thread's last error message.
@@ -244,12 +244,12 @@ pub extern "C" fn lling_last_error_message() -> *const c_char {
 pub unsafe extern "C" fn lling_semiring_open(
     resource: *const VtResource,
     out_semiring: *mut *mut LlingSemiring,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let output = required_mut(out_semiring, "out_semiring")?;
         if resource.is_null() {
             set_error("resource is null");
-            return Err(LlingStatus::NullPointer);
+            return Err(LlingLlangStatus::NullPointer);
         }
         *output = std::ptr::null_mut();
         let context = DynamicSemiringContext::borrow_raw(*resource).map_err(map_semiring_error)?;
@@ -287,7 +287,7 @@ pub unsafe extern "C" fn lling_semiring_weight_free(weight: *mut LlingSemiringWe
 pub extern "C" fn lling_semiring_properties(
     semiring: *const LlingSemiring,
     out_properties: *mut u64,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let context = dynamic_semiring(semiring)?;
         let output = required_mut(out_properties, "out_properties")?;
@@ -301,7 +301,7 @@ pub extern "C" fn lling_semiring_properties(
 pub extern "C" fn lling_semiring_zero(
     semiring: *const LlingSemiring,
     out_weight: *mut *mut LlingSemiringWeight,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let context = dynamic_semiring(semiring)?;
         write_dynamic_weight(out_weight, || context.zero())
@@ -313,7 +313,7 @@ pub extern "C" fn lling_semiring_zero(
 pub extern "C" fn lling_semiring_one(
     semiring: *const LlingSemiring,
     out_weight: *mut *mut LlingSemiringWeight,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let context = dynamic_semiring(semiring)?;
         write_dynamic_weight(out_weight, || context.one())
@@ -325,7 +325,7 @@ pub extern "C" fn lling_semiring_one(
 pub extern "C" fn lling_semiring_weight_clone(
     weight: *const LlingSemiringWeight,
     out_weight: *mut *mut LlingSemiringWeight,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let weight = dynamic_weight(weight)?;
         write_dynamic_weight(out_weight, || weight.try_clone())
@@ -339,7 +339,7 @@ pub extern "C" fn lling_semiring_plus(
     left: *const LlingSemiringWeight,
     right: *const LlingSemiringWeight,
     out_weight: *mut *mut LlingSemiringWeight,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let context = dynamic_semiring(semiring)?;
         let left = dynamic_weight(left)?;
@@ -355,7 +355,7 @@ pub extern "C" fn lling_semiring_times(
     left: *const LlingSemiringWeight,
     right: *const LlingSemiringWeight,
     out_weight: *mut *mut LlingSemiringWeight,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let context = dynamic_semiring(semiring)?;
         let left = dynamic_weight(left)?;
@@ -371,7 +371,7 @@ pub extern "C" fn lling_semiring_equal(
     left: *const LlingSemiringWeight,
     right: *const LlingSemiringWeight,
     out_equal: *mut u8,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let context = dynamic_semiring(semiring)?;
         let left = dynamic_weight(left)?;
@@ -390,7 +390,7 @@ pub extern "C" fn lling_semiring_approx_equal(
     right: *const LlingSemiringWeight,
     epsilon: f64,
     out_equal: *mut u8,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let context = dynamic_semiring(semiring)?;
         let left = dynamic_weight(left)?;
@@ -412,7 +412,7 @@ pub extern "C" fn lling_semiring_natural_order(
     left: *const LlingSemiringWeight,
     right: *const LlingSemiringWeight,
     out_order: *mut i32,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let context = dynamic_semiring(semiring)?;
         let left = dynamic_weight(left)?;
@@ -439,7 +439,7 @@ pub extern "C" fn lling_semiring_divide(
     divisor: *const LlingSemiringWeight,
     out_weight: *mut *mut LlingSemiringWeight,
     out_defined: *mut u8,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let context = dynamic_semiring(semiring)?;
         let dividend = dynamic_weight(dividend)?;
@@ -458,7 +458,7 @@ pub extern "C" fn lling_semiring_left_divide(
     divisor: *const LlingSemiringWeight,
     out_weight: *mut *mut LlingSemiringWeight,
     out_defined: *mut u8,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let context = dynamic_semiring(semiring)?;
         let value = dynamic_weight(value)?;
@@ -476,7 +476,7 @@ pub extern "C" fn lling_semiring_star(
     value: *const LlingSemiringWeight,
     out_weight: *mut *mut LlingSemiringWeight,
     out_defined: *mut u8,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let context = dynamic_semiring(semiring)?;
         let value = dynamic_weight(value)?;
@@ -490,7 +490,7 @@ pub extern "C" fn lling_semiring_numerical_value(
     semiring: *const LlingSemiring,
     value: *const LlingSemiringWeight,
     out_value: *mut f64,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let context = dynamic_semiring(semiring)?;
         let value = dynamic_weight(value)?;
@@ -507,7 +507,7 @@ pub extern "C" fn lling_semiring_quantize(
     value: *const LlingSemiringWeight,
     epsilon: f64,
     out_value: *mut i64,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let context = dynamic_semiring(semiring)?;
         let value = dynamic_weight(value)?;
@@ -525,7 +525,7 @@ pub extern "C" fn lling_semiring_to_probability(
     semiring: *const LlingSemiring,
     value: *const LlingSemiringWeight,
     out_value: *mut f64,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let context = dynamic_semiring(semiring)?;
         let value = dynamic_weight(value)?;
@@ -541,7 +541,7 @@ pub extern "C" fn lling_semiring_closure_bound(
     semiring: *const LlingSemiring,
     out_bound: *mut usize,
     out_known: *mut u8,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let context = dynamic_semiring(semiring)?;
         let bound = required_mut(out_bound, "out_bound")?;
@@ -574,13 +574,111 @@ pub unsafe extern "C" fn lling_semiring_stable_bytes(
     capacity: usize,
     out_written: *mut usize,
     out_required: *mut usize,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let context = dynamic_semiring(semiring)?;
         let value = dynamic_weight(value)?;
         let bytes = context.stable_bytes(value).map_err(map_semiring_error)?;
         // SAFETY: the C caller promises `capacity` writable bytes.
         unsafe { copy_bytes_to_c(&bytes, out_bytes, capacity, out_written, out_required) }
+    })
+}
+
+/// Copy the provider's advisory UTF-8 diagnostic into caller-owned storage.
+///
+/// Passing a null `value` asks for a context-level diagnostic. The buffer
+/// protocol matches [`lling_semiring_stable_bytes`].
+///
+/// # Safety
+/// When `capacity` is nonzero, `out_bytes` must point to at least `capacity`
+/// writable bytes. Every other non-null pointer must remain live for the call.
+#[no_mangle]
+pub unsafe extern "C" fn lling_semiring_diagnostic(
+    semiring: *const LlingSemiring,
+    value: *const LlingSemiringWeight,
+    out_bytes: *mut u8,
+    capacity: usize,
+    out_written: *mut usize,
+    out_required: *mut usize,
+) -> LlingLlangStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        let value = if value.is_null() {
+            None
+        } else {
+            Some(dynamic_weight(value)?)
+        };
+        let bytes = context
+            .diagnostic(value)
+            .map(String::into_bytes)
+            .map_err(map_semiring_error)?;
+        // SAFETY: the C caller promises `capacity` writable bytes.
+        unsafe { copy_bytes_to_c(&bytes, out_bytes, capacity, out_written, out_required) }
+    })
+}
+
+unsafe fn semiring_weights(
+    weights: *const *const LlingSemiringWeight,
+    count: usize,
+) -> Result<Vec<DynamicSemiringWeight>, LlingLlangStatus> {
+    if count != 0 && weights.is_null() {
+        set_error("weights is null with nonzero count");
+        return Err(LlingLlangStatus::NullPointer);
+    }
+    let pointers = if count == 0 {
+        &[][..]
+    } else {
+        // SAFETY: the caller promises `count` live handle pointers.
+        unsafe { std::slice::from_raw_parts(weights, count) }
+    };
+    let mut owned = Vec::with_capacity(pointers.len());
+    for pointer in pointers {
+        owned.push(
+            dynamic_weight(*pointer)?
+                .try_clone()
+                .map_err(map_semiring_error)?,
+        );
+    }
+    Ok(owned)
+}
+
+/// Add a bounded array of weights, using the provider's batch capability when
+/// advertised and the dynamic consumer's pairwise fallback otherwise.
+///
+/// # Safety
+/// For nonzero `count`, `weights` must point to `count` live weight handles.
+#[no_mangle]
+pub unsafe extern "C" fn lling_semiring_plus_many(
+    semiring: *const LlingSemiring,
+    weights: *const *const LlingSemiringWeight,
+    count: usize,
+    out_weight: *mut *mut LlingSemiringWeight,
+) -> LlingLlangStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        // SAFETY: upheld by this function's caller contract.
+        let weights = unsafe { semiring_weights(weights, count)? };
+        write_dynamic_weight(out_weight, || context.plus_many(&weights))
+    })
+}
+
+/// Multiply a bounded array of weights, using the provider's batch capability
+/// when advertised and the dynamic consumer's pairwise fallback otherwise.
+///
+/// # Safety
+/// For nonzero `count`, `weights` must point to `count` live weight handles.
+#[no_mangle]
+pub unsafe extern "C" fn lling_semiring_times_many(
+    semiring: *const LlingSemiring,
+    weights: *const *const LlingSemiringWeight,
+    count: usize,
+    out_weight: *mut *mut LlingSemiringWeight,
+) -> LlingLlangStatus {
+    boundary(|| {
+        let context = dynamic_semiring(semiring)?;
+        // SAFETY: upheld by this function's caller contract.
+        let weights = unsafe { semiring_weights(weights, count)? };
+        write_dynamic_weight(out_weight, || context.times_many(&weights))
     })
 }
 
@@ -594,26 +692,15 @@ pub unsafe extern "C" fn lling_semiring_validate_laws(
     weights: *const *const LlingSemiringWeight,
     count: usize,
     epsilon: f64,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let context = dynamic_semiring(semiring)?;
         if count != 0 && weights.is_null() {
             set_error("weights is null with nonzero count");
-            return Err(LlingStatus::NullPointer);
+            return Err(LlingLlangStatus::NullPointer);
         }
-        let pointers = if count == 0 {
-            &[][..]
-        } else {
-            std::slice::from_raw_parts(weights, count)
-        };
-        let mut owned = Vec::with_capacity(pointers.len());
-        for pointer in pointers {
-            owned.push(
-                dynamic_weight(*pointer)?
-                    .try_clone()
-                    .map_err(map_semiring_error)?,
-            );
-        }
+        // SAFETY: upheld by this function's caller contract.
+        let owned = unsafe { semiring_weights(weights, count)? };
         context
             .validate_declared_laws(&owned, epsilon)
             .map_err(map_semiring_error)
@@ -622,7 +709,9 @@ pub unsafe extern "C" fn lling_semiring_validate_laws(
 
 /// Allocate an empty Unicode/tropical WFST builder.
 #[no_mangle]
-pub extern "C" fn lling_wfst_builder_new(out_builder: *mut *mut LlingWfstBuilder) -> LlingStatus {
+pub extern "C" fn lling_wfst_builder_new(
+    out_builder: *mut *mut LlingWfstBuilder,
+) -> LlingLlangStatus {
     boundary(|| {
         let output = required_mut(out_builder, "out_builder")?;
         *output = Box::into_raw(Box::new(LlingWfstBuilder {
@@ -651,7 +740,7 @@ pub unsafe extern "C" fn lling_wfst_builder_free(builder: *mut LlingWfstBuilder)
 pub extern "C" fn lling_wfst_builder_reserve_states(
     builder: *mut LlingWfstBuilder,
     additional: usize,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         graph(builder)?.reserve_states(additional);
         Ok(())
@@ -663,7 +752,7 @@ pub extern "C" fn lling_wfst_builder_reserve_states(
 pub extern "C" fn lling_wfst_builder_add_state(
     builder: *mut LlingWfstBuilder,
     out_state: *mut u32,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         // Validate the out-pointer BEFORE mutating the graph: adding the state
         // first meant a null `out_state` left an orphan state in the builder
@@ -683,12 +772,12 @@ pub extern "C" fn lling_wfst_builder_add_state(
 pub extern "C" fn lling_wfst_builder_set_start(
     builder: *mut LlingWfstBuilder,
     state: u32,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let graph = graph(builder)?;
         if !graph.try_set_start(state) {
             set_error("start state is not present in the builder");
-            return Err(LlingStatus::InvalidArgument);
+            return Err(LlingLlangStatus::InvalidArgument);
         }
         Ok(())
     })
@@ -700,7 +789,7 @@ pub extern "C" fn lling_wfst_builder_set_final(
     builder: *mut LlingWfstBuilder,
     state: u32,
     weight: f64,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         // Builder-surface twin of finding LLING-B2/F1: the tropical domain is
         // finite-or-+inf only, so -inf must be rejected exactly like NaN
@@ -708,12 +797,12 @@ pub extern "C" fn lling_wfst_builder_set_final(
         // TropicalWeight::new, surfacing as LLING_STATUS_PANIC).
         if !TropicalWeight::is_valid_raw(weight) {
             set_error("weight must be a finite or +infinity tropical value");
-            return Err(LlingStatus::InvalidArgument);
+            return Err(LlingLlangStatus::InvalidArgument);
         }
         let graph = graph(builder)?;
         let state = graph.state_mut(state).ok_or_else(|| {
             set_error("final state is not present in the builder");
-            LlingStatus::InvalidArgument
+            LlingLlangStatus::InvalidArgument
         })?;
         state.is_final = true;
         state.final_weight = TropicalWeight::new(weight);
@@ -726,11 +815,11 @@ pub extern "C" fn lling_wfst_builder_set_final(
 pub extern "C" fn lling_wfst_builder_clear_final(
     builder: *mut LlingWfstBuilder,
     state: u32,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let state = graph(builder)?.state_mut(state).ok_or_else(|| {
             set_error("state is not present in the builder");
-            LlingStatus::InvalidArgument
+            LlingLlangStatus::InvalidArgument
         })?;
         state.is_final = false;
         state.final_weight = TropicalWeight::new(f64::INFINITY);
@@ -738,7 +827,11 @@ pub extern "C" fn lling_wfst_builder_clear_final(
     })
 }
 
-fn decode_label(value: u64, present: u8, name: &'static str) -> Result<Option<char>, LlingStatus> {
+fn decode_label(
+    value: u64,
+    present: u8,
+    name: &'static str,
+) -> Result<Option<char>, LlingLlangStatus> {
     match present {
         0 => Ok(None),
         1 => u32::try_from(value)
@@ -747,11 +840,11 @@ fn decode_label(value: u64, present: u8, name: &'static str) -> Result<Option<ch
             .map(Some)
             .ok_or_else(|| {
                 set_error(format!("{name} is not a Unicode scalar"));
-                LlingStatus::InvalidArgument
+                LlingLlangStatus::InvalidArgument
             }),
         _ => {
             set_error(format!("{name} presence flag must be zero or one"));
-            Err(LlingStatus::InvalidArgument)
+            Err(LlingLlangStatus::InvalidArgument)
         }
     }
 }
@@ -767,19 +860,19 @@ pub extern "C" fn lling_wfst_builder_add_arc(
     has_output: u8,
     to: u32,
     weight: f64,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         // Builder-surface twin of finding LLING-B2/F1 (see set_final above).
         if !TropicalWeight::is_valid_raw(weight) {
             set_error("weight must be a finite or +infinity tropical value");
-            return Err(LlingStatus::InvalidArgument);
+            return Err(LlingLlangStatus::InvalidArgument);
         }
         let input = decode_label(input_label, has_input, "input label")?;
         let output = decode_label(output_label, has_output, "output label")?;
         let graph = graph(builder)?;
         if !graph.is_valid_state(from) || !graph.is_valid_state(to) {
             set_error("arc source or target state is not present in the builder");
-            return Err(LlingStatus::InvalidArgument);
+            return Err(LlingLlangStatus::InvalidArgument);
         }
         graph.add_arc(from, input, output, to, TropicalWeight::new(weight));
         Ok(())
@@ -791,7 +884,7 @@ pub extern "C" fn lling_wfst_builder_add_arc(
 pub extern "C" fn lling_wfst_builder_build(
     builder: *mut LlingWfstBuilder,
     out_wfst: *mut *mut LlingWfst,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let builder = required_mut(builder, "builder")?;
         // Validate the out-pointer BEFORE taking the graph: taking first meant
@@ -801,12 +894,12 @@ pub extern "C" fn lling_wfst_builder_build(
         let output = required_mut(out_wfst, "out_wfst")?;
         let graph = builder.graph.take().ok_or_else(|| {
             set_error("builder has already been consumed");
-            LlingStatus::Closed
+            LlingLlangStatus::Closed
         })?;
         if graph.start() == NO_STATE {
             builder.graph = Some(graph);
             set_error("WFST has no start state");
-            return Err(LlingStatus::InvalidArgument);
+            return Err(LlingLlangStatus::InvalidArgument);
         }
         *output = Box::into_raw(Box::new(LlingWfst {
             resource: OwnedWfstResource::from_wfst(graph),
@@ -834,7 +927,7 @@ pub unsafe extern "C" fn lling_wfst_free(wfst: *mut LlingWfst) {
 pub extern "C" fn lling_wfst_import(
     resource: VtResource,
     out_wfst: *mut *mut LlingWfst,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         // Validate the out-pointer BEFORE materializing the import: assignment
         // evaluates its right operand first, so a null `out_wfst` would leak the
@@ -858,10 +951,10 @@ pub extern "C" fn lling_wfst_import(
 pub unsafe extern "C" fn lling_wfst_import_ref(
     resource: *const VtResource,
     out_wfst: *mut *mut LlingWfst,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     if resource.is_null() {
         set_error("resource is null");
-        return LlingStatus::NullPointer;
+        return LlingLlangStatus::NullPointer;
     }
     lling_wfst_import(unsafe { *resource }, out_wfst)
 }
@@ -872,7 +965,7 @@ pub extern "C" fn lling_wfst_compose(
     first: VtResource,
     second: VtResource,
     out_wfst: *mut *mut LlingWfst,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         // Validate the out-pointer BEFORE composing: assignment evaluates its
         // right operand first, so a null `out_wfst` would leak the composition
@@ -895,14 +988,14 @@ pub unsafe extern "C" fn lling_wfst_compose_refs(
     first: *const VtResource,
     second: *const VtResource,
     out_wfst: *mut *mut LlingWfst,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     if first.is_null() {
         set_error("first resource is null");
-        return LlingStatus::NullPointer;
+        return LlingLlangStatus::NullPointer;
     }
     if second.is_null() {
         set_error("second resource is null");
-        return LlingStatus::NullPointer;
+        return LlingLlangStatus::NullPointer;
     }
     lling_wfst_compose(unsafe { *first }, unsafe { *second }, out_wfst)
 }
@@ -916,11 +1009,11 @@ pub unsafe extern "C" fn lling_wfst_compose_refs(
 pub unsafe extern "C" fn lling_wfst_resource(
     wfst: *const LlingWfst,
     out_resource: *mut VtResource,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         if wfst.is_null() {
             set_error("wfst is null");
-            return Err(LlingStatus::NullPointer);
+            return Err(LlingLlangStatus::NullPointer);
         }
         let output = required_mut(out_resource, "out_resource")?;
         *output = unsafe { &*wfst }.resource.clone().into_raw();
@@ -941,24 +1034,30 @@ pub extern "C" fn lling_resource_release(resource: VtResource) {
     }
 }
 
-fn checked_v2_pointer<T>(pointer: *const T, name: &'static str) -> Result<(), LlingStatus> {
+fn checked_v2_pointer<T>(pointer: *const T, name: &'static str) -> Result<(), LlingLlangStatus> {
     if pointer.is_null() {
         set_error(format!("{name} is null"));
-        return Err(LlingStatus::NullPointer);
+        return Err(LlingLlangStatus::NullPointer);
     }
     if (pointer as usize) % std::mem::align_of::<T>() != 0 {
         set_error(format!("{name} is misaligned"));
-        return Err(LlingStatus::InvalidArgument);
+        return Err(LlingLlangStatus::InvalidArgument);
     }
     Ok(())
 }
 
-fn required_v2_ref<'a, T>(pointer: *const T, name: &'static str) -> Result<&'a T, LlingStatus> {
+fn required_v2_ref<'a, T>(
+    pointer: *const T,
+    name: &'static str,
+) -> Result<&'a T, LlingLlangStatus> {
     checked_v2_pointer(pointer, name)?;
     Ok(unsafe { &*pointer })
 }
 
-fn required_v2_mut<'a, T>(pointer: *mut T, name: &'static str) -> Result<&'a mut T, LlingStatus> {
+fn required_v2_mut<'a, T>(
+    pointer: *mut T,
+    name: &'static str,
+) -> Result<&'a mut T, LlingLlangStatus> {
     checked_v2_pointer(pointer.cast_const(), name)?;
     Ok(unsafe { &mut *pointer })
 }
@@ -967,23 +1066,23 @@ fn read_v2_struct<T: Copy>(
     pointer: *const T,
     name: &'static str,
     known_flags: u64,
-) -> Result<T, LlingStatus> {
+) -> Result<T, LlingLlangStatus> {
     checked_v2_pointer(pointer, name)?;
     let header = unsafe { pointer.cast::<LlingAbiV2Header>().read() };
     if !validate_abi_v2_header(&header, std::mem::size_of::<T>(), known_flags) {
         set_error(format!("{name} has an invalid ABI-v2 header"));
-        return Err(LlingStatus::InvalidArgument);
+        return Err(LlingLlangStatus::InvalidArgument);
     }
     Ok(unsafe { pointer.read() })
 }
 
-fn decode_v2_bool(raw: u8, name: &'static str) -> Result<bool, LlingStatus> {
+fn decode_v2_bool(raw: u8, name: &'static str) -> Result<bool, LlingLlangStatus> {
     match raw {
         0 => Ok(false),
         1 => Ok(true),
         _ => {
             set_error(format!("{name} must be zero or one"));
-            Err(LlingStatus::InvalidArgument)
+            Err(LlingLlangStatus::InvalidArgument)
         }
     }
 }
@@ -994,12 +1093,12 @@ pub extern "C" fn lling_abi_v2_validate_header(
     header: *const LlingAbiV2Header,
     required_size: u32,
     known_flags: u64,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let header = *required_v2_ref(header, "header")?;
         if !validate_abi_v2_header(&header, required_size as usize, known_flags) {
             set_error("header is not a canonical ABI-v2 prefix");
-            return Err(LlingStatus::InvalidArgument);
+            return Err(LlingLlangStatus::InvalidArgument);
         }
         Ok(())
     })
@@ -1010,7 +1109,7 @@ pub extern "C" fn lling_abi_v2_validate_header(
 pub extern "C" fn lling_abi_v2_validate_descriptor(
     descriptor: *const LlingWfstDescriptorV2,
     out_typed_evidence_allowed: *mut u8,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let descriptor = read_v2_struct(
             descriptor,
@@ -1022,7 +1121,7 @@ pub extern "C" fn lling_abi_v2_validate_descriptor(
         let output = required_v2_mut(out_typed_evidence_allowed, "out_typed_evidence_allowed")?;
         if !validate_descriptor_v2(&descriptor) {
             set_error("descriptor fields and presence flags are not canonical");
-            return Err(LlingStatus::InvalidArgument);
+            return Err(LlingLlangStatus::InvalidArgument);
         }
         *output = u8::from(abi_v2_typed_evidence_allowed(&descriptor));
         Ok(())
@@ -1031,7 +1130,7 @@ pub extern "C" fn lling_abi_v2_validate_descriptor(
 
 /// Validate a canonical ABI-v2 resource budget.
 #[no_mangle]
-pub extern "C" fn lling_abi_v2_validate_budget(budget: *const LlingBudgetV2) -> LlingStatus {
+pub extern "C" fn lling_abi_v2_validate_budget(budget: *const LlingBudgetV2) -> LlingLlangStatus {
     boundary(|| {
         let budget = read_v2_struct(
             budget,
@@ -1040,7 +1139,7 @@ pub extern "C" fn lling_abi_v2_validate_budget(budget: *const LlingBudgetV2) -> 
         )?;
         if !validate_budget_v2(&budget) {
             set_error("budget flags, limits, or reserved fields are not canonical");
-            return Err(LlingStatus::InvalidArgument);
+            return Err(LlingLlangStatus::InvalidArgument);
         }
         Ok(())
     })
@@ -1053,7 +1152,7 @@ pub extern "C" fn lling_abi_v2_validate_outcome(
     resource_present: u8,
     evidence_present: u8,
     out_authoritative_exact: *mut u8,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let outcome = read_v2_struct(outcome, "outcome", 0)?;
         let resource_present = decode_v2_bool(resource_present, "resource_present")?;
@@ -1061,7 +1160,7 @@ pub extern "C" fn lling_abi_v2_validate_outcome(
         let output = required_v2_mut(out_authoritative_exact, "out_authoritative_exact")?;
         if !validate_outcome_v2(&outcome, resource_present, evidence_present) {
             set_error("outcome axes or publication state are not canonical");
-            return Err(LlingStatus::InvalidArgument);
+            return Err(LlingLlangStatus::InvalidArgument);
         }
         *output = u8::from(abi_v2_authoritative_exact(&outcome, evidence_present));
         Ok(())
@@ -1074,7 +1173,7 @@ pub extern "C" fn lling_abi_v2_identity_matches(
     expected: *const LlingWfstDescriptorV2,
     observed: *const LlingWfstDescriptorV2,
     out_matches: *mut u8,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let known_flags = LLING_DESCRIPTOR_SIGNATURE_KNOWN
             | LLING_DESCRIPTOR_SNAPSHOT_PRESENT
@@ -1084,7 +1183,7 @@ pub extern "C" fn lling_abi_v2_identity_matches(
         let output = required_v2_mut(out_matches, "out_matches")?;
         if !validate_descriptor_v2(&expected) || !validate_descriptor_v2(&observed) {
             set_error("identity comparison requires canonical descriptors");
-            return Err(LlingStatus::InvalidArgument);
+            return Err(LlingLlangStatus::InvalidArgument);
         }
         *output = u8::from(abi_v2_identity_matches(&expected, &observed));
         Ok(())
@@ -1095,18 +1194,18 @@ pub extern "C" fn lling_abi_v2_identity_matches(
 #[no_mangle]
 pub extern "C" fn lling_cancellation_v2_new(
     out_cancellation: *mut *mut LlingCancellationV2,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let output = required_v2_mut(out_cancellation, "out_cancellation")?;
         if !output.is_null() {
             set_error("out_cancellation must initially be null");
-            return Err(LlingStatus::InvalidArgument);
+            return Err(LlingLlangStatus::InvalidArgument);
         }
         let layout = std::alloc::Layout::new::<LlingCancellationV2>();
         let allocation = unsafe { std::alloc::alloc(layout) }.cast::<LlingCancellationV2>();
         if allocation.is_null() {
             set_error("unable to allocate cancellation handle");
-            return Err(LlingStatus::LimitExceeded);
+            return Err(LlingLlangStatus::LimitExceeded);
         }
         unsafe { allocation.write(LlingCancellationV2::new()) };
         *output = allocation;
@@ -1119,12 +1218,12 @@ pub extern "C" fn lling_cancellation_v2_new(
 pub extern "C" fn lling_cancellation_v2_request(
     cancellation: *const LlingCancellationV2,
     reason: u32,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let cancellation = required_v2_ref(cancellation, "cancellation")?;
         let reason = LlingCancellationReasonV2::from_raw(reason).ok_or_else(|| {
             set_error("cancellation reason is not a known wire discriminant");
-            LlingStatus::InvalidArgument
+            LlingLlangStatus::InvalidArgument
         })?;
         cancellation.request(reason);
         Ok(())
@@ -1136,7 +1235,7 @@ pub extern "C" fn lling_cancellation_v2_request(
 pub extern "C" fn lling_cancellation_v2_reason(
     cancellation: *const LlingCancellationV2,
     out_reason: *mut u32,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let cancellation = required_v2_ref(cancellation, "cancellation")?;
         let output = required_v2_mut(out_reason, "out_reason")?;
@@ -1149,12 +1248,12 @@ pub extern "C" fn lling_cancellation_v2_reason(
 #[no_mangle]
 pub extern "C" fn lling_cancellation_v2_free(
     cancellation: *mut *mut LlingCancellationV2,
-) -> LlingStatus {
+) -> LlingLlangStatus {
     boundary(|| {
         let slot = required_v2_mut(cancellation, "cancellation")?;
         if slot.is_null() {
             set_error("cancellation handle has already been released");
-            return Err(LlingStatus::Closed);
+            return Err(LlingLlangStatus::Closed);
         }
         checked_v2_pointer((*slot).cast_const(), "*cancellation")?;
         let owned = *slot;
@@ -1175,35 +1274,38 @@ mod tests {
     #[test]
     fn c_builder_exports_batched_resource_arcs() {
         let mut builder = ptr::null_mut();
-        assert_eq!(lling_wfst_builder_new(&mut builder), LlingStatus::Ok);
+        assert_eq!(lling_wfst_builder_new(&mut builder), LlingLlangStatus::Ok);
         let mut s0 = 0;
         let mut s1 = 0;
         assert_eq!(
             lling_wfst_builder_add_state(builder, &mut s0),
-            LlingStatus::Ok
+            LlingLlangStatus::Ok
         );
         assert_eq!(
             lling_wfst_builder_add_state(builder, &mut s1),
-            LlingStatus::Ok
+            LlingLlangStatus::Ok
         );
-        assert_eq!(lling_wfst_builder_set_start(builder, s0), LlingStatus::Ok);
+        assert_eq!(
+            lling_wfst_builder_set_start(builder, s0),
+            LlingLlangStatus::Ok
+        );
         assert_eq!(
             lling_wfst_builder_set_final(builder, s1, 0.0),
-            LlingStatus::Ok
+            LlingLlangStatus::Ok
         );
         assert_eq!(
             lling_wfst_builder_add_arc(builder, s0, 'a' as u64, 1, 'b' as u64, 1, s1, 0.25),
-            LlingStatus::Ok
+            LlingLlangStatus::Ok
         );
         let mut wfst = ptr::null_mut();
         assert_eq!(
             lling_wfst_builder_build(builder, &mut wfst),
-            LlingStatus::Ok
+            LlingLlangStatus::Ok
         );
         let mut resource = VtResource::NULL;
         assert_eq!(
             unsafe { lling_wfst_resource(wfst, &mut resource) },
-            LlingStatus::Ok
+            LlingLlangStatus::Ok
         );
         unsafe {
             lling_wfst_free(wfst);

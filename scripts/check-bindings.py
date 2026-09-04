@@ -8,8 +8,8 @@ Verifies, against the committed binding model ``bindings/api.json``:
                            include/lling_llang.h; the C++ facade
                            include/lling_llang.hpp references only declared
                            symbols.
-  2. enum/constant      -- LlingStatus discriminants and the
-     parity                LLING_ABI_VERSION / LLING_API_REVISION constants
+  2. enum/constant      -- LlingLlangStatus discriminants and the
+     parity                LLING_ABI_VERSION / LLING_LLANG_API_REVISION constants
                            agree across api.json, src/ffi.rs, and the header.
   3. JS facade parity   -- every export-map subpath in
                            bindings/javascript/package.json resolves to an
@@ -406,17 +406,17 @@ def main() -> int:
             str(name): int(value) for name, value in status.get("values", {}).items()
         }
         if (
-            status.get("cType") != "LlingStatus"
+            status.get("cType") != "LlingLlangStatus"
             or status.get("cPrefix") != "LLING_STATUS_"
         ):
-            failures.append("status enum model must name LlingStatus / LLING_STATUS_")
+            failures.append("status enum model must name LlingLlangStatus / LLING_STATUS_")
 
         ffi_source = read(FFI_PATH)
         enum_match = re.search(
-            r"pub\s+enum\s+LlingStatus\s*\{(.*?)\n\}", ffi_source, re.DOTALL
+            r"pub\s+enum\s+LlingLlangStatus\s*\{(.*?)\n\}", ffi_source, re.DOTALL
         )
         if enum_match is None:
-            failures.append("src/ffi.rs does not define pub enum LlingStatus")
+            failures.append("src/ffi.rs does not define pub enum LlingLlangStatus")
             return
         rust_values = {
             camel_to_screaming(name): int(value)
@@ -429,21 +429,21 @@ def main() -> int:
         info["rust_variants"] = len(rust_values)
         if rust_values != modeled:
             failures.append(
-                f"LlingStatus model/ffi.rs mismatch: model={modeled}, ffi={rust_values}"
+                f"LlingLlangStatus model/ffi.rs mismatch: model={modeled}, ffi={rust_values}"
             )
         if not re.search(
-            r"#\[repr\(u32\)\]\s*(?:#\[[^\]]*\]\s*)*pub\s+enum\s+LlingStatus",
+            r"#\[repr\(u32\)\]\s*(?:#\[[^\]]*\]\s*)*pub\s+enum\s+LlingLlangStatus",
             ffi_source,
         ):
-            failures.append("LlingStatus must remain #[repr(u32)]")
+            failures.append("LlingLlangStatus must remain #[repr(u32)]")
 
         header = read(HEADER_PATH)
         header_enum = re.search(
-            r"typedef\s+enum\s+LlingStatus\s*\{(.*?)\}", header, re.DOTALL
+            r"typedef\s+enum\s+LlingLlangStatus\s*\{(.*?)\}", header, re.DOTALL
         )
         if header_enum is None:
             failures.append(
-                "include/lling_llang.h does not declare typedef enum LlingStatus"
+                "include/lling_llang.h does not declare typedef enum LlingLlangStatus"
             )
             return
         header_values = {
@@ -455,12 +455,12 @@ def main() -> int:
         info["header_enumerators"] = len(header_values)
         if header_values != modeled:
             failures.append(
-                f"LlingStatus model/header mismatch: model={modeled}, header={header_values}"
+                f"LlingLlangStatus model/header mismatch: model={modeled}, header={header_values}"
             )
 
         for constant, key in (
             ("LLING_ABI_VERSION", "abiVersion"),
-            ("LLING_API_REVISION", "apiRevision"),
+            ("LLING_LLANG_API_REVISION", "apiRevision"),
         ):
             expected = model.get(key)
             rust_constant = re.search(

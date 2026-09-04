@@ -33,8 +33,8 @@
 mod support;
 
 use lling_llang::ffi::{
-    lling_resource_release, lling_wfst_compose, lling_wfst_free, lling_wfst_resource, LlingStatus,
-    LlingWfst,
+    lling_resource_release, lling_wfst_compose, lling_wfst_free, lling_wfst_resource,
+    LlingLlangStatus, LlingWfst,
 };
 use std::collections::BTreeMap;
 use std::ptr;
@@ -237,12 +237,12 @@ fn run_concurrent_stress(config: TestWfstConfig) {
     let mut composed: *mut LlingWfst = ptr::null_mut();
     assert_eq!(
         lling_wfst_compose(left.as_raw(), right.as_raw(), &mut composed),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let mut resource = VtResource::NULL;
     assert_eq!(
         unsafe { lling_wfst_resource(composed, &mut resource) },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let shared = SharedResource(resource);
 
@@ -289,12 +289,12 @@ fn run_concurrent_stress(config: TestWfstConfig) {
             fresh_right.as_raw(),
             &mut fresh_composed
         ),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let mut fresh_resource = VtResource::NULL;
     assert_eq!(
         unsafe { lling_wfst_resource(fresh_composed, &mut fresh_resource) },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let (fresh_start, fresh_states) = unsafe { walk_reachable(fresh_resource, 256) };
     assert_eq!(

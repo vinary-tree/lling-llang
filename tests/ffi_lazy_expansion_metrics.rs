@@ -29,8 +29,8 @@
 mod support;
 
 use lling_llang::ffi::{
-    lling_resource_release, lling_wfst_compose, lling_wfst_free, lling_wfst_resource, LlingStatus,
-    LlingWfst,
+    lling_resource_release, lling_wfst_compose, lling_wfst_free, lling_wfst_resource,
+    LlingLlangStatus, LlingWfst,
 };
 use std::ptr;
 use support::interop_wfst::{
@@ -57,12 +57,12 @@ fn compose(left: &TestWfst, right: &TestWfst) -> (*mut LlingWfst, VtResource) {
     let mut composed: *mut LlingWfst = ptr::null_mut();
     assert_eq!(
         lling_wfst_compose(left.as_raw(), right.as_raw(), &mut composed),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let mut resource = VtResource::NULL;
     assert_eq!(
         unsafe { lling_wfst_resource(composed, &mut resource) },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     (composed, resource)
 }

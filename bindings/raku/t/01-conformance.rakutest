@@ -15,7 +15,7 @@ module LatticeFixture {
     }
 }
 
-plan 54;
+plan 58;
 my constant LATTICE-BATCH-FLAG = 1 +< 3;
 
 is abi-version(), ABI-VERSION, 'native and Raku ABI versions agree';
@@ -182,10 +182,20 @@ my $zero = $semiring.zero;
 my $one = $semiring.one;
 my $sum = $one.plus($zero);
 my $semiring-product = $one.times($one);
+my $semiring-sum-many = $semiring.plus-many([$zero, $one]);
+my $semiring-product-many = $semiring.times-many([$one, $one]);
 my $quotient = $semiring.divide($semiring-product, $one);
 my $closure = $semiring.star($one);
 is $semiring.properties, 63, 'Raku provider publishes declared semiring laws';
 ok $semiring.equal($sum, $one), 'Raku semiring addition crosses Rust';
+ok $semiring.equal($semiring-sum-many, $one),
+    'Raku batched semiring addition crosses Rust';
+ok $semiring.equal($semiring-product-many, $one),
+    'Raku batched semiring multiplication crosses Rust';
+is $semiring.diagnostic, 'TropicalSemiring',
+    'Raku semiring domain diagnostics cross Rust';
+is $semiring.diagnostic($one), '0e0',
+    'Raku semiring weight diagnostics cross Rust';
 ok $semiring.approx-equal($semiring-product, $one, 1e-12),
     'Raku approximate equality crosses Rust';
 is $semiring.natural-order($one, $zero), -1,
@@ -209,6 +219,7 @@ my $copy = $one.clone;
 $one.close;
 ok $semiring.equal($copy, $semiring-product),
     'cloned Raku weights own independent token references';
-.close for $zero, $sum, $semiring-product, $quotient, $closure, $copy;
+.close for $zero, $sum, $semiring-product, $semiring-sum-many,
+    $semiring-product-many, $quotient, $closure, $copy;
 $semiring.close;
 nok $semiring.opened, 'Raku semiring resources close deterministically';

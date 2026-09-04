@@ -76,6 +76,8 @@ export ABI_VERSION,
     semiring_one,
     semiring_plus,
     semiring_times,
+    semiring_plus_many,
+    semiring_times_many,
     semiring_equal,
     semiring_approx_equal,
     semiring_natural_order,
@@ -145,6 +147,12 @@ function semiring_native(name::Symbol)
         return native(:lling_semiring_numerical_value)
     name === :lling_semiring_to_probability &&
         return native(:lling_semiring_to_probability)
+    name === :lling_semiring_stable_bytes &&
+        return native(:lling_semiring_stable_bytes)
+    name === :lling_semiring_diagnostic &&
+        return native(:lling_semiring_diagnostic)
+    name === :lling_semiring_plus_many && return native(:lling_semiring_plus_many)
+    name === :lling_semiring_times_many && return native(:lling_semiring_times_many)
     throw(ArgumentError("unknown semiring operation $name"))
 end
 function lattice_native(name::Symbol)
@@ -160,7 +168,7 @@ end
 """Return the ABI version exported by the loaded native library."""
 abi_version() = UInt32(ccall(native(:lling_abi_version), UInt32, ()))
 """Return the additive API revision exported by the loaded native library."""
-api_revision() = UInt32(ccall(native(:lling_api_revision), UInt32, ()))
+api_revision() = UInt32(ccall(native(:lling_llang_api_revision), UInt32, ()))
 
 function last_error_message()
     pointer = ccall(native(:lling_last_error_message), Cstring, ())
@@ -842,21 +850,54 @@ function semiring_closure_bound(context::SemiringContext)
     known[] == 0 ? nothing : Int(bound[])
 end
 
-function semiring_stable_bytes(context::SemiringContext, weight::SemiringWeight)
-    weight.context === context || throw(ArgumentError("weight has another context"))
+function read_semiring_bytes(context::SemiringContext,
+    weight::Union{Nothing,SemiringWeight}, operation::Symbol)
+    isnothing(weight) || weight.context === context ||
+        throw(ArgumentError("weight has another context"))
+    handle = isnothing(weight) ? C_NULL : open_handle(weight)
     written = Ref{Csize_t}(0)
     required = Ref{Csize_t}(0)
-    checked(ccall(native(:lling_semiring_stable_bytes), UInt32,
+    checked(ccall(semiring_native(operation), UInt32,
         (Ptr{Cvoid}, Ptr{Cvoid}, Ptr{UInt8}, Csize_t, Ref{Csize_t}, Ref{Csize_t}),
-        open_handle(context), open_handle(weight), C_NULL, 0, written, required),
-        :lling_semiring_stable_bytes)
+        open_handle(context), handle, C_NULL, 0, written, required), operation)
     output = Vector{UInt8}(undef, Int(required[]))
-    checked(ccall(native(:lling_semiring_stable_bytes), UInt32,
+    checked(ccall(semiring_native(operation), UInt32,
         (Ptr{Cvoid}, Ptr{Cvoid}, Ptr{UInt8}, Csize_t, Ref{Csize_t}, Ref{Csize_t}),
-        open_handle(context), open_handle(weight), output, length(output), written,
-        required), :lling_semiring_stable_bytes)
+        open_handle(context), handle, output, length(output), written,
+        required), operation)
     resize!(output, Int(written[]))
 end
+
+"""Return the provider's canonical encoding for one weight."""
+semiring_stable_bytes(context::SemiringContext, weight::SemiringWeight) =
+    read_semiring_bytes(context, weight, :lling_semiring_stable_bytes)
+
+"""Return the provider's advisory diagnostic for a weight or its domain."""
+semiring_diagnostic(context::SemiringContext,
+    weight::Union{Nothing,SemiringWeight}=nothing) =
+    String(read_semiring_bytes(context, weight, :lling_semiring_diagnostic))
+
+function semiring_many(context::SemiringContext,
+    weights::AbstractVector{SemiringWeight}, operation::Symbol)
+    all(weight -> weight.context === context, weights) ||
+        throw(ArgumentError("every weight must share the exact context"))
+    pointers = Ptr{Cvoid}[open_handle(weight) for weight in weights]
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    checked(ccall(semiring_native(operation), UInt32,
+        (Ptr{Cvoid}, Ptr{Ptr{Cvoid}}, Csize_t, Ref{Ptr{Cvoid}}),
+        open_handle(context), pointers, length(pointers), output), operation)
+    adopt_semiring_weight(context, output[])
+end
+
+"""Fold addition through the bounded provider batch path when available."""
+semiring_plus_many(context::SemiringContext,
+    weights::AbstractVector{SemiringWeight}) =
+    semiring_many(context, weights, :lling_semiring_plus_many)
+
+"""Fold multiplication through the bounded provider batch path when available."""
+semiring_times_many(context::SemiringContext,
+    weights::AbstractVector{SemiringWeight}) =
+    semiring_many(context, weights, :lling_semiring_times_many)
 
 function validate_semiring_laws(context::SemiringContext,
     weights::AbstractVector{SemiringWeight}; epsilon::Real=0.0)
@@ -894,7 +935,8 @@ function semiring_natural_order(provider::AbstractSemiringProvider, left, right)
 end
 semiring_stable_bytes(provider::AbstractSemiringProvider, value) =
     throw(MethodError(semiring_stable_bytes, (provider, value)))
-semiring_diagnostic(::AbstractSemiringProvider, value) = sprint(show, value)
+semiring_diagnostic(provider::AbstractSemiringProvider, value) =
+    isnothing(value) ? sprint(show, provider) : sprint(show, value)
 semiring_divide(::AbstractSemiringProvider, dividend, divisor) = nothing
 semiring_left_divide(::AbstractSemiringProvider, value, divisor) = nothing
 semiring_star(::AbstractSemiringProvider, value) = nothing
@@ -1178,9 +1220,16 @@ function semiring_bytes_callback(pointer::Ptr{Cvoid}, value::Ptr{VTI.VtSemiringV
 end
 semiring_stable_bytes_callback(p, v, o, c, w, r)::Cint =
     semiring_bytes_callback(p, v, o, c, w, r, semiring_stable_bytes)
-semiring_diagnostic_callback(p, v, o, c, w, r)::Cint =
-    semiring_bytes_callback(p, v, o, c, w, r,
-        (provider, value) -> codeunits(semiring_diagnostic(provider, value)))
+function semiring_diagnostic_callback(pointer::Ptr{Cvoid},
+    value::Ptr{VTI.VtSemiringValue}, output::Ptr{UInt8}, capacity::Csize_t,
+    written::Ptr{Csize_t}, required::Ptr{Csize_t})::Cint
+    semiring_callback(pointer) do context
+        resolved = value == C_NULL ? nothing :
+            resolve_semiring_value(context, unsafe_load(value))
+        write_semiring_bytes(output, capacity, written, required,
+            codeunits(semiring_diagnostic(context.implementation, resolved)))
+    end
+end
 
 function semiring_many_callback(pointer::Ptr{Cvoid},
     values::Ptr{VTI.VtSemiringValue}, count::Csize_t,

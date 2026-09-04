@@ -136,6 +136,12 @@ projection capabilities. `SemiringOptions.properties` declares only laws the
 provider actually satisfies; `validate_laws` tries to falsify those
 declarations over one to sixteen representative values.
 
+The checked consumer mirrors those capabilities without exposing raw tokens.
+`SemiringContext.plus_many` and `times_many` use the provider's bounded batch
+callbacks when advertised and the native pairwise fallback otherwise.
+`context.diagnostic()` describes the domain; `weight.diagnostic()` describes
+one owned value. Both copy UTF-8 before returning to Python.
+
 The complete, runnable provider implementations are in
 [`examples/custom_providers.py`](https://github.com/vinary-tree/lling-llang/blob/v4.0.0-rc.6/bindings/python/examples/custom_providers.py).
 
@@ -236,7 +242,7 @@ The Python distribution uses PEP 440 spelling `4.0.0rc6`; the coordinated
 Rust and source tag use SemVer spelling `4.0.0-rc.6`. The package requires
 the exact same Python release of `vinary-tree-interop`.
 
-At import, the facade requires native ABI version 1 and API revision 5 or
+At import, the facade requires native ABI version 1 and API revision 6 or
 newer. Structure sizes are checked before any object construction. Additive
 native revisions remain acceptable; an ABI-major mismatch fails import.
 
@@ -260,7 +266,8 @@ python scripts/check-binding-docs.py
 The integration suite proves transactional builder failure, eager import,
 lazy composition after provider closure, paged traversal, independent
 snapshots, lattice batching and law probes, optional semiring capabilities,
-context identity, deterministic encodings, and same-thread enforcement.
+bounded semiring folds, domain and weight diagnostics, context identity,
+deterministic encodings, and same-thread enforcement.
 
 ## Maintainer workflow
 

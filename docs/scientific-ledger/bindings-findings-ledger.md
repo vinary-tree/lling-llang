@@ -31,6 +31,7 @@ commit `0fc05f0` (2026-08-08) unless noted otherwise.
 | [LLING-B10](#finding-lling-b10) | 2026-08-09 | `.github/workflows/ci.yml` `rust` job | ci-integrity | high | `f84f784` | FIXED |
 | [LLING-B11](#finding-lling-b11) | 2026-08-09 | `apiRevision` policy for the $`-\infty`$ status tightening | version-coherence | info | ledger-only (recorded decision) | RECORDED |
 | [LLING-B12](#finding-lling-b12) | 2026-08-09 | `scripts/run-sanitizers.sh`, `.github/workflows/ci.yml` `sanitizers` job | dynamic-analysis-coverage | medium | W8 leg (commit bearing this entry) | FIXED |
+| [LLING-B13](#finding-lling-b13) | 2026-09-04 | dynamic-semiring C ABI and Python/Julia/Raku consumers | binding-surface-parity | high | commit bearing this entry | FIXED |
 
 ---
 
@@ -410,7 +411,7 @@ our representable range" (`LIMIT_EXCEEDED`) *or* "a provider contract
 violation" (`PROVIDER_ERROR`). Resolving it by fiat would be a judgment call
 that rewrites a just-committed pin. The principled resolution is to let the
 formal status model decide: obligation #20 (`StatusMapping.v`) defines the
-canonical `VtStatus → LlingStatus` mapping and the ingress classification, and
+canonical `VtStatus → LlingLlangStatus` mapping and the ingress classification, and
 the two paths will be harmonized to whichever class that model certifies, with
 the pin updated to match. Deferring the *decision* to the model (within this
 same wave) is not deferring the *work* — it is choosing the correct arbiter.
@@ -423,13 +424,13 @@ a visible, reviewed change rather than a silent drift.
 contract: a label outside the Unicode scalar range is a *representation limit*
 of this char-based specialization — a u64-label binding could hold it — so it is
 `RepresentationLimit`, which maps to "limit exceeded" on BOTH ABI surfaces
-(`map_error RepresentationLimit = LlingStatus::LimitExceeded` and
+(`map_error RepresentationLimit = LlingLlangStatus::LimitExceeded` and
 `expansion_error_status RepresentationLimit = VtStatus::LimitExceeded`), and is
 proved distinct from a provider fault on both (theorems
 `representation_limit_consistent_across_surfaces` and
 `representation_limit_distinct_from_provider_fault`, LLING-STAT-3). This matches
 the documented intent of `BindingError::RepresentationLimit` and
-`LlingStatus::LimitExceeded` (both name "label") and the pre-existing import
+`LlingLlangStatus::LimitExceeded` (both name "label") and the pre-existing import
 behavior. Two code sites were harmonized to the model: `expand_state` now
 classifies a non-scalar label as `RepresentationLimit`, split out from the
 genuine invalid-arc-field checks (`has_input > 1`, bad weight) which stay
@@ -636,3 +637,43 @@ workspace exactly like the `ffi` job so Cargo can resolve the path-dependency
 graph, and executes `bash scripts/run-sanitizers.sh`. It is a permanent
 regression fence: any future boundary change that introduces a UAF, OOB, leaked
 retain, or race at the call gate fails this job.
+
+---
+
+## Finding LLING-B13
+
+| Field | Value |
+|---|---|
+| Finding | LLING-B13 (dynamic-semiring consumer additions were absent from generated binding surfaces) |
+| Date | 2026-09-04 |
+| Component | `bindings/api.json`; C ABI revision constants; Python, Julia, and Raku facades |
+| Class | binding-surface-parity |
+| Severity | high — the JavaScript runtime could consume provider batches and diagnostics, but three supported host languages could not call the corresponding native functions |
+| Fix | commit bearing this entry — API revision 6 with typed batch and diagnostic consumers in every extant host-semiring facade |
+| Verification | `scripts/check-bindings.py` 7/7; Python 5/5 integration tests; Julia 18/18 semiring assertions; Raku 18/18 semiring assertions; Rust FFI suite and Clippy clean |
+| Status | FIXED |
+
+**Evidence.** The C header and Rust implementation exported
+`lling_semiring_diagnostic`, `lling_semiring_plus_many`, and
+`lling_semiring_times_many`, but `bindings/api.json` still declared API
+revision 5. Python had no native signatures, and the Julia and Raku consumers
+had no high-level calls. `scripts/check-bindings.py` consequently reported the
+three functions missing from each generated ABI surface.
+
+**Analysis.** Adding functions without raising the additive API revision lets
+an older native library pass a facade's load-time check and fail only when the
+new symbol is resolved. Merely adding symbol declarations would remove the
+drift warning without giving customers idiomatic ownership-checked operations.
+Domain diagnostics also pass a null value token by contract; Julia and Raku's
+provider callbacks previously assumed the token was non-null, so consumer-only
+wrappers would still fail against providers implemented in those languages.
+
+**Fix.** Revision 6 is now canonical in the API model, Rust, the C header, and
+all generated constants. Python exposes `plus_many`, `times_many`, and
+context-or-weight diagnostics; Julia exposes `semiring_plus_many`,
+`semiring_times_many`, and an overloaded `semiring_diagnostic`; Raku exposes
+the corresponding hyphenated methods. Every facade verifies exact context
+identity before passing borrowed handles, adopts one owned output, and leaves
+chunking or pairwise fallback to the native bounded-fold implementation. Julia
+and Raku provider callbacks now preserve the null-token domain-diagnostic
+meaning rather than attempting to resolve it as a value.

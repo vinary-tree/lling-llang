@@ -22,7 +22,7 @@ target/lling-c-compose
 ```
 
 At runtime, require exact `lling_abi_version()` equality and an
-`lling_api_revision()` at least as new as the header. Never infer compatibility
+`lling_llang_api_revision()` at least as new as the header. Never infer compatibility
 from a shared-library filename.
 
 ## Executable conformance evidence
@@ -80,7 +80,7 @@ The complete capture/import/compose sequence is illustrated in
 
 ## Errors and failure containment
 
-Every fallible function returns `LlingStatus`. Branch on the enum and copy
+Every fallible function returns `LlingLlangStatus`. Branch on the enum and copy
 `lling_last_error_message()` immediately; its storage is thread-local and may be
 replaced by the next call on that thread. Invalid arguments, null pointers,
 contained panics, incompatible resources, provider faults, representation
@@ -133,8 +133,9 @@ resource lacks Unicode-scalar `vt.scalar-wfst.1` or advertises another weight
 domain. For dynamic lattices, it can also mean that the resource lacks
 `vt.lattice.val.1`, publishes contradictory thread flags, or omits a callback
 required by an advertised capability.
-Project ABI v1 remains current; API revision 5 adds typed metadata carrying its
-own `LLING_ABI_V2 == 2` format version.
+Project ABI v1 remains current. API revision 5 added typed metadata carrying
+its own `LLING_ABI_V2 == 2` format version; revision 6 adds semiring domain and
+value diagnostics plus bounded addition and multiplication folds.
 
 ## Maintainer workflow
 

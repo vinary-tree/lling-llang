@@ -20,7 +20,7 @@ use lling_llang::ffi::{
     lling_resource_release, lling_wfst_builder_add_arc, lling_wfst_builder_add_state,
     lling_wfst_builder_build, lling_wfst_builder_new, lling_wfst_builder_set_final,
     lling_wfst_builder_set_start, lling_wfst_compose, lling_wfst_free, lling_wfst_resource,
-    LlingStatus, LlingWfst,
+    LlingLlangStatus, LlingWfst,
 };
 use vinary_tree_interop::VtResource;
 
@@ -28,34 +28,37 @@ use vinary_tree_interop::VtResource;
 /// the C ABI, returning the owned handle.
 fn build_chain(len: u32) -> *mut LlingWfst {
     let mut builder = ptr::null_mut();
-    assert_eq!(lling_wfst_builder_new(&mut builder), LlingStatus::Ok);
+    assert_eq!(lling_wfst_builder_new(&mut builder), LlingLlangStatus::Ok);
     let mut prev = 0u32;
     assert_eq!(
         lling_wfst_builder_add_state(builder, &mut prev),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
-    assert_eq!(lling_wfst_builder_set_start(builder, prev), LlingStatus::Ok);
+    assert_eq!(
+        lling_wfst_builder_set_start(builder, prev),
+        LlingLlangStatus::Ok
+    );
     for index in 0..len {
         let mut next = 0u32;
         assert_eq!(
             lling_wfst_builder_add_state(builder, &mut next),
-            LlingStatus::Ok
+            LlingLlangStatus::Ok
         );
         let label = u64::from('a') + u64::from(index % 26);
         assert_eq!(
             lling_wfst_builder_add_arc(builder, prev, label, 1, label, 1, next, 1.0),
-            LlingStatus::Ok
+            LlingLlangStatus::Ok
         );
         prev = next;
     }
     assert_eq!(
         lling_wfst_builder_set_final(builder, prev, 0.0),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let mut wfst = ptr::null_mut();
     assert_eq!(
         lling_wfst_builder_build(builder, &mut wfst),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     wfst
 }
@@ -64,7 +67,7 @@ fn resource_of(wfst: *mut LlingWfst) -> VtResource {
     let mut resource = VtResource::NULL;
     assert_eq!(
         unsafe { lling_wfst_resource(wfst, &mut resource) },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     resource
 }
@@ -83,7 +86,7 @@ fn bench_compose_construction(criterion: &mut Criterion) {
                 let mut composed = ptr::null_mut();
                 let status =
                     lling_wfst_compose(black_box(left_res), black_box(right_res), &mut composed);
-                assert_eq!(status, LlingStatus::Ok);
+                assert_eq!(status, LlingLlangStatus::Ok);
                 unsafe { lling_wfst_free(composed) };
             });
         });

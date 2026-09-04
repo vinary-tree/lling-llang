@@ -31,7 +31,7 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); authoring rules in
 |---|---|
 | **ABI** | Application Binary Interface — the compiled calling contract (symbols, layouts, statuses) that stays stable across releases. |
 | **WFST** | Weighted Finite-State Transducer: arcs carry an input label, an output label, and a weight. |
-| `LlingStatus` | The `uint32_t` status enum returned by every fallible `lling_*` call (values 0–7, [table below](#status-codes)). |
+| `LlingLlangStatus` | The `uint32_t` status enum returned by every fallible `lling_*` call (values 0–7, [table below](#status-codes)). |
 | `VtResource` | The family's two-word retained handle `{context, vtable}`; a non-null value owns exactly one retain. |
 | `vt.scalar-wfst.1` | The 16-byte interface identity under which scalar WFSTs cross the family ABI. |
 | **handle** | An opaque caller-owned pointer released according to its matching ownership rule. Handles include builders, WFSTs, semiring contexts/weights, lattice values, and cancellation. |
@@ -43,7 +43,7 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); authoring rules in
 ## The surface at a glance
 
 Sixty-one functions in nine groups. Every fallible call returns a
-`LlingStatus`; every non-`OK` return latches a thread-local, NUL-terminated
+`LlingLlangStatus`; every non-`OK` return latches a thread-local, NUL-terminated
 diagnostic readable through `lling_last_error_message()`.
 
 ![The 61-function lling-llang C ABI surface: dynamic algebras, WFSTs, typed metadata, cancellation, retained resources, and their status contract.](../diagrams/api/c-abi-surface.svg)
@@ -55,7 +55,7 @@ diagnostics.*
 <details><summary>Text view</summary>
 
 ```art
-Versioning (2)     lling_abi_version, lling_api_revision
+Versioning (2)     lling_abi_version, lling_llang_api_revision
 Diagnostics (1)    lling_last_error_message
 Dynamic semiring   lling_semiring_open, lling_semiring_free,
              (21)  lling_semiring_weight_free, lling_semiring_properties,
@@ -92,11 +92,11 @@ Cancellation (4)   new, request, reason, single-release free
 
 ```c
 #define LLING_ABI_VERSION 1u
-#define LLING_API_REVISION 5u
+#define LLING_LLANG_API_REVISION 6u
 #define LLING_ABI_V2 2u
 
-LLING_API uint32_t lling_abi_version(void);
-LLING_API uint32_t lling_api_revision(void);
+LLING_LLANG_API uint32_t lling_abi_version(void);
+LLING_LLANG_API uint32_t lling_llang_api_revision(void);
 ```
 
 Two counters, two different promises, following the family's
@@ -105,8 +105,8 @@ Two counters, two different promises, following the family's
 - **`lling_abi_version()`** — the breaking counter. A binary whose ABI version
   differs from the `LLING_ABI_VERSION` you compiled against is incompatible;
   refuse to proceed.
-- **`lling_api_revision()`** — the additive counter. It only grows; a runtime
-  revision **at least** your compile-time `LLING_API_REVISION` guarantees that
+- **`lling_llang_api_revision()`** — the additive counter. It only grows; a runtime
+  revision **at least** your compile-time `LLING_LLANG_API_REVISION` guarantees that
   every symbol you compiled against exists.
 - **`LLING_ABI_V2`** — the version stored inside typed metadata structures,
   independent from the project ABI counter.
@@ -116,7 +116,7 @@ thread at any time, and cost $`\mathcal{O}(1)`$. The canonical handshake:
 
 ```c
 if (lling_abi_version() != LLING_ABI_VERSION ||
-    lling_api_revision() < LLING_API_REVISION) {
+    lling_llang_api_revision() < LLING_LLANG_API_REVISION) {
     /* incompatible binary — do not call anything else */
 }
 ```
@@ -124,7 +124,7 @@ if (lling_abi_version() != LLING_ABI_VERSION ||
 ## Diagnostics
 
 ```c
-LLING_API const char* lling_last_error_message(void);
+LLING_LLANG_API const char* lling_last_error_message(void);
 ```
 
 Returns this thread's last error message as a NUL-terminated UTF-8 string.
@@ -140,7 +140,7 @@ Returns this thread's last error message as a NUL-terminated UTF-8 string.
 
 ## Status codes
 
-`LlingStatus` is `#[repr(u32)]` in Rust and an integer-typed `enum` in C — the
+`LlingLlangStatus` is `#[repr(u32)]` in Rust and an integer-typed `enum` in C — the
 same eight values on both sides, pinned by `bindings/api.json` and enforced by
 `scripts/check-bindings.py`:
 
@@ -159,7 +159,7 @@ The import/compose paths classify every internal `BindingError` **totally** —
 each variant maps to exactly one status, so no failure is ever swallowed or
 ambiguous:
 
-| `BindingError` (src/bindings.rs) | `LlingStatus` |
+| `BindingError` (src/bindings.rs) | `LlingLlangStatus` |
 |---|---|
 | `NullResource` | `NULL_POINTER` |
 | `IncompatibleResourceAbi` · `MissingWfstInterface` · `IncompatibleWfstInterface` · `UnitDomainMismatch` · `WeightDomainMismatch` | `INCOMPATIBLE_RESOURCE` |
@@ -177,6 +177,11 @@ API revision 5 adds pointer-free metadata without changing project ABI v1 or
 the existing resource calls. A `VtResource` remains valid but is explicitly
 opaque: it cannot authorize typed evidence until a producer supplies a
 canonical `LlingWfstDescriptorV2`.
+
+API revision 6 adds semiring diagnostics and bounded addition and
+multiplication folds. These are additive project-ABI-v1 functions; consumers
+must still compare `lling_llang_api_revision()` with the compile-time minimum
+before calling them.
 
 ### Common prefix and layouts
 
@@ -319,20 +324,20 @@ order is weights first, context last.
 ### Base algebra and comparisons
 
 ```c
-LlingStatus lling_semiring_properties(const LlingSemiring*, uint64_t*);
-LlingStatus lling_semiring_zero(const LlingSemiring*, LlingSemiringWeight**);
-LlingStatus lling_semiring_one(const LlingSemiring*, LlingSemiringWeight**);
-LlingStatus lling_semiring_plus(const LlingSemiring*,
+LlingLlangStatus lling_semiring_properties(const LlingSemiring*, uint64_t*);
+LlingLlangStatus lling_semiring_zero(const LlingSemiring*, LlingSemiringWeight**);
+LlingLlangStatus lling_semiring_one(const LlingSemiring*, LlingSemiringWeight**);
+LlingLlangStatus lling_semiring_plus(const LlingSemiring*,
     const LlingSemiringWeight*, const LlingSemiringWeight*,
     LlingSemiringWeight**);
-LlingStatus lling_semiring_times(const LlingSemiring*,
+LlingLlangStatus lling_semiring_times(const LlingSemiring*,
     const LlingSemiringWeight*, const LlingSemiringWeight*,
     LlingSemiringWeight**);
-LlingStatus lling_semiring_equal(const LlingSemiring*,
+LlingLlangStatus lling_semiring_equal(const LlingSemiring*,
     const LlingSemiringWeight*, const LlingSemiringWeight*, uint8_t*);
-LlingStatus lling_semiring_approx_equal(const LlingSemiring*,
+LlingLlangStatus lling_semiring_approx_equal(const LlingSemiring*,
     const LlingSemiringWeight*, const LlingSemiringWeight*, double, uint8_t*);
-LlingStatus lling_semiring_natural_order(const LlingSemiring*,
+LlingLlangStatus lling_semiring_natural_order(const LlingSemiring*,
     const LlingSemiringWeight*, const LlingSemiringWeight*, int32_t*);
 ```
 
@@ -437,15 +442,15 @@ short final write. Stable bytes are deterministic identity material;
 diagnostics are human-readable UTF-8 and need not be stable.
 
 ```c
-LlingStatus lling_lattice_join_many(
+LlingLlangStatus lling_lattice_join_many(
     const LlingLatticeValue *receiver,
     const LlingLatticeValue *const *others, size_t count,
     LlingLatticeValue **out_value);
-LlingStatus lling_lattice_meet_many(
+LlingLlangStatus lling_lattice_meet_many(
     const LlingLatticeValue *receiver,
     const LlingLatticeValue *const *others, size_t count,
     LlingLatticeValue **out_value);
-LlingStatus lling_lattice_validate_laws(
+LlingLlangStatus lling_lattice_validate_laws(
     const LlingLatticeValue *const *values, size_t count);
 ```
 
@@ -494,7 +499,7 @@ immutable handle; red annotations = failure statuses.*
 ### `lling_wfst_builder_new`
 
 ```c
-LLING_API LlingStatus lling_wfst_builder_new(LlingWfstBuilder** out_builder);
+LLING_LLANG_API LlingLlangStatus lling_wfst_builder_new(LlingWfstBuilder** out_builder);
 ```
 
 | Aspect | Contract |
@@ -513,7 +518,7 @@ LLING_API LlingStatus lling_wfst_builder_new(LlingWfstBuilder** out_builder);
 ### `lling_wfst_builder_free`
 
 ```c
-LLING_API void lling_wfst_builder_free(LlingWfstBuilder* builder);
+LLING_LLANG_API void lling_wfst_builder_free(LlingWfstBuilder* builder);
 ```
 
 | Aspect | Contract |
@@ -528,7 +533,7 @@ LLING_API void lling_wfst_builder_free(LlingWfstBuilder* builder);
 ### `lling_wfst_builder_reserve_states`
 
 ```c
-LLING_API LlingStatus lling_wfst_builder_reserve_states(
+LLING_LLANG_API LlingLlangStatus lling_wfst_builder_reserve_states(
     LlingWfstBuilder* builder, size_t additional);
 ```
 
@@ -544,7 +549,7 @@ LLING_API LlingStatus lling_wfst_builder_reserve_states(
 ### `lling_wfst_builder_add_state`
 
 ```c
-LLING_API LlingStatus lling_wfst_builder_add_state(
+LLING_LLANG_API LlingLlangStatus lling_wfst_builder_add_state(
     LlingWfstBuilder* builder, uint32_t* out_state);
 ```
 
@@ -565,7 +570,7 @@ LLING_API LlingStatus lling_wfst_builder_add_state(
 ### `lling_wfst_builder_set_start`
 
 ```c
-LLING_API LlingStatus lling_wfst_builder_set_start(
+LLING_LLANG_API LlingLlangStatus lling_wfst_builder_set_start(
     LlingWfstBuilder* builder, uint32_t state);
 ```
 
@@ -581,7 +586,7 @@ LLING_API LlingStatus lling_wfst_builder_set_start(
 ### `lling_wfst_builder_set_final`
 
 ```c
-LLING_API LlingStatus lling_wfst_builder_set_final(
+LLING_LLANG_API LlingLlangStatus lling_wfst_builder_set_final(
     LlingWfstBuilder* builder, uint32_t state, double weight);
 ```
 
@@ -607,7 +612,7 @@ LLING_API LlingStatus lling_wfst_builder_set_final(
 ### `lling_wfst_builder_clear_final`
 
 ```c
-LLING_API LlingStatus lling_wfst_builder_clear_final(
+LLING_LLANG_API LlingLlangStatus lling_wfst_builder_clear_final(
     LlingWfstBuilder* builder, uint32_t state);
 ```
 
@@ -623,7 +628,7 @@ LLING_API LlingStatus lling_wfst_builder_clear_final(
 ### `lling_wfst_builder_add_arc`
 
 ```c
-LLING_API LlingStatus lling_wfst_builder_add_arc(
+LLING_LLANG_API LlingLlangStatus lling_wfst_builder_add_arc(
     LlingWfstBuilder* builder, uint32_t from,
     uint64_t input_label, uint8_t has_input,
     uint64_t output_label, uint8_t has_output,
@@ -647,7 +652,7 @@ LLING_API LlingStatus lling_wfst_builder_add_arc(
 ### `lling_wfst_builder_build`
 
 ```c
-LLING_API LlingStatus lling_wfst_builder_build(
+LLING_LLANG_API LlingLlangStatus lling_wfst_builder_build(
     LlingWfstBuilder* builder, LlingWfst** out_wfst);
 ```
 
@@ -677,7 +682,7 @@ share across threads, usable concurrently, and exportable as a family
 ### `lling_wfst_free`
 
 ```c
-LLING_API void lling_wfst_free(LlingWfst* wfst);
+LLING_LLANG_API void lling_wfst_free(LlingWfst* wfst);
 ```
 
 | Aspect | Contract |
@@ -692,7 +697,7 @@ LLING_API void lling_wfst_free(LlingWfst* wfst);
 ### `lling_wfst_import`
 
 ```c
-LLING_API LlingStatus lling_wfst_import(
+LLING_LLANG_API LlingLlangStatus lling_wfst_import(
     VtResource resource, LlingWfst** out_wfst);
 ```
 
@@ -714,7 +719,7 @@ a `NULL_POINTER` result cannot leak a private graph or provider retain.
 ### `lling_wfst_import_ref`
 
 ```c
-LLING_API LlingStatus lling_wfst_import_ref(
+LLING_LLANG_API LlingLlangStatus lling_wfst_import_ref(
     const VtResource* resource, LlingWfst** out_wfst);
 ```
 
@@ -726,7 +731,7 @@ threading, and complexity are identical to `lling_wfst_import`; a null
 ### `lling_wfst_compose`
 
 ```c
-LLING_API LlingStatus lling_wfst_compose(
+LLING_LLANG_API LlingLlangStatus lling_wfst_compose(
     VtResource first, VtResource second, LlingWfst** out_wfst);
 ```
 
@@ -741,7 +746,7 @@ LLING_API LlingStatus lling_wfst_compose(
 
 Provider failures and invalid weights (NaN, $`-\infty`$) discovered **during**
 lazy expansion surface as `VT_STATUS_PROVIDER_ERROR` on the exported vtable
-calls — not as an `LlingStatus`, because traversal happens through the family
+calls — not as an `LlingLlangStatus`, because traversal happens through the family
 interface. See [Resource ABI architecture](../architecture/resource-abi.md).
 
 The output pointer is validated before either snapshot is captured, so failure
@@ -750,7 +755,7 @@ cannot strand a composition or either input retain.
 ### `lling_wfst_compose_refs`
 
 ```c
-LLING_API LlingStatus lling_wfst_compose_refs(
+LLING_LLANG_API LlingLlangStatus lling_wfst_compose_refs(
     const VtResource* first, const VtResource* second,
     LlingWfst** out_wfst);
 ```
@@ -765,7 +770,7 @@ domain validation as the aggregate-by-value entry point.
 
 ```c
 /* On success, out_resource owns one retain. */
-LLING_API LlingStatus lling_wfst_resource(
+LLING_LLANG_API LlingLlangStatus lling_wfst_resource(
     const LlingWfst* wfst, VtResource* out_resource);
 ```
 
@@ -781,7 +786,7 @@ LLING_API LlingStatus lling_wfst_resource(
 ### `lling_resource_release`
 
 ```c
-LLING_API void lling_resource_release(VtResource resource);
+LLING_LLANG_API void lling_resource_release(VtResource resource);
 ```
 
 | Aspect | Contract |
@@ -857,7 +862,7 @@ from the repository root (sibling-checkout layout; with installed packages use
 #include <stdlib.h>
 
 /* Abort with the thread-local diagnostic when a call fails. */
-static void require(LlingStatus status, const char* operation) {
+static void require(LlingLlangStatus status, const char* operation) {
     if (status != LLING_STATUS_OK) {
         fprintf(stderr, "%s failed (%u): %s\n", operation, (unsigned)status,
                 lling_last_error_message());
@@ -894,7 +899,7 @@ static VtResource single_arc_resource(uint32_t input, uint32_t output,
 int main(void) {
     /* 1. Version handshake: refuse to run against an incompatible binary. */
     if (lling_abi_version() != LLING_ABI_VERSION ||
-        lling_api_revision() < LLING_API_REVISION) {
+        lling_llang_api_revision() < LLING_LLANG_API_REVISION) {
         fprintf(stderr, "incompatible lling-llang binary\n");
         return EXIT_FAILURE;
     }

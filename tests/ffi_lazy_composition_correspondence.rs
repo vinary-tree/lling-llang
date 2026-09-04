@@ -34,8 +34,8 @@ mod support;
 use lling_llang::bindings::{import_tropical_wfst, OwnedWfstResource};
 use lling_llang::composition::{compose, materialize};
 use lling_llang::ffi::{
-    lling_resource_release, lling_wfst_compose, lling_wfst_free, lling_wfst_resource, LlingStatus,
-    LlingWfst,
+    lling_resource_release, lling_wfst_compose, lling_wfst_free, lling_wfst_resource,
+    LlingLlangStatus, LlingWfst,
 };
 use lling_llang::semiring::TropicalWeight;
 use lling_llang::test_utils::arb_acyclic_wfst_tropical;
@@ -163,12 +163,12 @@ fn abi_composition(
             right_resource.as_raw(),
             &mut composed
         ),
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let mut resource = VtResource::NULL;
     assert_eq!(
         unsafe { lling_wfst_resource(composed, &mut resource) },
-        LlingStatus::Ok
+        LlingLlangStatus::Ok
     );
     let materialized =
         import_tropical_wfst(resource).expect("fully traversing the lazy product must succeed");

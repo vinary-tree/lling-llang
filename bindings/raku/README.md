@@ -98,8 +98,10 @@ $host.close;
 my $zero = $algebra.zero;
 my $one = $algebra.one;
 my $best = $one.plus($zero);
+my $best-of-many = $algebra.plus-many([$zero, $one]);
 die 'bad algebra' unless $algebra.equal($best, $one);
-.close for $zero, $one, $best;
+say $algebra.diagnostic($best-of-many);
+.close for $zero, $one, $best, $best-of-many;
 $algebra.close;
 ```
 
@@ -108,6 +110,9 @@ The domain identifier is exactly 16 bytes. Enable `:division`, `:star`, or
 undefined division and star return the `SemiringWeight` type object. Declared
 properties and `closure-bound` come from provider methods. Call
 `validate-laws` on representative weights before relying on those claims.
+`plus-many` and `times-many` preserve left-fold order and use bounded provider
+batches when advertised. `diagnostic` accepts either no value for a domain
+description or one weight for a value description.
 
 ### Send an LLattice value through lling-llang
 
@@ -213,7 +218,7 @@ weight domain, acyclicity, and threading behavior.
 |---|---:|
 | Lling-Llang | `4.0.0-rc.6` |
 | lling-llang C ABI | `1` |
-| lling-llang API revision | at least `4` |
+| lling-llang API revision | at least `6` |
 | Vinary-Tree-Interop | `4.0.0` compatible |
 | Raku | language version `6.d` |
 
@@ -224,8 +229,9 @@ Module initialization checks the native ABI and API revision.
 [`t/01-conformance.rakutest`](t/01-conformance.rakutest) exercises ABI
 negotiation, the eager builder, resource import, a Raku-defined provider,
 snapshot survival, arc paging, and lazy tropical composition. It also sends a
-Raku-defined semiring through Rust and tests optional operations, law
-validation, stable bytes, token cloning, and deterministic release. It also
+Raku-defined semiring through Rust and tests optional operations, bounded
+folds, domain and value diagnostics, law validation, stable bytes, token
+cloning, and deterministic release. It also
 passes actual LLattice-hosted values through Rust and checks join, meet,
 bounded folds, equality, domain negotiation, law validation, and close.
 
