@@ -203,6 +203,9 @@
       "cType": "LlingLlangStatus",
       "cPrefix": "LLING_STATUS_",
       "rustType": "LlingLlangStatus",
+      "rakuName": "Status",
+      "cSuffix": "",
+      "sinceApiRevision": 1,
       "values": {
         "OK": 0,
         "INVALID_ARGUMENT": 1,
@@ -212,6 +215,87 @@
         "PROVIDER_ERROR": 5,
         "LIMIT_EXCEEDED": 6,
         "CLOSED": 7
+      }
+    },
+    "precisionV2": {
+      "cType": "LlingPrecisionV2",
+      "cPrefix": "LLING_",
+      "rustType": "LlingPrecisionV2",
+      "rakuName": "PrecisionV2",
+      "cSuffix": "_V2",
+      "sinceApiRevision": 2,
+      "values": {
+        "PRECISION_EXACT": 1,
+        "PRECISION_APPROXIMATE": 2,
+        "PRECISION_UNKNOWN": 3
+      }
+    },
+    "completenessV2": {
+      "cType": "LlingCompletenessV2",
+      "cPrefix": "LLING_",
+      "rustType": "LlingCompletenessV2",
+      "rakuName": "CompletenessV2",
+      "cSuffix": "_V2",
+      "sinceApiRevision": 2,
+      "values": {
+        "COMPLETENESS_COMPLETE": 1,
+        "COMPLETENESS_INCOMPLETE": 2
+      }
+    },
+    "applicabilityV2": {
+      "cType": "LlingApplicabilityV2",
+      "cPrefix": "LLING_",
+      "rustType": "LlingApplicabilityV2",
+      "rakuName": "ApplicabilityV2",
+      "cSuffix": "_V2",
+      "sinceApiRevision": 2,
+      "values": {
+        "APPLICABILITY_APPLICABLE": 1,
+        "APPLICABILITY_UNSUPPORTED": 2,
+        "APPLICABILITY_UNKNOWN": 3
+      }
+    },
+    "terminationV2": {
+      "cType": "LlingTerminationV2",
+      "cPrefix": "LLING_",
+      "rustType": "LlingTerminationV2",
+      "rakuName": "TerminationV2",
+      "cSuffix": "_V2",
+      "sinceApiRevision": 2,
+      "values": {
+        "TERMINATION_SUCCEEDED": 1,
+        "TERMINATION_CANCELLED": 2,
+        "TERMINATION_BUDGET_EXHAUSTED": 3,
+        "TERMINATION_FAILED": 4
+      }
+    },
+    "evidenceStateV2": {
+      "cType": "LlingEvidenceStateV2",
+      "cPrefix": "LLING_",
+      "rustType": "LlingEvidenceStateV2",
+      "rakuName": "EvidenceStateV2",
+      "cSuffix": "_V2",
+      "sinceApiRevision": 2,
+      "values": {
+        "EVIDENCE_NONE": 0,
+        "EVIDENCE_CANDIDATE": 1,
+        "EVIDENCE_VERIFIED": 2,
+        "EVIDENCE_STALE": 3,
+        "EVIDENCE_INVALID": 4
+      }
+    },
+    "cancellationReasonV2": {
+      "cType": "LlingCancellationReasonV2",
+      "cPrefix": "LLING_CANCELLATION_",
+      "rustType": "LlingCancellationReasonV2",
+      "rakuName": "CancellationReasonV2",
+      "cSuffix": "_V2",
+      "sinceApiRevision": 2,
+      "values": {
+        "REQUESTED": 1,
+        "DEADLINE": 2,
+        "BUDGET": 3,
+        "SOURCE": 4
       }
     }
   },
@@ -358,259 +442,2803 @@
   "cFunctions": [
     {
       "name": "lling_abi_version",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-abi-version",
+      "sinceApiRevision": 1,
+      "threading": "concurrent-reentrant",
+      "capability": "core-versioning",
+      "return": {
+        "cType": "uint32_t",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_llang_api_revision",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-api-revision",
+      "sinceApiRevision": 6,
+      "threading": "concurrent-reentrant",
+      "capability": "core-versioning",
+      "return": {
+        "cType": "uint32_t",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_last_error_message",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-last-error-message",
+      "sinceApiRevision": 1,
+      "threading": "caller-thread-thread-local-error-buffer",
+      "capability": "core-versioning",
+      "return": {
+        "cType": "const char*",
+        "rakuType": "Str",
+        "ownership": "borrowed-thread-local-until-next-boundary-call",
+        "nullability": "non-null"
+      },
+      "parameters": [],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_open",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-open",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "resource",
+          "cType": "const VtResource*",
+          "rakuType": "Vinary::Tree::Interop::RawResource",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-capture-retain",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_semiring",
+          "cType": "LlingSemiring**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_free",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-free",
+      "sinceApiRevision": 3,
+      "threading": "exclusive-owner-close",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "void",
+        "rakuType": null,
+        "ownership": "none",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "inout",
+          "ownership": "consumed-when-non-null",
+          "nullability": "nullable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_weight_free",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-weight-free",
+      "sinceApiRevision": 3,
+      "threading": "exclusive-owner-close",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "void",
+        "rakuType": null,
+        "ownership": "none",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "weight",
+          "cType": "LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "inout",
+          "ownership": "consumed-when-non-null",
+          "nullability": "nullable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_properties",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-properties",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_properties",
+          "cType": "uint64_t*",
+          "rakuType": "uint64",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_zero",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-zero",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_weight",
+          "cType": "LlingSemiringWeight**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_one",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-one",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_weight",
+          "cType": "LlingSemiringWeight**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_weight_clone",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-weight-clone",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "weight",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_weight",
+          "cType": "LlingSemiringWeight**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_plus",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-plus",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "left",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "right",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_weight",
+          "cType": "LlingSemiringWeight**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_times",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-times",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "left",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "right",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_weight",
+          "cType": "LlingSemiringWeight**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_equal",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-equal",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "left",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "right",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_equal",
+          "cType": "uint8_t*",
+          "rakuType": "uint8",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_approx_equal",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-approx-equal",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "left",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "right",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "epsilon",
+          "cType": "double",
+          "rakuType": "num64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_equal",
+          "cType": "uint8_t*",
+          "rakuType": "uint8",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_natural_order",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-natural-order",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "left",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "right",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_order",
+          "cType": "int32_t*",
+          "rakuType": "int32",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_divide",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-divide",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "dividend",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "divisor",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_weight",
+          "cType": "LlingSemiringWeight**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_defined",
+          "cType": "uint8_t*",
+          "rakuType": "uint8",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_left_divide",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-left-divide",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "value",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "divisor",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_weight",
+          "cType": "LlingSemiringWeight**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_defined",
+          "cType": "uint8_t*",
+          "rakuType": "uint8",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_star",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-star",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "value",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_weight",
+          "cType": "LlingSemiringWeight**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_defined",
+          "cType": "uint8_t*",
+          "rakuType": "uint8",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_numerical_value",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-numerical-value",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "value",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_value",
+          "cType": "double*",
+          "rakuType": "num64",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_quantize",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-quantize",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "value",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "epsilon",
+          "cType": "double",
+          "rakuType": "num64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_value",
+          "cType": "int64_t*",
+          "rakuType": "int64",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_to_probability",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-to-probability",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "value",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_value",
+          "cType": "double*",
+          "rakuType": "num64",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_closure_bound",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-closure-bound",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_bound",
+          "cType": "size_t*",
+          "rakuType": "size_t",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_known",
+          "cType": "uint8_t*",
+          "rakuType": "uint8",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_stable_bytes",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-stable-bytes",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "value",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_bytes",
+          "cType": "uint8_t*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "out",
+          "ownership": "borrowed-output-buffer",
+          "nullability": "nullable-if-capacity-is-zero"
+        },
+        {
+          "name": "capacity",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_written",
+          "cType": "size_t*",
+          "rakuType": "size_t",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_required",
+          "cType": "size_t*",
+          "rakuType": "size_t",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_diagnostic",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-diagnostic",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "value",
+          "cType": "const LlingSemiringWeight*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_bytes",
+          "cType": "uint8_t*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "out",
+          "ownership": "borrowed-output-buffer",
+          "nullability": "nullable-if-capacity-is-zero"
+        },
+        {
+          "name": "capacity",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_written",
+          "cType": "size_t*",
+          "rakuType": "size_t",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_required",
+          "cType": "size_t*",
+          "rakuType": "size_t",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_plus_many",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-plus-many",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "weights",
+          "cType": "const LlingSemiringWeight*const*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-array-for-call",
+          "nullability": "nullable-if-count-is-zero"
+        },
+        {
+          "name": "count",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_weight",
+          "cType": "LlingSemiringWeight**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_times_many",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-times-many",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "weights",
+          "cType": "const LlingSemiringWeight*const*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-array-for-call",
+          "nullability": "nullable-if-count-is-zero"
+        },
+        {
+          "name": "count",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_weight",
+          "cType": "LlingSemiringWeight**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_semiring_validate_laws",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-semiring-validate-laws",
+      "sinceApiRevision": 3,
+      "threading": "provider-declared-thread-contract",
+      "capability": "semiring-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "semiring",
+          "cType": "const LlingSemiring*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "weights",
+          "cType": "const LlingSemiringWeight*const*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-array-for-call",
+          "nullability": "nullable-if-count-is-zero"
+        },
+        {
+          "name": "count",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "epsilon",
+          "cType": "double",
+          "rakuType": "num64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_lattice_open",
-      "rustModule": "ffi::lattice"
+      "rustModule": "ffi::lattice",
+      "rakuName": "lling-lattice-open",
+      "sinceApiRevision": 4,
+      "threading": "same-thread-resource-contract",
+      "capability": "lattice-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "resource",
+          "cType": "const VtResource*",
+          "rakuType": "Vinary::Tree::Interop::RawResource",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-capture-retain",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_value",
+          "cType": "LlingLatticeValue**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_lattice_free",
-      "rustModule": "ffi::lattice"
+      "rustModule": "ffi::lattice",
+      "rakuName": "lling-lattice-free",
+      "sinceApiRevision": 4,
+      "threading": "exclusive-owner-close",
+      "capability": "lattice-consumer",
+      "return": {
+        "cType": "void",
+        "rakuType": null,
+        "ownership": "none",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "value",
+          "cType": "LlingLatticeValue*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "inout",
+          "ownership": "consumed-when-non-null",
+          "nullability": "nullable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_lattice_domain_id",
-      "rustModule": "ffi::lattice"
+      "rustModule": "ffi::lattice",
+      "rakuName": "lling-lattice-domain-id",
+      "sinceApiRevision": 4,
+      "threading": "same-thread-resource-contract",
+      "capability": "lattice-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "value",
+          "cType": "const LlingLatticeValue*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_domain",
+          "cType": "VtInterfaceId*",
+          "rakuType": "Vinary::Tree::Interop::InterfaceId",
+          "rakuPassing": "value",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_lattice_flags",
-      "rustModule": "ffi::lattice"
+      "rustModule": "ffi::lattice",
+      "rakuName": "lling-lattice-flags",
+      "sinceApiRevision": 4,
+      "threading": "same-thread-resource-contract",
+      "capability": "lattice-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "value",
+          "cType": "const LlingLatticeValue*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_flags",
+          "cType": "uint64_t*",
+          "rakuType": "uint64",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_lattice_join",
-      "rustModule": "ffi::lattice"
+      "rustModule": "ffi::lattice",
+      "rakuName": "lling-lattice-join",
+      "sinceApiRevision": 4,
+      "threading": "same-thread-resource-contract",
+      "capability": "lattice-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "left",
+          "cType": "const LlingLatticeValue*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "right",
+          "cType": "const LlingLatticeValue*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_value",
+          "cType": "LlingLatticeValue**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_lattice_meet",
-      "rustModule": "ffi::lattice"
+      "rustModule": "ffi::lattice",
+      "rakuName": "lling-lattice-meet",
+      "sinceApiRevision": 4,
+      "threading": "same-thread-resource-contract",
+      "capability": "lattice-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "left",
+          "cType": "const LlingLatticeValue*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "right",
+          "cType": "const LlingLatticeValue*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_value",
+          "cType": "LlingLatticeValue**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_lattice_equal",
-      "rustModule": "ffi::lattice"
+      "rustModule": "ffi::lattice",
+      "rakuName": "lling-lattice-equal",
+      "sinceApiRevision": 4,
+      "threading": "same-thread-resource-contract",
+      "capability": "lattice-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "left",
+          "cType": "const LlingLatticeValue*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "right",
+          "cType": "const LlingLatticeValue*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_equal",
+          "cType": "uint8_t*",
+          "rakuType": "uint8",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_lattice_stable_bytes",
-      "rustModule": "ffi::lattice"
+      "rustModule": "ffi::lattice",
+      "rakuName": "lling-lattice-stable-bytes",
+      "sinceApiRevision": 4,
+      "threading": "same-thread-resource-contract",
+      "capability": "lattice-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "value",
+          "cType": "const LlingLatticeValue*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_bytes",
+          "cType": "uint8_t*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "out",
+          "ownership": "borrowed-output-buffer",
+          "nullability": "nullable-if-capacity-is-zero"
+        },
+        {
+          "name": "capacity",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_written",
+          "cType": "size_t*",
+          "rakuType": "size_t",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_required",
+          "cType": "size_t*",
+          "rakuType": "size_t",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_lattice_diagnostic",
-      "rustModule": "ffi::lattice"
+      "rustModule": "ffi::lattice",
+      "rakuName": "lling-lattice-diagnostic",
+      "sinceApiRevision": 4,
+      "threading": "same-thread-resource-contract",
+      "capability": "lattice-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "value",
+          "cType": "const LlingLatticeValue*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_bytes",
+          "cType": "uint8_t*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "out",
+          "ownership": "borrowed-output-buffer",
+          "nullability": "nullable-if-capacity-is-zero"
+        },
+        {
+          "name": "capacity",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_written",
+          "cType": "size_t*",
+          "rakuType": "size_t",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_required",
+          "cType": "size_t*",
+          "rakuType": "size_t",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_lattice_join_many",
-      "rustModule": "ffi::lattice"
+      "rustModule": "ffi::lattice",
+      "rakuName": "lling-lattice-join-many",
+      "sinceApiRevision": 4,
+      "threading": "same-thread-resource-contract",
+      "capability": "lattice-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "receiver",
+          "cType": "const LlingLatticeValue*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "others",
+          "cType": "const LlingLatticeValue*const*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-array-for-call",
+          "nullability": "nullable-if-count-is-zero"
+        },
+        {
+          "name": "count",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_value",
+          "cType": "LlingLatticeValue**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_lattice_meet_many",
-      "rustModule": "ffi::lattice"
+      "rustModule": "ffi::lattice",
+      "rakuName": "lling-lattice-meet-many",
+      "sinceApiRevision": 4,
+      "threading": "same-thread-resource-contract",
+      "capability": "lattice-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "receiver",
+          "cType": "const LlingLatticeValue*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "others",
+          "cType": "const LlingLatticeValue*const*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-array-for-call",
+          "nullability": "nullable-if-count-is-zero"
+        },
+        {
+          "name": "count",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_value",
+          "cType": "LlingLatticeValue**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_lattice_validate_laws",
-      "rustModule": "ffi::lattice"
+      "rustModule": "ffi::lattice",
+      "rakuName": "lling-lattice-validate-laws",
+      "sinceApiRevision": 4,
+      "threading": "same-thread-resource-contract",
+      "capability": "lattice-consumer",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "values",
+          "cType": "const LlingLatticeValue*const*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-array-for-call",
+          "nullability": "nullable-if-count-is-zero"
+        },
+        {
+          "name": "count",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_wfst_builder_new",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-builder-new",
+      "sinceApiRevision": 1,
+      "threading": "caller-synchronized-mutable-handle",
+      "capability": "wfst-builder",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "out_builder",
+          "cType": "LlingWfstBuilder**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_wfst_builder_free",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-builder-free",
+      "sinceApiRevision": 1,
+      "threading": "exclusive-owner-close",
+      "capability": "wfst-builder",
+      "return": {
+        "cType": "void",
+        "rakuType": null,
+        "ownership": "none",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "builder",
+          "cType": "LlingWfstBuilder*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "inout",
+          "ownership": "consumed-when-non-null",
+          "nullability": "nullable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_wfst_builder_reserve_states",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-builder-reserve-states",
+      "sinceApiRevision": 1,
+      "threading": "caller-synchronized-mutable-handle",
+      "capability": "wfst-builder",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "builder",
+          "cType": "LlingWfstBuilder*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "additional",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_wfst_builder_add_state",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-builder-add-state",
+      "sinceApiRevision": 1,
+      "threading": "caller-synchronized-mutable-handle",
+      "capability": "wfst-builder",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "builder",
+          "cType": "LlingWfstBuilder*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_state",
+          "cType": "uint32_t*",
+          "rakuType": "uint32",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_wfst_builder_set_start",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-builder-set-start",
+      "sinceApiRevision": 1,
+      "threading": "caller-synchronized-mutable-handle",
+      "capability": "wfst-builder",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "builder",
+          "cType": "LlingWfstBuilder*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "state",
+          "cType": "uint32_t",
+          "rakuType": "uint32",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_wfst_builder_set_final",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-builder-set-final",
+      "sinceApiRevision": 1,
+      "threading": "caller-synchronized-mutable-handle",
+      "capability": "wfst-builder",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "builder",
+          "cType": "LlingWfstBuilder*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "state",
+          "cType": "uint32_t",
+          "rakuType": "uint32",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "weight",
+          "cType": "double",
+          "rakuType": "num64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_wfst_builder_clear_final",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-builder-clear-final",
+      "sinceApiRevision": 1,
+      "threading": "caller-synchronized-mutable-handle",
+      "capability": "wfst-builder",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "builder",
+          "cType": "LlingWfstBuilder*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "state",
+          "cType": "uint32_t",
+          "rakuType": "uint32",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_wfst_builder_add_arc",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-builder-add-arc",
+      "sinceApiRevision": 1,
+      "threading": "caller-synchronized-mutable-handle",
+      "capability": "wfst-builder",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "builder",
+          "cType": "LlingWfstBuilder*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "from",
+          "cType": "uint32_t",
+          "rakuType": "uint32",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "input_label",
+          "cType": "uint64_t",
+          "rakuType": "uint64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "has_input",
+          "cType": "uint8_t",
+          "rakuType": "uint8",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "output_label",
+          "cType": "uint64_t",
+          "rakuType": "uint64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "has_output",
+          "cType": "uint8_t",
+          "rakuType": "uint8",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "to",
+          "cType": "uint32_t",
+          "rakuType": "uint32",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "weight",
+          "cType": "double",
+          "rakuType": "num64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_wfst_builder_build",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-builder-build",
+      "sinceApiRevision": 1,
+      "threading": "caller-synchronized-mutable-handle",
+      "capability": "wfst-builder",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "builder",
+          "cType": "LlingWfstBuilder*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-consuming-graph-on-success",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_wfst",
+          "cType": "LlingWfst**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_wfst_free",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-free",
+      "sinceApiRevision": 1,
+      "threading": "exclusive-owner-close",
+      "capability": "wfst-resource",
+      "return": {
+        "cType": "void",
+        "rakuType": null,
+        "ownership": "none",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "wfst",
+          "cType": "LlingWfst*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "inout",
+          "ownership": "consumed-when-non-null",
+          "nullability": "nullable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_wfst_import",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-import",
+      "sinceApiRevision": 1,
+      "threading": "caller-coordinates-immutable-handle-lifetime",
+      "capability": "wfst-resource",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "resource",
+          "cType": "VtResource",
+          "rakuType": "Vinary::Tree::Interop::RawResource",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-capture-snapshot",
+          "nullability": "invalid-resource-rejected"
+        },
+        {
+          "name": "out_wfst",
+          "cType": "LlingWfst**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "NativeCall does not portably pass the imported VtResource C aggregate by value; use the pointer-form API or the interop resource owner"
+      }
     },
     {
       "name": "lling_wfst_import_ref",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-import-ref",
+      "sinceApiRevision": 2,
+      "threading": "caller-coordinates-immutable-handle-lifetime",
+      "capability": "wfst-resource",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "resource",
+          "cType": "const VtResource*",
+          "rakuType": "Vinary::Tree::Interop::RawResource",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-capture-snapshot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_wfst",
+          "cType": "LlingWfst**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_wfst_compose",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-compose",
+      "sinceApiRevision": 1,
+      "threading": "caller-coordinates-immutable-handle-lifetime",
+      "capability": "wfst-resource",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "first",
+          "cType": "VtResource",
+          "rakuType": "Vinary::Tree::Interop::RawResource",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-capture-snapshot",
+          "nullability": "invalid-resource-rejected"
+        },
+        {
+          "name": "second",
+          "cType": "VtResource",
+          "rakuType": "Vinary::Tree::Interop::RawResource",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-capture-snapshot",
+          "nullability": "invalid-resource-rejected"
+        },
+        {
+          "name": "out_wfst",
+          "cType": "LlingWfst**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "NativeCall does not portably pass the imported VtResource C aggregate by value; use the pointer-form API or the interop resource owner"
+      }
     },
     {
       "name": "lling_wfst_compose_refs",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-compose-refs",
+      "sinceApiRevision": 2,
+      "threading": "caller-coordinates-immutable-handle-lifetime",
+      "capability": "wfst-resource",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "first",
+          "cType": "const VtResource*",
+          "rakuType": "Vinary::Tree::Interop::RawResource",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-capture-snapshot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "second",
+          "cType": "const VtResource*",
+          "rakuType": "Vinary::Tree::Interop::RawResource",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-capture-snapshot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_wfst",
+          "cType": "LlingWfst**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_wfst_resource",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-resource",
+      "sinceApiRevision": 1,
+      "threading": "caller-coordinates-immutable-handle-lifetime",
+      "capability": "wfst-resource",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "wfst",
+          "cType": "const LlingWfst*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_resource",
+          "cType": "VtResource*",
+          "rakuType": "Vinary::Tree::Interop::RawResource",
+          "rakuPassing": "value",
+          "direction": "out",
+          "ownership": "owned-retain-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_resource_release",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-resource-release",
+      "sinceApiRevision": 1,
+      "threading": "exclusive-owner-close",
+      "capability": "wfst-resource",
+      "return": {
+        "cType": "void",
+        "rakuType": null,
+        "ownership": "none",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "resource",
+          "cType": "VtResource",
+          "rakuType": "Vinary::Tree::Interop::RawResource",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "consumed-retain",
+          "nullability": "invalid-resource-rejected"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "NativeCall does not portably pass the imported VtResource C aggregate by value; use the pointer-form API or the interop resource owner"
+      }
     },
     {
       "name": "lling_abi_v2_validate_header",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-abi-v2-validate-header",
+      "sinceApiRevision": 2,
+      "threading": "concurrent-reentrant",
+      "capability": "typed-abi-v2",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "header",
+          "cType": "const LlingAbiV2Header*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "required_size",
+          "cType": "uint32_t",
+          "rakuType": "uint32",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "known_flags",
+          "cType": "uint64_t",
+          "rakuType": "uint64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_abi_v2_validate_descriptor",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-abi-v2-validate-descriptor",
+      "sinceApiRevision": 2,
+      "threading": "concurrent-reentrant",
+      "capability": "typed-abi-v2",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "descriptor",
+          "cType": "const LlingWfstDescriptorV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_typed_evidence_allowed",
+          "cType": "uint8_t*",
+          "rakuType": "uint8",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_abi_v2_validate_budget",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-abi-v2-validate-budget",
+      "sinceApiRevision": 2,
+      "threading": "concurrent-reentrant",
+      "capability": "typed-abi-v2",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "budget",
+          "cType": "const LlingBudgetV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_abi_v2_validate_outcome",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-abi-v2-validate-outcome",
+      "sinceApiRevision": 2,
+      "threading": "concurrent-reentrant",
+      "capability": "typed-abi-v2",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "outcome",
+          "cType": "const LlingOutcomeV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "resource_present",
+          "cType": "uint8_t",
+          "rakuType": "uint8",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "evidence_present",
+          "cType": "uint8_t",
+          "rakuType": "uint8",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_authoritative_exact",
+          "cType": "uint8_t*",
+          "rakuType": "uint8",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_abi_v2_identity_matches",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-abi-v2-identity-matches",
+      "sinceApiRevision": 2,
+      "threading": "concurrent-reentrant",
+      "capability": "typed-abi-v2",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "expected",
+          "cType": "const LlingWfstDescriptorV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "observed",
+          "cType": "const LlingWfstDescriptorV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_matches",
+          "cType": "uint8_t*",
+          "rakuType": "uint8",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_cancellation_v2_new",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-cancellation-v2-new",
+      "sinceApiRevision": 2,
+      "threading": "concurrent-reentrant-cancellation-token",
+      "capability": "cancellation-v2",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "out_cancellation",
+          "cType": "LlingCancellationV2**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_cancellation_v2_request",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-cancellation-v2-request",
+      "sinceApiRevision": 2,
+      "threading": "concurrent-reentrant-cancellation-token",
+      "capability": "cancellation-v2",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "cancellation",
+          "cType": "const LlingCancellationV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "reason",
+          "cType": "uint32_t",
+          "rakuType": "uint32",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_cancellation_v2_reason",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-cancellation-v2-reason",
+      "sinceApiRevision": 2,
+      "threading": "concurrent-reentrant-cancellation-token",
+      "capability": "cancellation-v2",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "cancellation",
+          "cType": "const LlingCancellationV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_reason",
+          "cType": "uint32_t*",
+          "rakuType": "uint32",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     },
     {
       "name": "lling_cancellation_v2_free",
-      "rustModule": "ffi"
+      "rustModule": "ffi",
+      "rakuName": "lling-cancellation-v2-free",
+      "sinceApiRevision": 2,
+      "threading": "exclusive-owner-close",
+      "capability": "cancellation-v2",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "cancellation",
+          "cType": "LlingCancellationV2**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "inout",
+          "ownership": "consumed-and-cleared-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     }
   ],
   "javascript": {
@@ -671,5 +3299,1671 @@
     "distTag": "next",
     "sourceTag": "v4.0.0-rc.6"
   },
-  "productDescription": "Build, compose, optimize, and run semiring-generic weighted automata for speech recognition, text processing, and constrained generation."
+  "productDescription": "Build, compose, optimize, and run semiring-generic weighted automata for speech recognition, text processing, and constrained generation.",
+  "rakuAbi": {
+    "module": "Lling::Llang::GeneratedAbi",
+    "callingConvention": "cdecl",
+    "nativeLibrary": {
+      "environment": "LLING_LLANG_LIBRARY",
+      "linux": "liblling_llang.so",
+      "macos": "liblling_llang.dylib",
+      "windows": "lling_llang.dll"
+    },
+    "providerLibrary": {
+      "environment": "LLING_LLANG_RAKU_PROVIDER_LIB",
+      "linux": "liblling_llang_raku_provider.so",
+      "macos": "liblling_llang_raku_provider.dylib",
+      "windows": "lling_llang_raku_provider.dll",
+      "resource": "libraries/lling_llang_raku_provider"
+    },
+    "constants": {
+      "DESCRIPTOR-SIGNATURE-KNOWN": "1 +< 0",
+      "DESCRIPTOR-SNAPSHOT-PRESENT": "1 +< 1",
+      "DESCRIPTOR-CONTEXT-PRESENT": "1 +< 2",
+      "BUDGET-STATES": "1 +< 0",
+      "BUDGET-ARCS": "1 +< 1",
+      "BUDGET-BYTES": "1 +< 2",
+      "BUDGET-WORK": "1 +< 3"
+    },
+    "ffiTypes": {
+      "LlingWfstBuilder": {
+        "kind": "opaque",
+        "rakuType": "Pointer",
+        "ownership": "unique-mutable-handle"
+      },
+      "LlingWfst": {
+        "kind": "opaque",
+        "rakuType": "Pointer",
+        "ownership": "unique-immutable-handle"
+      },
+      "LlingSemiring": {
+        "kind": "opaque",
+        "rakuType": "Pointer",
+        "ownership": "unique-context-handle"
+      },
+      "LlingSemiringWeight": {
+        "kind": "opaque",
+        "rakuType": "Pointer",
+        "ownership": "unique-provider-value-handle"
+      },
+      "LlingLatticeValue": {
+        "kind": "opaque",
+        "rakuType": "Pointer",
+        "ownership": "unique-provider-value-handle"
+      },
+      "LlingCancellationV2": {
+        "kind": "opaque",
+        "rakuType": "Pointer",
+        "ownership": "unique-cancellation-handle"
+      },
+      "VtResource": {
+        "kind": "imported-struct",
+        "rakuType": "Vinary::Tree::Interop::RawResource",
+        "ownership": "reference-counted-retain"
+      },
+      "VtInterfaceId": {
+        "kind": "imported-struct",
+        "rakuType": "Vinary::Tree::Interop::InterfaceId",
+        "ownership": "value-identity"
+      },
+      "VtWfstArc": {
+        "kind": "imported-struct",
+        "rakuType": "Vinary::Tree::Interop::WfstArc",
+        "ownership": "value"
+      },
+      "VtSemiringValue": {
+        "kind": "imported-struct",
+        "rakuType": "Vinary::Tree::Interop::SemiringValue",
+        "ownership": "provider-managed-token"
+      }
+    },
+    "structs": {
+      "AbiV2Header": {
+        "cType": "LlingAbiV2Header",
+        "layoutKey": "header",
+        "size": 24,
+        "rakuSupport": "cstruct",
+        "rakuConstructor": "abi-header",
+        "fields": [
+          {
+            "name": "struct-size",
+            "cName": "struct_size",
+            "cType": "uint32_t",
+            "rakuType": "uint32"
+          },
+          {
+            "name": "abi-version",
+            "cName": "abi_version",
+            "cType": "uint32_t",
+            "rakuType": "uint32"
+          },
+          {
+            "name": "flags",
+            "cName": "flags",
+            "cType": "uint64_t",
+            "rakuType": "uint64"
+          },
+          {
+            "name": "reserved",
+            "cName": "reserved",
+            "cType": "uint64_t",
+            "rakuType": "uint64"
+          }
+        ]
+      },
+      "Id128": {
+        "cType": "LlingId128",
+        "layoutKey": "id128",
+        "size": 16,
+        "rakuSupport": "pointer-only",
+        "reason": "NativeCall fixed-size inline byte arrays are not portable across supported Rakudo/libffi targets",
+        "fields": [
+          {
+            "name": "bytes",
+            "cName": "bytes",
+            "cType": "uint8_t[16]"
+          }
+        ]
+      },
+      "Digest256": {
+        "cType": "LlingDigest256",
+        "layoutKey": "digest256",
+        "size": 32,
+        "rakuSupport": "pointer-only",
+        "reason": "NativeCall fixed-size inline byte arrays are not portable across supported Rakudo/libffi targets",
+        "fields": [
+          {
+            "name": "bytes",
+            "cName": "bytes",
+            "cType": "uint8_t[32]"
+          }
+        ]
+      },
+      "WfstDescriptorV2": {
+        "cType": "LlingWfstDescriptorV2",
+        "layoutKey": "wfstDescriptor",
+        "size": 120,
+        "rakuSupport": "pointer-only",
+        "reason": "The descriptor embeds fixed-size identity arrays; callers pass an externally materialized descriptor pointer",
+        "fields": [
+          {
+            "name": "header",
+            "cName": "header",
+            "cType": "LlingAbiV2Header"
+          },
+          {
+            "name": "input-tape",
+            "cName": "input_tape",
+            "cType": "LlingId128"
+          },
+          {
+            "name": "output-tape",
+            "cName": "output_tape",
+            "cType": "LlingId128"
+          },
+          {
+            "name": "algebra",
+            "cName": "algebra",
+            "cType": "LlingId128"
+          },
+          {
+            "name": "snapshot",
+            "cName": "snapshot",
+            "cType": "LlingId128"
+          },
+          {
+            "name": "context",
+            "cName": "context",
+            "cType": "LlingDigest256"
+          }
+        ]
+      },
+      "BudgetV2": {
+        "cType": "LlingBudgetV2",
+        "layoutKey": "budget",
+        "size": 72,
+        "rakuSupport": "cstruct",
+        "rakuConstructor": "budget",
+        "fields": [
+          {
+            "name": "header",
+            "cName": "header",
+            "cType": "LlingAbiV2Header",
+            "rakuType": "AbiV2Header",
+            "embedded": true
+          },
+          {
+            "name": "max-states",
+            "cName": "max_states",
+            "cType": "uint64_t",
+            "rakuType": "uint64"
+          },
+          {
+            "name": "max-arcs",
+            "cName": "max_arcs",
+            "cType": "uint64_t",
+            "rakuType": "uint64"
+          },
+          {
+            "name": "max-bytes",
+            "cName": "max_bytes",
+            "cType": "uint64_t",
+            "rakuType": "uint64"
+          },
+          {
+            "name": "max-work",
+            "cName": "max_work",
+            "cType": "uint64_t",
+            "rakuType": "uint64"
+          },
+          {
+            "name": "reserved0",
+            "cName": "reserved[0]",
+            "cType": "uint64_t",
+            "rakuType": "uint64"
+          },
+          {
+            "name": "reserved1",
+            "cName": "reserved[1]",
+            "cType": "uint64_t",
+            "rakuType": "uint64"
+          }
+        ]
+      },
+      "OutcomeV2": {
+        "cType": "LlingOutcomeV2",
+        "layoutKey": "outcome",
+        "size": 96,
+        "rakuSupport": "cstruct",
+        "rakuConstructor": "outcome",
+        "fields": [
+          {
+            "name": "header",
+            "cName": "header",
+            "cType": "LlingAbiV2Header",
+            "rakuType": "AbiV2Header",
+            "embedded": true
+          },
+          {
+            "name": "precision",
+            "cName": "precision",
+            "cType": "uint32_t",
+            "rakuType": "uint32"
+          },
+          {
+            "name": "completeness",
+            "cName": "completeness",
+            "cType": "uint32_t",
+            "rakuType": "uint32"
+          },
+          {
+            "name": "applicability",
+            "cName": "applicability",
+            "cType": "uint32_t",
+            "rakuType": "uint32"
+          },
+          {
+            "name": "termination",
+            "cName": "termination",
+            "cType": "uint32_t",
+            "rakuType": "uint32"
+          },
+          {
+            "name": "evidence",
+            "cName": "evidence",
+            "cType": "uint32_t",
+            "rakuType": "uint32"
+          },
+          {
+            "name": "reserved0",
+            "cName": "reserved0",
+            "cType": "uint32_t",
+            "rakuType": "uint32"
+          },
+          {
+            "name": "states",
+            "cName": "states",
+            "cType": "uint64_t",
+            "rakuType": "uint64"
+          },
+          {
+            "name": "arcs",
+            "cName": "arcs",
+            "cType": "uint64_t",
+            "rakuType": "uint64"
+          },
+          {
+            "name": "bytes",
+            "cName": "bytes",
+            "cType": "uint64_t",
+            "rakuType": "uint64"
+          },
+          {
+            "name": "work",
+            "cName": "work",
+            "cType": "uint64_t",
+            "rakuType": "uint64"
+          },
+          {
+            "name": "limitations",
+            "cName": "limitations",
+            "cType": "uint64_t",
+            "rakuType": "uint64"
+          },
+          {
+            "name": "reserved1",
+            "cName": "reserved1",
+            "cType": "uint64_t",
+            "rakuType": "uint64"
+          }
+        ]
+      }
+    },
+    "providerShim": {
+      "abiVersion": 1,
+      "apiRevision": 3,
+      "capabilities": {
+        "WFST_PROVIDER": 1,
+        "SEMIRING_BASE": 2,
+        "SEMIRING_OPTIONAL": 4,
+        "SEMIRING_BATCH": 8,
+        "SEMIRING_PROPERTIES": 16
+      },
+      "callbacks": [
+        {
+          "name": "LlingRakuDrop",
+          "return": {
+            "cType": "void",
+            "rakuType": null,
+            "ownership": "none",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            }
+          ],
+          "threading": "provider-declared-reentrancy"
+        },
+        {
+          "name": "LlingRakuStart",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_state",
+              "cType": "uint64_t*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            }
+          ],
+          "threading": "provider-declared-reentrancy"
+        },
+        {
+          "name": "LlingRakuCount",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_count",
+              "cType": "size_t*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_known",
+              "cType": "uint8_t*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            }
+          ],
+          "threading": "provider-declared-reentrancy"
+        },
+        {
+          "name": "LlingRakuStateInfo",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "state",
+              "cType": "uint64_t",
+              "rakuType": "uint64",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "value",
+              "nullability": "not-applicable"
+            },
+            {
+              "name": "out_valid",
+              "cType": "uint8_t*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_is_final",
+              "cType": "uint8_t*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_final_weight",
+              "cType": "double*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            }
+          ],
+          "threading": "provider-declared-reentrancy"
+        },
+        {
+          "name": "LlingRakuStateArcs",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "state",
+              "cType": "uint64_t",
+              "rakuType": "uint64",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "value",
+              "nullability": "not-applicable"
+            },
+            {
+              "name": "start",
+              "cType": "size_t",
+              "rakuType": "size_t",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "value",
+              "nullability": "not-applicable"
+            },
+            {
+              "name": "out_arcs",
+              "cType": "VtWfstArc*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-buffer",
+              "nullability": "nullable-if-capacity-is-zero"
+            },
+            {
+              "name": "capacity",
+              "cType": "size_t",
+              "rakuType": "size_t",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "value",
+              "nullability": "not-applicable"
+            },
+            {
+              "name": "out_written",
+              "cType": "size_t*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_total",
+              "cType": "size_t*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            }
+          ],
+          "threading": "provider-declared-reentrancy"
+        },
+        {
+          "name": "LlingRakuSemiringIdentity",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_value",
+              "cType": "VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            }
+          ],
+          "threading": "provider-declared-reentrancy"
+        },
+        {
+          "name": "LlingRakuSemiringClone",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "value",
+              "cType": "const VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_value",
+              "cType": "VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            }
+          ],
+          "threading": "provider-declared-reentrancy"
+        },
+        {
+          "name": "LlingRakuSemiringRelease",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "values",
+              "cType": "VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "inout",
+              "ownership": "consumed-provider-token-array",
+              "nullability": "nullable-if-count-is-zero"
+            },
+            {
+              "name": "count",
+              "cType": "size_t",
+              "rakuType": "size_t",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "value",
+              "nullability": "not-applicable"
+            }
+          ],
+          "threading": "provider-declared-reentrancy"
+        },
+        {
+          "name": "LlingRakuSemiringBinary",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "left",
+              "cType": "const VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "right",
+              "cType": "const VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_value",
+              "cType": "VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            }
+          ],
+          "threading": "provider-declared-reentrancy"
+        },
+        {
+          "name": "LlingRakuSemiringEqual",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "left",
+              "cType": "const VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "right",
+              "cType": "const VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_equal",
+              "cType": "uint8_t*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            }
+          ],
+          "threading": "provider-declared-reentrancy"
+        },
+        {
+          "name": "LlingRakuSemiringApprox",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "left",
+              "cType": "const VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "right",
+              "cType": "const VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "epsilon",
+              "cType": "double",
+              "rakuType": "num64",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "value",
+              "nullability": "not-applicable"
+            },
+            {
+              "name": "out_equal",
+              "cType": "uint8_t*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            }
+          ],
+          "threading": "provider-declared-reentrancy"
+        },
+        {
+          "name": "LlingRakuSemiringOrder",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "left",
+              "cType": "const VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "right",
+              "cType": "const VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_order",
+              "cType": "int32_t*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            }
+          ],
+          "threading": "provider-declared-reentrancy"
+        },
+        {
+          "name": "LlingRakuSemiringBytes",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "value",
+              "cType": "const VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_bytes",
+              "cType": "uint8_t*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-buffer",
+              "nullability": "nullable-if-capacity-is-zero"
+            },
+            {
+              "name": "capacity",
+              "cType": "size_t",
+              "rakuType": "size_t",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "value",
+              "nullability": "not-applicable"
+            },
+            {
+              "name": "out_written",
+              "cType": "size_t*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_required",
+              "cType": "size_t*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            }
+          ],
+          "threading": "provider-declared-reentrancy"
+        },
+        {
+          "name": "LlingRakuSemiringMany",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "values",
+              "cType": "const VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-array-for-callback",
+              "nullability": "nullable-if-count-is-zero"
+            },
+            {
+              "name": "count",
+              "cType": "size_t",
+              "rakuType": "size_t",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "value",
+              "nullability": "not-applicable"
+            },
+            {
+              "name": "out_value",
+              "cType": "VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            }
+          ],
+          "threading": "provider-declared-reentrancy"
+        },
+        {
+          "name": "LlingRakuSemiringUnary",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "value",
+              "cType": "const VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_value",
+              "cType": "VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            }
+          ],
+          "threading": "provider-declared-reentrancy"
+        },
+        {
+          "name": "LlingRakuSemiringNumerical",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "value",
+              "cType": "const VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_value",
+              "cType": "double*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            }
+          ],
+          "threading": "provider-declared-reentrancy"
+        },
+        {
+          "name": "LlingRakuSemiringQuantize",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "value",
+              "cType": "const VtSemiringValue*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "epsilon",
+              "cType": "double",
+              "rakuType": "num64",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "value",
+              "nullability": "not-applicable"
+            },
+            {
+              "name": "out_value",
+              "cType": "int64_t*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            }
+          ],
+          "threading": "provider-declared-reentrancy"
+        },
+        {
+          "name": "LlingRakuSemiringClosure",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-callback",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_bound",
+              "cType": "size_t*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_known",
+              "cType": "uint8_t*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "borrowed-output-slot",
+              "nullability": "non-null"
+            }
+          ],
+          "threading": "provider-declared-reentrancy"
+        }
+      ],
+      "functions": [
+        {
+          "name": "lling_raku_provider_configure",
+          "rakuName": "configure-provider",
+          "sinceApiRevision": 2,
+          "threading": "configure-once-process-global",
+          "capability": "WFST_PROVIDER",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "drop",
+              "cType": "LlingRakuDrop",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuDrop"
+            },
+            {
+              "name": "start",
+              "cType": "LlingRakuStart",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuStart"
+            },
+            {
+              "name": "count",
+              "cType": "LlingRakuCount",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuCount"
+            },
+            {
+              "name": "state_info",
+              "cType": "LlingRakuStateInfo",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuStateInfo"
+            },
+            {
+              "name": "state_arcs",
+              "cType": "LlingRakuStateArcs",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuStateArcs"
+            }
+          ],
+          "raku": {
+            "bind": true
+          }
+        },
+        {
+          "name": "lling_raku_provider_create",
+          "rakuName": "create-provider",
+          "sinceApiRevision": 2,
+          "threading": "caller-thread-provider-construction",
+          "capability": "WFST_PROVIDER",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "unit_domain",
+              "cType": "uint32_t",
+              "rakuType": "uint32",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "value",
+              "nullability": "not-applicable"
+            },
+            {
+              "name": "weight_domain",
+              "cType": "uint32_t",
+              "rakuType": "uint32",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "value",
+              "nullability": "not-applicable"
+            },
+            {
+              "name": "flags",
+              "cType": "uint64_t",
+              "rakuType": "uint64",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "value",
+              "nullability": "not-applicable"
+            },
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-call",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_resource",
+              "cType": "VtResource*",
+              "rakuType": "Vinary::Tree::Interop::RawResource",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "owned-retain-on-success",
+              "nullability": "non-null"
+            }
+          ],
+          "raku": {
+            "bind": true
+          }
+        },
+        {
+          "name": "lling_raku_semiring_configure_lifecycle",
+          "rakuName": "configure-semiring-lifecycle",
+          "sinceApiRevision": 3,
+          "threading": "configure-once-process-global",
+          "capability": "SEMIRING_BASE",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "drop",
+              "cType": "LlingRakuDrop",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuDrop"
+            },
+            {
+              "name": "zero",
+              "cType": "LlingRakuSemiringIdentity",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringIdentity"
+            },
+            {
+              "name": "one",
+              "cType": "LlingRakuSemiringIdentity",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringIdentity"
+            },
+            {
+              "name": "clone_value",
+              "cType": "LlingRakuSemiringClone",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringClone"
+            },
+            {
+              "name": "release_values",
+              "cType": "LlingRakuSemiringRelease",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringRelease"
+            }
+          ],
+          "raku": {
+            "bind": true
+          }
+        },
+        {
+          "name": "lling_raku_semiring_configure_algebra",
+          "rakuName": "configure-semiring-algebra",
+          "sinceApiRevision": 3,
+          "threading": "configure-once-process-global",
+          "capability": "SEMIRING_BASE",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "plus",
+              "cType": "LlingRakuSemiringBinary",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringBinary"
+            },
+            {
+              "name": "times",
+              "cType": "LlingRakuSemiringBinary",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringBinary"
+            },
+            {
+              "name": "equal",
+              "cType": "LlingRakuSemiringEqual",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringEqual"
+            },
+            {
+              "name": "approx_equal",
+              "cType": "LlingRakuSemiringApprox",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringApprox"
+            },
+            {
+              "name": "natural_order",
+              "cType": "LlingRakuSemiringOrder",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringOrder"
+            }
+          ],
+          "raku": {
+            "bind": true
+          }
+        },
+        {
+          "name": "lling_raku_semiring_configure_buffers",
+          "rakuName": "configure-semiring-buffers",
+          "sinceApiRevision": 3,
+          "threading": "configure-once-process-global",
+          "capability": "SEMIRING_BATCH",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "stable_bytes",
+              "cType": "LlingRakuSemiringBytes",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringBytes"
+            },
+            {
+              "name": "diagnostic",
+              "cType": "LlingRakuSemiringBytes",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringBytes"
+            },
+            {
+              "name": "plus_many",
+              "cType": "LlingRakuSemiringMany",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringMany"
+            },
+            {
+              "name": "times_many",
+              "cType": "LlingRakuSemiringMany",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringMany"
+            }
+          ],
+          "raku": {
+            "bind": true
+          }
+        },
+        {
+          "name": "lling_raku_semiring_configure_optional",
+          "rakuName": "configure-semiring-optional",
+          "sinceApiRevision": 3,
+          "threading": "configure-once-process-global",
+          "capability": "SEMIRING_OPTIONAL",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "divide",
+              "cType": "LlingRakuSemiringBinary",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringBinary"
+            },
+            {
+              "name": "left_divide",
+              "cType": "LlingRakuSemiringBinary",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringBinary"
+            },
+            {
+              "name": "star",
+              "cType": "LlingRakuSemiringUnary",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringUnary"
+            },
+            {
+              "name": "numerical_value",
+              "cType": "LlingRakuSemiringNumerical",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringNumerical"
+            },
+            {
+              "name": "to_probability",
+              "cType": "LlingRakuSemiringNumerical",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringNumerical"
+            }
+          ],
+          "raku": {
+            "bind": true
+          }
+        },
+        {
+          "name": "lling_raku_semiring_configure_metadata",
+          "rakuName": "configure-semiring-metadata",
+          "sinceApiRevision": 3,
+          "threading": "configure-once-process-global",
+          "capability": "SEMIRING_PROPERTIES",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "quantize",
+              "cType": "LlingRakuSemiringQuantize",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringQuantize"
+            },
+            {
+              "name": "closure_bound",
+              "cType": "LlingRakuSemiringClosure",
+              "rakuType": "Callable",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-process-lifetime",
+              "nullability": "non-null",
+              "callback": "LlingRakuSemiringClosure"
+            }
+          ],
+          "raku": {
+            "bind": true
+          }
+        },
+        {
+          "name": "lling_raku_semiring_create",
+          "rakuName": "create-semiring-provider",
+          "sinceApiRevision": 3,
+          "threading": "caller-thread-provider-construction",
+          "capability": "SEMIRING_BASE",
+          "return": {
+            "cType": "VtStatus",
+            "rakuType": "int32",
+            "ownership": "value",
+            "nullability": "not-applicable"
+          },
+          "parameters": [
+            {
+              "name": "flags",
+              "cType": "uint64_t",
+              "rakuType": "uint64",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "value",
+              "nullability": "not-applicable"
+            },
+            {
+              "name": "domain_id",
+              "cType": "const VtInterfaceId*",
+              "rakuType": "Vinary::Tree::Interop::InterfaceId",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-call",
+              "nullability": "non-null"
+            },
+            {
+              "name": "properties",
+              "cType": "uint64_t",
+              "rakuType": "uint64",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "value",
+              "nullability": "not-applicable"
+            },
+            {
+              "name": "has_division",
+              "cType": "uint8_t",
+              "rakuType": "uint8",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "value",
+              "nullability": "not-applicable"
+            },
+            {
+              "name": "has_star",
+              "cType": "uint8_t",
+              "rakuType": "uint8",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "value",
+              "nullability": "not-applicable"
+            },
+            {
+              "name": "has_numeric",
+              "cType": "uint8_t",
+              "rakuType": "uint8",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "value",
+              "nullability": "not-applicable"
+            },
+            {
+              "name": "host_context",
+              "cType": "void*",
+              "rakuType": "Pointer",
+              "rakuPassing": "value",
+              "direction": "in",
+              "ownership": "borrowed-for-call",
+              "nullability": "non-null"
+            },
+            {
+              "name": "out_resource",
+              "cType": "VtResource*",
+              "rakuType": "Vinary::Tree::Interop::RawResource",
+              "rakuPassing": "value",
+              "direction": "out",
+              "ownership": "owned-retain-on-success",
+              "nullability": "non-null"
+            }
+          ],
+          "raku": {
+            "bind": true
+          }
+        }
+      ]
+    }
+  }
 }

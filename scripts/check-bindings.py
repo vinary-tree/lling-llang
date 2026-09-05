@@ -47,6 +47,7 @@ import ast
 import json
 import random
 import re
+import subprocess
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -67,6 +68,7 @@ JS_ROOT = ROOT / "bindings" / "javascript"
 PYTHON_ROOT = ROOT / "bindings" / "python"
 JULIA_ROOT = ROOT / "bindings" / "julia" / "LlingLlang"
 RAKU_ROOT = ROOT / "bindings" / "raku"
+RAKU_ABI_GENERATOR = ROOT / "scripts" / "generate-raku-abi.py"
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "release-bindings.yml"
 
 SKIP_DIR_PARTS = {
@@ -409,7 +411,9 @@ def main() -> int:
             status.get("cType") != "LlingLlangStatus"
             or status.get("cPrefix") != "LLING_STATUS_"
         ):
-            failures.append("status enum model must name LlingLlangStatus / LLING_STATUS_")
+            failures.append(
+                "status enum model must name LlingLlangStatus / LLING_STATUS_"
+            )
 
         ffi_source = read(FFI_PATH)
         enum_match = re.search(
@@ -766,10 +770,20 @@ def main() -> int:
                 "Vinary-Tree-Interop release candidate"
             )
         raku_abi = read(RAKU_ROOT / "lib" / "Lling" / "Llang" / "GeneratedAbi.rakumod")
+        status_match = re.search(
+            r"our enum Status[^\(]*\((.*?)\);", raku_abi, re.DOTALL
+        )
+        if status_match is None:
+            failures.append("Raku generated ABI does not define Status")
+            status_source = ""
+        else:
+            status_source = status_match.group(1)
         raku_status = {
             name.replace("-", "_"): int(value)
             for name, value in re.findall(
-                r"^\s*([A-Z][A-Z0-9-]+)\s*=>\s*(\d+)", raku_abi, re.MULTILINE
+                r"^\s*([A-Z][A-Z0-9-]+)\s*=>\s*(\d+)",
+                status_source,
+                re.MULTILINE,
             )
         }
         if raku_status != expected_status:
@@ -781,12 +795,21 @@ def main() -> int:
             ("API-REVISION", "apiRevision"),
         ):
             match = re.search(
-                rf"constant\s+{constant}\s+is\s+export\s*=\s*(\d+)", raku_abi
+                rf"constant\s+{constant}\s+is\s+export(?:\(:abi\))?\s*=\s*(\d+)",
+                raku_abi,
             )
             if match is None or int(match.group(1)) != model[key]:
                 failures.append(f"Raku {constant} does not match api.json {key}")
         raku_source = read(RAKU_ROOT / "lib" / "Lling" / "Llang.rakumod")
-        raku_symbols = set(re.findall(r"symbol\('(lling_[a-z0-9_]+)'\)", raku_source))
+        raku_symbols = set(re.findall(r"symbol\('(lling_[a-z0-9_]+)'\)", raku_abi))
+        facade_symbols = set(re.findall(r"symbol\('(lling_[a-z0-9_]+)'\)", raku_source))
+        if facade_symbols:
+            failures.append(
+                "Raku facade must not handwrite project NativeCall declarations: "
+                f"{sorted(facade_symbols)}"
+            )
+        if "repr('CStruct')" in raku_source:
+            failures.append("Raku facade must not handwrite generated CStruct layouts")
 
         expected_julia_symbols = modeled - {
             "lling_resource_release",
@@ -799,19 +822,14 @@ def main() -> int:
                 f"missing={sorted(expected_julia_symbols - julia_symbols)}, "
                 f"unmodeled={sorted(julia_symbols - expected_julia_symbols)}"
             )
-        expected_raku_symbols = modeled - {
-            "lling_resource_release",
-            "lling_wfst_import",
-            "lling_wfst_compose",
+        expected_raku_symbols = {
+            function["name"]
+            for function in model["cFunctions"]
+            if function["raku"]["bind"]
         } | {
-            "lling_raku_provider_configure",
-            "lling_raku_provider_create",
-            "lling_raku_semiring_configure_lifecycle",
-            "lling_raku_semiring_configure_algebra",
-            "lling_raku_semiring_configure_buffers",
-            "lling_raku_semiring_configure_optional",
-            "lling_raku_semiring_configure_metadata",
-            "lling_raku_semiring_create",
+            function["name"]
+            for function in model["rakuAbi"]["providerShim"]["functions"]
+            if function["raku"]["bind"]
         }
         if raku_symbols != expected_raku_symbols:
             failures.append(
@@ -840,6 +858,30 @@ def main() -> int:
         info["host_provider_languages"] = len(provider_languages)
 
     report.run("Python/Julia/Raku facade + generated ABI parity", julia_raku_parity)
+
+    def raku_generation_gate(failures: list[str], info: dict[str, object]) -> None:
+        for mode in ("--check", "--self-test"):
+            result = subprocess.run(
+                [sys.executable, str(RAKU_ABI_GENERATOR), mode],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                details = (result.stderr or result.stdout).strip()
+                failures.append(f"Raku ABI generator {mode} failed: {details}")
+        info["modeled_core_functions"] = len(model["cFunctions"])
+        info["modeled_provider_functions"] = len(
+            model["rakuAbi"]["providerShim"]["functions"]
+        )
+        info["modeled_provider_callbacks"] = len(
+            model["rakuAbi"]["providerShim"]["callbacks"]
+        )
+
+    report.run(
+        "Raku authoritative ABI generation + negative control", raku_generation_gate
+    )
 
     # ── 5. workflow version-derivation guard [LLING-B1] ─────────────────────
     def workflow_guard(failures: list[str], info: dict[str, object]) -> None:

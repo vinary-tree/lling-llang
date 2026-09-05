@@ -1,7 +1,7 @@
 unit module Lling::Llang;
 
 use NativeCall;
-need Lling::Llang::GeneratedAbi;
+use Lling::Llang::GeneratedAbi :native;
 need Vinary::Tree::Interop;
 
 our constant ABI-VERSION is export = Lling::Llang::GeneratedAbi::ABI-VERSION;
@@ -18,12 +18,22 @@ our constant BUDGET-STATES is export = Lling::Llang::GeneratedAbi::BUDGET-STATES
 our constant BUDGET-ARCS is export = Lling::Llang::GeneratedAbi::BUDGET-ARCS;
 our constant BUDGET-BYTES is export = Lling::Llang::GeneratedAbi::BUDGET-BYTES;
 our constant BUDGET-WORK is export = Lling::Llang::GeneratedAbi::BUDGET-WORK;
-our enum CancellationReasonV2 is export (
-    REQUESTED => 1,
-    DEADLINE => 2,
-    BUDGET => 3,
-    SOURCE => 4,
-);
+our constant PrecisionV2 is export =
+    Lling::Llang::GeneratedAbi::PrecisionV2;
+our constant CompletenessV2 is export =
+    Lling::Llang::GeneratedAbi::CompletenessV2;
+our constant ApplicabilityV2 is export =
+    Lling::Llang::GeneratedAbi::ApplicabilityV2;
+our constant TerminationV2 is export =
+    Lling::Llang::GeneratedAbi::TerminationV2;
+our constant EvidenceStateV2 is export =
+    Lling::Llang::GeneratedAbi::EvidenceStateV2;
+our constant CancellationReasonV2 is export =
+    Lling::Llang::GeneratedAbi::CancellationReasonV2;
+our constant REQUESTED is export = Lling::Llang::GeneratedAbi::REQUESTED;
+our constant DEADLINE is export = Lling::Llang::GeneratedAbi::DEADLINE;
+our constant BUDGET is export = Lling::Llang::GeneratedAbi::BUDGET;
+our constant SOURCE is export = Lling::Llang::GeneratedAbi::SOURCE;
 our constant Status is export = Lling::Llang::GeneratedAbi::Status;
 our constant OK is export = Lling::Llang::GeneratedAbi::OK;
 our constant INVALID-ARGUMENT is export = Lling::Llang::GeneratedAbi::INVALID-ARGUMENT;
@@ -34,6 +44,10 @@ our constant INCOMPATIBLE-RESOURCE is export =
 our constant PROVIDER-ERROR is export = Lling::Llang::GeneratedAbi::PROVIDER-ERROR;
 our constant LIMIT-EXCEEDED is export = Lling::Llang::GeneratedAbi::LIMIT-EXCEEDED;
 our constant CLOSED is export = Lling::Llang::GeneratedAbi::CLOSED;
+our constant AbiV2Header is export =
+    Lling::Llang::GeneratedAbi::AbiV2Header;
+our constant BudgetV2 is export = Lling::Llang::GeneratedAbi::BudgetV2;
+our constant OutcomeV2 is export = Lling::Llang::GeneratedAbi::OutcomeV2;
 
 module InteropAccess {
     use Vinary::Tree::Interop;
@@ -76,160 +90,6 @@ class X::Lling::Llang is Exception is export {
     }
 }
 
-sub native-library(--> Str:D) {
-    return %*ENV<LLING_LLANG_LIBRARY> if %*ENV<LLING_LLANG_LIBRARY>:exists;
-    $*DISTRO.is-win ?? 'lling_llang.dll' !!
-        $*KERNEL.name eq 'darwin' ?? 'liblling_llang.dylib' !!
-        'liblling_llang.so'
-}
-
-sub provider-library(--> Str:D) {
-    return %*ENV<LLING_LLANG_RAKU_PROVIDER_LIB>
-        if %*ENV<LLING_LLANG_RAKU_PROVIDER_LIB>:exists;
-    %?RESOURCES<libraries/lling_llang_raku_provider>.IO.Str
-}
-
-sub lling-abi-version(--> uint32)
-    is native(&native-library) is symbol('lling_abi_version') { * }
-sub lling-api-revision(--> uint32)
-    is native(&native-library) is symbol('lling_llang_api_revision') { * }
-sub lling-last-error-message(--> Str)
-    is native(&native-library) is symbol('lling_last_error_message') { * }
-sub lling-abi-v2-validate-header(Pointer, uint32, uint64 --> uint32)
-    is native(&native-library) is symbol('lling_abi_v2_validate_header') { * }
-sub lling-abi-v2-validate-descriptor(Pointer, uint8 is rw --> uint32)
-    is native(&native-library) is symbol('lling_abi_v2_validate_descriptor') { * }
-sub lling-abi-v2-validate-budget(Pointer --> uint32)
-    is native(&native-library) is symbol('lling_abi_v2_validate_budget') { * }
-sub lling-abi-v2-validate-outcome(Pointer, uint8, uint8, uint8 is rw --> uint32)
-    is native(&native-library) is symbol('lling_abi_v2_validate_outcome') { * }
-sub lling-abi-v2-identity-matches(Pointer, Pointer, uint8 is rw --> uint32)
-    is native(&native-library) is symbol('lling_abi_v2_identity_matches') { * }
-sub lling-cancellation-v2-new(Pointer is rw --> uint32)
-    is native(&native-library) is symbol('lling_cancellation_v2_new') { * }
-sub lling-cancellation-v2-request(Pointer, uint32 --> uint32)
-    is native(&native-library) is symbol('lling_cancellation_v2_request') { * }
-sub lling-cancellation-v2-reason(Pointer, uint32 is rw --> uint32)
-    is native(&native-library) is symbol('lling_cancellation_v2_reason') { * }
-sub lling-cancellation-v2-free(Pointer is rw --> uint32)
-    is native(&native-library) is symbol('lling_cancellation_v2_free') { * }
-sub lling-wfst-builder-new(Pointer is rw --> uint32)
-    is native(&native-library) is symbol('lling_wfst_builder_new') { * }
-sub lling-wfst-builder-free(Pointer)
-    is native(&native-library) is symbol('lling_wfst_builder_free') { * }
-sub lling-wfst-builder-reserve-states(Pointer, size_t --> uint32)
-    is native(&native-library) is symbol('lling_wfst_builder_reserve_states') { * }
-sub lling-wfst-builder-add-state(Pointer, uint32 is rw --> uint32)
-    is native(&native-library) is symbol('lling_wfst_builder_add_state') { * }
-sub lling-wfst-builder-set-start(Pointer, uint32 --> uint32)
-    is native(&native-library) is symbol('lling_wfst_builder_set_start') { * }
-sub lling-wfst-builder-set-final(Pointer, uint32, num64 --> uint32)
-    is native(&native-library) is symbol('lling_wfst_builder_set_final') { * }
-sub lling-wfst-builder-clear-final(Pointer, uint32 --> uint32)
-    is native(&native-library) is symbol('lling_wfst_builder_clear_final') { * }
-sub lling-wfst-builder-add-arc(
-    Pointer, uint32, uint64, uint8, uint64, uint8, uint32, num64 --> uint32
-) is native(&native-library) is symbol('lling_wfst_builder_add_arc') { * }
-sub lling-wfst-builder-build(Pointer, Pointer is rw --> uint32)
-    is native(&native-library) is symbol('lling_wfst_builder_build') { * }
-sub lling-wfst-free(Pointer)
-    is native(&native-library) is symbol('lling_wfst_free') { * }
-sub lling-wfst-import-ref(InteropAccess::RawResourceType, Pointer is rw --> uint32)
-    is native(&native-library) is symbol('lling_wfst_import_ref') { * }
-sub lling-wfst-compose-refs(
-    InteropAccess::RawResourceType,
-    InteropAccess::RawResourceType,
-    Pointer is rw,
-    --> uint32
-) is native(&native-library) is symbol('lling_wfst_compose_refs') { * }
-sub lling-wfst-resource(Pointer, InteropAccess::RawResourceType --> uint32)
-    is native(&native-library) is symbol('lling_wfst_resource') { * }
-sub lling-semiring-open(InteropAccess::RawResourceType, Pointer is rw --> uint32)
-    is native(&native-library) is symbol('lling_semiring_open') { * }
-sub lling-semiring-free(Pointer)
-    is native(&native-library) is symbol('lling_semiring_free') { * }
-sub lling-semiring-weight-free(Pointer)
-    is native(&native-library) is symbol('lling_semiring_weight_free') { * }
-sub lling-semiring-properties(Pointer, uint64 is rw --> uint32)
-    is native(&native-library) is symbol('lling_semiring_properties') { * }
-sub lling-semiring-zero(Pointer, Pointer is rw --> uint32)
-    is native(&native-library) is symbol('lling_semiring_zero') { * }
-sub lling-semiring-one(Pointer, Pointer is rw --> uint32)
-    is native(&native-library) is symbol('lling_semiring_one') { * }
-sub lling-semiring-weight-clone(Pointer, Pointer is rw --> uint32)
-    is native(&native-library) is symbol('lling_semiring_weight_clone') { * }
-sub lling-semiring-plus(Pointer, Pointer, Pointer, Pointer is rw --> uint32)
-    is native(&native-library) is symbol('lling_semiring_plus') { * }
-sub lling-semiring-times(Pointer, Pointer, Pointer, Pointer is rw --> uint32)
-    is native(&native-library) is symbol('lling_semiring_times') { * }
-sub lling-semiring-equal(Pointer, Pointer, Pointer, uint8 is rw --> uint32)
-    is native(&native-library) is symbol('lling_semiring_equal') { * }
-sub lling-semiring-approx-equal(
-    Pointer, Pointer, Pointer, num64, uint8 is rw --> uint32
-) is native(&native-library) is symbol('lling_semiring_approx_equal') { * }
-sub lling-semiring-natural-order(
-    Pointer, Pointer, Pointer, int32 is rw --> uint32
-) is native(&native-library) is symbol('lling_semiring_natural_order') { * }
-sub lling-semiring-divide(
-    Pointer, Pointer, Pointer, Pointer is rw, uint8 is rw --> uint32
-) is native(&native-library) is symbol('lling_semiring_divide') { * }
-sub lling-semiring-left-divide(
-    Pointer, Pointer, Pointer, Pointer is rw, uint8 is rw --> uint32
-) is native(&native-library) is symbol('lling_semiring_left_divide') { * }
-sub lling-semiring-star(
-    Pointer, Pointer, Pointer is rw, uint8 is rw --> uint32
-) is native(&native-library) is symbol('lling_semiring_star') { * }
-sub lling-semiring-numerical-value(Pointer, Pointer, num64 is rw --> uint32)
-    is native(&native-library) is symbol('lling_semiring_numerical_value') { * }
-sub lling-semiring-quantize(Pointer, Pointer, num64, int64 is rw --> uint32)
-    is native(&native-library) is symbol('lling_semiring_quantize') { * }
-sub lling-semiring-to-probability(Pointer, Pointer, num64 is rw --> uint32)
-    is native(&native-library) is symbol('lling_semiring_to_probability') { * }
-sub lling-semiring-closure-bound(Pointer, size_t is rw, uint8 is rw --> uint32)
-    is native(&native-library) is symbol('lling_semiring_closure_bound') { * }
-sub lling-semiring-stable-bytes(
-    Pointer, Pointer, Pointer, size_t, size_t is rw, size_t is rw --> uint32
-) is native(&native-library) is symbol('lling_semiring_stable_bytes') { * }
-sub lling-semiring-diagnostic(
-    Pointer, Pointer, Pointer, size_t, size_t is rw, size_t is rw --> uint32
-) is native(&native-library) is symbol('lling_semiring_diagnostic') { * }
-sub lling-semiring-plus-many(Pointer, Pointer, size_t, Pointer is rw --> uint32)
-    is native(&native-library) is symbol('lling_semiring_plus_many') { * }
-sub lling-semiring-times-many(Pointer, Pointer, size_t, Pointer is rw --> uint32)
-    is native(&native-library) is symbol('lling_semiring_times_many') { * }
-sub lling-semiring-validate-laws(
-    Pointer, Pointer, size_t, num64 --> uint32
-) is native(&native-library) is symbol('lling_semiring_validate_laws') { * }
-sub lling-lattice-open(InteropAccess::RawResourceType, Pointer is rw --> uint32)
-    is native(&native-library) is symbol('lling_lattice_open') { * }
-sub lling-lattice-free(Pointer)
-    is native(&native-library) is symbol('lling_lattice_free') { * }
-sub lling-lattice-domain-id(
-    Pointer, InteropAccess::InterfaceIdType --> uint32
-) is native(&native-library) is symbol('lling_lattice_domain_id') { * }
-sub lling-lattice-flags(Pointer, uint64 is rw --> uint32)
-    is native(&native-library) is symbol('lling_lattice_flags') { * }
-sub lling-lattice-join(Pointer, Pointer, Pointer is rw --> uint32)
-    is native(&native-library) is symbol('lling_lattice_join') { * }
-sub lling-lattice-meet(Pointer, Pointer, Pointer is rw --> uint32)
-    is native(&native-library) is symbol('lling_lattice_meet') { * }
-sub lling-lattice-equal(Pointer, Pointer, uint8 is rw --> uint32)
-    is native(&native-library) is symbol('lling_lattice_equal') { * }
-sub lling-lattice-stable-bytes(
-    Pointer, Pointer, size_t, size_t is rw, size_t is rw --> uint32
-) is native(&native-library) is symbol('lling_lattice_stable_bytes') { * }
-sub lling-lattice-diagnostic(
-    Pointer, Pointer, size_t, size_t is rw, size_t is rw --> uint32
-) is native(&native-library) is symbol('lling_lattice_diagnostic') { * }
-sub lling-lattice-join-many(
-    Pointer, Pointer, size_t, Pointer is rw --> uint32
-) is native(&native-library) is symbol('lling_lattice_join_many') { * }
-sub lling-lattice-meet-many(
-    Pointer, Pointer, size_t, Pointer is rw --> uint32
-) is native(&native-library) is symbol('lling_lattice_meet_many') { * }
-sub lling-lattice-validate-laws(Pointer, size_t --> uint32)
-    is native(&native-library) is symbol('lling_lattice_validate_laws') { * }
-
 sub abi-version(--> UInt:D) is export { lling-abi-version() }
 sub api-revision(--> UInt:D) is export { lling-api-revision() }
 
@@ -241,91 +101,6 @@ sub check-status(Int:D $code, Str:D $operation --> Nil) {
         :$operation,
         detail => (try lling-last-error-message()) // '',
     ).throw;
-}
-
-class AbiV2Header is repr('CStruct') is export {
-    has uint32 $.struct-size is rw;
-    has uint32 $.abi-version is rw;
-    has uint64 $.flags is rw;
-    has uint64 $.reserved is rw;
-    multi method new(UInt:D :$struct-size!, UInt:D :$flags = 0 --> AbiV2Header:D) {
-        self.bless(:$struct-size, abi-version => TYPED-ABI-VERSION,
-            :$flags, reserved => 0)
-    }
-}
-
-class BudgetV2 is repr('CStruct') is export {
-    HAS AbiV2Header $.header is rw;
-    has uint64 $.max-states is rw;
-    has uint64 $.max-arcs is rw;
-    has uint64 $.max-bytes is rw;
-    has uint64 $.max-work is rw;
-    has uint64 $.reserved0 is rw;
-    has uint64 $.reserved1 is rw;
-    multi method new(
-        UInt:D :$max-states = 0, UInt:D :$max-arcs = 0,
-        UInt:D :$max-bytes = 0, UInt:D :$max-work = 0,
-        --> BudgetV2:D
-    ) {
-        my $flags = ($max-states ?? BUDGET-STATES !! 0) +|
-            ($max-arcs ?? BUDGET-ARCS !! 0) +|
-            ($max-bytes ?? BUDGET-BYTES !! 0) +|
-            ($max-work ?? BUDGET-WORK !! 0);
-        my $value = self.bless;
-        $value.header.struct-size = nativesizeof(BudgetV2);
-        $value.header.abi-version = TYPED-ABI-VERSION;
-        $value.header.flags = $flags;
-        $value.header.reserved = 0;
-        $value.max-states = $max-states;
-        $value.max-arcs = $max-arcs;
-        $value.max-bytes = $max-bytes;
-        $value.max-work = $max-work;
-        $value.reserved0 = 0;
-        $value.reserved1 = 0;
-        $value
-    }
-}
-
-class OutcomeV2 is repr('CStruct') is export {
-    HAS AbiV2Header $.header is rw;
-    has uint32 $.precision is rw;
-    has uint32 $.completeness is rw;
-    has uint32 $.applicability is rw;
-    has uint32 $.termination is rw;
-    has uint32 $.evidence is rw;
-    has uint32 $.reserved0 is rw;
-    has uint64 $.states is rw;
-    has uint64 $.arcs is rw;
-    has uint64 $.bytes is rw;
-    has uint64 $.work is rw;
-    has uint64 $.limitations is rw;
-    has uint64 $.reserved1 is rw;
-    multi method new(
-        UInt:D :$precision!, UInt:D :$completeness!,
-        UInt:D :$applicability!, UInt:D :$termination!,
-        UInt:D :$evidence!, UInt:D :$states = 0, UInt:D :$arcs = 0,
-        UInt:D :$bytes = 0, UInt:D :$work = 0,
-        UInt:D :$limitations = 0, --> OutcomeV2:D
-    ) {
-        my $value = self.bless;
-        $value.header.struct-size = nativesizeof(OutcomeV2);
-        $value.header.abi-version = TYPED-ABI-VERSION;
-        $value.header.flags = 0;
-        $value.header.reserved = 0;
-        $value.precision = $precision;
-        $value.completeness = $completeness;
-        $value.applicability = $applicability;
-        $value.termination = $termination;
-        $value.evidence = $evidence;
-        $value.reserved0 = 0;
-        $value.states = $states;
-        $value.arcs = $arcs;
-        $value.bytes = $bytes;
-        $value.work = $work;
-        $value.limitations = $limitations;
-        $value.reserved1 = 0;
-        $value
-    }
 }
 
 sub validate-abi-v2-header(
@@ -1078,60 +853,6 @@ my Lock $SEMIRINGS-LOCK .= new;
 my UInt $NEXT-SEMIRING-ID = 1;
 my %SEMIRINGS;
 
-sub configure-semiring-lifecycle(
-    &drop (Pointer),
-    &zero (Pointer, Pointer --> int32),
-    &one (Pointer, Pointer --> int32),
-    &clone-value (Pointer, Pointer, Pointer --> int32),
-    &release-values (Pointer, Pointer, size_t --> int32),
-    --> int32
-) is native(&provider-library)
-    is symbol('lling_raku_semiring_configure_lifecycle') { * }
-sub configure-semiring-algebra(
-    &plus (Pointer, Pointer, Pointer, Pointer --> int32),
-    &times (Pointer, Pointer, Pointer, Pointer --> int32),
-    &equal (Pointer, Pointer, Pointer, Pointer --> int32),
-    &approx (Pointer, Pointer, Pointer, num64, Pointer --> int32),
-    &order (Pointer, Pointer, Pointer, Pointer --> int32),
-    --> int32
-) is native(&provider-library)
-    is symbol('lling_raku_semiring_configure_algebra') { * }
-sub configure-semiring-buffers(
-    &stable (Pointer, Pointer, Pointer, size_t, Pointer, Pointer --> int32),
-    &diagnostic (Pointer, Pointer, Pointer, size_t, Pointer, Pointer --> int32),
-    &plus-many (Pointer, Pointer, size_t, Pointer --> int32),
-    &times-many (Pointer, Pointer, size_t, Pointer --> int32),
-    --> int32
-) is native(&provider-library)
-    is symbol('lling_raku_semiring_configure_buffers') { * }
-sub configure-semiring-optional(
-    &divide (Pointer, Pointer, Pointer, Pointer --> int32),
-    &left-divide (Pointer, Pointer, Pointer, Pointer --> int32),
-    &star (Pointer, Pointer, Pointer --> int32),
-    &numerical (Pointer, Pointer, Pointer --> int32),
-    &probability (Pointer, Pointer, Pointer --> int32),
-    --> int32
-) is native(&provider-library)
-    is symbol('lling_raku_semiring_configure_optional') { * }
-sub configure-semiring-metadata(
-    &quantize (Pointer, Pointer, num64, Pointer --> int32),
-    &closure (Pointer, Pointer, Pointer --> int32),
-    --> int32
-) is native(&provider-library)
-    is symbol('lling_raku_semiring_configure_metadata') { * }
-
-sub create-semiring-provider(
-    uint64,
-    InteropAccess::InterfaceIdType,
-    uint64,
-    uint8,
-    uint8,
-    uint8,
-    Pointer,
-    InteropAccess::RawResourceType,
-    --> int32
-) is native(&provider-library) is symbol('lling_raku_semiring_create') { * }
-
 sub semiring-provider-id(Pointer:D $pointer --> UInt:D) {
     nativecast(CArray[uint64], $pointer)[0]
 }
@@ -1592,24 +1313,6 @@ my Str $LAST-PROVIDER-ERROR = '';
 sub provider-last-error(--> Str:D) is export {
     $PROVIDER-ERROR-LOCK.protect: { $LAST-PROVIDER-ERROR }
 }
-
-sub configure-provider(
-    &drop (Pointer),
-    &start (Pointer, Pointer --> int32),
-    &count (Pointer, Pointer, Pointer --> int32),
-    &state-info (Pointer, uint64, Pointer, Pointer, Pointer --> int32),
-    &state-arcs (Pointer, uint64, size_t, Pointer, size_t, Pointer, Pointer --> int32),
-    --> int32
-) is native(&provider-library) is symbol('lling_raku_provider_configure') { * }
-
-sub create-provider(
-    uint32,
-    uint32,
-    uint64,
-    Pointer,
-    InteropAccess::RawResourceType,
-    --> int32
-) is native(&provider-library) is symbol('lling_raku_provider_create') { * }
 
 sub memcpy(Pointer, Pointer, size_t --> Pointer) is native { * }
 
