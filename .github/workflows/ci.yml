@@ -358,7 +358,7 @@ jobs:
           curl -fsSL \
             -o "$RUNNER_TEMP/tla2tools.jar" \
             https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
-          echo "16b8cd970e07147ff91f126baecba7edd98202e5ab33220a42f8f4358ee94b2b  $RUNNER_TEMP/tla2tools.jar" \
+          echo "b658b4e504fdf0b721caf7066320f6b6fe5805f4dd2f717d0e47baba4097205e  $RUNNER_TEMP/tla2tools.jar" \
             | sha256sum --check --strict
           echo "TLA2TOOLS_JAR=$RUNNER_TEMP/tla2tools.jar" >> "$GITHUB_ENV"
       - name: Verify portable invariant registries and finite models
