@@ -20,7 +20,7 @@ the adversarial analysis lives in the
 Host-defined weight algebras use the sibling
 [dynamic-semiring architecture](dynamic-semirings.md): compact provider-scoped
 tokens and separately negotiated algebra capabilities, not the scalar `double`
-weight domain described here.
+domains described here.
 
 ---
 
@@ -35,7 +35,7 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); conventions in
 | $`\circ`$ | Composition: $`T_1 \circ T_2`$ matches $`T_1`$'s output tape against $`T_2`$'s input tape. |
 | $`\Phi`$ | The epsilon-filter state set $`\{\varnothing, \epsilon_1, \epsilon_2\}`$ (sequencing filter, [Mohri 2009](https://doi.org/10.1007/978-3-642-01492-5_6)). |
 | $`\varepsilon`$ | The empty label; on the wire, a presence flag of zero. |
-| $`\oplus, \otimes, \bar{0}, \bar{1}`$ | Tropical semiring operations and identities: $`\min`$, $`+`$, $`+\infty`$, $`0`$. |
+| $`\oplus, \otimes, \bar{0}, \bar{1}`$ | The operations and identities of the scalar semiring advertised by the resource. |
 | **provider** | Any implementation behind a `VtResource` that answers the `vt.scalar-wfst.1` callbacks. |
 | **capture** | Taking the provider's snapshot exactly once and holding one retain on it for the consumer's lifetime. |
 | **snapshot** | The immutable revision produced by the `snapshot` callback; state identifiers are scoped to it. |
@@ -108,13 +108,17 @@ $`\varepsilon`$-interleavings that would otherwise multiply paths):
 \end{aligned}
 ```
 
-Weights extend tropically ($`w_1 \otimes w_2 = w_1 + w_2`$), and a product
-state is final exactly when both components are, with
+Weights extend with the common advertised semiring's $`\otimes`$, and a
+product state is final exactly when both components are, with
 
 ```math
-\rho_\circ(q_1, q_2, \phi) \;=\; \rho_1(q_1) \otimes \rho_2(q_2)
-\;=\; \rho_1(q_1) + \rho_2(q_2).
+\rho_\circ(q_1, q_2, \phi) \;=\; \rho_1(q_1) \otimes \rho_2(q_2).
 ```
+
+Tropical, log, arctic, and signed-tropical multiplication is scalar
+addition; probability and count multiplication is scalar multiplication;
+Boolean multiplication is logical AND. Both operands must advertise exactly
+the same unit and weight domains before the product can be constructed.
 
 This is the classical epsilon-filter composition of
 [Mohri 2002](https://doi.org/10.1006/csla.2001.0184) /
@@ -147,9 +151,12 @@ with two invariants the implementation preserves under its `RwLock`:
    report the *discovered-so-far* count (flagged unknown, since traversal may
    discover more).
 
-`register` is the only overflow point: more than $`2^{64}-1`$ discovered
-triples is a `RepresentationLimit` (unreachable in practice — the registry
-would exhaust memory first).
+`register` is the state-identity overflow point: more than $`2^{64}-1`$
+discovered triples is a `RepresentationLimit` (unreachable in practice—the
+registry would exhaust memory first). Lazy expansion can also reach a
+`RepresentationLimit` when two valid weights have a semiring product outside
+the declared scalar carrier, such as count multiplication above $`2^{53}`$.
+The exported vtable reports either case as `VT_STATUS_LIMIT_EXCEEDED`.
 
 ## Capture-once-per-input semantics
 
@@ -159,13 +166,14 @@ sequence — once, at construction:
 1. **Discover** `vt.scalar-wfst.1` on the *live* resource
    (`query_interface`, minimum version 1) and validate the returned vtable:
    `struct_size` at least the known layout, `abi_version` equal, all five
-   operations present, `unit_domain == UNICODE_SCALAR`,
-   `weight_domain == TROPICAL_F64`.
+   operations present, and both domain discriminants among the three unit and
+   seven weight domains defined by the family ABI.
 2. **Snapshot** through the provider's `snapshot` callback — the single
    point where the mutable-world revision is pinned. The returned resource
    owns one retain, held until the capture is dropped.
 3. **Re-discover** the interface on the snapshot (the snapshot is its own
-   resource and may expose a different vtable instance), and read `start`.
+   resource and may expose a different vtable instance), require both domains
+   to remain unchanged, and read `start`.
 
 After construction the live input is never touched again: the composition
 holds only snapshot retains, so callers may release their input retains
@@ -238,6 +246,7 @@ prefixes; they allocate nothing and have no input-shaped recursion.
 
 ```rust
 pub trait ScalarWfstProvider: Send + Sync + 'static {
+    fn unit_domain(&self) -> VtUnitDomain { VtUnitDomain::UnicodeScalar }
     fn weight_domain(&self) -> VtWeightDomain { VtWeightDomain::TropicalF64 }
     fn start(&self) -> Result<u64, VtStatus>;
     fn num_states(&self) -> Result<Option<usize>, VtStatus>;
@@ -246,7 +255,8 @@ pub trait ScalarWfstProvider: Send + Sync + 'static {
 ```
 
 The Rust-side extension point: a sibling crate (or an application) hands
-lling-llang a lazy WFST by implementing four methods, and
+lling-llang a lazy WFST by implementing five methods (two have compatibility
+defaults), and
 `OwnedWfstResource::from_provider` wraps it into a `VtResource` in $`\mathcal{O}(1)`$.
 `state` returns one *complete, bounded* state — validity, finality, final
 weight, and the full outgoing arc vector — which the wrapper caches and
@@ -254,20 +264,21 @@ pages out through `state_arcs`. Implementations must tolerate concurrent
 calls (the wrapper advertises `PARALLEL_REENTRANT`; expensive expansion
 should be local or sharded, never behind one resource-wide mutex — that
 would falsify the published claim). The provider may declare any of the
-seven weight domains; the declared domain selects which of the seven static
+three unit and seven weight domains; their pair selects one of 21 static
 export vtables the resource answers `query_interface` with.
 
-### `OwnedWfstResource` — one owned retain, three payloads
+### `OwnedWfstResource` — one owned retain, four payloads
 
 `OwnedWfstResource` is the producer half: it owns exactly one retain of an
 immutable resource whose context is an `Arc<ResourceContext>` over one of
-three payloads:
+four payloads:
 
-| Payload | Constructor | Weight domain | State model |
+| Payload | Constructor | Domains | State model |
 |---|---|---|---|
-| **Eager** | `from_wfst(VectorWfst)` — zero-copy move (also the `build` path of the C ABI) | `TROPICAL_F64` | dense native states, arcs converted per call |
-| **Composition** | `compose(first, second)` | `TROPICAL_F64` | lazy product states via the registry |
-| **Provider** | `from_provider(Arc<dyn ScalarWfstProvider>)` | provider-declared (any of the 7) | provider-expanded, cached |
+| **Eager** | `from_wfst(VectorWfst)` — zero-copy move for the native specialization | Unicode/tropical | dense native states, arcs converted per call |
+| **ScalarEager** | generic C builder or domain-preserving import | any of 21 pairs | dense raw scalar states with no label/weight conversion |
+| **Composition** | `compose(first, second)` | equal input domains, any of 21 pairs | lazy product states via the registry |
+| **Provider** | `from_provider(Arc<dyn ScalarWfstProvider>)` | provider-declared, any of 21 pairs | provider-expanded, cached |
 
 The reference-counting glue is `Arc` itself: the exported `retain`/`release`
 callbacks are `Arc::increment_strong_count` / `Arc::decrement_strong_count`,
@@ -346,7 +357,7 @@ $`\mathit{start}`$ with capacity $`c`$:
 ```math
 \begin{aligned}
 \textbf{state\_info}:\;&
-  v \le 1 \;\land\; f \le 1 \;\land\; \mathrm{valid\_tropical}(\rho),
+  v \le 1 \;\land\; f \le 1 \;\land\; \mathrm{valid}_{W}(\rho),
 \\
 \textbf{page}:\;&
   \mathit{written} \le c
@@ -357,21 +368,25 @@ $`\mathit{start}`$ with capacity $`c`$:
 \textbf{arc}:\;&
   \mathit{has\_in} \le 1 \;\land\; \mathit{has\_out} \le 1
   \;\land\; \mathit{reserved} = 0^{6}
-  \;\land\; \mathrm{valid\_tropical}(w)
-  \;\land\; \text{present labels are Unicode scalars},
+  \;\land\; \mathrm{valid}_{W}(w)
+  \;\land\; \mathrm{valid}_{U}(\text{each present label}),
 \end{aligned}
 ```
 
-where the weight predicate is **tropical validity**, not a mere NaN test:
+where $`U`$ and $`W`$ are the advertised unit and weight domains. The
+predicates are domain-specific, not permissive bit-shape checks. For example:
 
 ```math
-\mathrm{valid\_tropical}(w) \;\Longleftrightarrow\;
-w \in \mathbb{R} \;\lor\; w = +\infty .
+\mathrm{valid}_{\mathrm{count}}(w) \;\Longleftrightarrow\;
+w \in \mathbb{Z} \cap [0,2^{53}],
+\qquad
+\mathrm{valid}_{\mathrm{boolean}}(w) \;\Longleftrightarrow\;
+w \in \{0,1\}.
 ```
 
-This is the F1/LLING-B2 hardening (commit `9d86eaf`): weights are validated
-with `TropicalWeight::is_valid_raw` at **every** ingestion site — capture
-expansion, import, and composition expansion — because a $`-\infty`$ that
+The tropical specialization preserves the F1/LLING-B2 hardening (commit
+`9d86eaf`): weights are validated at **every** ingestion site—capture
+expansion, import, and composition expansion—because a $`-\infty`$ that
 slips a NaN-only check meets a $`+\infty`$ in composition and manufactures
 NaN ($`+\infty + (-\infty) = \mathrm{NaN}`$ under IEEE-754). The regression
 test `negative_infinity_tropical_weight_is_rejected_not_poisoned` pins both
@@ -386,16 +401,13 @@ consistent, and accepts a state only when the concatenation reaches exactly
 Two deliberate per-path nuances, documented as behavior (and recorded for
 harmonization review):
 
-- The **import** path (`import_tropical_wfst`) additionally requires every
+- The **import** path (`import_scalar_wfst`) additionally requires every
   *reachable* state to report $`v = 1`$ (a dangling target is provider
-  misbehavior), maps labels outside the Unicode scalar range to
-  `RepresentationLimit` (`LIMIT_EXCEEDED`) rather than
-  `InvalidProviderOutput`, and caps the copy at $`2^{32}-1`$ states — the
-  native `StateId` width.
-- The import page loop omits the
-  $`\mathit{start} + \mathit{written} \le \mathit{total}`$ conjunct; an
-  overshooting final page is still rejected,
-  one iteration later, by the $`\mathit{start} \le \mathit{total}`$ check.
+  misbehavior), preserves raw labels and weights after validation, remaps
+  provider state IDs densely, and caps the copy at $`2^{32}-1`$ states—the
+  project-owned eager graph's state-ID width.
+- Import and lazy composition use the same checked page loop, including
+  $`\mathit{start} + \mathit{written} \le \mathit{total}`$ and stable totals.
 
 ## Concurrency: deliberately no resource-wide gate
 
@@ -445,8 +457,8 @@ hot path and linear scaling of independent product-state expansions.
   `rlib`, `cdylib`, and `staticlib`.
 - The native, semiring-generic composition (with all filter variants) lives
   in [`composition`](../algorithms/composition.md); the ABI layer reuses its
-  `EpsilonFilter` with the sequencing policy and specializes weights to
-  tropical `f64`.
+  `EpsilonFilter` with the sequencing policy and selects multiplication from
+  the seven built-in scalar domains without converting their wire values.
 - Sibling repositories connect here: libdictenstein dictionaries become
   WFSTs in duallity, which exports `vt.scalar-wfst.1` resources this layer
   captures and composes — see the

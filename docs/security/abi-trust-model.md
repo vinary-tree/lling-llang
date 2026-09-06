@@ -83,10 +83,10 @@ explicit acceptance predicates (stated as display math in the
 | base vtable | `struct_size`, `abi_version`, `retain`/`release`/`query_interface` present | `INCOMPATIBLE_RESOURCE` |
 | WFST vtable | `struct_size`, `interface_version`, all five ops present, `unit_domain`, `weight_domain` | `INCOMPATIBLE_RESOURCE` |
 | snapshot | non-null resource words | `PROVIDER_ERROR` |
-| `state_info` | flags $`\le 1`$; final weight in the tropical carrier | `PROVIDER_ERROR` |
+| `state_info` | flags $`\le 1`$; final weight in the advertised carrier | `PROVIDER_ERROR` |
 | arc pages | $`\mathit{written} \le \mathit{capacity}`$, offsets never exceed `total`, no empty page before completion, `total` stable | `PROVIDER_ERROR` |
-| arc fields | presence flags $`\le 1`$, reserved bytes zero, labels are Unicode scalars, weight in the tropical carrier | `PROVIDER_ERROR` |
-| sizes | states beyond native limits, label overflow on import | `LIMIT_EXCEEDED` |
+| arc fields | presence flags $`\le 1`$, reserved bytes zero, labels and weight valid in their advertised domains | `PROVIDER_ERROR` |
+| sizes | more than $`2^{32}-1`$ reachable states during eager import | `LIMIT_EXCEEDED` |
 | semiring token | exact-context identity, live ownership, explicit clone/release | `ContextMismatch` or `InvalidArgument` before a callback |
 | semiring scalar output | booleans in $`\{0,1\}`$; order in the four published values; epsilon in range; probability finite and nonnegative | `InvalidProviderOutput` |
 | semiring byte buffer | counts fit capacity and required size; at most three growth retries; at most 16 MiB | `InvalidProviderOutput` or `ResourceLimit` |

@@ -9,8 +9,8 @@
 //!   prove laziness (INVARIANT-HOOK: LLING-LAZY-1) and retain/release balance
 //!   after the resource is gone;
 //! - configurable interface flags (`LAZY` / `IMMUTABLE` / `PARALLEL_REENTRANT`
-//!   / `ACYCLIC`), unit domain, and weight domain (for non-tropical rejection
-//!   coverage);
+//!   / `ACYCLIC`), unit domain, and weight domain (for domain preservation and
+//!   mismatch coverage);
 //! - raw, ABI-shaped arcs ([`TestArc`]), so adversarial payloads — NaN or
 //!   -inf weights (the F1 shape), `has_input == 2`, labels beyond
 //!   `char::MAX` — are expressed directly in the model; and

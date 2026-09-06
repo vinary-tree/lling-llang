@@ -5,6 +5,33 @@ import LLattice
 
 const VTI = VinaryTreeInterop
 
+const LABEL_CASES = [
+    (UInt8, UInt8(0xfe)),
+    (Char, 'λ'),
+    (UInt64, typemax(UInt64)),
+]
+
+const WEIGHT_CASES = [
+    (TropicalWeight, TropicalWeight(-2.0), TropicalWeight(3.0)),
+    (LogWeight, LogWeight(2.0), LogWeight(3.0)),
+    (ProbabilityWeight, ProbabilityWeight(0.5), ProbabilityWeight(0.25)),
+    (ArcticWeight, ArcticWeight(-2.0), ArcticWeight(3.0)),
+    (SignedTropicalWeight, SignedTropicalWeight(-2.0), SignedTropicalWeight(3.0)),
+    (CountWeight, CountWeight(3), CountWeight(4)),
+    (BooleanWeight, BooleanWeight(true), BooleanWeight(false)),
+]
+
+function scalar_chain(::Type{L}, ::Type{W}, label, arc_weight, final_weight;
+    input_symbols=nothing, output_symbols=nothing) where {L,W<:AbstractScalarWeight}
+    builder = WfstBuilder{L,W}(size_hint=2; input_symbols, output_symbols)
+    first = add_state!(builder)
+    second = add_state!(builder)
+    set_start!(builder, first)
+    set_final!(builder, second, final_weight)
+    add_arc!(builder, first, label, label, second, arc_weight)
+    build!(builder)
+end
+
 @testset "typed ABI-v2 metadata and cancellation" begin
     @test sizeof(AbiV2Header) == 24
     @test sizeof(Id128) == 16
@@ -72,6 +99,116 @@ end
     imported = import_wfst(graph)
     @test VTI.start(imported) == 0
     close(imported)
+    close(graph)
+end
+
+@testset "all built-in scalar WFST domains" begin
+    @test_throws ArgumentError TropicalWeight(-Inf)
+    @test_throws ArgumentError LogWeight(NaN)
+    @test_throws ArgumentError ProbabilityWeight(-0.5)
+    @test_throws ArgumentError ArcticWeight(Inf)
+    @test_throws ArgumentError SignedTropicalWeight(-Inf)
+    @test_throws ArgumentError CountWeight((UInt64(1) << 53) + 1)
+    @test_throws ArgumentError BooleanWeight(2)
+    @test CountWeight(2) + CountWeight(3) == CountWeight(5)
+    @test CountWeight(2) * CountWeight(3) == CountWeight(6)
+    @test_throws ArgumentError CountWeight(1 << 53) + CountWeight(1)
+    @test_throws OverflowError CountWeight(1 << 53) * CountWeight(1 << 53)
+
+    for (Label, label_value) in LABEL_CASES
+        for (Weight, arc_weight, final_weight) in WEIGHT_CASES
+            graph = scalar_chain(Label, Weight, label_value,
+                arc_weight, final_weight)
+            @test VTI.unit_domain(graph) == LlingLlang.unit_domain(Label)
+            @test VTI.weight_domain(graph) == LlingLlang.weight_domain(Weight)
+            typed_arc = only(arcs(graph, 0))
+            @test typed_arc isa WfstArc{Label,Weight}
+            @test typed_arc.input === label_value
+            @test typed_arc.output === label_value
+            @test typed_arc.weight == arc_weight
+            typed_state = state(graph, typed_arc.target)
+            @test typed_state isa WfstState{Label,Weight}
+            @test typed_state.final
+            @test typed_state.final_weight == final_weight
+
+            imported = import_wfst(graph)
+            @test VTI.unit_domain(imported) == VTI.unit_domain(graph)
+            @test VTI.weight_domain(imported) == VTI.weight_domain(graph)
+            @test only(arcs(imported, 0)).weight == arc_weight
+            close(imported)
+            close(graph)
+        end
+    end
+end
+
+mutable struct RetainedStateProvider <: AbstractWfstProvider
+    first::ProviderState{UInt8,BooleanWeight}
+end
+LlingLlang.wfst_start(::RetainedStateProvider) = 0
+LlingLlang.wfst_state_count(::RetainedStateProvider) = 1
+LlingLlang.wfst_state(provider::RetainedStateProvider, state::UInt64) =
+    state == 0 ? provider.first : ProviderState{UInt8,BooleanWeight}(valid=false)
+
+@testset "provider cache owns published arc vectors" begin
+    implementation = RetainedStateProvider(ProviderState{UInt8,BooleanWeight}(
+        final=true,
+        arcs=[ProviderArc{UInt8,BooleanWeight}(UInt8(1), UInt8(2), 0)]))
+    graph = provider(UInt8, BooleanWeight, implementation)
+    @test length(arcs(graph, 0)) == 1
+    push!(implementation.first.arcs,
+        ProviderArc{UInt8,BooleanWeight}(UInt8(3), UInt8(4), 0))
+    @test length(arcs(graph, 0)) == 1
+    close(graph)
+end
+
+@testset "domain-specific composition multiplication" begin
+    cases = [
+        (TropicalWeight, TropicalWeight(2), TropicalWeight(3), TropicalWeight(5)),
+        (LogWeight, LogWeight(2), LogWeight(3), LogWeight(5)),
+        (ProbabilityWeight, ProbabilityWeight(0.5), ProbabilityWeight(0.25),
+            ProbabilityWeight(0.125)),
+        (ArcticWeight, ArcticWeight(-2), ArcticWeight(3), ArcticWeight(1)),
+        (SignedTropicalWeight, SignedTropicalWeight(-2), SignedTropicalWeight(3),
+            SignedTropicalWeight(1)),
+        (CountWeight, CountWeight(3), CountWeight(4), CountWeight(12)),
+        (BooleanWeight, BooleanWeight(true), BooleanWeight(false),
+            BooleanWeight(false)),
+    ]
+    for (Weight, left_weight, right_weight, expected) in cases
+        left = scalar_chain(UInt64, Weight, UInt64(7), left_weight, one(Weight))
+        right = scalar_chain(UInt64, Weight, UInt64(7), right_weight, one(Weight))
+        product = compose(left, right)
+        product_arc = only(arcs(product, VTI.start(product)))
+        @test product_arc.weight == expected
+        @test state(product, product_arc.target).final_weight == one(Weight)
+        close(product)
+        close(left)
+        close(right)
+    end
+
+    left = scalar_chain(UInt8, TropicalWeight, UInt8(1),
+        one(TropicalWeight), one(TropicalWeight))
+    right = scalar_chain(UInt64, TropicalWeight, UInt64(1),
+        one(TropicalWeight), one(TropicalWeight))
+    @test_throws ArgumentError compose(left, right)
+    close(left)
+    close(right)
+end
+
+@testset "symbol tables are dense, owned, and frozen with a graph" begin
+    inputs = SymbolTable{UInt8}(["known"])
+    outputs = SymbolTable{UInt8}()
+    @test intern!(inputs, "known") == UInt8(0)
+    graph = scalar_chain(UInt8, TropicalWeight, "alpha",
+        one(TropicalWeight), one(TropicalWeight);
+        input_symbols=inputs, output_symbols=outputs)
+    @test label(input_symbols(graph), "alpha") == UInt8(1)
+    @test symbol(input_symbols(graph), UInt8(0)) == "known"
+    @test label(output_symbols(graph), "alpha") == UInt8(0)
+    @test collect(input_symbols(graph)) == [UInt8(0) => "known", UInt8(1) => "alpha"]
+    @test isfrozen(input_symbols(graph))
+    @test_throws ArgumentError intern!(input_symbols(graph), "late")
+    @test !isfrozen(inputs)
     close(graph)
 end
 
@@ -184,6 +321,42 @@ function LlingLlang.wfst_state(::ExampleProvider, state::UInt64)
     state == 0 && return ProviderState(arcs=[ProviderArc('b', 'c', 1, 0.75)])
     state == 1 && return ProviderState(final=true, final_weight=0.125)
     ProviderState(valid=false)
+end
+
+struct GenericScalarProvider{L,W<:AbstractScalarWeight} <: AbstractWfstProvider
+    label::L
+    arc_weight::W
+    final_weight::W
+end
+LlingLlang.wfst_start(::GenericScalarProvider) = 0
+LlingLlang.wfst_state_count(::GenericScalarProvider) = 2
+function LlingLlang.wfst_state(provider::GenericScalarProvider{L,W}, state::UInt64) where {L,W}
+    state == 0 && return ProviderState{L,W}(
+        arcs=[ProviderArc{L,W}(provider.label, provider.label, 1, provider.arc_weight)])
+    state == 1 && return ProviderState{L,W}(
+        final=true, final_weight=provider.final_weight)
+    ProviderState{L,W}(valid=false)
+end
+
+@testset "typed host providers span all scalar domains" begin
+    for (Label, label_value) in LABEL_CASES
+        for (Weight, arc_weight, final_weight) in WEIGHT_CASES
+            host = provider(Label, Weight,
+                GenericScalarProvider(label_value, arc_weight, final_weight);
+                acyclic=true)
+            @test VTI.unit_domain(host) == LlingLlang.unit_domain(Label)
+            @test VTI.weight_domain(host) == LlingLlang.weight_domain(Weight)
+            host_arc = only(arcs(host, 0))
+            @test host_arc isa WfstArc{Label,Weight}
+            @test host_arc.input === label_value
+            @test host_arc.weight == arc_weight
+            @test state(host, 1).final_weight == final_weight
+            snapshot = VTI.snapshot(host)
+            close(host)
+            @test only(arcs(snapshot, 0)).output === label_value
+            close(snapshot)
+        end
+    end
 end
 
 @testset "host provider and lazy composition" begin

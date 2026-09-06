@@ -1,18 +1,18 @@
-//! Stable project-owned C ABI for Unicode/tropical lling-llang WFSTs.
+//! Stable project-owned C ABI for scalar lling-llang WFSTs.
 
 mod v2;
 pub use v2::*;
 
-use crate::bindings::{BindingError, OwnedWfstResource};
+use crate::bindings::{
+    valid_scalar_label, valid_scalar_weight, BindingError, OwnedWfstResource, ScalarWfstGraph,
+};
 use crate::dynamic_semiring::{
     DynamicSemiringContext, DynamicSemiringError, DynamicSemiringWeight, NaturalOrder,
 };
-use crate::semiring::TropicalWeight;
-use crate::wfst::{MutableWfst, VectorWfst, Wfst, NO_STATE};
 use std::cell::RefCell;
 use std::ffi::{c_char, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use vinary_tree_interop::VtResource;
+use vinary_tree_interop::{VtResource, VtUnitDomain, VtWeightDomain, VtWfstArc};
 
 mod lattice;
 pub use lattice::*;
@@ -20,7 +20,7 @@ pub use lattice::*;
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_LLANG_API_REVISION: u32 = 6;
+pub const LLING_LLANG_API_REVISION: u32 = 7;
 
 /// Status returned by lling-llang C functions.
 #[repr(u32)]
@@ -46,7 +46,9 @@ pub enum LlingLlangStatus {
 
 /// Opaque mutable WFST builder.
 pub struct LlingWfstBuilder {
-    graph: Option<VectorWfst<char, TropicalWeight>>,
+    graph: Option<ScalarWfstGraph>,
+    unit_domain: VtUnitDomain,
+    weight_domain: VtWeightDomain,
 }
 /// Opaque immutable scalar-WFST handle.
 pub struct LlingWfst {
@@ -150,9 +152,7 @@ unsafe fn copy_bytes_to_c(
     Ok(())
 }
 
-fn graph(
-    builder: *mut LlingWfstBuilder,
-) -> Result<&'static mut VectorWfst<char, TropicalWeight>, LlingLlangStatus> {
+fn graph(builder: *mut LlingWfstBuilder) -> Result<&'static mut ScalarWfstGraph, LlingLlangStatus> {
     required_mut(builder, "builder")?
         .graph
         .as_mut()
@@ -707,15 +707,60 @@ pub unsafe extern "C" fn lling_semiring_validate_laws(
     })
 }
 
+fn decode_unit_domain(raw: u32) -> Result<VtUnitDomain, LlingLlangStatus> {
+    match raw {
+        1 => Ok(VtUnitDomain::Byte),
+        2 => Ok(VtUnitDomain::UnicodeScalar),
+        3 => Ok(VtUnitDomain::U64),
+        _ => {
+            set_error("unit_domain is not a known VtUnitDomain value");
+            Err(LlingLlangStatus::InvalidArgument)
+        }
+    }
+}
+
+fn decode_weight_domain(raw: u32) -> Result<VtWeightDomain, LlingLlangStatus> {
+    match raw {
+        1 => Ok(VtWeightDomain::TropicalF64),
+        2 => Ok(VtWeightDomain::LogF64),
+        3 => Ok(VtWeightDomain::ProbabilityF64),
+        4 => Ok(VtWeightDomain::ArcticF64),
+        5 => Ok(VtWeightDomain::SignedTropicalF64),
+        6 => Ok(VtWeightDomain::CountF64),
+        7 => Ok(VtWeightDomain::BooleanF64),
+        _ => {
+            set_error("weight_domain is not a known VtWeightDomain value");
+            Err(LlingLlangStatus::InvalidArgument)
+        }
+    }
+}
+
 /// Allocate an empty Unicode/tropical WFST builder.
 #[no_mangle]
 pub extern "C" fn lling_wfst_builder_new(
     out_builder: *mut *mut LlingWfstBuilder,
 ) -> LlingLlangStatus {
+    lling_wfst_builder_new_for_domains(2, 1, out_builder)
+}
+
+/// Allocate an empty scalar WFST builder for any family ABI domain pair.
+///
+/// Raw `u32` discriminants are decoded before enum construction so malformed
+/// foreign values are rejected without invoking Rust enum undefined behavior.
+#[no_mangle]
+pub extern "C" fn lling_wfst_builder_new_for_domains(
+    unit_domain: u32,
+    weight_domain: u32,
+    out_builder: *mut *mut LlingWfstBuilder,
+) -> LlingLlangStatus {
     boundary(|| {
         let output = required_mut(out_builder, "out_builder")?;
+        let unit_domain = decode_unit_domain(unit_domain)?;
+        let weight_domain = decode_weight_domain(weight_domain)?;
         *output = Box::into_raw(Box::new(LlingWfstBuilder {
-            graph: Some(VectorWfst::new()),
+            graph: Some(ScalarWfstGraph::new(unit_domain, weight_domain)),
+            unit_domain,
+            weight_domain,
         }));
         Ok(())
     })
@@ -762,7 +807,7 @@ pub extern "C" fn lling_wfst_builder_add_state(
         // precedence.
         let graph = graph(builder)?;
         let output = required_mut(out_state, "out_state")?;
-        *output = graph.add_state();
+        *output = graph.add_state().map_err(map_error)?;
         Ok(())
     })
 }
@@ -775,7 +820,7 @@ pub extern "C" fn lling_wfst_builder_set_start(
 ) -> LlingLlangStatus {
     boundary(|| {
         let graph = graph(builder)?;
-        if !graph.try_set_start(state) {
+        if !graph.set_start(state) {
             set_error("start state is not present in the builder");
             return Err(LlingLlangStatus::InvalidArgument);
         }
@@ -783,7 +828,7 @@ pub extern "C" fn lling_wfst_builder_set_start(
     })
 }
 
-/// Set a final state and its tropical weight.
+/// Set a final state and its domain-specific scalar weight.
 #[no_mangle]
 pub extern "C" fn lling_wfst_builder_set_final(
     builder: *mut LlingWfstBuilder,
@@ -791,21 +836,19 @@ pub extern "C" fn lling_wfst_builder_set_final(
     weight: f64,
 ) -> LlingLlangStatus {
     boundary(|| {
-        // Builder-surface twin of finding LLING-B2/F1: the tropical domain is
-        // finite-or-+inf only, so -inf must be rejected exactly like NaN
-        // (previously it slipped the is_nan check and panicked inside
-        // TropicalWeight::new, surfacing as LLING_STATUS_PANIC).
-        if !TropicalWeight::is_valid_raw(weight) {
-            set_error("weight must be a finite or +infinity tropical value");
+        let builder = required_mut(builder, "builder")?;
+        if !valid_scalar_weight(builder.weight_domain, weight) {
+            set_error("weight does not belong to the builder's semiring domain");
             return Err(LlingLlangStatus::InvalidArgument);
         }
-        let graph = graph(builder)?;
-        let state = graph.state_mut(state).ok_or_else(|| {
-            set_error("final state is not present in the builder");
-            LlingLlangStatus::InvalidArgument
+        let graph = builder.graph.as_mut().ok_or_else(|| {
+            set_error("builder has already been consumed");
+            LlingLlangStatus::Closed
         })?;
-        state.is_final = true;
-        state.final_weight = TropicalWeight::new(weight);
+        if !graph.set_final(state, weight) {
+            set_error("final state is not present in the builder");
+            return Err(LlingLlangStatus::InvalidArgument);
+        }
         Ok(())
     })
 }
@@ -817,31 +860,32 @@ pub extern "C" fn lling_wfst_builder_clear_final(
     state: u32,
 ) -> LlingLlangStatus {
     boundary(|| {
-        let state = graph(builder)?.state_mut(state).ok_or_else(|| {
+        if !graph(builder)?.clear_final(state) {
             set_error("state is not present in the builder");
-            LlingLlangStatus::InvalidArgument
-        })?;
-        state.is_final = false;
-        state.final_weight = TropicalWeight::new(f64::INFINITY);
+            return Err(LlingLlangStatus::InvalidArgument);
+        }
         Ok(())
     })
 }
 
-fn decode_label(
+fn validate_label(
+    domain: VtUnitDomain,
     value: u64,
     present: u8,
     name: &'static str,
-) -> Result<Option<char>, LlingLlangStatus> {
+) -> Result<(), LlingLlangStatus> {
     match present {
-        0 => Ok(None),
-        1 => u32::try_from(value)
-            .ok()
-            .and_then(char::from_u32)
-            .map(Some)
-            .ok_or_else(|| {
-                set_error(format!("{name} is not a Unicode scalar"));
-                LlingLlangStatus::InvalidArgument
-            }),
+        0 => Ok(()),
+        1 => {
+            if valid_scalar_label(domain, value) {
+                Ok(())
+            } else {
+                set_error(format!(
+                    "{name} does not belong to the builder's label domain"
+                ));
+                Err(LlingLlangStatus::InvalidArgument)
+            }
+        }
         _ => {
             set_error(format!("{name} presence flag must be zero or one"));
             Err(LlingLlangStatus::InvalidArgument)
@@ -849,7 +893,7 @@ fn decode_label(
     }
 }
 
-/// Add a Unicode/tropical arc. `has_input`/`has_output` zero denotes epsilon.
+/// Add a domain-validated scalar arc. Zero presence denotes epsilon.
 #[no_mangle]
 pub extern "C" fn lling_wfst_builder_add_arc(
     builder: *mut LlingWfstBuilder,
@@ -862,19 +906,35 @@ pub extern "C" fn lling_wfst_builder_add_arc(
     weight: f64,
 ) -> LlingLlangStatus {
     boundary(|| {
-        // Builder-surface twin of finding LLING-B2/F1 (see set_final above).
-        if !TropicalWeight::is_valid_raw(weight) {
-            set_error("weight must be a finite or +infinity tropical value");
+        let builder = required_mut(builder, "builder")?;
+        if !valid_scalar_weight(builder.weight_domain, weight) {
+            set_error("weight does not belong to the builder's semiring domain");
             return Err(LlingLlangStatus::InvalidArgument);
         }
-        let input = decode_label(input_label, has_input, "input label")?;
-        let output = decode_label(output_label, has_output, "output label")?;
-        let graph = graph(builder)?;
-        if !graph.is_valid_state(from) || !graph.is_valid_state(to) {
+        validate_label(builder.unit_domain, input_label, has_input, "input label")?;
+        validate_label(
+            builder.unit_domain,
+            output_label,
+            has_output,
+            "output label",
+        )?;
+        let graph = builder.graph.as_mut().ok_or_else(|| {
+            set_error("builder has already been consumed");
+            LlingLlangStatus::Closed
+        })?;
+        let arc = VtWfstArc {
+            input_label,
+            output_label,
+            target_state: u64::from(to),
+            weight,
+            has_input,
+            has_output,
+            reserved: [0; 6],
+        };
+        if !graph.add_arc(from, arc) {
             set_error("arc source or target state is not present in the builder");
             return Err(LlingLlangStatus::InvalidArgument);
         }
-        graph.add_arc(from, input, output, to, TropicalWeight::new(weight));
         Ok(())
     })
 }
@@ -896,13 +956,13 @@ pub extern "C" fn lling_wfst_builder_build(
             set_error("builder has already been consumed");
             LlingLlangStatus::Closed
         })?;
-        if graph.start() == NO_STATE {
+        if graph.start().is_none() {
             builder.graph = Some(graph);
             set_error("WFST has no start state");
             return Err(LlingLlangStatus::InvalidArgument);
         }
         *output = Box::into_raw(Box::new(LlingWfst {
-            resource: OwnedWfstResource::from_wfst(graph),
+            resource: OwnedWfstResource::from_scalar_wfst(graph),
         }));
         Ok(())
     })
@@ -935,10 +995,8 @@ pub extern "C" fn lling_wfst_import(
         // validation must never leak caller-visible resources (mirrors the
         // build/out_wfst discipline).
         let output = required_mut(out_wfst, "out_wfst")?;
-        let graph = crate::bindings::import_tropical_wfst(resource).map_err(map_error)?;
-        *output = Box::into_raw(Box::new(LlingWfst {
-            resource: OwnedWfstResource::from_wfst(graph),
-        }));
+        let resource = OwnedWfstResource::import(resource).map_err(map_error)?;
+        *output = Box::into_raw(Box::new(LlingWfst { resource }));
         Ok(())
     })
 }

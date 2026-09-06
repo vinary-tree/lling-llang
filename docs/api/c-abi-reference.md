@@ -4,7 +4,7 @@ The complete reference for lling-llang's stable, project-owned C ABI: all 61
 exported `lling_*` functions, their exact signatures, preconditions, returnable
 status sets, ownership and threading rules, and complexity — plus the
 weight-domain ↔ semiring dictionary shared with the whole vinary-tree family.
-The ABI builds Unicode/tropical WFSTs behind opaque handles and exchanges them
+The ABI builds scalar WFSTs behind opaque handles and exchanges them
 with sibling libraries as retained two-word `VtResource` values carrying the
 `vt.scalar-wfst.1` interface.
 
@@ -42,11 +42,11 @@ Symbols link to [`NOTATION.md`](../NOTATION.md); authoring rules in
 
 ## The surface at a glance
 
-Sixty-one functions in nine groups. Every fallible call returns a
+Sixty-five functions in nine groups. Every fallible call returns a
 `LlingLlangStatus`; every non-`OK` return latches a thread-local, NUL-terminated
 diagnostic readable through `lling_last_error_message()`.
 
-![The 61-function lling-llang C ABI surface: dynamic algebras, WFSTs, typed metadata, cancellation, retained resources, and their status contract.](../diagrams/api/c-abi-surface.svg)
+![The 65-function lling-llang C ABI surface: dynamic algebras, WFSTs, typed metadata, cancellation, retained resources, and their status contract.](../diagrams/api/c-abi-surface.svg)
 
 *Yellow = lling-llang-owned surface; green = retained `VtResource` handles;
 red = foreign providers across the trust boundary; grey = status and
@@ -58,15 +58,17 @@ diagnostics.*
 Versioning (2)     lling_abi_version, lling_llang_api_revision
 Diagnostics (1)    lling_last_error_message
 Dynamic semiring   lling_semiring_open, lling_semiring_free,
-             (21)  lling_semiring_weight_free, lling_semiring_properties,
-                   zero, one, clone, plus, times, exact/approx equality,
+             (24)  lling_semiring_weight_clone, lling_semiring_weight_free,
+                   lling_semiring_properties,
+                   zero, one, plus, times, exact/approx equality,
                    natural order, right/left division, star, numerical value,
                    quantization, probability, closure bound, stable bytes,
                    and representative-sample law validation
 Dynamic lattice    lling_lattice_open, lling_lattice_free, domain ID, flags,
              (12)  join, meet, equality, stable bytes, diagnostic,
                    bounded join/meet folds, and sample law validation
-Builder (9)        lling_wfst_builder_new ─┐  caller-owned, mutable,
+Builder (10)       lling_wfst_builder_new ─┐  caller-owned, mutable,
+                   lling_wfst_builder_new_for_domains
                    lling_wfst_builder_free │  single-threaded
                    lling_wfst_builder_reserve_states
                    lling_wfst_builder_add_state
@@ -92,7 +94,7 @@ Cancellation (4)   new, request, reason, single-release free
 
 ```c
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 6u
+#define LLING_LLANG_API_REVISION 7u
 #define LLING_ABI_V2 2u
 
 LLING_LLANG_API uint32_t lling_abi_version(void);
@@ -147,12 +149,12 @@ same eight values on both sides, pinned by `bindings/api.json` and enforced by
 | Value | Name | Meaning |
 |---|---|---|
 | 0 | `LLING_STATUS_OK` | Operation completed successfully. |
-| 1 | `LLING_STATUS_INVALID_ARGUMENT` | An argument value was rejected (absent state, non-tropical weight — NaN or $`-\infty`$, malformed label, missing start state). |
+| 1 | `LLING_STATUS_INVALID_ARGUMENT` | An argument value was rejected (absent state, value outside the selected domain, malformed label, missing start state). |
 | 2 | `LLING_STATUS_NULL_POINTER` | A required pointer (or resource word) was null. |
 | 3 | `LLING_STATUS_PANIC` | A Rust panic was caught at the boundary; it never unwinds into C. |
-| 4 | `LLING_STATUS_INCOMPATIBLE_RESOURCE` | The resource does not expose a compatible `vt.scalar-wfst.1` interface (wrong ABI version, missing ops, wrong label or weight domain). |
+| 4 | `LLING_STATUS_INCOMPATIBLE_RESOURCE` | The resource does not expose a compatible `vt.scalar-wfst.1`, or composition operands advertise different domains. |
 | 5 | `LLING_STATUS_PROVIDER_ERROR` | A foreign provider callback failed or returned output that failed validation. |
-| 6 | `LLING_STATUS_LIMIT_EXCEEDED` | A state count or label exceeds lling-llang's native representation. |
+| 6 | `LLING_STATUS_LIMIT_EXCEEDED` | A state count or derived scalar value exceeds the selected representation. |
 | 7 | `LLING_STATUS_CLOSED` | The builder was already consumed by a successful `build`. |
 
 The import/compose paths classify every internal `BindingError` **totally** —
@@ -182,6 +184,10 @@ API revision 6 adds semiring diagnostics and bounded addition and
 multiplication folds. These are additive project-ABI-v1 functions; consumers
 must still compare `lling_llang_api_revision()` with the compile-time minimum
 before calling them.
+
+API revision 7 adds domain-generic scalar-WFST construction and preserves all
+supported scalar domains through import and lazy composition. It is also an
+additive project-ABI-v1 change.
 
 ### Common prefix and layouts
 
@@ -468,15 +474,17 @@ No consumer mutex is held while foreign code executes. See
 [Host-defined lattice values](../architecture/dynamic-lattices.md) for the
 complete ownership, batching, validation, and concurrency design.
 
-## Builder lifecycle — nine functions
+## Builder lifecycle — ten functions
 
 `LlingWfstBuilder` is an opaque, caller-owned, **mutable** graph under
-construction: Unicode-scalar labels, tropical `f64` weights. It is **not**
-thread-safe — confine each builder to one thread. `build` freezes it into an
-immutable `LlingWfst` in $`\mathcal{O}(1)`$ and consumes it; every later builder call
-answers `LLING_STATUS_CLOSED`.
+construction. Its label and built-in scalar-weight domains are fixed at
+creation. It is **not** thread-safe — confine each builder to one thread.
+`build` freezes it into an immutable `LlingWfst` in $`\mathcal{O}(1)`$ and
+consumes it. Later calls with otherwise domain-valid arguments answer
+`LLING_STATUS_CLOSED`; `set_final` and `add_arc` deliberately diagnose an
+out-of-domain weight or label before checking whether the graph was consumed.
 
-![LlingWfstBuilder lifecycle state machine: new creates the Open state; reserve, add-state, start/final and arc edits loop on Open; a build without a start state fails with INVALID_ARGUMENT and restores Open; a successful build moves to Consumed and emits the immutable handle; every builder call on Consumed returns CLOSED; free is accepted from both states.](../diagrams/architecture/builder-lifecycle-state.svg)
+![LlingWfstBuilder lifecycle state machine: either constructor creates the Open state; reserve, add-state, start/final and arc edits loop on Open; a build without a start state fails with INVALID_ARGUMENT and restores Open; a successful build moves to Consumed and emits the immutable handle; domain-valid builder calls on Consumed return CLOSED while invalid domain values retain validation precedence; free is accepted from both states.](../diagrams/architecture/builder-lifecycle-state.svg)
 
 *Yellow = the mutable Open state; amber = the Consumed builder; green = the
 immutable handle; red annotations = failure statuses.*
@@ -484,10 +492,10 @@ immutable handle; red annotations = failure statuses.*
 <details><summary>Text view</summary>
 
 ```art
-        builder_new                     build (has start)   out_wfst
+        builder_new[_for_domains]       build (has start)   out_wfst
   [*] ──────────────▶ Open ──────────────────────────────▶ Consumed ──▶ LlingWfst
                        │ ▲                                     │
-   reserve_states,     │ │  build with NO start state:         │ any builder call
+   reserve_states,     │ │  build with NO start state:         │ domain-valid call
    add_state,          └─┘  INVALID_ARGUMENT, graph restored   │ → CLOSED
    set_start/final,                                            ▼
    clear_final,        builder_free accepted from Open and Consumed alike
@@ -504,7 +512,7 @@ LLING_LLANG_API LlingLlangStatus lling_wfst_builder_new(LlingWfstBuilder** out_b
 
 | Aspect | Contract |
 |---|---|
-| Semantics | Allocates an empty builder and writes its handle to `*out_builder`. |
+| Semantics | Allocates an empty Unicode-scalar/tropical builder and writes its handle to `*out_builder`. This is the compatibility shorthand for `lling_wfst_builder_new_for_domains(VT_UNIT_UNICODE_SCALAR, VT_WEIGHT_TROPICAL_F64, out_builder)`. |
 | Preconditions | `out_builder` non-null and writable. |
 | Returns | `OK` · `NULL_POINTER` · `PANIC` |
 | Ownership | Caller owns the builder; release with `lling_wfst_builder_free`. |
@@ -514,6 +522,35 @@ LLING_LLANG_API LlingLlangStatus lling_wfst_builder_new(LlingWfstBuilder** out_b
 > **Check order.** The out-pointer is validated *before* the builder is
 > constructed: a null `out_builder` returns `NULL_POINTER` and allocates
 > nothing.
+
+### `lling_wfst_builder_new_for_domains`
+
+```c
+LLING_LLANG_API LlingLlangStatus lling_wfst_builder_new_for_domains(
+    uint32_t unit_domain, uint32_t weight_domain,
+    LlingWfstBuilder** out_builder);
+```
+
+API revision 7 adds the domain-generic constructor. Raw discriminants are
+decoded before Rust enum construction: the unit domain must be byte,
+Unicode-scalar, or unsigned-64-bit, and the weight domain must be one of the
+seven scalar domains below. Unknown values return `INVALID_ARGUMENT`; a null
+`out_builder` returns `NULL_POINTER` before either discriminant is read.
+
+| Weight domain | Accepted wire carrier | $`\bar{0}`$ | Path multiplication $`a \otimes b`$ |
+|---|---|---:|---|
+| tropical `f64` | finite or $`+\infty`$ | $`+\infty`$ | $`a+b`$ |
+| log `f64` | finite or $`+\infty`$ | $`+\infty`$ | $`a+b`$ |
+| probability `f64` | finite and nonnegative | $`0`$ | $`ab`$ |
+| arctic `f64` | finite or $`-\infty`$ | $`-\infty`$ | $`a+b`$ |
+| signed-tropical `f64` | finite or $`+\infty`$ | $`+\infty`$ | $`a+b`$ |
+| count `f64` | exact integer in $`[0,2^{53}]`$ | $`0`$ | $`ab`$ |
+| Boolean `f64` | exactly 0 or 1 | 0 | logical AND |
+
+Byte labels must fit `uint8_t`; Unicode labels must be scalar values (not
+surrogates); every `uint64_t` is valid in the unsigned-64-bit domain. The
+selected domains are immutable graph metadata and survive build, import,
+snapshot, composition, and resource export.
 
 ### `lling_wfst_builder_free`
 
@@ -562,10 +599,9 @@ LLING_LLANG_API LlingLlangStatus lling_wfst_builder_add_state(
 | Thread safety | Builder-confined. |
 | Complexity | $`\mathcal{O}(1)`$ amortized. |
 
-> **Check order.** The builder is validated before `out_state`; when
-> `out_state` is null the state has already been added by the time
-> `NULL_POINTER` is returned. The builder remains usable — the orphan state is
-> simply unreferenced until you target it.
+> **Check order.** The builder and `out_state` are both validated before graph
+> mutation. A null output returns `NULL_POINTER` without creating an orphan
+> state.
 
 ### `lling_wfst_builder_set_start`
 
@@ -592,22 +628,17 @@ LLING_LLANG_API LlingLlangStatus lling_wfst_builder_set_final(
 
 | Aspect | Contract |
 |---|---|
-| Semantics | Marks `state` final with tropical final weight $`\rho(q) = \texttt{weight}`$. |
-| Preconditions | `builder` non-null, not consumed; `state` exists; `weight` in the tropical carrier $`\mathbb{R} \cup \{+\infty\}`$. |
-| Returns | `OK` · `INVALID_ARGUMENT` (non-tropical weight — NaN or $`-\infty`$; state absent) · `NULL_POINTER` · `CLOSED` · `PANIC` |
+| Semantics | Marks `state` final with domain-specific final weight $`\rho(q) = \texttt{weight}`$. |
+| Preconditions | `builder` non-null, not consumed; `state` exists; `weight` belongs to the builder's selected carrier. |
+| Returns | `OK` · `INVALID_ARGUMENT` (weight outside the carrier; state absent) · `NULL_POINTER` · `CLOSED` · `PANIC` |
 | Ownership | No transfer. |
 | Thread safety | Builder-confined. |
 | Complexity | $`\mathcal{O}(1)`$ |
 
-> **Check order and the weight domain.** The weight is validated with
-> `TropicalWeight::is_valid_raw` *before* the builder pointer is examined,
-> so `set_final(NULL, s, NAN)` reports `INVALID_ARGUMENT`, not
-> `NULL_POINTER`. `+INFINITY` is accepted (it is the tropical $`\bar{0}`$ —
-> a final weight of "unreachable"); NaN **and** `-INFINITY` are rejected
-> uniformly. This is the builder-surface twin of finding LLING-B2/F1
-> (before the fix, a `-INFINITY` slipped the NaN-only check and surfaced as
-> a caught `PANIC`) — see the
-> [bindings findings ledger](../scientific-ledger/bindings-findings-ledger.md).
+> **Check order and the weight domain.** The builder pointer is checked first,
+> then the weight against that builder's immutable domain, then the consumed
+> state, then the state ID. The carrier table above is authoritative; notably,
+> one domain's zero may be invalid in another domain.
 
 ### `lling_wfst_builder_clear_final`
 
@@ -618,7 +649,7 @@ LLING_LLANG_API LlingLlangStatus lling_wfst_builder_clear_final(
 
 | Aspect | Contract |
 |---|---|
-| Semantics | Clears `state`'s final flag and resets its final weight to the tropical $`\bar{0} = +\infty`$. Idempotent. |
+| Semantics | Clears `state`'s final flag and resets its final weight to the selected domain's $`\bar{0}`$. Idempotent. |
 | Preconditions | `builder` non-null, not consumed; `state` exists. |
 | Returns | `OK` · `INVALID_ARGUMENT` (state absent) · `NULL_POINTER` · `CLOSED` · `PANIC` |
 | Ownership | No transfer. |
@@ -637,17 +668,15 @@ LLING_LLANG_API LlingLlangStatus lling_wfst_builder_add_arc(
 
 | Aspect | Contract |
 |---|---|
-| Semantics | Appends the arc $`\mathit{from} \overset{\;i:o/w\;}{\longrightarrow} \mathit{to}`$. A presence flag of 0 makes that side $`\varepsilon`$ (the label value is then ignored); a flag of 1 requires the label to be a Unicode scalar value (any code point except surrogates, i.e. at most `0x10FFFF`). Parallel and duplicate arcs are allowed. |
-| Preconditions | `builder` non-null, not consumed; `from` and `to` exist; each presence flag is 0 or 1; present labels are Unicode scalars; `weight` in the tropical carrier. |
-| Returns | `OK` · `INVALID_ARGUMENT` (non-tropical weight — NaN or $`-\infty`$; presence flag $`> 1`$; non-scalar label; absent endpoint) · `NULL_POINTER` · `CLOSED` · `PANIC` |
+| Semantics | Appends the arc $`\mathit{from} \overset{\;i:o/w\;}{\longrightarrow} \mathit{to}`$. A presence flag of 0 makes that side $`\varepsilon`$ and ignores its label word; a flag of 1 validates the label against the builder's selected unit domain. Parallel and duplicate arcs are allowed. |
+| Preconditions | `builder` non-null, not consumed; `from` and `to` exist; each presence flag is 0 or 1; present labels and `weight` belong to the selected domains. |
+| Returns | `OK` · `INVALID_ARGUMENT` (weight or label outside its domain; presence flag $`> 1`$; absent endpoint) · `NULL_POINTER` · `CLOSED` · `PANIC` |
 | Ownership | No transfer. |
 | Thread safety | Builder-confined. |
 | Complexity | $`\mathcal{O}(1)`$ amortized. |
 
-> **Check order.** Validation runs weight → labels → builder → endpoints, so
-> argument errors report `INVALID_ARGUMENT` even when `builder` is null. The
-> weight check is the same uniform `TropicalWeight::is_valid_raw` rejection
-> as `set_final` (the LLING-B2/F1 builder-surface twin).
+> **Check order.** Validation runs builder pointer → weight → labels →
+> consumed state → endpoints. Rejected values never mutate the graph.
 
 ### `lling_wfst_builder_build`
 
@@ -703,16 +732,16 @@ LLING_LLANG_API LlingLlangStatus lling_wfst_import(
 
 | Aspect | Contract |
 |---|---|
-| Semantics | Snapshots a foreign Unicode/tropical scalar-WFST resource and **copies every reachable state and arc exactly once** into a private eager graph, independent of the source. The source can be released immediately afterwards. |
-| Preconditions | `resource` non-null in both words and exposing `vt.scalar-wfst.1` with Unicode-scalar labels and tropical `f64` weights; `out_wfst` non-null. |
-| Returns | `OK` · `NULL_POINTER` (null resource words; null `out_wfst`) · `INCOMPATIBLE_RESOURCE` · `PROVIDER_ERROR` (callback failure; invalid `state_info`/arc fields — including NaN or $`-\infty`$ weights; broken paging counts) · `LIMIT_EXCEEDED` (more than $`2^{32}-1`$ reachable states; a label exceeding the Unicode scalar range) · `PANIC` |
+| Semantics | Snapshots a foreign scalar-WFST resource and **copies every reachable state and arc exactly once** into a private eager graph while preserving its unit and weight domains. The source can be released immediately afterwards. |
+| Preconditions | `resource` non-null in both words and exposing a supported `vt.scalar-wfst.1`; `out_wfst` non-null. |
+| Returns | `OK` · `NULL_POINTER` (null resource words; null `out_wfst`) · `INCOMPATIBLE_RESOURCE` · `PROVIDER_ERROR` (callback failure; fields outside the advertised domains; broken paging counts) · `LIMIT_EXCEEDED` (more than $`2^{32}-1`$ reachable states) · `PANIC` |
 | Ownership | Takes **no** ownership of `resource` (borrows it for the call). On `OK` the caller owns the new handle. |
 | Thread safety | Any thread. |
 | Complexity | $`\mathcal{O}(\lvert Q\rvert + \lvert E\rvert)`$ over the *reachable* snapshot, with $`\lceil \deg(q)/256 \rceil`$ paged callbacks per state. |
 
-Every weight crossing this boundary is validated with
-`TropicalWeight::is_valid_raw` — finite or $`+\infty`$; NaN **and**
-$`-\infty`$ are rejected as provider misbehavior (the LLING-B2/F1 hardening).
+Every label and weight crossing this boundary is validated against the
+provider's advertised carrier. A domain-invalid value is provider
+misbehavior, even if its raw bits would be valid in another domain.
 The output pointer is validated before snapshot capture or materialization, so
 a `NULL_POINTER` result cannot leak a private graph or provider retain.
 
@@ -738,16 +767,20 @@ LLING_LLANG_API LlingLlangStatus lling_wfst_compose(
 | Aspect | Contract |
 |---|---|
 | Semantics | Lazily composes two scalar-WFST resources: $`T = T_1 \circ T_2`$, matching `first`'s output tape against `second`'s input tape under an $`\varepsilon`$-filter. Construction captures **one snapshot per input** and expands **no** state; product states materialize on demand during traversal and are cached. |
-| Preconditions | Both resources non-null and Unicode/tropical `vt.scalar-wfst.1` (as for `import`); `out_wfst` non-null. |
+| Preconditions | Both resources non-null, each exposing a supported `vt.scalar-wfst.1`, and declaring equal unit and weight domains; `out_wfst` non-null. |
 | Returns | `OK` · `NULL_POINTER` · `INCOMPATIBLE_RESOURCE` · `PROVIDER_ERROR` (discovery/snapshot/start callback failure) · `PANIC` |
 | Ownership | Borrows both inputs for the call; the composition holds its **own** snapshot retains, so the caller may release `first`/`second` immediately, in any order, without invalidating the result. |
 | Thread safety | Any thread; the produced handle expands product states concurrently (no resource-wide lock). |
 | Complexity | Construction $`\mathcal{O}(1)`$. Expanding one product state $`(q_1, q_2, \phi)`$ costs $`\mathcal{O}(d_1 + d_2 + d_1 d_2)`$ where $`d_i`$ is the component out-degree (the match pass scans label pairs), amortized once per product state thanks to the cache. |
 
-Provider failures and invalid weights (NaN, $`-\infty`$) discovered **during**
-lazy expansion surface as `VT_STATUS_PROVIDER_ERROR` on the exported vtable
-calls — not as an `LlingLlangStatus`, because traversal happens through the family
-interface. See [Resource ABI architecture](../architecture/resource-abi.md).
+Matched arc weights and paired final weights use the selected domain's
+$`\otimes`$ operation from the table above. Provider failures and invalid
+provider values discovered **during** lazy expansion surface as
+`VT_STATUS_PROVIDER_ERROR`; a valid multiplication whose result exceeds its
+carrier surfaces as `VT_STATUS_LIMIT_EXCEEDED`. These are statuses on the
+exported vtable calls—not `LlingLlangStatus` results—because traversal happens
+through the family interface. See
+[Resource ABI architecture](../architecture/resource-abi.md).
 
 The output pointer is validated before either snapshot is captured, so failure
 cannot strand a composition or either input retain.

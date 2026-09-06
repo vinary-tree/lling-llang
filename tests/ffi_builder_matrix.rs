@@ -1,8 +1,8 @@
-//! Validation matrix for the 19-function `lling_*` C ABI builder surface.
+//! Validation matrix for the project-owned `lling_*` C ABI builder surface.
 //!
 //! Exercises every builder-lifecycle function against its full argument-error
-//! matrix: absent states, non-tropical weights (the builder-surface twin of
-//! finding LLING-B2/F1), non-scalar labels, presence-flag abuse, build-time
+//! matrix: absent states, values outside the selected semiring carrier,
+//! labels outside the selected unit domain, presence-flag abuse, build-time
 //! preconditions and their restore behavior, post-build `Closed` semantics,
 //! null in/out pointers, error-message thread locality, and the ABI/API
 //! version pins.
@@ -137,9 +137,9 @@ unsafe fn state_info(resource: VtResource, state: u64) -> (u8, u8, f64) {
 #[test]
 fn abi_version_and_api_revision_are_pinned() {
     assert_eq!(lling_abi_version(), 1);
-    assert_eq!(lling_llang_api_revision(), 6);
+    assert_eq!(lling_llang_api_revision(), 7);
     assert_eq!(LLING_ABI_VERSION, 1);
-    assert_eq!(LLING_LLANG_API_REVISION, 6);
+    assert_eq!(LLING_LLANG_API_REVISION, 7);
 }
 
 #[test]
@@ -237,7 +237,7 @@ fn weight_ingestion_rejects_nan_and_negative_infinity() {
             LlingLlangStatus::InvalidArgument,
             "set_final must reject {poison}"
         );
-        assert!(last_error().contains("finite or +infinity"));
+        assert!(last_error().contains("semiring domain"));
         assert_eq!(
             lling_wfst_builder_add_arc(
                 builder,
@@ -616,7 +616,7 @@ fn last_error_is_thread_local() {
     .expect("worker thread must not panic");
 
     assert_eq!(worker_messages.0, "ok");
-    assert!(worker_messages.1.contains("finite or +infinity"));
+    assert!(worker_messages.1.contains("semiring domain"));
     // The worker's error never leaked into this thread's slot.
     assert_eq!(last_error(), main_message);
     unsafe { lling_wfst_builder_free(builder) };

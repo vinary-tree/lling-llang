@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 6u
+#define LLING_LLANG_API_REVISION 7u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -272,6 +272,10 @@ LLING_LLANG_API LlingLlangStatus lling_lattice_meet_many(
 LLING_LLANG_API LlingLlangStatus lling_lattice_validate_laws(
     const LlingLatticeValue* const* values, size_t count);
 LLING_LLANG_API LlingLlangStatus lling_wfst_builder_new(LlingWfstBuilder** out_builder);
+/* Domain discriminants are VtUnitDomain and VtWeightDomain wire values. */
+LLING_LLANG_API LlingLlangStatus lling_wfst_builder_new_for_domains(
+    uint32_t unit_domain, uint32_t weight_domain,
+    LlingWfstBuilder** out_builder);
 LLING_LLANG_API void lling_wfst_builder_free(LlingWfstBuilder* builder);
 LLING_LLANG_API LlingLlangStatus lling_wfst_builder_reserve_states(
     LlingWfstBuilder* builder, size_t additional);

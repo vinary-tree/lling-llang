@@ -30,9 +30,9 @@ pub enum BindingError {
     MissingWfstInterface,
     /// The WFST interface is incomplete or incompatible.
     IncompatibleWfstInterface,
-    /// Only Unicode scalar labels are accepted by this binding specialization.
+    /// A scalar-WFST operation requires another label domain.
     UnitDomainMismatch(VtUnitDomain),
-    /// Only tropical f64 weights are accepted by this binding specialization.
+    /// A scalar-WFST operation requires another weight domain.
     WeightDomainMismatch(VtWeightDomain),
     /// A provider callback failed.
     Provider(VtStatus),
@@ -53,12 +53,14 @@ impl fmt::Display for BindingError {
             Self::IncompatibleWfstInterface => {
                 formatter.write_str("incompatible scalar WFST interface")
             }
-            Self::UnitDomainMismatch(domain) => {
-                write!(formatter, "expected Unicode scalar labels, got {domain:?}")
-            }
-            Self::WeightDomainMismatch(domain) => {
-                write!(formatter, "expected tropical f64 weights, got {domain:?}")
-            }
+            Self::UnitDomainMismatch(domain) => write!(
+                formatter,
+                "scalar WFST label domain is incompatible: {domain:?}"
+            ),
+            Self::WeightDomainMismatch(domain) => write!(
+                formatter,
+                "scalar WFST weight domain is incompatible: {domain:?}"
+            ),
             Self::Provider(status) => write!(formatter, "WFST provider returned {status:?}"),
             Self::InvalidProviderOutput(message) => write!(
                 formatter,
@@ -97,6 +99,201 @@ struct StateData {
     arcs: Arc<[VtWfstArc]>,
 }
 
+const MAX_EXACT_F64_INTEGER: f64 = 9_007_199_254_740_992.0;
+
+/// Return whether a raw label belongs to the declared scalar-WFST domain.
+#[inline]
+pub(crate) fn valid_scalar_label(domain: VtUnitDomain, value: u64) -> bool {
+    match domain {
+        VtUnitDomain::Byte => u8::try_from(value).is_ok(),
+        VtUnitDomain::UnicodeScalar => u32::try_from(value).ok().and_then(char::from_u32).is_some(),
+        VtUnitDomain::U64 => true,
+    }
+}
+
+/// Return whether a raw `f64` belongs to the declared semiring carrier.
+#[inline]
+pub(crate) fn valid_scalar_weight(domain: VtWeightDomain, value: f64) -> bool {
+    match domain {
+        VtWeightDomain::TropicalF64
+        | VtWeightDomain::LogF64
+        | VtWeightDomain::SignedTropicalF64 => value.is_finite() || value == f64::INFINITY,
+        VtWeightDomain::ProbabilityF64 => value.is_finite() && value >= 0.0,
+        VtWeightDomain::ArcticF64 => value.is_finite() || value == f64::NEG_INFINITY,
+        VtWeightDomain::CountF64 => {
+            value.is_finite()
+                && value >= 0.0
+                && value <= MAX_EXACT_F64_INTEGER
+                && value.fract() == 0.0
+        }
+        VtWeightDomain::BooleanF64 => value == 0.0 || value == 1.0,
+    }
+}
+
+/// Additive identity represented by a scalar ABI weight domain.
+#[inline]
+pub(crate) fn scalar_zero(domain: VtWeightDomain) -> f64 {
+    match domain {
+        VtWeightDomain::TropicalF64
+        | VtWeightDomain::LogF64
+        | VtWeightDomain::SignedTropicalF64 => f64::INFINITY,
+        VtWeightDomain::ArcticF64 => f64::NEG_INFINITY,
+        VtWeightDomain::ProbabilityF64 | VtWeightDomain::CountF64 | VtWeightDomain::BooleanF64 => {
+            0.0
+        }
+    }
+}
+
+/// Apply the declared semiring's multiplication to two validated ABI values.
+fn scalar_times(domain: VtWeightDomain, left: f64, right: f64) -> Result<f64, BindingError> {
+    debug_assert!(valid_scalar_weight(domain, left));
+    debug_assert!(valid_scalar_weight(domain, right));
+    let result = match domain {
+        VtWeightDomain::TropicalF64
+        | VtWeightDomain::LogF64
+        | VtWeightDomain::SignedTropicalF64 => {
+            if left == f64::INFINITY || right == f64::INFINITY {
+                f64::INFINITY
+            } else {
+                left + right
+            }
+        }
+        VtWeightDomain::ProbabilityF64 => left * right,
+        VtWeightDomain::ArcticF64 => {
+            if left == f64::NEG_INFINITY || right == f64::NEG_INFINITY {
+                f64::NEG_INFINITY
+            } else {
+                let sum = left + right;
+                if sum == f64::INFINITY {
+                    f64::MAX
+                } else if sum == f64::NEG_INFINITY {
+                    -f64::MAX
+                } else {
+                    sum
+                }
+            }
+        }
+        VtWeightDomain::CountF64 => left * right,
+        VtWeightDomain::BooleanF64 => f64::from(left == 1.0 && right == 1.0),
+    };
+    valid_scalar_weight(domain, result)
+        .then_some(result)
+        .ok_or(BindingError::RepresentationLimit)
+}
+
+#[derive(Clone, Debug)]
+struct ScalarStateData {
+    is_final: bool,
+    final_weight: f64,
+    arcs: Vec<VtWfstArc>,
+}
+
+/// Compact eager scalar graph shared by every ABI label/weight specialization.
+#[derive(Clone, Debug)]
+pub(crate) struct ScalarWfstGraph {
+    unit_domain: VtUnitDomain,
+    weight_domain: VtWeightDomain,
+    states: Vec<ScalarStateData>,
+    start: Option<u32>,
+}
+
+impl ScalarWfstGraph {
+    pub(crate) fn new(unit_domain: VtUnitDomain, weight_domain: VtWeightDomain) -> Self {
+        Self {
+            unit_domain,
+            weight_domain,
+            states: Vec::new(),
+            start: None,
+        }
+    }
+
+    pub(crate) fn unit_domain(&self) -> VtUnitDomain {
+        self.unit_domain
+    }
+
+    pub(crate) fn weight_domain(&self) -> VtWeightDomain {
+        self.weight_domain
+    }
+
+    pub(crate) fn reserve_states(&mut self, additional: usize) {
+        self.states.reserve(additional);
+    }
+
+    pub(crate) fn add_state(&mut self) -> Result<u32, BindingError> {
+        let state =
+            u32::try_from(self.states.len()).map_err(|_| BindingError::RepresentationLimit)?;
+        self.states.push(ScalarStateData {
+            is_final: false,
+            final_weight: scalar_zero(self.weight_domain),
+            arcs: Vec::new(),
+        });
+        Ok(state)
+    }
+
+    pub(crate) fn set_start(&mut self, state: u32) -> bool {
+        if (state as usize) < self.states.len() {
+            self.start = Some(state);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn start(&self) -> Option<u32> {
+        self.start
+    }
+
+    pub(crate) fn num_states(&self) -> usize {
+        self.states.len()
+    }
+
+    pub(crate) fn set_final(&mut self, state: u32, weight: f64) -> bool {
+        let Some(state) = self.states.get_mut(state as usize) else {
+            return false;
+        };
+        state.is_final = true;
+        state.final_weight = weight;
+        true
+    }
+
+    pub(crate) fn clear_final(&mut self, state: u32) -> bool {
+        let Some(state) = self.states.get_mut(state as usize) else {
+            return false;
+        };
+        state.is_final = false;
+        state.final_weight = scalar_zero(self.weight_domain);
+        true
+    }
+
+    pub(crate) fn add_arc(&mut self, from: u32, arc: VtWfstArc) -> bool {
+        if (arc.target_state as usize) >= self.states.len() {
+            return false;
+        }
+        let Some(state) = self.states.get_mut(from as usize) else {
+            return false;
+        };
+        state.arcs.push(arc);
+        true
+    }
+
+    fn state(&self, id: u64) -> Arc<StateData> {
+        let Some(state) = usize::try_from(id).ok().and_then(|id| self.states.get(id)) else {
+            return Arc::new(StateData {
+                valid: false,
+                is_final: false,
+                final_weight: scalar_zero(self.weight_domain),
+                arcs: Arc::from([]),
+            });
+        };
+        Arc::new(StateData {
+            valid: true,
+            is_final: state.is_final,
+            final_weight: state.final_weight,
+            arcs: Arc::from(state.arcs.clone()),
+        })
+    }
+}
+
 /// One fully expanded state returned by a project-owned lazy provider.
 #[derive(Clone, Debug)]
 pub struct ScalarWfstState {
@@ -110,12 +307,16 @@ pub struct ScalarWfstState {
     pub arcs: Vec<VtWfstArc>,
 }
 
-/// Project-owned lazy Unicode/tropical WFST exposed through the common ABI.
+/// Project-owned lazy scalar WFST exposed through the common ABI.
 ///
 /// Implementations must be safe for concurrent calls. Expensive state
 /// expansion should be local or sharded; a resource-wide evaluation mutex
 /// would violate the parallel/reentrant contract published by the wrapper.
 pub trait ScalarWfstProvider: Send + Sync + 'static {
+    /// Label representation used on both tapes.
+    fn unit_domain(&self) -> VtUnitDomain {
+        VtUnitDomain::UnicodeScalar
+    }
     /// Scalar semiring represented by the returned weights.
     fn weight_domain(&self) -> VtWeightDomain {
         VtWeightDomain::TropicalF64
@@ -195,6 +396,8 @@ impl ProviderCallGate {
 struct CapturedWfst {
     resource: RawOwnedResource,
     table: *const VtWfstVTable,
+    unit_domain: VtUnitDomain,
+    weight_domain: VtWeightDomain,
     start: u64,
     gate: ProviderCallGate,
     states: RwLock<HashMap<u64, Arc<StateData>>>,
@@ -209,6 +412,8 @@ unsafe impl Sync for CapturedWfst {}
 impl CapturedWfst {
     unsafe fn capture(resource: VtResource) -> Result<Self, BindingError> {
         let live_table = discover_wfst(resource)?;
+        let unit_domain = (*live_table).unit_domain;
+        let weight_domain = (*live_table).weight_domain;
         let live_gate = ProviderCallGate::for_flags((*live_table).flags);
         let mut snapshot = VtResource::NULL;
         check_status(
@@ -221,12 +426,24 @@ impl CapturedWfst {
         }
         let snapshot = RawOwnedResource(snapshot);
         let table = discover_wfst(snapshot.0)?;
+        if (*table).unit_domain != unit_domain {
+            return Err(BindingError::InvalidProviderOutput(
+                "snapshot changed the label domain",
+            ));
+        }
+        if (*table).weight_domain != weight_domain {
+            return Err(BindingError::InvalidProviderOutput(
+                "snapshot changed the weight domain",
+            ));
+        }
         let gate = ProviderCallGate::for_flags((*table).flags);
         let mut start = 0;
         check_status(gate.call(|| (*table).start.unwrap()(snapshot.0.context, &mut start)))?;
         Ok(Self {
             resource: snapshot,
             table,
+            unit_domain,
+            weight_domain,
             start,
             gate,
             states: RwLock::new(HashMap::new()),
@@ -259,7 +476,7 @@ impl CapturedWfst {
         let table = &*self.table;
         let mut valid = 0;
         let mut is_final = 0;
-        let mut final_weight = f64::INFINITY;
+        let mut final_weight = scalar_zero(self.weight_domain);
         check_status(table.state_info.unwrap()(
             self.resource.0.context,
             state,
@@ -267,10 +484,7 @@ impl CapturedWfst {
             &mut is_final,
             &mut final_weight,
         ))?;
-        // TropicalWeight admits finite costs or +inf (the zero) only: -inf and
-        // NaN are invalid and would poison composition with +inf + -inf = NaN
-        // (finding LLING-B2/F1). The composition/import paths are tropical-only.
-        if valid > 1 || is_final > 1 || !TropicalWeight::is_valid_raw(final_weight) {
+        if valid > 1 || is_final > 1 || !valid_scalar_weight(self.weight_domain, final_weight) {
             return Err(BindingError::InvalidProviderOutput(
                 "invalid state_info fields",
             ));
@@ -279,7 +493,7 @@ impl CapturedWfst {
             return Ok(StateData {
                 valid: false,
                 is_final: false,
-                final_weight: f64::INFINITY,
+                final_weight: scalar_zero(self.weight_domain),
                 arcs: Arc::from([]),
             });
         }
@@ -312,28 +526,17 @@ impl CapturedWfst {
                 if arc.has_input > 1
                     || arc.has_output > 1
                     || arc.reserved != [0; 6]
-                    || !TropicalWeight::is_valid_raw(arc.weight)
+                    || !valid_scalar_weight(self.weight_domain, arc.weight)
                 {
                     return Err(BindingError::InvalidProviderOutput("invalid arc fields"));
                 }
-                // A label outside the Unicode scalar range is a representation
-                // limit of THIS char-based specialization (a u64-label binding
-                // could hold it), not provider misbehavior -- classified as
-                // RepresentationLimit -> LimitExceeded, uniformly with the import
-                // path and the documented status contract (LLING-STAT-3, proof
-                // proofs/coq/abi/StatusMapping.v; ledger LLING-B8).
-                if (arc.has_input == 1
-                    && u32::try_from(arc.input_label)
-                        .ok()
-                        .and_then(char::from_u32)
-                        .is_none())
+                if (arc.has_input == 1 && !valid_scalar_label(self.unit_domain, arc.input_label))
                     || (arc.has_output == 1
-                        && u32::try_from(arc.output_label)
-                            .ok()
-                            .and_then(char::from_u32)
-                            .is_none())
+                        && !valid_scalar_label(self.unit_domain, arc.output_label))
                 {
-                    return Err(BindingError::RepresentationLimit);
+                    return Err(BindingError::InvalidProviderOutput(
+                        "label does not belong to the declared domain",
+                    ));
                 }
                 arcs.push(*arc);
             }
@@ -353,9 +556,53 @@ impl CapturedWfst {
     }
 }
 
+/// Capture and materialize one reachable scalar WFST while preserving both
+/// ABI domains. Provider state identifiers are remapped to compact `u32`
+/// identifiers, but label and weight values remain unchanged.
+fn import_scalar_wfst(resource: VtResource) -> Result<ScalarWfstGraph, BindingError> {
+    let captured = unsafe { CapturedWfst::capture(resource)? };
+    let mut graph = ScalarWfstGraph::new(captured.unit_domain, captured.weight_domain);
+    let local_start = graph.add_state()?;
+    debug_assert_eq!(local_start, 0);
+    graph.set_start(local_start);
+    let mut ids = HashMap::from([(captured.start, local_start)]);
+    let mut queue = VecDeque::from([captured.start]);
+
+    while let Some(raw_state) = queue.pop_front() {
+        let local_state = ids[&raw_state];
+        let state = captured.state(raw_state)?;
+        if !state.valid {
+            return Err(BindingError::InvalidProviderOutput(
+                "reachable state is reported invalid",
+            ));
+        }
+        if state.is_final && !graph.set_final(local_state, state.final_weight) {
+            return Err(BindingError::RepresentationLimit);
+        }
+        for raw_arc in state.arcs.iter() {
+            let local_target = if let Some(target) = ids.get(&raw_arc.target_state) {
+                *target
+            } else {
+                let target = graph.add_state()?;
+                ids.insert(raw_arc.target_state, target);
+                queue.push_back(raw_arc.target_state);
+                target
+            };
+            let mut arc = *raw_arc;
+            arc.target_state = u64::from(local_target);
+            if !graph.add_arc(local_state, arc) {
+                return Err(BindingError::RepresentationLimit);
+            }
+        }
+    }
+    Ok(graph)
+}
+
 struct CompositionResource {
     left: Arc<CapturedWfst>,
     right: Arc<CapturedWfst>,
+    unit_domain: VtUnitDomain,
+    weight_domain: VtWeightDomain,
     registry: RwLock<ProductRegistry>,
     cache: RwLock<HashMap<u64, Arc<StateData>>>,
     filter: EpsilonFilter,
@@ -365,6 +612,14 @@ impl CompositionResource {
     unsafe fn capture(first: VtResource, second: VtResource) -> Result<Self, BindingError> {
         let left = Arc::new(CapturedWfst::capture(first)?);
         let right = Arc::new(CapturedWfst::capture(second)?);
+        if left.unit_domain != right.unit_domain {
+            return Err(BindingError::UnitDomainMismatch(right.unit_domain));
+        }
+        if left.weight_domain != right.weight_domain {
+            return Err(BindingError::WeightDomainMismatch(right.weight_domain));
+        }
+        let unit_domain = left.unit_domain;
+        let weight_domain = left.weight_domain;
         let start = AbiProductState {
             left: left.start,
             right: right.start,
@@ -373,6 +628,8 @@ impl CompositionResource {
         Ok(Self {
             left,
             right,
+            unit_domain,
+            weight_domain,
             registry: RwLock::new(ProductRegistry::new(start)),
             cache: RwLock::new(HashMap::new()),
             filter: EpsilonFilter::default(),
@@ -403,15 +660,15 @@ impl CompositionResource {
             return Ok(Arc::new(StateData {
                 valid: false,
                 is_final: false,
-                final_weight: f64::INFINITY,
+                final_weight: scalar_zero(self.weight_domain),
                 arcs: Arc::from([]),
             }));
         }
         let is_final = left.is_final && right.is_final;
         let final_weight = if is_final {
-            left.final_weight + right.final_weight
+            scalar_times(self.weight_domain, left.final_weight, right.final_weight)?
         } else {
-            f64::INFINITY
+            scalar_zero(self.weight_domain)
         };
         let (can_left_epsilon, can_right_epsilon, can_match) =
             self.filter.allowed_moves(product.filter);
@@ -472,7 +729,11 @@ impl CompositionResource {
                         input_label: left_arc.input_label,
                         output_label: right_arc.output_label,
                         target_state,
-                        weight: left_arc.weight + right_arc.weight,
+                        weight: scalar_times(
+                            self.weight_domain,
+                            left_arc.weight,
+                            right_arc.weight,
+                        )?,
                         has_input: left_arc.has_input,
                         has_output: right_arc.has_output,
                         reserved: [0; 6],
@@ -497,6 +758,7 @@ impl CompositionResource {
 
 enum ResourcePayload {
     Eager(Arc<VectorWfst<char, TropicalWeight>>),
+    ScalarEager(Arc<ScalarWfstGraph>),
     Composition(Arc<CompositionResource>),
     Provider(Arc<ProviderResource>),
 }
@@ -518,6 +780,22 @@ impl ProviderResource {
             return Ok(cached);
         }
         let state = self.provider.state(id).map_err(BindingError::Provider)?;
+        let unit_domain = self.provider.unit_domain();
+        let weight_domain = self.provider.weight_domain();
+        if !valid_scalar_weight(weight_domain, state.final_weight)
+            || state.arcs.iter().any(|arc| {
+                arc.has_input > 1
+                    || arc.has_output > 1
+                    || arc.reserved != [0; 6]
+                    || !valid_scalar_weight(weight_domain, arc.weight)
+                    || (arc.has_input == 1 && !valid_scalar_label(unit_domain, arc.input_label))
+                    || (arc.has_output == 1 && !valid_scalar_label(unit_domain, arc.output_label))
+            })
+        {
+            return Err(BindingError::InvalidProviderOutput(
+                "project-owned provider returned values outside its declared domains",
+            ));
+        }
         let state = Arc::new(StateData {
             valid: state.valid,
             is_final: state.is_final,
@@ -540,11 +818,20 @@ struct ResourceContext {
 }
 
 impl ResourceContext {
+    fn unit_domain(&self) -> VtUnitDomain {
+        match &self.payload {
+            ResourcePayload::Eager(_) => VtUnitDomain::UnicodeScalar,
+            ResourcePayload::ScalarEager(wfst) => wfst.unit_domain(),
+            ResourcePayload::Composition(composition) => composition.unit_domain,
+            ResourcePayload::Provider(provider) => provider.provider.unit_domain(),
+        }
+    }
+
     fn weight_domain(&self) -> VtWeightDomain {
         match &self.payload {
-            ResourcePayload::Eager(_) | ResourcePayload::Composition(_) => {
-                VtWeightDomain::TropicalF64
-            }
+            ResourcePayload::Eager(_) => VtWeightDomain::TropicalF64,
+            ResourcePayload::ScalarEager(wfst) => wfst.weight_domain(),
+            ResourcePayload::Composition(composition) => composition.weight_domain,
             ResourcePayload::Provider(provider) => provider.provider.weight_domain(),
         }
     }
@@ -588,6 +875,7 @@ impl ResourceContext {
                     arcs: arcs.into(),
                 }))
             }
+            ResourcePayload::ScalarEager(wfst) => Ok(wfst.state(id)),
             ResourcePayload::Composition(composition) => composition.state(id),
             ResourcePayload::Provider(provider) => provider.state(id),
         }
@@ -620,6 +908,11 @@ impl OwnedWfstResource {
         Self::new(ResourcePayload::Eager(Arc::new(wfst)))
     }
 
+    /// Create a resource from a validated eager scalar graph without copying it.
+    pub(crate) fn from_scalar_wfst(wfst: ScalarWfstGraph) -> Self {
+        Self::new(ResourcePayload::ScalarEager(Arc::new(wfst)))
+    }
+
     /// Wrap a related project's parallel/reentrant lazy WFST in
     /// $`\mathcal{O}(1)`$.
     pub fn from_provider(provider: Arc<dyn ScalarWfstProvider>) -> Self {
@@ -627,6 +920,11 @@ impl OwnedWfstResource {
             provider,
             states: RwLock::new(HashMap::new()),
         })))
+    }
+
+    /// Capture and import any supported scalar-WFST domain into eager storage.
+    pub fn import(resource: VtResource) -> Result<Self, BindingError> {
+        import_scalar_wfst(resource).map(Self::from_scalar_wfst)
     }
 
     /// Borrow the stable two-word ABI value.
@@ -703,7 +1001,7 @@ unsafe fn query_interface_status(
         return VtStatus::Unsupported;
     }
     let context = &*context.cast::<ResourceContext>();
-    out_vtable.write(wfst_vtable(context.weight_domain()).cast());
+    out_vtable.write(wfst_vtable(context.unit_domain(), context.weight_domain()).cast());
     VtStatus::Ok
 }
 
@@ -738,6 +1036,13 @@ unsafe fn wfst_start_status(context: *mut c_void, out_state: *mut u64) -> VtStat
             VtStatus::Ok
         }
         ResourcePayload::Eager(_) => VtStatus::InvalidArgument,
+        ResourcePayload::ScalarEager(wfst) => match wfst.start() {
+            Some(state) => {
+                out_state.write(u64::from(state));
+                VtStatus::Ok
+            }
+            None => VtStatus::InvalidArgument,
+        },
         ResourcePayload::Composition(_) => {
             out_state.write(0);
             VtStatus::Ok
@@ -771,6 +1076,10 @@ unsafe fn wfst_num_states_status(
     let context = &*context.cast::<ResourceContext>();
     match &context.payload {
         ResourcePayload::Eager(wfst) => {
+            out_count.write(wfst.num_states());
+            out_known.write(1);
+        }
+        ResourcePayload::ScalarEager(wfst) => {
             out_count.write(wfst.num_states());
             out_known.write(1);
         }
@@ -808,11 +1117,11 @@ unsafe extern "C" fn wfst_state_info(
 
 /// Map a binding error raised during lazy expansion to the `VtStatus` a
 /// re-exported (composed) resource reports to its downstream consumer. A
-/// representation limit -- e.g. a non-scalar label that this char-based
-/// specialization cannot hold -- surfaces as `LimitExceeded`, uniformly with
-/// `lling_wfst_import` and the documented status contract (LLING-STAT-3, proof
-/// `proofs/coq/abi/StatusMapping.v`; ledger LLING-B8). Every other expansion
-/// error stays a generic provider error.
+/// representation limit -- e.g. a built-in semiring multiplication whose
+/// result does not fit its scalar carrier -- surfaces as `LimitExceeded`,
+/// uniformly with `lling_wfst_import` and the documented status contract
+/// (LLING-STAT-3, proof `proofs/coq/abi/StatusMapping.v`; ledger LLING-B8).
+/// Every other expansion error stays a generic provider error.
 fn expansion_error_status(error: &BindingError) -> VtStatus {
     match error {
         BindingError::RepresentationLimit => VtStatus::LimitExceeded,
@@ -910,11 +1219,11 @@ static RESOURCE_VTABLE: VtResourceVTable = VtResourceVTable {
 };
 
 macro_rules! wfst_vtable {
-    ($name:ident, $weight:expr) => {
+    ($name:ident, $unit:expr, $weight:expr) => {
         static $name: VtWfstVTable = VtWfstVTable {
             struct_size: std::mem::size_of::<VtWfstVTable>(),
             interface_version: VT_WFST_INTERFACE_VERSION,
-            unit_domain: VtUnitDomain::UnicodeScalar,
+            unit_domain: $unit,
             weight_domain: $weight,
             reserved: 0,
             flags: wfst_flags::PARALLEL_REENTRANT | wfst_flags::IMMUTABLE | wfst_flags::LAZY,
@@ -927,26 +1236,69 @@ macro_rules! wfst_vtable {
     };
 }
 
-wfst_vtable!(TROPICAL_WFST_VTABLE, VtWeightDomain::TropicalF64);
-wfst_vtable!(LOG_WFST_VTABLE, VtWeightDomain::LogF64);
-wfst_vtable!(PROBABILITY_WFST_VTABLE, VtWeightDomain::ProbabilityF64);
-wfst_vtable!(ARCTIC_WFST_VTABLE, VtWeightDomain::ArcticF64);
-wfst_vtable!(
-    SIGNED_TROPICAL_WFST_VTABLE,
-    VtWeightDomain::SignedTropicalF64
-);
-wfst_vtable!(COUNT_WFST_VTABLE, VtWeightDomain::CountF64);
-wfst_vtable!(BOOLEAN_WFST_VTABLE, VtWeightDomain::BooleanF64);
+macro_rules! scalar_vtables {
+    ($unit:expr; $(($name:ident, $weight:ident)),+ $(,)?) => {
+        $(wfst_vtable!($name, $unit, VtWeightDomain::$weight);)+
+    };
+}
 
-fn wfst_vtable(weight: VtWeightDomain) -> *const VtWfstVTable {
-    match weight {
-        VtWeightDomain::TropicalF64 => &TROPICAL_WFST_VTABLE,
-        VtWeightDomain::LogF64 => &LOG_WFST_VTABLE,
-        VtWeightDomain::ProbabilityF64 => &PROBABILITY_WFST_VTABLE,
-        VtWeightDomain::ArcticF64 => &ARCTIC_WFST_VTABLE,
-        VtWeightDomain::SignedTropicalF64 => &SIGNED_TROPICAL_WFST_VTABLE,
-        VtWeightDomain::CountF64 => &COUNT_WFST_VTABLE,
-        VtWeightDomain::BooleanF64 => &BOOLEAN_WFST_VTABLE,
+scalar_vtables!(VtUnitDomain::Byte;
+    (BYTE_TROPICAL_WFST_VTABLE, TropicalF64),
+    (BYTE_LOG_WFST_VTABLE, LogF64),
+    (BYTE_PROBABILITY_WFST_VTABLE, ProbabilityF64),
+    (BYTE_ARCTIC_WFST_VTABLE, ArcticF64),
+    (BYTE_SIGNED_TROPICAL_WFST_VTABLE, SignedTropicalF64),
+    (BYTE_COUNT_WFST_VTABLE, CountF64),
+    (BYTE_BOOLEAN_WFST_VTABLE, BooleanF64),
+);
+scalar_vtables!(VtUnitDomain::UnicodeScalar;
+    (UNICODE_TROPICAL_WFST_VTABLE, TropicalF64),
+    (UNICODE_LOG_WFST_VTABLE, LogF64),
+    (UNICODE_PROBABILITY_WFST_VTABLE, ProbabilityF64),
+    (UNICODE_ARCTIC_WFST_VTABLE, ArcticF64),
+    (UNICODE_SIGNED_TROPICAL_WFST_VTABLE, SignedTropicalF64),
+    (UNICODE_COUNT_WFST_VTABLE, CountF64),
+    (UNICODE_BOOLEAN_WFST_VTABLE, BooleanF64),
+);
+scalar_vtables!(VtUnitDomain::U64;
+    (U64_TROPICAL_WFST_VTABLE, TropicalF64),
+    (U64_LOG_WFST_VTABLE, LogF64),
+    (U64_PROBABILITY_WFST_VTABLE, ProbabilityF64),
+    (U64_ARCTIC_WFST_VTABLE, ArcticF64),
+    (U64_SIGNED_TROPICAL_WFST_VTABLE, SignedTropicalF64),
+    (U64_COUNT_WFST_VTABLE, CountF64),
+    (U64_BOOLEAN_WFST_VTABLE, BooleanF64),
+);
+
+fn wfst_vtable(unit: VtUnitDomain, weight: VtWeightDomain) -> *const VtWfstVTable {
+    match (unit, weight) {
+        (VtUnitDomain::Byte, VtWeightDomain::TropicalF64) => &BYTE_TROPICAL_WFST_VTABLE,
+        (VtUnitDomain::Byte, VtWeightDomain::LogF64) => &BYTE_LOG_WFST_VTABLE,
+        (VtUnitDomain::Byte, VtWeightDomain::ProbabilityF64) => &BYTE_PROBABILITY_WFST_VTABLE,
+        (VtUnitDomain::Byte, VtWeightDomain::ArcticF64) => &BYTE_ARCTIC_WFST_VTABLE,
+        (VtUnitDomain::Byte, VtWeightDomain::SignedTropicalF64) => {
+            &BYTE_SIGNED_TROPICAL_WFST_VTABLE
+        }
+        (VtUnitDomain::Byte, VtWeightDomain::CountF64) => &BYTE_COUNT_WFST_VTABLE,
+        (VtUnitDomain::Byte, VtWeightDomain::BooleanF64) => &BYTE_BOOLEAN_WFST_VTABLE,
+        (VtUnitDomain::UnicodeScalar, VtWeightDomain::TropicalF64) => &UNICODE_TROPICAL_WFST_VTABLE,
+        (VtUnitDomain::UnicodeScalar, VtWeightDomain::LogF64) => &UNICODE_LOG_WFST_VTABLE,
+        (VtUnitDomain::UnicodeScalar, VtWeightDomain::ProbabilityF64) => {
+            &UNICODE_PROBABILITY_WFST_VTABLE
+        }
+        (VtUnitDomain::UnicodeScalar, VtWeightDomain::ArcticF64) => &UNICODE_ARCTIC_WFST_VTABLE,
+        (VtUnitDomain::UnicodeScalar, VtWeightDomain::SignedTropicalF64) => {
+            &UNICODE_SIGNED_TROPICAL_WFST_VTABLE
+        }
+        (VtUnitDomain::UnicodeScalar, VtWeightDomain::CountF64) => &UNICODE_COUNT_WFST_VTABLE,
+        (VtUnitDomain::UnicodeScalar, VtWeightDomain::BooleanF64) => &UNICODE_BOOLEAN_WFST_VTABLE,
+        (VtUnitDomain::U64, VtWeightDomain::TropicalF64) => &U64_TROPICAL_WFST_VTABLE,
+        (VtUnitDomain::U64, VtWeightDomain::LogF64) => &U64_LOG_WFST_VTABLE,
+        (VtUnitDomain::U64, VtWeightDomain::ProbabilityF64) => &U64_PROBABILITY_WFST_VTABLE,
+        (VtUnitDomain::U64, VtWeightDomain::ArcticF64) => &U64_ARCTIC_WFST_VTABLE,
+        (VtUnitDomain::U64, VtWeightDomain::SignedTropicalF64) => &U64_SIGNED_TROPICAL_WFST_VTABLE,
+        (VtUnitDomain::U64, VtWeightDomain::CountF64) => &U64_COUNT_WFST_VTABLE,
+        (VtUnitDomain::U64, VtWeightDomain::BooleanF64) => &U64_BOOLEAN_WFST_VTABLE,
     }
 }
 
@@ -1003,13 +1355,20 @@ unsafe fn discover_wfst(resource: VtResource) -> Result<*const VtWfstVTable, Bin
     {
         return Err(BindingError::IncompatibleWfstInterface);
     }
-    if table.unit_domain != VtUnitDomain::UnicodeScalar {
-        return Err(BindingError::UnitDomainMismatch(table.unit_domain));
-    }
-    if table.weight_domain != VtWeightDomain::TropicalF64 {
-        return Err(BindingError::WeightDomainMismatch(table.weight_domain));
-    }
     Ok(interface)
+}
+
+unsafe fn discover_tropical_wfst(
+    resource: VtResource,
+) -> Result<*const VtWfstVTable, BindingError> {
+    let table = discover_wfst(resource)?;
+    if (*table).unit_domain != VtUnitDomain::UnicodeScalar {
+        return Err(BindingError::UnitDomainMismatch((*table).unit_domain));
+    }
+    if (*table).weight_domain != VtWeightDomain::TropicalF64 {
+        return Err(BindingError::WeightDomainMismatch((*table).weight_domain));
+    }
+    Ok(table)
 }
 
 /// Capture and import a Unicode/tropical scalar-WFST resource.
@@ -1021,7 +1380,7 @@ pub fn import_tropical_wfst(
     resource: VtResource,
 ) -> Result<VectorWfst<char, TropicalWeight>, BindingError> {
     unsafe {
-        let live = discover_wfst(resource)?;
+        let live = discover_tropical_wfst(resource)?;
         let mut snapshot = VtResource::NULL;
         check_status((*live).snapshot.unwrap()(resource.context, &mut snapshot))?;
         if snapshot.is_null() {
@@ -1030,7 +1389,7 @@ pub fn import_tropical_wfst(
             ));
         }
         let snapshot = RawOwnedResource(snapshot);
-        let table = discover_wfst(snapshot.0)?;
+        let table = discover_tropical_wfst(snapshot.0)?;
         let mut raw_start = 0;
         check_status((*table).start.unwrap()(snapshot.0.context, &mut raw_start))?;
 
@@ -1348,11 +1707,16 @@ mod tests {
     /// expansion path (surfaced as a provider error during traversal).
     #[test]
     fn negative_infinity_tropical_weight_is_rejected_not_poisoned() {
-        // Import path: reject cleanly rather than panic in TropicalWeight::new.
+        // The project-owned provider validates its declared carrier before a
+        // raw ABI page is published. Import therefore observes the provider's
+        // wire status, rather than receiving poisoned data to classify again.
         let poison = OwnedWfstResource::from_provider(Arc::new(NegInfArcProvider));
         let imported = import_tropical_wfst(poison.as_raw());
         assert!(
-            matches!(imported, Err(BindingError::InvalidProviderOutput(_))),
+            matches!(
+                imported,
+                Err(BindingError::Provider(VtStatus::ProviderError))
+            ),
             "import must reject a -inf arc weight, got {imported:?}"
         );
 

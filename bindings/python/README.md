@@ -242,7 +242,7 @@ The Python distribution uses PEP 440 spelling `4.0.0rc6`; the coordinated
 Rust and source tag use SemVer spelling `4.0.0-rc.6`. The package requires
 the exact same Python release of `vinary-tree-interop`.
 
-At import, the facade requires native ABI version 1 and API revision 6 or
+At import, the facade requires native ABI version 1 and API revision 7 or
 newer. Structure sizes are checked before any object construction. Additive
 native revisions remain acceptable; an ABI-major mismatch fails import.
 

@@ -3,8 +3,10 @@
 Composable weighted finite-state transducers and host-defined automata for
 Julia. A **weighted finite-state transducer** (WFST) is a directed graph whose
 arcs consume an input label, produce an output label, and carry a weight.
-LlingLlang builds eager Unicode/tropical WFSTs, imports any compatible Vinary
-Tree resource, and composes immutable snapshots lazily.
+LlingLlang builds eager scalar WFSTs over byte, Unicode-scalar, or `UInt64`
+labels and every built-in family semiring. It imports compatible Vinary Tree
+resources without losing domain metadata and composes immutable snapshots
+lazily.
 
 The package also lets Julia code implement a WFST by extending three methods.
 The native engine captures that provider once, expands states on demand, and
@@ -53,6 +55,55 @@ graph = build!(builder)
 close(graph)
 ```
 
+### Choose label and weight domains
+
+The default `WfstBuilder()` remains `WfstBuilder{Char,TropicalWeight}()`.
+Select other domains through Julia type parameters; the resulting `Wfst`,
+`WfstArc`, and `WfstState` retain those concrete types.
+
+| Julia weight type | Accepted values | Path multiplication |
+|---|---|---|
+| `TropicalWeight` | finite or `Inf` | addition |
+| `LogWeight` | finite or `Inf` | addition |
+| `ProbabilityWeight` | finite and nonnegative | multiplication |
+| `ArcticWeight` | finite or `-Inf` | addition |
+| `SignedTropicalWeight` | finite or `Inf` | addition |
+| `CountWeight` | exact integer from 0 through $`2^{53}`$ | multiplication |
+| `BooleanWeight` | `false`/`true` | logical AND |
+
+```julia
+counts = WfstBuilder{UInt64,CountWeight}(size_hint=2)
+source = add_state!(counts)
+target = add_state!(counts)
+set_start!(counts, source)
+set_final!(counts, target, CountWeight(3))
+add_arc!(counts, source, UInt64(10), UInt64(20), target, CountWeight(2))
+graph = build!(counts)
+
+arc = only(arcs(graph, source))
+@assert arc isa WfstArc{UInt64,CountWeight}
+@assert arc.weight == CountWeight(2)
+close(graph)
+```
+
+Byte and `UInt64` graphs may attach separate input/output `SymbolTable`s so
+applications can use vocabulary strings without putting strings on the ABI
+wire. Tables assign dense zero-based labels, are copied into the builder, and
+freeze when the immutable graph is built.
+
+```julia
+inputs = SymbolTable{UInt8}(["known"])
+builder = WfstBuilder{UInt8,ProbabilityWeight}(
+    input_symbols=inputs, output_symbols=SymbolTable{UInt8}())
+source = add_state!(builder); target = add_state!(builder)
+set_start!(builder, source); set_final!(builder, target)
+add_arc!(builder, source, "cat", "feline", target, 0.75)
+graph = build!(builder)
+@assert label(input_symbols(graph), "cat") == UInt8(1)
+@assert symbol(output_symbols(graph), UInt8(0)) == "feline"
+close(graph)
+```
+
 Composition joins the output tape of the first graph to the input tape of the
 second. If their matching arc weights are $`w_1`$ and $`w_2`$, tropical
 multiplication produces the composed weight $`w_1 \otimes w_2 = w_1 + w_2`$.
@@ -86,6 +137,21 @@ close(graph)
 `wfst_state` must return a complete immutable `ProviderState`. State IDs are
 `UInt64`; `nothing` on an arc tape means epsilon. `wfst_state_count` may return
 `nothing` when a lazy graph does not know its final size.
+
+For a nondefault domain, return matching concrete provider values and publish
+the provider with its types:
+
+```julia
+struct Reachability <: AbstractWfstProvider end
+LlingLlang.wfst_start(::Reachability) = 0
+LlingLlang.wfst_state_count(::Reachability) = 1
+LlingLlang.wfst_state(::Reachability, state::UInt64) = state == 0 ?
+    ProviderState{UInt8,BooleanWeight}(final=true) :
+    ProviderState{UInt8,BooleanWeight}(valid=false)
+
+graph = provider(UInt8, BooleanWeight, Reachability(); acyclic=true)
+close(graph)
+```
 
 ### Implement a Julia semiring
 
@@ -163,7 +229,9 @@ falsify—not prove—the universal lattice axioms.
 ## Ownership & memory model
 
 `WfstBuilder` owns one native builder and `build!` consumes it on success.
-Returned `VinaryTreeInterop.Wfst` objects own one retained immutable resource.
+Returned `LlingLlang.Wfst` values wrap a `VinaryTreeInterop.Wfst`, preserve
+their concrete label/weight types and optional symbol tables, and own one
+retained immutable resource.
 `compose` captures independent snapshots of both inputs, so callers may close
 either input immediately after construction without invalidating the product.
 Use `close` deterministically; finalizers are leak-safety fallbacks.
@@ -187,8 +255,8 @@ that owner; copying the native pointer would not create another owner.
 Native operations throw `NativeError`, which contains the stable `Status`, the
 operation, and a copied thread-local diagnostic. Provider exceptions never
 unwind through C: callbacks convert them to `STATUS_PROVIDER_ERROR`. Invalid
-labels, negative sizes, `NaN`, and negative infinity are rejected before the
-native call.
+labels, negative sizes, unknown domains, and weights outside their selected
+carrier are rejected before graph mutation.
 
 ## Concurrency
 
@@ -220,8 +288,9 @@ copies each provider state's arc vector once into its immutable cache.
 ## Security and provider trust
 
 Foreign vtables are capability-negotiated by interface ID and minimum version.
-The native consumer validates status codes, booleans, Unicode scalars, tropical
-weights, page counts, reserved bytes, and resource ownership. A provider must
+The native consumer validates status codes, booleans, labels and weights
+against their advertised domains, page counts, reserved bytes, and resource
+ownership. A provider must
 still obey its declared immutability, domain, threading, and state-stability
 contracts. Treat untrusted providers like synchronous plugin code: constrain
 their work and do not expose secrets through callbacks.
@@ -230,8 +299,9 @@ their work and do not expose secrets through callbacks.
 
 - A loader error means `LLING_LLANG_LIBRARY` does not name the matching native
   library or the platform loader cannot find one of its dependencies.
-- `STATUS_INCOMPATIBLE_RESOURCE` means the input lacks `vt.scalar-wfst.1` or
-  does not use Unicode-scalar labels with tropical `Float64` weights.
+- `STATUS_INCOMPATIBLE_RESOURCE` means the input lacks a supported
+  `vt.scalar-wfst.1`, has a malformed interface, or a composition peer uses
+  different label or weight domains.
 - `STATUS_PROVIDER_ERROR` means a provider threw or returned malformed state
   data. Reproduce the state callback directly to obtain the Julia exception.
 - A stalled composition commonly indicates that a provider declared parallel
@@ -243,7 +313,7 @@ their work and do not expose secrets through callbacks.
 |---|---:|
 | LlingLlang.jl | `4.0.0-rc.6` |
 | lling-llang C ABI | `1` |
-| lling-llang API revision | at least `6` |
+| lling-llang API revision | at least `7` |
 | VinaryTreeInterop.jl | major version `4` |
 | Julia | `1.10` or newer |
 
@@ -251,9 +321,11 @@ The module validates ABI and API compatibility during initialization.
 
 ## Executable conformance evidence
 
-[`test/runtests.jl`](test/runtests.jl) exercises ABI negotiation, the eager
-builder, import, a Julia-defined lazy provider, tropical composition, snapshot
-lifetime, arc tapes, and final weights against the real native library. It
+[`test/runtests.jl`](test/runtests.jl) exercises ABI negotiation and all 21
+label/weight combinations across eager build, import, and Julia-defined lazy
+providers. It checks all seven native composition multiplications, typed
+states/arcs, dense frozen symbol tables, snapshot lifetime, arc tapes, and
+final weights against the real native library. It
 also publishes a Julia-defined semiring and exercises base algebra, optional
 capabilities, law validation, stable bytes, cloning, and deterministic release
 through Rust. The LLattice integration adds eight assertions over Julia-hosted
