@@ -12,7 +12,7 @@ use crate::wfst::{MutableWfst, VectorWfst, Wfst, NO_STATE};
 use std::cell::RefCell;
 use std::ffi::{c_char, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use vinary_tree_interop::VtResource;
+use vinary_tree_interop::{VtResource, VtStatus};
 
 mod lattice;
 pub use lattice::*;
@@ -76,6 +76,8 @@ fn set_error(message: impl Into<String>) {
 fn map_error(error: BindingError) -> LlingLlangStatus {
     set_error(error.to_string());
     match error {
+        BindingError::Provider(VtStatus::LimitExceeded) => LlingLlangStatus::LimitExceeded,
+        BindingError::Provider(VtStatus::Closed) => LlingLlangStatus::Closed,
         BindingError::Provider(_) | BindingError::InvalidProviderOutput(_) => {
             LlingLlangStatus::ProviderError
         }
@@ -1266,6 +1268,25 @@ pub extern "C" fn lling_cancellation_v2_free(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn provider_limit_and_closed_statuses_keep_their_direct_abi_meaning() {
+        assert_eq!(
+            map_error(BindingError::Provider(VtStatus::LimitExceeded)),
+            LlingLlangStatus::LimitExceeded
+        );
+        assert_eq!(
+            map_error(BindingError::Provider(VtStatus::Closed)),
+            LlingLlangStatus::Closed
+        );
+        assert_eq!(
+            map_error(BindingError::Provider(VtStatus::Ok)),
+            LlingLlangStatus::ProviderError
+        );
+        assert_eq!(
+            map_error(BindingError::Provider(VtStatus::IoError)),
+            LlingLlangStatus::ProviderError
+        );
+    }
     use std::ptr;
     use vinary_tree_interop::{
         VtWfstArc, VtWfstVTable, VT_WFST_INTERFACE_ID, VT_WFST_INTERFACE_VERSION,

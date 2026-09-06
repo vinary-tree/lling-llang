@@ -1,7 +1,7 @@
 (** * StatusMapping — the lling-llang ABI status contract
 
     Two status alphabets meet at the lling-llang ABI: the crate's own
-    [LlingLlangStatus] (returned by every `lling_*` C entry point) and the family
+    [LlingLlangStatus] (returned by the lling-llang C entry points) and the family
     interop [VtStatus] (returned by the vtable callbacks of a re-exported
     resource to its downstream consumer). This file is the formal model of how a
     binding-layer error is classified into each — obligation #20, the formal
@@ -31,7 +31,7 @@
 *)
 
 (** The interop status alphabet (vinary-tree-interop::VtStatus, discriminants
-    0..8). *)
+    0..9). *)
 Inductive VtStatus : Type :=
   | VOk
   | VEnd
@@ -41,7 +41,8 @@ Inductive VtStatus : Type :=
   | VIoError
   | VClosed
   | VLimitExceeded
-  | VProviderError.
+  | VProviderError
+  | VBatchInUse.
 
 (** The lling-llang status alphabet (LlingLlangStatus, discriminants 0..7). *)
 Inductive LlingLlangStatus : Type :=
@@ -72,6 +73,8 @@ Inductive BindingError : Type :=
 (** `map_error` — the C-ABI classification (src/ffi.rs). *)
 Definition map_error (e : BindingError) : LlingLlangStatus :=
   match e with
+  | Provider VLimitExceeded => LLimitExceeded
+  | Provider VClosed => LClosed
   | Provider _ => LProviderError
   | InvalidProviderOutput => LProviderError
   | RepresentationLimit => LLimitExceeded
@@ -83,28 +86,44 @@ Definition map_error (e : BindingError) : LlingLlangStatus :=
   | WeightDomainMismatch => LIncompatibleResource
   end.
 
-(** `expansion_error_status` — the re-export classification (src/bindings.rs). A
-    representation limit is preserved as `LimitExceeded`; every other expansion
-    error is a generic provider error to the downstream consumer. *)
+(** Re-export preserves specific non-success provider statuses. A malformed
+    error carrying success is classified as provider failure, never success. *)
 Definition expansion_error_status (e : BindingError) : VtStatus :=
   match e with
   | RepresentationLimit => VLimitExceeded
+  | Provider VOk => VProviderError
+  | Provider s => s
   | _ => VProviderError
   end.
 
 (** ** LLING-STAT-1: no error is silently swallowed into success *)
 
 Theorem map_error_never_ok : forall e, map_error e <> LOk.
-Proof. destruct e; discriminate. Qed.
+Proof. destruct e; try discriminate; destruct s; discriminate. Qed.
 
 Theorem expansion_error_never_ok : forall e, expansion_error_status e <> VOk.
-Proof. destruct e; discriminate. Qed.
+Proof. destruct e; try discriminate; destruct s; discriminate. Qed.
 
 (** ** LLING-STAT-2: the C-ABI classification is exactly as documented *)
 
 Theorem provider_fault_is_provider_error :
-  forall s, map_error (Provider s) = LProviderError.
-Proof. reflexivity. Qed.
+  forall s, s <> VLimitExceeded -> s <> VClosed ->
+    map_error (Provider s) = LProviderError.
+Proof. intros s Hlimit Hclosed; destruct s; simpl; try reflexivity; contradiction. Qed.
+
+Theorem provider_failure_is_preserved :
+  forall s, s <> VOk -> expansion_error_status (Provider s) = s.
+Proof. intros s H; destruct s; simpl; try reflexivity; contradiction. Qed.
+
+Theorem provider_limit_consistent_across_surfaces :
+  map_error (Provider VLimitExceeded) = LLimitExceeded
+  /\ expansion_error_status (Provider VLimitExceeded) = VLimitExceeded.
+Proof. split; reflexivity. Qed.
+
+Theorem provider_closed_consistent_across_surfaces :
+  map_error (Provider VClosed) = LClosed
+  /\ expansion_error_status (Provider VClosed) = VClosed.
+Proof. split; reflexivity. Qed.
 
 Theorem invalid_output_is_provider_error :
   map_error InvalidProviderOutput = LProviderError.

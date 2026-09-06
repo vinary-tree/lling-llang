@@ -810,12 +810,14 @@ unsafe extern "C" fn wfst_state_info(
 /// re-exported (composed) resource reports to its downstream consumer. A
 /// representation limit -- e.g. a non-scalar label that this char-based
 /// specialization cannot hold -- surfaces as `LimitExceeded`, uniformly with
-/// `lling_wfst_import` and the documented status contract (LLING-STAT-3, proof
+/// the direct WFST import ABI and the documented status contract (LLING-STAT-3, proof
 /// `proofs/coq/abi/StatusMapping.v`; ledger LLING-B8). Every other expansion
-/// error stays a generic provider error.
+/// error stays a generic provider error unless the provider already supplied
+/// a specific non-success interop status, which is preserved verbatim.
 fn expansion_error_status(error: &BindingError) -> VtStatus {
     match error {
         BindingError::RepresentationLimit => VtStatus::LimitExceeded,
+        BindingError::Provider(status) if !status.is_ok() => *status,
         _ => VtStatus::ProviderError,
     }
 }
@@ -1159,6 +1161,66 @@ pub fn import_tropical_wfst(
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct FailedStateProvider(VtStatus);
+
+    impl ScalarWfstProvider for FailedStateProvider {
+        fn start(&self) -> Result<u64, VtStatus> {
+            Ok(0)
+        }
+        fn num_states(&self) -> Result<Option<usize>, VtStatus> {
+            Ok(None)
+        }
+        fn state(&self, _: u64) -> Result<ScalarWfstState, VtStatus> {
+            Err(self.0)
+        }
+    }
+
+    #[test]
+    fn exported_state_callbacks_preserve_specific_provider_failures() {
+        for raw in 0..=9 {
+            let status = VtStatus::from_raw(raw).expect("published status");
+            let resource = OwnedWfstResource::from_provider(Arc::new(FailedStateProvider(status)));
+            let expected = if status.is_ok() {
+                VtStatus::ProviderError
+            } else {
+                status
+            };
+            let table = unsafe { &*discover_wfst(resource.as_raw()).expect("WFST interface") };
+            let mut valid = 0;
+            let mut final_state = 0;
+            let mut weight = 0.0;
+            let mut arc = VtWfstArc::default();
+            let mut written = 0;
+            let mut total = 0;
+            assert_eq!(
+                unsafe {
+                    table.state_info.expect("state info")(
+                        resource.as_raw().context,
+                        0,
+                        &mut valid,
+                        &mut final_state,
+                        &mut weight,
+                    )
+                },
+                expected.to_raw()
+            );
+            assert_eq!(
+                unsafe {
+                    table.state_arcs.expect("state arcs")(
+                        resource.as_raw().context,
+                        0,
+                        0,
+                        &mut arc,
+                        1,
+                        &mut written,
+                        &mut total,
+                    )
+                },
+                expected.to_raw()
+            );
+        }
+    }
 
     fn left() -> VectorWfst<char, TropicalWeight> {
         let mut graph = VectorWfst::new();

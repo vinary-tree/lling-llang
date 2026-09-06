@@ -47,6 +47,20 @@ states as demanded. The diagram shows the complete import/compose boundary:
 
 ![Snapshot capture, import, lazy composition, traversal, and release sequence.](../diagrams/architecture/wfst-import-compose-sequence.svg)
 
+## Provider errors across ABI surfaces
+
+The exported scalar-WFST `state_info` and `state_arcs` callbacks preserve a
+provider's non-success `VtStatus`, including `LimitExceeded` and `Closed`.
+The direct lling-llang ABI also preserves its corresponding limit and closed
+statuses; other provider failures map to its `ProviderError` category.
+A malformed error carrying `VtStatus::Ok` is never returned as success.
+
+These distinctions let consumers distinguish an exhausted bound from an
+ordinary provider failure. Executable coverage exercises both exported
+callbacks for every interop status, while
+[StatusMapping.v](../../proofs/coq/abi/StatusMapping.v) proves the classifications
+and the no-error-as-success property over the complete status alphabet.
+
 ## Documentation governance
 
 [`bindings/api.json`](../../bindings/api.json) is the machine-readable inventory.
