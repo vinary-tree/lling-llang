@@ -1658,6 +1658,142 @@ The complete summary SHA-256 is
 the paired-ratio table SHA-256 is
 `4216d8e9131979d9bcf993b71f139f7f6b1f219c096e8810c9a9b8c03df33585`.
 
+### Uncached FZF: CPU samples, allocation work and allocator-reuse control
+
+The historical uncached regression remains unresolved. The following
+diagnostics narrow possible explanations; none replaces the stock timing
+acceptance gate, and no production source change was selected from them.
+
+#### Headless CPU sampling
+
+Eight balanced profiles of the frozen historical executables completed from
+`2026-09-07T22:04:47Z` to `2026-09-07T22:06:17Z`. They cover uncached
+information requests over 64 states and LRU information requests over 65
+states. Each uses five seconds of Criterion profiling, user-space cycle
+sampling at 499 Hz, and an 8,192-byte DWARF stack capture. CPU 5 was selected
+once; all eight first eligibility windows qualified at 95.68–100% idle.
+The scope limits were 4 GiB memory, no swap, one CPU's aggregate quota and
+64 tasks.
+
+The 20,142 decoded samples contain no recorded perf loss or perf throttling.
+That does not mean the process was unthrottled: the scope recorded 205 CPU
+quota throttles totaling 7.57 seconds across collection and analysis. Only
+1–25 samples per process contain an explicit shared-cache or resource-state
+frame. Those incomplete stacks cannot support comparable inclusive callback
+costs. Profiles also include setup, Criterion calibration and teardown;
+iteration counts are not fixed. Whole-process cycle shares are descriptive,
+not nanoseconds or cycles per callback.
+
+| Uncached profile | FZF dynamic programming and expansion | Named allocation functions | Shared-cache/resource boundary |
+|---|---:|---:|---:|
+| Candidate B1 | 37.56% | 8.03% | 1.98% |
+| Reference A1 | 41.65% | 8.09% | 2.52% |
+| Reference A2 | 39.37% | 7.77% | 2.75% |
+| Candidate B2 | 36.13% | 8.12% | 2.08% |
+
+The classifier includes named C allocation functions and Rust allocation
+wrappers, but does not assign unnamed libc instructions to allocation without
+evidence. Narrow, disassembly-identified copy and fill address ranges are
+reported separately; they are not exhaustive libc copy/fill costs. Sample and
+period totals reconcile with independent perf record counts and report
+headers. These observations do not isolate additional allocation or boundary
+work as the cause of the timing discrepancy.
+
+#### Fixed-work allocation accounting
+
+An isolated diagnostic copies the original six-repository A/B graphs and adds
+the same registered benchmark target to each duallity root. Resolved
+dependency versions and features, compiler settings and benchmark fingerprints
+match; before/after source hashes authenticate both copies and the unchanged
+original inputs. The diagnostic still uses Rust's `System` allocator. Its
+observer records allocation, zeroed allocation, deallocation and both sides
+of successful reallocation without allocating in the observation callbacks.
+
+Each fresh process performs all 12 FZF cells: three policies, working sets of
+64 and 65 states, and information-only or information-plus-arcs requests.
+Each cell executes 66,560 iterations, an exact multiple of both working-set
+sizes. Every returned information field and each returned arc field in paired
+requests is checked. All processes agree on the 4,096-term fixture, 65
+breadth-first states, 520 arcs, fixture digest and exact trace digests.
+Cache hits, misses, evictions, residency and fault statistics are checked.
+
+The four processes completed at `2026-09-07T22:25:29Z`. Uncached allocation
+summaries and exact requested-size/alignment histograms agree across both
+implementations and both repetitions:
+
+| Work per uncached callback | Both implementations |
+|---|---:|
+| Allocations, excluding reallocation | 16 |
+| Reallocation operations | 1 |
+| Bytes requested by allocations | 6,232 |
+| Old/new reallocation sizes | 288 / 576 bytes |
+| Bytes released by deallocations | 6,520 |
+| Net retained requested bytes | 0 |
+| Maximum extra requested-live bytes during a cell | 5,624 |
+
+An information-plus-arcs iteration invokes the provider twice; its allocation
+counts and byte totals double, but the observed extra-live peak does not.
+These values rule out additional *requested allocation work* in this
+diagnostic, not allocator latency, allocator-internal storage or resident
+memory differences. The allocator observer, exact checks, fixed loop lengths,
+FZF-only construction and added post-cell validation change execution history
+relative to the original Criterion benchmark.
+
+The observer records exact size histograms through 8,192 bytes, allocation
+alignments and joint size/address-remainder histograms. The address remainder
+is the allocation address modulo 64; it does not identify a cache set or NUMA
+node. Larger events use a bounded exact event log, with overflow rejected.
+Reallocation is one operation with separately accounted old/new observations;
+failed operations are not treated as frees. Signed requested-live accounting
+also permits memory allocated before a phase to be released during it.
+A separate resource-teardown phase is retained, but is not a whole-process
+leak proof or a measurement of JVM garbage collection.
+
+#### Child-only allocator-reuse intervention
+
+A second four-process replay reused the exact diagnostic executables without
+rebuilding, setting `GLIBC_TUNABLES=glibc.malloc.tcache_count=0` only for those
+children. The installed libc reports version 2.44. The
+[glibc allocation-tunable documentation](https://sourceware.org/glibc/manual/latest/html_node/Memory-Allocation-Tunables.html)
+specifies that an explicit zero disables the per-thread allocation cache.
+The [loader's tunable listing](https://sourceware.org/glibc/manual/latest/html_node/Tunables.html)
+is not evidence that an unset default already disables initialized malloc
+caching. Neither the system configuration nor production package configuration
+was changed.
+
+The control completed from `2026-09-07T22:41:01Z` to
+`2026-09-07T22:41:07Z`, with 2 GiB memory, no swap, one CPU's aggregate quota
+and 64 tasks. Peak charged memory was 173,203,456 bytes with no memory-limit
+event or out-of-memory kill. All four processes passed all 12 cells; libc and
+executable hashes remained unchanged.
+
+All 16 uncached default/control comparisons retain identical allocation
+summaries, requested-size histograms and alignment histograms. All 16 joint
+placement histograms differ. Placement also differs between original default
+repetitions and between control repetitions, so mere inequality does not
+prove an intervention-specific effect. There are two processes per
+implementation per condition, not millions of independent observations:
+the many allocations repeatedly reuse memory.
+
+The comparison validator therefore treats allocation and placement equality
+as observations, while preserving exact semantics and accounting as hard
+gates. Review also found and closed a validator blind spot: an orphan
+placement-size bin could previously escape checking when absent from the
+size histogram. The strengthened validator requires equal size support and
+rejects seven malformed-record fixtures, including that case. The original
+default records and the control both pass the stronger checks. The original
+validator is preserved as historical evidence, not silently replaced.
+
+[The diagnostic archive](evidence/shared-cache-fzf-diagnostics-2026-09-07.tar.zst)
+contains preregistrations, runners, observer/driver sources, manifests,
+fingerprints, complete allocation records, source checks, validation scripts,
+negative-fixture checks, decoded CPU reports and stacks, sampling-loss
+records and resource/eligibility logs. Raw perf binary files and compiled
+targets remain local and are excluded from the archive. Its size is 1.1 MiB
+and SHA-256 is
+`c52a3a34815e2975d983f0e67fe8783f050da87233e762ff4c7f6dc33d517e2e`.
+
+
 ## Remaining qualification within this task
 
 Revalidate affected release and broader-feature suites, strict linting, native
