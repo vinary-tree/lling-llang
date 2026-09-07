@@ -1218,6 +1218,112 @@ explicitly removed `CRITERION_HOME`; executable hashes and sample settings
 were unchanged. This does not supply a completed ABI result. pgmcp progress
 10258 records the refusal and preserved attempt identity.
 
+### Completed synthetic ABI comparison
+
+The fourth full-run attempt, `cache-inline-abi-bounded-pair4`, completed all
+seven cases in each of B1, A1, A2 and B2, with 20 samples per estimate. A is
+the original non-blocking cache; B is the inline/block candidate. Both frozen
+executable hashes and the existing workload remained unchanged. CPU 1 was
+fixed for all four passes. Qualifying idle observations were 96.35%, 99.01%,
+97.68% and 97.67%; B1 required nine preflight windows, while the others needed
+one. The command exited zero at `2026-09-07T19:51:36Z`. Earlier incomplete
+attempts are excluded, not pooled with this result.
+
+The following changes are paired point estimates of B relative to A. A
+negative percentage means lower latency; the two columns are kept separate
+to expose disagreement and drift.
+
+| ABI operation | Payload units | B1 versus A1 | B2 versus A2 |
+|---|---:|---:|---:|
+| Warm CacheAll information control | 0 | +0.27% | +1.04% |
+| Hot LRU64 information | 0 | -62.28% | -62.02% |
+| Hot LRU64 information | 128 | -61.25% | -63.21% |
+| LRU64 information and arc pair | 0 | -58.55% | -60.99% |
+| LRU64 information and arc pair | 128 | -52.42% | -54.01% |
+| LRU64 steady miss | 0 | -12.53% | -17.15% |
+| LRU64 steady miss | 128 | -14.02% | -11.41% |
+
+For scale, hot information accesses with an empty payload take approximately
+199–200 ns in B versus 524–532 ns in A. The warm CacheAll control remains
+approximately 32 ns. Empty-payload steady misses take approximately 534–593 ns
+in B versus 644–678 ns in A; that within-version drift is retained, not hidden
+by averaging. These synthetic exported-ABI cases do not measure real dictionary
+expansion, whole-query throughput, construction time or Java parity.
+
+The full 28-estimate summary has SHA-256
+`3c8af485a038f28cc2196d422b8d50fc16cad5d0a5f35ee20022472e8b5b45d5`;
+the paired table has SHA-256
+`4a99cad0cdb5d64395bd408644f0ac3e4ba942a881b265780a9aebfbbcc62b17`.
+pgmcp progress 10368 records this completed gate. Individual-estimate confidence
+intervals remain in the raw summary; they are not confidence intervals for
+these ratios. Preflight eligibility does not prove interference-free sampling.
+
+### Complete reclamation matrix and unresolved regressions
+
+`cache-inline-reclamation-blocked-v1` completed all eight predefined blocks,
+72 exact case IDs and 288 estimates. The helper verified all four passes for
+every case and the disjoint full union. Block one used attempt 001; block two
+used attempt 002 after an initial no-sample eligibility failure. Blocks three
+through eight each used attempt 001. The earlier incomplete full-matrix attempt
+remains excluded. This is the prospective blocked experiment above, not a
+single uninterrupted full-matrix comparison. pgmcp progress 10315 records its
+terminal completion at `2026-09-07T19:38:47Z`.
+
+Clear operations at capacities 64 and 1,024 showed no paired regression above
+10%. Tiny clears require further investigation: of 20 clear cases at
+capacities one and two, 17 exceed +10% in at least one pair, including six
+that exceed it in both pairs. Both CacheAll and LRU are affected.
+
+| Example clear case: policy/capacity/payload/holders | A1 | B1 | A2 | B2 | Paired changes |
+|---|---:|---:|---:|---:|---|
+| CacheAll/1/0/0 | 116.29 ns | 128.48 ns | 113.20 ns | 141.51 ns | +10.48%, +25.00% |
+| LRU/1/640/0 | 123.78 ns | 155.04 ns | 125.36 ns | 140.06 ns | +25.26%, +11.72% |
+
+Three separate non-tiny last-reader-release cases also cross the review
+threshold in one pair: CacheAll/64/0/1 reaches +15.86%, LRU/64/0/32 reaches
++12.19%, and LRU/1024/640/1 reaches +14.31%. The last case's original A2
+estimate is 15.99% below A1. Such drift makes these patterns different from
+the recurring tiny-clear regression, but does not justify discarding them.
+The complete paired table retains all cases, absolute estimates, both
+cross-version changes and within-version drift.
+
+The source review supports a fixed-overhead hypothesis, not yet a causal
+conclusion. Clear's compare-and-swap loop and counter update are structurally
+unchanged. The candidate adds storage dispatch and a larger snapshot layout.
+Existing allocator accounting records two allocations in either version,
+requesting 136 bytes in total for the original empty cache versus 184 for
+the candidate. This is larger allocation volume, not an added allocation.
+Tiny last-reader releases are approximately unchanged, and CacheAll clear
+also regresses, so linked-LRU retirement alone is not an adequate explanation.
+
+The next attribution check profiles the frozen clear workloads separately
+from uninstrumented timing, distinguishing allocation/initialization, policy
+dispatch, hash-seed construction, atomic publication and destruction. Criterion's
+per-iteration clear measurement excludes fixture construction and final empty
+cache destruction; whole-process profiler totals include both and must not be
+described as clear-only cost. An explanatory empty-clear or allocation-layout
+control would supplement, not replace, the complete accepted workload.
+Neither a plausible explanation nor a favorable average relaxes the regression
+gate. No final candidate is selected by this matrix.
+
+The reclamation summary SHA-256 is
+`339ebc185ea9a796d08a838426feca680a2db0bcaa97ddbcfe2d2a70c0f8cf05`;
+the paired table SHA-256 is
+`36ab31f86c7253944f646aaf023a458f0d962e2da6488ea2895a078ac39f9cab`.
+
+### Second-stage timing evidence archive
+
+[The second-stage archive](evidence/shared-cache-inline-qualification-phase2-2026-09-07.tar.zst)
+contains the completed ABI and reclamation observations, incomplete full-run
+attempts, failed block preflight, exact manifests, eligibility and timing logs,
+executable identities, frozen runners and ratio summarizers. Its size is
+396 KiB and SHA-256 is
+`b39ce95bd4d1d0e685b7ea3825ddfcbd64000ff3cb6df8b49691e827e4697d1d`.
+It excludes compiled executables, which are identified by hashes and the
+previously archived build inputs. It does not contain the still-pending
+real-duallity matrix. The blocked runner's 73 local self-checks pass, including
+same-count wrong-case, duplicate, missing-row and ineligible-attempt controls.
+
 ## Remaining qualification within this task
 
 Revalidate affected release and broader-feature suites, strict linting, native
