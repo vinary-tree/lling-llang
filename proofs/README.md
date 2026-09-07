@@ -95,6 +95,13 @@ bash proofs/verify.sh --rocq-only
 bash proofs/verify.sh --tla-only
 ```
 
+For the retained-state cache alone, `bash proofs/verify.sh --shared-cache-only`
+runs four finite policy models, an LRU2 eviction-reachability witness, a
+stale-generation negative control, two slot-representation models and two
+slot/reverse-ID negative controls. It uses the same resource limits and
+retains evidence in the same directory. See the
+[cache model correspondence and limits](../docs/architecture/shared-state-cache.md#finite-concurrency-model-and-runtime-correspondence).
+
 `--rocq-only` needs only the pinned Rocq environment. `--tla-only` runs the
 portable invariant registries, every finite TLC model and negative model, and
 the model-derived exhaustive and mutation controls. The unqualified command

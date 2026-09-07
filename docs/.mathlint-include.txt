@@ -10,6 +10,8 @@
 docs/api/backend-reference.md
 docs/api/c-abi-reference.md
 docs/architecture/resource-abi.md
+docs/architecture/shared-state-cache.md
+docs/scientific-ledger/shared-state-cache-2026-09-06.md
 docs/security/abi-trust-model.md
 docs/api/lattice-reference.md
 docs/api/layer-reference.md

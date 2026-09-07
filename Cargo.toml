@@ -32,6 +32,8 @@ pathmap = { version = ">=0.2.2, <0.4", optional = true }
 
 # Data structures
 smallvec = { version = "1.11", features = ["union"] }
+arc-swap = "1.9.2"
+imbl = "7.0.1"
 indexmap = "2.0"
 ahash = "0.8"
 # 2.x changed the hash algorithm, so digests differ from 1.x. Safe here: every use
@@ -184,6 +186,19 @@ harness = false
 name = "ffi_compose_benchmarks"
 harness = false
 required-features = ["ffi"]
+
+[[bench]]
+name = "provider_cache_benchmarks"
+harness = false
+required-features = ["bindings-core"]
+
+[[bench]]
+name = "provider_cache_allocations"
+harness = false
+
+[[bench]]
+name = "shared_cache_residency"
+harness = false
 
 [[example]]
 name = "resource_dictionary_layer"

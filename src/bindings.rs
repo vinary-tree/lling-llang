@@ -125,6 +125,12 @@ pub trait ScalarWfstProvider: Send + Sync + 'static {
     /// Return the state count when it is already known without materialization.
     fn num_states(&self) -> Result<Option<usize>, VtStatus>;
     /// Expand one state and return its complete, bounded outgoing arc set.
+    ///
+    /// For every valid identifier, finality, weight and ordered arcs must remain
+    /// immutable for this resource snapshot. Requests may be repeated after
+    /// eviction or concurrently, and separate ABI arc pages may recompute the
+    /// state under NoCache. An invalid identifier may become valid as other
+    /// states are discovered; invalid results and errors are never retained.
     fn state(&self, state: u64) -> Result<ScalarWfstState, VtStatus>;
 }
 
@@ -503,35 +509,53 @@ enum ResourcePayload {
 
 struct ProviderResource {
     provider: Arc<dyn ScalarWfstProvider>,
-    states: RwLock<HashMap<u64, Arc<StateData>>>,
+    states: Arc<crate::wfst::SharedStateCache<StateData>>,
 }
 
 impl ProviderResource {
     fn state(&self, id: u64) -> Result<Arc<StateData>, BindingError> {
-        if let Some(cached) = self
-            .states
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .get(&id)
-            .cloned()
-        {
-            return Ok(cached);
-        }
-        let state = self.provider.state(id).map_err(BindingError::Provider)?;
-        let state = Arc::new(StateData {
-            valid: state.valid,
-            is_final: state.is_final,
-            final_weight: state.final_weight,
-            arcs: state.arcs.into(),
-        });
-        let mut cache = self
-            .states
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        Ok(cache
-            .entry(id)
-            .or_insert_with(|| Arc::clone(&state))
-            .clone())
+        self.states.get_or_try_insert_with(
+            id,
+            || {
+                let state = self.provider.state(id).map_err(BindingError::Provider)?;
+                Ok(StateData {
+                    valid: state.valid,
+                    is_final: state.is_final,
+                    final_weight: state.final_weight,
+                    arcs: state.arcs.into(),
+                })
+            },
+            |state| state.valid,
+        )
+    }
+}
+
+/// Shared policy, clear and statistics authority for one exported provider.
+///
+/// Obtained from [`OwnedWfstResource::provider_cache`]. Clones control the same
+/// cache, but cannot attach it to a different provider and alias state IDs.
+/// Holding this control retains cached values, not the provider itself.
+#[derive(Clone)]
+pub struct ProviderCacheControl {
+    states: Arc<crate::wfst::SharedStateCache<StateData>>,
+}
+
+impl ProviderCacheControl {
+    /// Observe the current effective residency policy.
+    pub fn policy(&self) -> crate::wfst::SharedCachePolicy {
+        self.states.policy()
+    }
+    /// Evict all payloads without changing the source snapshot or state IDs.
+    pub fn clear(&self) {
+        self.states.clear();
+    }
+    /// Replace policy and clear residency in one atomic publication.
+    pub fn set_policy(&self, policy: crate::wfst::SharedCachePolicy) {
+        self.states.set_policy(policy);
+    }
+    /// Observe cumulative request counters and current cache residency.
+    pub fn statistics(&self) -> crate::wfst::SharedCacheStatistics {
+        self.states.statistics()
     }
 }
 
@@ -623,10 +647,33 @@ impl OwnedWfstResource {
     /// Wrap a related project's parallel/reentrant lazy WFST in
     /// $`\mathcal{O}(1)`$.
     pub fn from_provider(provider: Arc<dyn ScalarWfstProvider>) -> Self {
+        Self::from_provider_with_cache(provider, crate::wfst::SharedCachePolicy::CacheAll)
+    }
+
+    /// Wrap an immutable provider with one independently owned, policy-aware
+    /// cache. Resource clones share this cache. NoCache retains no state payloads
+    /// and can therefore recompute for every info request and every arc page.
+    pub fn from_provider_with_cache(
+        provider: Arc<dyn ScalarWfstProvider>,
+        policy: crate::wfst::SharedCachePolicy,
+    ) -> Self {
         Self::new(ResourcePayload::Provider(Arc::new(ProviderResource {
             provider,
-            states: RwLock::new(HashMap::new()),
+            states: Arc::new(crate::wfst::SharedStateCache::new(policy)),
         })))
+    }
+
+    /// Obtain the sole cache-control authority for a provider-backed resource.
+    /// Eager and composed resources have different ownership and return None.
+    pub fn provider_cache(&self) -> Option<ProviderCacheControl> {
+        // All safe constructors install this context; self owns its retain.
+        let context = unsafe { &*self.raw.context.cast::<ResourceContext>() };
+        match &context.payload {
+            ResourcePayload::Provider(provider) => Some(ProviderCacheControl {
+                states: Arc::clone(&provider.states),
+            }),
+            _ => None,
+        }
     }
 
     /// Borrow the stable two-word ABI value.

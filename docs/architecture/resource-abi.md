@@ -22,6 +22,11 @@ Host-defined weight algebras use the sibling
 tokens and separately negotiated algebra capabilities, not the scalar `double`
 weight domain described here.
 
+Provider-backed exports use the [shared state cache](shared-state-cache.md).
+Its native controls govern that producer's residency only; the independent
+captured-input and composition-product caches described below are not cleared
+by a provider cache control.
+
 ---
 
 ## Terms & symbols

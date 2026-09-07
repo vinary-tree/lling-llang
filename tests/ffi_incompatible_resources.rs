@@ -483,28 +483,30 @@ fn out_of_range_raw_status_is_a_provider_error_never_ub() {
 
 #[test]
 fn in_range_provider_failures_are_forwarded() {
-    let io_failure = TestWfst::new(
-        chain_states(&[('a', 'x')], 1.0, 0.0),
-        0,
-        TestWfstConfig::default()
-            .with_misbehavior(Misbehavior::StateInfoStatus(VtStatus::IoError.to_raw())),
-    );
-    assert_import_rejected(
-        io_failure.as_raw(),
-        LlingLlangStatus::ProviderError,
-        "IoError",
-    );
-
-    let limit_failure = TestWfst::new(
-        chain_states(&[('a', 'x')], 1.0, 0.0),
-        0,
-        TestWfstConfig::default().with_misbehavior(Misbehavior::StateArcsStatus(
-            VtStatus::LimitExceeded.to_raw(),
-        )),
-    );
-    assert_import_rejected(
-        limit_failure.as_raw(),
-        LlingLlangStatus::ProviderError,
-        "LimitExceeded",
-    );
+    // The direct project ABI has dedicated limit/closed outcomes; other
+    // provider failures retain their detail in the error message. This differs
+    // from the raw interop exporter, which can return every VtStatus unchanged.
+    for (wire, direct) in [
+        (VtStatus::End, LlingLlangStatus::ProviderError),
+        (VtStatus::InvalidArgument, LlingLlangStatus::ProviderError),
+        (VtStatus::NullPointer, LlingLlangStatus::ProviderError),
+        (VtStatus::Unsupported, LlingLlangStatus::ProviderError),
+        (VtStatus::IoError, LlingLlangStatus::ProviderError),
+        (VtStatus::Closed, LlingLlangStatus::Closed),
+        (VtStatus::LimitExceeded, LlingLlangStatus::LimitExceeded),
+        (VtStatus::ProviderError, LlingLlangStatus::ProviderError),
+        (VtStatus::BatchInUse, LlingLlangStatus::ProviderError),
+    ] {
+        for failure in [
+            Misbehavior::StateInfoStatus(wire.to_raw()),
+            Misbehavior::StateArcsStatus(wire.to_raw()),
+        ] {
+            let provider = TestWfst::new(
+                chain_states(&[('a', 'x')], 1.0, 0.0),
+                0,
+                TestWfstConfig::default().with_misbehavior(failure),
+            );
+            assert_import_rejected(provider.as_raw(), direct, &format!("{wire:?}"));
+        }
+    }
 }

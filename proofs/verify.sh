@@ -4,9 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODE="${1:-all}"
 case "$MODE" in
-  all | --rocq-only | --tla-only) ;;
+  all | --rocq-only | --tla-only | --shared-cache-only) ;;
   *)
-    echo "Usage: $0 [--rocq-only|--tla-only]" >&2
+    echo "Usage: $0 [--rocq-only|--tla-only|--shared-cache-only]" >&2
     exit 2
     ;;
 esac
@@ -141,6 +141,35 @@ run_tlc_expect_failure() {
 
 if [[ "$MODE" == "all" ]]; then
   run_rocq
+fi
+
+for cache_model in SharedStateCache SharedStateCacheTwo SharedStateCacheAll SharedStateCacheNone; do
+  run_tlc "$cache_model" "$ROOT/proofs/tla/SharedStateCache.tla" \
+    "$ROOT/proofs/tla/MC/$cache_model.cfg"
+done
+run_tlc_expect_failure shared-cache-eviction-witness \
+  "$ROOT/proofs/tla/SharedStateCache.tla" \
+  "$ROOT/proofs/tla/MC/SharedStateCacheEvictionWitness.cfg" \
+  "Invariant NoEvictionWitness is violated"
+run_tlc_expect_failure shared-cache-stale-admission \
+  "$ROOT/proofs/tla/SharedStateCache.tla" \
+  "$ROOT/proofs/tla/MC/SharedStateCacheStaleAdmission.cfg" \
+  "Invariant NoStaleOrFailedAdmission is violated"
+for cache_model in SharedCacheSlotsOne SharedCacheSlotsTwo; do
+  run_tlc "$cache_model" "$ROOT/proofs/tla/SharedCacheSlots.tla" \
+    "$ROOT/proofs/tla/MC/$cache_model.cfg"
+done
+run_tlc_expect_failure shared-cache-stale-slot \
+  "$ROOT/proofs/tla/SharedCacheSlots.tla" \
+  "$ROOT/proofs/tla/MC/SharedCacheSlotsStaleSlot.cfg" \
+  "Invariant SlotOrderRefinement is violated"
+run_tlc_expect_failure shared-cache-stale-reverse-id \
+  "$ROOT/proofs/tla/SharedCacheSlots.tla" \
+  "$ROOT/proofs/tla/MC/SharedCacheSlotsStaleReverseId.cfg" \
+  "Invariant RepresentationInvariant is violated"
+if [[ "$MODE" == "--shared-cache-only" ]]; then
+  echo "Shared cache finite models and negative checks passed. Evidence: $LOG_DIR"
+  exit 0
 fi
 
 # ABI invariant registry: every row points at a live specification and, unless

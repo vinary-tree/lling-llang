@@ -18,6 +18,7 @@
 
 mod lazy;
 pub mod rational;
+mod shared_cache;
 mod state;
 pub mod synchronize;
 mod traits;
@@ -31,6 +32,7 @@ pub use lazy::{
     ExpansionMode, ExpansionObservation, ExpansionRequest, ExpansionStatus, LazyState,
     LazyWfstWrapper, RetryPolicy, SourceSnapshot, StateExpansion, StateSource,
 };
+pub use shared_cache::{SharedCachePolicy, SharedCacheStatistics, SharedStateCache};
 pub use state::{WfstState, WfstStateError};
 pub use traits::{CachePolicy, LazyWfst, MutableWfst, Wfst};
 pub use transition::WeightedTransition;

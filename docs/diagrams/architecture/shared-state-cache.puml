@@ -1,0 +1,38 @@
+@startuml
+title One exporter cache owner; clear cannot be undone by old work
+skinparam backgroundColor #FFFFFF
+skinparam sequenceMessageAlign center
+hide footbox
+actor "Foreign caller / resource clone" as Caller #DCEDC8
+participant "lling-llang exporter" as Exporter #FCF3CF
+participant "Shared state cache" as Cache #BBDEFB
+database "Atomic root\nresidents + exact LRU order" as Root #C8E6C9
+participant "Duallity direct source" as Source #D6EAF8
+participant "Captured dictionary revision" as Dictionary #D5F5E3
+actor "Native cache control" as Control #FFECB3
+
+Caller -> Exporter: state_info or state_arcs(id)
+Exporter -> Cache: lookup(id)
+Cache -> Root: read immutable root
+Root --> Cache: miss; generation G
+note over Cache #BBDEFB: Drop the root guard; retain only the small G marker.
+Cache -> Source: compute once
+Source -> Dictionary: checked snapshot traversal
+Control -> Cache: clear()
+Cache -> Root: atomically replace with empty generation H
+Dictionary --> Source: complete expansion or provider fault
+Source --> Cache: checked result
+alt invalid or failed
+  Cache --> Exporter: original invalid result / error; no admission
+else valid successful result
+  Cache -> Root: read current generation
+  Root --> Cache: H differs from G
+  Cache --> Exporter: return old request's value; do not populate H
+end
+Exporter --> Caller: finality / requested arc page / error
+note over Caller,Root #ECEFF1
+New requests may populate H. Eviction never resets state identifiers.
+CacheAll and already-MRU hits need no root update.
+Other LRU hits publish link changes while sharing payload ownership.
+end note
+@enduml
