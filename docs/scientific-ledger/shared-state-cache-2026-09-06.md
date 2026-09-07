@@ -1113,7 +1113,110 @@ exact dependency revisions in a reproducible graph. Canonical manifest paths
 and their named dependency checkouts must agree in that graph. Promotion to
 the ordinary primary worktrees remains a separate downstream integration gate:
 task 7784 must not wait for tasks 8156/8157, which themselves depend on 7784.
-Current performance qualification is not yet that clean-commit graph gate.
+The clean-commit graph gate is now recorded below. Its successful correctness
+checks do not select the performance candidate.
+
+### Exact committed graph: September 7 qualification
+
+The cache implementation was committed as lling-llang
+`aea10b13fdf0f0aa5658e6efdfc4962386605b4a`, with duallity's shared-exporter
+integration at `c422e3b4a4d5fdc9bff81073eeda11b1945eb858`. A fresh sibling
+layout was extracted exclusively from these commits and the following four
+dependency commits; no source or dependency manifest was patched:
+
+| Dependency | Exact commit |
+|---|---|
+| liblevenshtein-rust | `919c99352b74c0ab0ba8cbf45540fec982e7b7a4` |
+| libdictenstein | `0c8b1da62c97b4b478c27c3ab552b6694cfbf226` |
+| vinary-tree-interop | `2e087ab4ff1c822ecda7f652408105fd04da8683` |
+| llattice | `c2005a4989d16a0b6d15f2993d6c315e97f938d4` |
+
+The run used Rust 1.95.0, offline locked resolution, all workspace features,
+four build jobs and four nextest test threads. Each root had a separate target
+directory and disk-backed temporary directory. Nextest ran in debug and
+release with `--no-fail-fast`; Clippy covered all targets with `-D warnings`.
+Duallity's committed `../lling-llang` dependency resolved inside this graph.
+Metadata checks rejected any local package outside the six archived sources.
+
+| Root | Debug nextest | Release nextest | Strict Clippy |
+|---|---|---|---|
+| lling-llang | 3,132 passed; no skips | 3,132 passed; no skips | Passed |
+| duallity | 427 passed; no skips | 427 passed; no skips | Passed |
+
+The command completed with exit zero at `2026-09-07T19:01:01Z`. Source
+checksums before and after validation matched. This validates the two root
+workspaces against the recorded dependency graph; it does not mean each
+dependency's independent test suite was run. Finite formal and cross-target
+checks remain separate evidence, not part of this native command.
+
+The local evidence directory is
+`cache-committed-qualification-20260907/evidence` under the canonical
+liblevenshtein-rust `target/agent-logs`. The aggregate log SHA-256 is
+`2d4e5bdc59f5929c92335375ffb7212bd6c8f915985dac0e2c30e822aa53b64f`;
+both source-check logs have SHA-256
+`f683ce33d8fb05ff019e4a71a9096027b21bfee8dd32075cc66ae2b48046fe93`.
+The systemd launch requested 8 GiB memory, no swap, four CPUs' aggregate quota,
+128 tasks and reduced I/O weight. A delayed property inspection occurred after
+the scope ended; its inactive defaults are not active limit measurements.
+No owned timing or profiling ran concurrently. pgmcp progress 10250 records
+the terminal result without closing task 7784.
+
+The [committed-graph evidence archive](evidence/shared-cache-committed-qualification-2026-09-07.tar.zst)
+preserves these logs, the unchanged preparation manifest, a separate terminal
+result, source identities and the executed script. Its size is 896 KiB and
+its SHA-256 is
+`0db51435a86e613042444d35852f479c2c0e721d78d14948a89464d7eee96d3f`.
+It contains no compiled artifacts. Exact repository source archives remain
+separate from this evidence bundle.
+
+### Prospective blocked timing protocol
+
+The first complete-matrix reclamation attempt, named
+`cache-inline-reclamation-bounded-pair1`, completed its B1, A1 and A2 passes.
+Before B2, all ten allowed idle windows failed; the runner exited 75. The
+entire attempt is incomplete and excluded from acceptance. Its sampled passes
+cannot be combined with a later attempt.
+
+Astra's subsequent Plan review recommended shorter, fixed comparison blocks.
+The amendment was recorded before new blocked measurements in pgmcp progress
+10253. It preserves the workload and acceptance thresholds:
+
+- Reclamation has eight blocks: capacities 1, 2, 64 and 1,024 in ascending
+  order, each with payload sizes zero then 640. Each block includes both
+  policies and every applicable clear, last-reader and holder-count case.
+  The two capacity-one blocks contain six cases each; the other six contain
+  ten each, giving exactly 72 cases.
+- Real-adapter timing has four blocks in order: classic, universal, generalized
+  and FZF. Each includes all three policies, both working sets and both
+  operations, giving 12 cases per block and exactly 48 overall.
+- Each block independently runs B1, A1, A2 and B2 with the unchanged executable
+  identities, 20 samples, one-second warmup and two-second measurement target.
+  A core is selected before the block and held fixed across its four passes.
+  The same 95% idle requirement and bounded eligibility windows apply.
+- An eligibility failure preserves the incomplete attempt and stops progress.
+  A later attempt restarts that whole block. Completed blocks are retained
+  exactly once, in the predefined order; no timing ratio chooses a retry.
+  Other failures require diagnosis rather than automatic retry.
+- Acceptance requires the exact case-ID whitelist in every pass, disjoint
+  blocks and the complete expected union. Counts alone are insufficient.
+  An inherited `CRITERION_HOME` is explicitly removed to keep each attempt's
+  Criterion output isolated. Every attempt and inter-block gap is recorded.
+
+This is a blocked experiment that may span sessions, not one uninterrupted
+full-matrix comparison. Blocking shortens the separation of paired observations
+but does not guarantee idle eligibility or eliminate host interference. The
+seven-case synthetic ABI comparison retains its existing full-run design.
+The completed generic replay comparison also remains separate. Structural
+improvement and unexplained-regression gates are unchanged; an unfavorable
+pair cannot be averaged away, and individual-estimate confidence intervals
+are not ratio confidence intervals.
+
+The later full seven-case attempt `cache-inline-abi-bounded-pair3` also
+remains incomplete: B1 and A1 sampled, but all ten idle windows before A2
+failed. It exited 75 on CPU 2. Unlike the earlier attempts, its launch
+explicitly removed `CRITERION_HOME`; executable hashes and sample settings
+were unchanged. This does not supply a completed ABI result. pgmcp progress
+10258 records the refusal and preserved attempt identity.
 
 ## Remaining qualification within this task
 
