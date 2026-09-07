@@ -1583,6 +1583,81 @@ the recorded commits; neither they nor compiled targets are duplicated in
 this evidence archive. Its size is 1.1 MiB and SHA-256 is
 `6020d22d366ec7834a79c8bb4852380f2898a22e0585e7a5de5c76a406b98c64`.
 
+### Complete historical real-dictionary policy matrix
+
+The matched original reference and unannotated inline-residency candidate
+completed the 48-case dictionary-adapter comparison at
+`2026-09-07T21:39:25Z`. These are the earlier binaries, not the newly qualified
+forced-constructor candidate. The reference executable hash is
+`d92c73e2da364c368f9bdf5c882acbee098d6267a5e08a9e3cd077e46c10af65`;
+the candidate hash is
+`5e64a950de559b665ec559ea0a82ecda7bfa0392d3094ff1329537230d71f07f`.
+
+Each family block contains all three policies, two working-set sizes and two
+callback patterns, in four complete passes with 20 samples per case. The
+accepted attempts are classic attempt 003, universal attempt 001, generalized
+attempt 004 and FZF attempt 001. Every earlier ineligible or partial attempt
+is preserved and excluded in its entirety. No missing pass is supplied by
+another attempt. Each accepted block fixes one eligible core for all four
+passes; different family blocks need not use the same core or time window.
+
+The following ranges span both paired point-estimate comparisons. A negative
+latency change means the candidate is faster. They are not confidence
+intervals for the ratios and do not describe end-to-end queries or Java speed.
+
+| Family | Hot LRU information callback | Hot LRU information plus arcs | LRU steady-miss information callback |
+|---|---:|---:|---:|
+| Classic | -64.91% to -62.64% | -63.38% to -61.85% | -18.66% to -15.87% |
+| Universal | -64.96% to -64.53% | -61.84% to -60.23% | -7.31% to -4.48% |
+| Generalized | -65.17% to -64.38% | -60.82% to -57.05% | -6.28% to -5.51% |
+| FZF | -64.50% to -64.13% | -60.22% to -58.97% | -7.58% to -6.80% |
+
+All four uncached FZF cases nevertheless exceed the 10% regression-review
+threshold in **both** pairs. The table retains each individual observation
+rather than averaging away the larger final-pass regression. Times are
+nanoseconds per benchmark iteration; an information-plus-arcs iteration
+invokes the provider twice under `NoCache`.
+
+| FZF uncached case | Candidate B1 | Reference A1 | Reference A2 | Candidate B2 | First change | Second change |
+|---|---:|---:|---:|---:|---:|---:|
+| Information, 64 states | 673.1 | 606.9 | 614.9 | 804.3 | +10.91% | +30.81% |
+| Information, 65 states | 682.5 | 605.6 | 617.9 | 802.8 | +12.69% | +29.91% |
+| Information plus arcs, 64 states | 1362.6 | 1216.5 | 1246.4 | 1575.4 | +12.02% | +26.39% |
+| Information plus arcs, 65 states | 1361.6 | 1215.9 | 1241.6 | 1570.1 | +11.98% | +26.46% |
+
+The candidate's second-pass drift is 15.3–19.5%, compared with 1.3–2.5% for
+the reference. Before FZF B2, six eligibility windows failed and the seventh
+qualified at 96.76% idle, after approximately 21.07 seconds. This is relevant
+context, not grounds to discard the accepted measurements. First-pair
+regressions remain even without the later drift. Other families' uncached
+changes mostly remain within 4%; classic information over 64 states has a
+separate reference-pass discrepancy, with A2 16.38% below A1. That observation
+is also preserved rather than selected away.
+
+`CacheAll` changes range from -5.21% to +5.09%. The archived policy-endpoint
+table compares the policies within each individual pass. Its hot and
+capacity-plus-one traces use different working-set populations: they do not
+measure a mixed-hit-rate break-even threshold. Exact statistics still require
+zero retained states for `NoCache`, capacity-bounded residency for LRU, and
+the prescribed hit, miss, eviction and fault counts.
+
+These results establish broad hot-LRU improvements but **do not pass overall
+performance acceptance**. The uncached FZF discrepancy requires attribution
+before selecting a final source. Constructor creation, policy replacement and
+clear occur outside the timed callback loop, so the separate constructor
+annotation is not assumed to repair this regression.
+
+[The complete matrix archive](evidence/shared-cache-real-dictionary-matrix-2026-09-07.tar.zst)
+contains accepted and excluded attempts, raw samples and estimate intervals,
+eligibility and timing logs, executable identities, the exact workload manifest,
+frozen runners and validators, paired ratios, policy endpoints and benchmark
+source. Its size is 212 KiB and SHA-256 is
+`2760d4c10c9b19c06f69490029f721eeadc57748c736eeb260454d8507260404`.
+The complete summary SHA-256 is
+`ed3a48daaa2f5af212d2986b0fd201730478710c4feb9b381c193d7f96fba25f`;
+the paired-ratio table SHA-256 is
+`4216d8e9131979d9bcf993b71f139f7f6b1f219c096e8810c9a9b8c03df33585`.
+
 ## Remaining qualification within this task
 
 Revalidate affected release and broader-feature suites, strict linting, native
