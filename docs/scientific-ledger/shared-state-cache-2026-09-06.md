@@ -1324,6 +1324,180 @@ previously archived build inputs. It does not contain the still-pending
 real-duallity matrix. The blocked runner's 73 local self-checks pass, including
 same-count wrong-case, duplicate, missing-row and ineligible-attempt controls.
 
+### Tiny-clear profiles: aggregate materialization hypothesis
+
+Four separate headless diagnostic runs profiled CacheAll and LRU at capacity
+one, with an empty payload and one retained reader. The fixed order was
+original CacheAll, candidate CacheAll, original LRU and candidate LRU. CPU 1
+remained fixed; qualifying idle observations were 99.34%, 99.67%, 100% and
+99%, with three eligibility windows needed for the last run. Each selected
+the exact intended Criterion case with a five-second profiling target, not
+statistical latency analysis. No owned timing or compilation overlapped.
+pgmcp progress 10383 preregistered the protocol; progress 10388 records its
+successful completion at `2026-09-07T20:29:41Z`.
+
+`perf` sampled user-space cycles at 499 Hz with 8,192-byte DWARF stack captures.
+It recorded 2,581, 2,555, 2,533 and 2,534 samples respectively, with no recorded
+lost samples or sampling-throttle events. Active cgroup records confirm a
+4 GiB memory limit, no swap, one CPU's aggregate quota and 64 tasks. Peak
+charged memory was 97,951,744 bytes, with no out-of-memory event. The enclosing
+cgroup nevertheless recorded 3.681 seconds of CPU throttling across collection
+and analysis; cgroup throttling and lost profiler samples are different measures.
+
+Only 143, 246, 146 and 200 samples respectively contain an explicitly resolved
+`SharedStateCache::clear` frame. Many stacks are truncated or end in unresolved
+caller addresses. This asymmetric partial coverage cannot quantify total clear
+cost or support a comparison of inclusive percentages. Whole-process reports
+also contain fixture setup, timing calls and final destruction. Both executables
+already contain unwind-table entries for clear; missing unwind tables are not
+an established explanation. Neither contains debug sections, and neither keeps
+a conventional frame pointer. Changing profiling build flags would therefore
+be a separate diagnostic experiment, not interchangeable timing input.
+
+Disassembly provides a narrower, directly testable lead. The original transfers
+its 104-byte snapshot and 120-byte shared-allocation body with inline vector
+moves. The candidate's larger values cross an out-of-line copy threshold:
+
+| Candidate clear instruction offset | Transfer | CacheAll libc-leaf samples | LRU libc-leaf samples |
+|---|---|---:|---:|
+| `+0x9c` | 152-byte returned snapshot into the stack allocation body | 61 | 30 |
+| `+0xcb` | 168-byte stack allocation body into the allocated root | 9 | 3 |
+
+The shared-allocation body, Rust's internal `ArcInner`, contains ownership
+counters followed by the snapshot. Both candidate instructions call `memcpy`;
+the corresponding original path has no such calls. The sample counts above
+require a libc leaf and a decoded caller at the corresponding return site.
+They are not nanosecond estimates. Hardware sample skid also prevents treating
+an instruction pointer immediately after a call as that instruction's own cost.
+Hash-seed generation occurs in both constructors; these profiles do not show
+that it is the differential cause.
+
+The resulting hypothesis is that larger-aggregate construction and copying
+contribute to the recurring tiny-clear regression. pgmcp progress 10395 records
+the next experiment before its source edit: an isolated copy of the frozen
+inline candidate, differing only by `#[inline]` on `Snapshot::new`. It keeps
+the same compiler settings, dependencies, fields and cache semantics. Generated
+code must first show whether the constructor actually inlines and eliminates
+or reduces the materialization copies. An ineffective hint is a null treatment,
+not an optimization result. Allocation, correctness and the applicable full
+performance gates remain required before production adoption. Hasher reuse,
+boxing and alternative root factories are not combined with this experiment.
+
+[The profile evidence archive](evidence/shared-cache-clear-profile-2026-09-07.tar.zst)
+preserves the plan, script, resource and eligibility records, decoded stacks,
+leaf reports, exact disassembly and a separate result record. Its size is
+208 KiB and SHA-256 is
+`a84645a67a7347b610b71f21bf956f9e13f0fdfeb7c3d42f4ce0b7e12d2656c5`.
+The four raw `profile.perf` files remain in the disk-backed
+`cache-clear-profile-20260907/run` diagnostic directory, with hashes included
+in the archive; they are intentionally not duplicated in Git. The independent
+stack-count summary SHA-256 is
+`ea1742c183f4d22cd5410ba9963b910fcedca27d8b551488f1a5320aeccc53b7`.
+No final causal proportion or performance selection is established here.
+
+### Constructor probes: an ineffective hint and an effective copy reduction
+
+Two isolated fixtures test the aggregate-materialization hypothesis without
+changing production source. Each copies the frozen inline-residency candidate
+and changes only the annotation on the generic private constructor
+`Snapshot::new`. The build scripts verify source hashes and the original
+compiler fingerprint: Rust 1.95.0, the same release profile and dependencies,
+and only the existing AES/SSE2 target-feature flags. Active scopes limit builds
+to 4 GiB, no swap, two CPUs' aggregate quota and 96 tasks. Each fixture passed
+27 release unit tests and all 112 benchmark correctness cases.
+
+The ordinary `#[inline]` hint was a **null treatment**: clear's complete
+instruction sequence remained identical, including the out-of-line constructor
+and both copy calls. It was not timed. Its executable SHA-256 is
+`7fc81ab47dd873a8fe93b86c03e1dfb91b39d1ec7b203d73cafc743acc5a4a1f`.
+
+The subsequent `#[inline(always)]` treatment was preregistered separately in
+pgmcp progress 10416. It removed the standalone constructor and the first
+152-byte copy; the final 168-byte copy remains. Clear's machine-code size grew
+from `0x22c` to `0x46b` bytes, while its stack reservation fell from `0x168` to
+`0x128` bytes. Those changes establish that the intervention reached code
+generation, not that it is automatically faster. Its executable SHA-256 is
+`a81e5a7aa3edb14c0ba0d873de045b105b0f3ae27dbb0b276fdbfd1b0a0763fb`.
+Both fixture packages are private, `publish = false` diagnostic harnesses;
+their `0.0.0` versions are not public-package release versions.
+
+#### Allocation comparison: correcting an invalid equality assumption
+
+The initial allocation script failed at a byte-for-byte comparison of two
+successful `--retirement` executions. That failure is preserved rather than
+overwritten. Each cache uses fresh randomized hash keys; the persistent
+hash-array mapped trie consequently can have a different node topology for
+the same logical entries. Requiring all construction and retirement counts
+to match across independent processes was an invalid deterministic check.
+
+A replay of the **unchanged control executable** produced 215 differing
+numeric cells relative to its first execution; the candidate differed in 225.
+These totals describe differences, not statistical equivalence. All differences
+are confined to seeding and clear's node-retirement fields. For example, one
+LRU capacity-two fixture allocated an additional 560-byte node while seeding,
+then freed that exact additional node on clear. CacheAll fixtures also show
+432-byte node differences.
+
+An independent phase validator checks the complete matrix: 44 unique fixtures,
+four phases each, both retained policies, capacities 1/2/64/1024, payload lengths
+0/640 and deduplicated holder counts 0/1/up to 32. All three runs satisfy:
+
+- Every clear requests exactly two allocations, totaling 184 bytes, with
+  184 additional live requested bytes at its peak.
+- Held payload release has no allocations and frees precisely the returned
+  payload objects, their buffers and the holder-vector buffer.
+- Empty-cache destruction has no allocations and frees two allocations
+  totaling 184 bytes.
+- Every row's requested-byte accounting balances; each complete four-phase
+  fixture returns both net allocation count and requested live bytes to zero.
+
+The validator rejects an injected extra clear allocation and a missing phase.
+This establishes unchanged clear allocations and complete reclamation for
+the measured fixtures. It does not establish identical seeded memory usage,
+identical topology across random seeds, or a universal leak proof. Process
+resident memory remains separately reported and is not equated with allocator
+requested bytes.
+
+#### Four-case latency probe
+
+pgmcp progress 10425 preregistered four tiny-clear cases before timing.
+`cache-clear-force-inline-pair1` completed all four in B1–A1–A2–B2 order on
+CPU 3 at `2026-09-07T21:07:40Z`. Here A means the **unannotated
+inline-residency candidate**, not the original pre-optimization reference;
+B means the forced-inline constructor. Each pass qualified in its first idle
+window: 98.67%, 99.33%, 100% and 99.67%. Each case used one second of warmup,
+20 samples and a two-second measurement target. Exact workload IDs were
+validated in addition to row counts. No owned compilation or profiling
+overlapped timing.
+
+| Clear policy/capacity/payload/holders | A1 | B1 | A2 | B2 | Paired latency change |
+|---|---:|---:|---:|---:|---|
+| CacheAll/1/0/1 | 129.82 ns | 111.86 ns | 130.94 ns | 113.47 ns | -13.83%, -13.34% |
+| CacheAll/2/0/1 | 133.30 ns | 116.04 ns | 135.70 ns | 116.68 ns | -12.95%, -14.02% |
+| LRU/1/0/1 | 132.12 ns | 114.17 ns | 132.86 ns | 114.51 ns | -13.59%, -13.81% |
+| LRU/2/0/1 | 138.20 ns | 119.75 ns | 139.08 ns | 120.62 ns | -13.35%, -13.27% |
+
+All eight paired point comparisons improve. This supports constructor
+materialization as a contributor to the tiny-clear overhead. It does not
+isolate `memcpy` alone: inlining also changes code layout, registers and other
+transfers. The probe neither establishes whole-query gains nor replaces the
+full replay, reclamation and actual-provider qualification gates. No
+production optimization is selected by these four cases.
+
+The summary SHA-256 is
+`9546f3cc282bafe7334ec30e31215fe9c44e583ae5d178cebcb31d801c7183df`;
+the paired table SHA-256 is
+`643e7fcc2bf6e2acbe0871ee3056d0bbb8ba379646285a6c17f3012a844425b6`.
+[The constructor-probe archive](evidence/shared-cache-constructor-probes-2026-09-07.tar.zst)
+contains both exact fixture sources, dependencies, benchmark sources, scripts,
+build fingerprints, tests, bounded clear disassembly, the original allocation
+failure, replay and phase-validation evidence, and raw Criterion observations.
+Compiled targets and full-executable disassembly are excluded. Its size is
+212 KiB and SHA-256 is
+`a3bd90910b958ca6d2af3720184fcc92a0e2aad8ceb415562fdedf10091cb14b`.
+The original preregistrations remain unchanged; separate result records
+describe what actually happened.
+
 ## Remaining qualification within this task
 
 Revalidate affected release and broader-feature suites, strict linting, native
