@@ -1498,6 +1498,91 @@ Compiled targets and full-executable disassembly are excluded. Its size is
 The original preregistrations remain unchanged; separate result records
 describe what actually happened.
 
+### Forced-constructor candidate: full correctness and build qualification
+
+An isolated six-repository graph captures lling-llang commit
+`daea97f8c0fa33c0e940eaf5a68834a6a16737a1`, duallity commit
+`c615c10046948e87babd27a0e359ade1fa0561ee`, and the same four dependency
+commits used by the preceding committed qualification. Before treatment, its
+only differences from the mutation-observability-qualified graph are
+documentation. The sole production-shaped source change is the constructor
+annotation; its complete source-file hash matches the measured forced-inline
+fixture. No live working-tree edits enter the graph.
+
+The complete validation ran from `2026-09-07T21:18:45Z` to
+`2026-09-07T21:27:12Z`, exiting successfully. Both roots use all features,
+locked offline dependencies, four test threads and `RUST_BACKTRACE=1`.
+Strict Clippy covers all workspace targets with warnings denied. Browser
+WebAssembly and WASI preview1 checks use `bindings-core` without default
+features and an empty `RUSTFLAGS` override to prevent inherited x86 flags.
+
+| Validation | lling-llang | duallity |
+|---|---|---|
+| Debug workspace tests | 3,132 passed; zero skipped | 427 passed; zero skipped |
+| Release workspace tests | 3,132 passed; zero skipped | 427 passed; zero skipped |
+| Strict all-target Clippy | Passed | Passed |
+| Doctests | 47 passed; 64 existing ignored examples | 13 passed; none ignored |
+| Native benchmark correctness | Seven exact raw-ABI cases | 48 exact dictionary-adapter cases |
+| Browser WebAssembly compilation | Passed | Passed |
+| WASI preview1 compilation | Passed | Passed |
+
+Ignored doctests are not validated examples. Their coverage is recorded in
+the existing family documentation-audit task, pgmcp item 6039. Dependency
+crates compile in this graph, but their independent workspace suites are not
+claimed here. The WebAssembly checks establish compilation, not runtime
+binding conformance. The exact-workload checker also rejects duplicate or
+wrong IDs, missing successes and extra successes; its ten self-checks pass.
+
+Active cgroup records confirm an 8 GiB memory limit, no swap, four CPUs'
+aggregate quota and 128 tasks. An intermediate observation during compilation
+reached the charged-memory cap without an out-of-memory event or kill. That
+observation is not a final peak-RSS profile. No owned statistical timing or
+profiling overlapped compilation. Full source checks before and after are
+identical, with receipt SHA-256
+`5bb6712eada0a0b4b616cf5032c56c8a8bb4e06a022d8576afbab0f8556837d6`.
+
+#### Raw-ABI reference provenance correction
+
+Review of the older raw-ABI reference found a build-provenance gap. Its
+executable and cache-source hashes survive, but the surviving build fingerprint
+belongs to a later `bindings-core` executable and does not authenticate the
+older reference's complete source graph or feature settings. The earlier
+seven-case measurements remain historical observations of those binaries;
+they cannot establish matched-source gains for the fully featured candidate
+or serve as its final performance acceptance evidence. This is a limitation
+of the recorded experiment, not evidence of a cache correctness defect.
+
+A fresh raw-ABI reference was therefore built from the unchanged matched
+graph A in a separate target directory. Benchmark source, manifests, lockfile,
+dependency versions, compiler, feature set, profile and target flags match
+the forced candidate. Their lling-llang source trees differ only in
+`shared_cache.rs`. Seven exact correctness cases and before/after source
+checks pass. The initial build-script preflight failed because its configured
+path contained a parent-directory segment while Cargo returned canonical
+paths; no compilation occurred. That script and failure are preserved. The
+corrected script canonicalizes the root and uses separate evidence and build
+directories. It completed successfully at `2026-09-07T21:30:50Z`.
+
+| Future paired measurement | Reference executable SHA-256 | Candidate executable SHA-256 |
+|---|---|---|
+| Raw ABI | `927a5a0b0eb9c94015c9db42e9c251e52fb6530461b99ce8e54f30eeb5527f1f` | `ef1fb9e7628e7cd08f2db1a31c01687b08262efee1c84440f0a83f2e72083e25` |
+| Real dictionary adapter | `d92c73e2da364c368f9bdf5c882acbee098d6267a5e08a9e3cd077e46c10af65` | `4ab5915db6c9ce4c3433c6f1de7bb248d0794b690523ac3e7072ac9d699f8a52` |
+
+The real-adapter pair also passes matched fingerprint, dependency,
+benchmark-source and exact 48-case correctness checks. These checks prepare
+sound comparisons; they are not latency measurements. The complete selected
+candidate replay, reclamation and provider timing gates remain required.
+The working repository's production constructor is still unchanged.
+
+[The qualification archive](evidence/shared-cache-forced-constructor-qualification-2026-09-07.tar.zst)
+preserves source-archive identities, the exact annotation patch, source checks,
+validation scripts and logs, the original reference cache source, fingerprints,
+dependency metadata, both reference preflight attempts and result records.
+The six source archives remain locally available and reconstructible from
+the recorded commits; neither they nor compiled targets are duplicated in
+this evidence archive. Its size is 1.1 MiB and SHA-256 is
+`6020d22d366ec7834a79c8bb4852380f2898a22e0585e7a5de5c76a406b98c64`.
+
 ## Remaining qualification within this task
 
 Revalidate affected release and broader-feature suites, strict linting, native
