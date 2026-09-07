@@ -1794,6 +1794,84 @@ and SHA-256 is
 `c52a3a34815e2975d983f0e67fe8783f050da87233e762ff4c7f6dc33d517e2e`.
 
 
+#### Balanced allocator-sensitivity timing
+
+Inspection of the joint histograms found more than changed bin identities.
+For every requested size, the placement-shape analysis normalizes allocation
+counts by that size's total and reports the occupied modulo-64 bins and
+largest-bin fraction. Across all four processes and four uncached cells,
+24-, 48-, 320- and 336-byte allocations occupy one bin under the default
+allocator. With its thread cache disabled, 24- and 48-byte allocations occupy
+four bins; the largest contains 31.45–35.45% and 31.25–45.46%, respectively.
+The 320- and 336-byte allocations occupy three or four bins, with largest-bin
+fractions of 27.78–57.14%. Allocations of 4,160 bytes remain single-bin
+distributions in both conditions. The 288-byte response is inconsistent.
+The complete table includes every uncached allocation size, not just the
+sizes supporting this observation.
+
+This repeat-consistent shape change justified one fresh timing diagnostic,
+with contemporaneous default controls. It did not justify an allocator
+configuration change or an alignment annotation. Eight processes ran all
+12 FZF cases in the original policy order, using the frozen historical
+binaries, one-second warm-up, two-second measurement and 20 samples per case.
+Default is denoted D and disabled thread caching T. The order was DB1, TA1,
+TB1, DA1, DA2, TB2, TA2, DB2: each implementation/condition occupies
+time-symmetric positions. All other families still execute their original
+setup and checks, but their filtered timing loops do not run.
+
+The cohort completed at `2026-09-07T22:53:47Z`. CPU 5 remained fixed;
+accepted preflight windows ranged from 95.77% to 99.33% idle. Several passes
+waited through ineligible windows, within the preregistered ten-window and
+60-second limits. The scope allowed 2 GiB memory, no swap, two CPUs'
+aggregate quota and 64 tasks; actual peak charged memory was 49,008,640
+bytes, with no memory-limit events, out-of-memory kills or CPU quota
+throttling. All eight processes exited successfully; there were no replacement
+attempts or selective exclusions.
+
+Validation checks all 96 exact case/pass records and all 20 positive, finite
+samples per record, plus positive estimates and their 95% intervals. It reads
+each saved pass baseline, not Criterion's overwritten `new/` directory.
+Raw case identity comes from `benchmark.json`; its `directory_name` must
+match the actual path, whose slashes Criterion sanitizes into underscores.
+
+| Uncached FZF case | Default first B/A change | Default second B/A change | Disabled-cache first B/A change | Disabled-cache second B/A change |
+|---|---:|---:|---:|---:|
+| Information, 64 states | +3.12% | +4.37% | +5.35% | +8.80% |
+| Information, 65 states | +5.43% | +4.39% | +4.25% | +7.99% |
+| Information plus arcs, 64 states | +4.71% | +3.23% | +3.63% | +9.08% |
+| Information plus arcs, 65 states | +6.57% | +3.84% | +2.60% | +8.36% |
+
+The larger historical regression did not reproduce in the fresh default
+cohort. Disabling thread caching slows both implementations by 28.61–41.26%
+in the within-implementation paired comparisons, and does not consistently
+attenuate their gap. This demonstrates allocator sensitivity but does not
+identify the cause of the historical discrepancy. The smaller fresh default
+ratios do not invalidate or replace the earlier observations.
+
+Default hot-LRU information requests improve by 60.55–65.05%, and paired
+information-plus-arcs requests by 58.39–59.37%. The disabled-cache condition
+also retains strong hot-LRU improvements. All policies remain in the evidence,
+including a 10.23% second-pair regression for the disabled-cache `CacheAll`
+information-plus-arcs case over 64 states. These ratios are point-estimate
+comparisons, not confidence intervals or end-to-end query speedups.
+
+There is no support here for disabling the allocator cache in production or
+for declaring a specific address offset the root cause. The original
+regression remains an unresolved observation; the final selected-source stock
+performance gates remain required.
+
+[The allocator-sensitivity archive](evidence/shared-cache-fzf-allocator-sensitivity-2026-09-07.tar.zst)
+preserves the complete eight-pass cohort, all saved samples and intervals,
+exact-case summarizer, placement-shape script and full table, preregistration,
+executable/runtime identities, eligibility records and resource receipts.
+It is 84 KiB, with SHA-256
+`a3f57b41329f77422160356b25e72657bd1738c7e129159ce60ca8b354c1951f`.
+The complete summary SHA-256 is
+`1649fb53fecce32d5d2f4cb18a6192d06367cd058f10f1cc63dc979946527135`;
+the paired-ratio table SHA-256 is
+`96e86a4c1019983bd9d8b43f65520ef5c6b13a240eb142249e3133132d9b1e2c`.
+
+
 ## Remaining qualification within this task
 
 Revalidate affected release and broader-feature suites, strict linting, native
