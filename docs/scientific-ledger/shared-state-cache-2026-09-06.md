@@ -1872,6 +1872,94 @@ the paired-ratio table SHA-256 is
 `96e86a4c1019983bd9d8b43f65520ef5c6b13a240eb142249e3133132d9b1e2c`.
 
 
+## Selected-source replay qualification — 8 September 2026
+
+The prospective final comparison selects the inline-residency implementation
+with `#[inline(always)]` on the private `Snapshot::new` constructor. It adds no
+lookup annotation or allocator setting. pgmcp progress 10616 registered five
+suites before their measurements: generic replay (40 cases), reclamation
+(72), raw resource ABI (7), real dictionary adapters (48), and an independent
+FZF repeat (12). Each case requires B1/A1/A2/B2 passes with 20 samples,
+one-second warmup and two-second measurement. A is the original reference;
+B is this selected candidate. The separate FZF repeat cannot be pooled with
+the preceding real-adapter cohort.
+
+### Replay result and limits
+
+All 40 replay cases completed, and the independent checker accepted all 160
+saved case/pass records. These exercise LRU capacities 1, 2, 64 and 1,024,
+payloads containing either zero or 640 `u64` units, three resident-hit traces,
+and two steady-miss traces. Setup validates values and the timed workload
+checks hit, miss, eviction and residency counters. The replay cursor survives
+warmup and measurement boundaries. This generic fixture does not perform a
+dictionary query or cross a foreign-language boundary.
+
+The designated capacity-64 hot cases satisfy the required 25% reduction in
+each pair. Negative changes below mean less elapsed time for B relative to A:
+
+| Resident access trace | Payload units | B1 versus A1 | B2 versus A2 |
+|---|---:|---:|---:|
+| Cyclic | 0 | -67.20% | -69.31% |
+| Cyclic | 640 | -69.24% | -68.27% |
+| Shuffled | 0 | -65.18% | -65.41% |
+| Shuffled | 640 | -64.51% | -64.39% |
+| Interior | 0 | -61.84% | -61.57% |
+| Interior | 640 | -63.26% | -65.07% |
+
+No paired point estimate in the complete 40-case replay exceeds the 10%
+slowdown review threshold. The archive includes every case, not only this
+hot-case table. These are paired point-estimate changes, not confidence
+intervals for the ratios. Individual estimates and their 95% intervals are
+retained. The interior trace is a mixed resident-access workload, not a pure
+non-MRU workload: at capacity 64, 161 of its 10,000 adjacent accesses repeat
+the immediately preceding state. MRU means most recently used.
+
+The first two capacity-one blocks completed in the initial launch. The
+capacity-two, zero-payload block required four attempts: three ended with the
+preregistered CPU-eligibility exit 75 and were excluded in their entirety;
+attempt four supplied all four accepted passes. Every other block completed
+on its first attempt. No completed block was rerun, no partial passes were
+spliced, and all rejected attempts remain available for inspection.
+
+The final launch used a 4 GiB memory limit, no swap, a one-CPU aggregate quota
+and a fixed eligible core within each four-pass block. Peak memory was
+420,872,192 bytes with no out-of-memory event. Its entire scope recorded 184
+quota throttles totaling 4.734892 seconds; that scope includes validation and
+analysis as well as measurement. CPU idleness of at least 95% before each
+pass does not prove interference-free timing. Partitioning the replay by
+capacity and payload also changes preceding allocator history compared with
+the historical unpartitioned process. Neither limitation is hidden by the
+passing result.
+
+### Independent checking and evidence
+
+The strengthened checker validates exact raw and sanitized case identities,
+numeric finite positive samples and estimates, integral iteration counts,
+the expected 20-element arrays, interval ordering, consistent estimators,
+and the complete four-pass matrix. It requires contiguous attempt receipts
+and permits retries only after exit 75, never after a completed or fatal
+attempt. Its tests accept two valid matrices and reject all 17 malformed
+matrices, including forbidden retries and numeric-looking strings. The
+exported tables retain suite, block and attempt identity so the independent
+FZF cohort cannot be accidentally deduplicated later.
+
+[The selected replay archive](evidence/shared-cache-selected-replay-2026-09-08.tar.zst)
+contains the frozen plan and executable identities, preflight provenance,
+all replay attempts and saved samples, both checker versions, synthetic
+test fixtures, validation receipts, estimates and paired changes. It excludes
+compiled artifacts and is 324 KiB. Its SHA-256 is
+`6d8ae0a2554127e11fb65a02dcb0496b0e0ac580f763dab4264d80ebebbe0ee8`.
+The complete estimate table SHA-256 is
+`de93ae08147d957c28e4979b116448fec91d6039227c93afaead815e79dc0253`;
+the paired-change table SHA-256 is
+`b921f01178ce030aae05c4aa4b82f9cc5926f513f2aeafe5e7d013c90f0f7f78`.
+
+This qualifies replay only. Reclamation, raw ABI, real-adapter and independent
+FZF comparisons still require complete audited results. In particular, replay
+does not explain or resolve the historical uncached FZF regression. Adoption
+still requires a source-equivalent implementation commit; the broader task
+is not complete.
+
 ## Remaining qualification within this task
 
 Revalidate affected release and broader-feature suites, strict linting, native
