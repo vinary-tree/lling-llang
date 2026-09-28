@@ -139,6 +139,7 @@ impl<T> Snapshot<T> {
         }
     }
 
+    #[inline(always)]
     fn new(policy: SharedCachePolicy) -> Self {
         Self {
             generation: Arc::new(()),
@@ -286,7 +287,16 @@ impl<T> SharedStateCache<T> {
         admit: impl FnOnce(&T) -> bool,
     ) -> Result<Arc<T>, E> {
         let current = self.root.load();
-        if let Some(entry) = current.lookup(id) {
+        // Keep the CacheAll hit on a direct first-branch path. This avoids the
+        // policy-generic lookup dispatch on the most common read-only path.
+        if let Storage::All(entries) = &current.storage {
+            if let Some(value) = entries.get(&id) {
+                let value = Arc::clone(value);
+                drop(current);
+                increment(&self.counters.hits);
+                return Ok(value);
+            }
+        } else if let Some(entry) = current.lookup(id) {
             let value = Arc::clone(entry.value);
             if entry.touch.is_none() {
                 // Touching the tail changes no order. Linearize this access at

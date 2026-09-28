@@ -2132,8 +2132,8 @@ auditor, estimates and paired-change tables. Its SHA-256 is
 `ff9d8c7b60ae4895902eac50c869a858d20e47844b21e8733e025ee766d6be69`.
 It excludes compiled executables but preserves their SHA-256 identities and
 build receipts. The frozen A/B archive above preserves the common source
-graph and reference artifacts. C is still a diagnostic candidate, not a
-production optimization or an accepted release change.
+graph and reference artifacts. At this checkpoint C was still a diagnostic
+candidate, not a production optimization or an accepted release change.
 
 ## C/A order reversal and CPU-attribution study — 28 September 2026
 
@@ -2179,9 +2179,8 @@ requires, for every pass of a case, six observations around its Criterion
 sample file: sibling idle at least 95% and selected-core system time at most
 5%. Its first two fresh attempts also exited 75 because the primary case
 had busy candidate windows; one sibling reached only 72% idle. Every exit-75
-attempt and all of its raw ratios remain in the archive. There is still no
-eligible quiet four-pass comparison for that case, so the small-drop
-regression question remains open and C has not been adopted.
+attempt and all of its raw ratios remain in the archive. At this checkpoint
+there was no eligible quiet four-pass comparison for that case.
 
 [The C-attribution archive](evidence/selected-cache-C-attribution-20260928.tar.zst)
 preserves all prospective plans and amendments, exact source and executable
@@ -2193,13 +2192,82 @@ The frozen source graphs and full 179-case qualification remain in the
 preceding archive. No excluded block was pooled or used to overwrite an
 accepted one.
 
-## Remaining qualification within this task
+## Quiet case-window verdict and release correctness — 28 September 2026
 
-Complete an eligible quiet four-pass capacity-1024 reclamation comparison,
-then determine whether any residual slowdown is source-caused or allocator
-and setup variation. The targeted correctness run on the frozen C graph is
-in progress. If a repeatable source regression remains, change the candidate
-and rerun the complete independently audited matrix. Only after a candidate
-is accepted should the source be adopted and release, broader-feature,
-native-example and documentation checks be rerun against the actual adopted
-graph. The task is not complete.
+A third, independently launched case-window block passed the registered gate
+for the capacity-1024 final-reader drop: all six one-second observations
+around each of its four Criterion samples showed its simultaneous-
+multithreading sibling 100% idle; selected-core system time never exceeded
+0.99%. Its C1/A1 estimates were 66.91/93.65 nanoseconds, a 28.55%
+improvement; its C2/A2 estimates were 85.50/83.21 nanoseconds, a 2.75%
+slowdown. The matched CacheAll final-reader-drop control was also eligible,
+with paired changes of 6.31% faster and 4.57% slower. The two capacity-two
+cases were excluded because one reference window had sibling activity.
+This clean block contradicts a stable greater-than-10% regression in the
+motivating case, but the large difference between its own C1 and C2
+estimates still shows process or allocator variation; it does not establish
+precise performance equivalence.
+
+An independent replication was registered before timing without changing
+the source, filters, sampling or gate. Its first attempt was excluded because
+the final reference window reached only 71% sibling idle. A further fresh
+attempt was excluded because all four primary-case windows had sibling
+activity, despite its eligible preflight. Neither excluded attempt was
+accepted or spliced with the clean block. Their raw data and the successful
+block are retained in
+[the attribution supplement](evidence/selected-cache-C-attribution-supplement-20260928.tar.zst),
+SHA-256
+`e151e3e8fa49cb05f1786d163caa8a2a0baf0f47705312ec9012a321dcfe2708`.
+
+The exact frozen C graph passed release correctness checks: all 27 targeted
+shared-cache tests, all 2812 default-feature lling-llang tests, all 3132
+all-feature lling-llang tests and all 427 all-feature duallity tests. The
+duallity run initially encountered a removed frozen `Cargo.toml`; the exact
+committed graph was restored and hash-checked. Its next attempt reused an
+independent Cargo root's target directory and failed with colliding stable
+crate identifiers. A separate target directory removed that artifact
+conflict and passed the 427 tests. Both failed attempts and the successful
+ones are preserved in
+[the correctness archive](evidence/selected-cache-C-correctness-20260928.tar.zst),
+SHA-256
+`431f96773006559b023e98e159b25f607a89785c45d1f713e9c2b1d91102fae0`.
+These are build-harness failures, not evidence of a cache semantic defect.
+
+The adoption decision uses the complete 179-case matrix, both pass orders,
+the raw-ABI and real-adapter controls, the quiet-window result, and code-path
+analysis together. The large bounded-hot gains recur; no review flag in the
+complete matrix occurred in both paired comparisons. NoCache cases cannot
+execute the changed CacheAll branch, and the timed final-reader-drop closure
+only releases a retained value; its cache construction is outside timing.
+This does not dismiss allocator or layout effects, but it makes a stable
+algorithmic regression from the new branch unsupported by the evidence.
+The generic `SharedStateCache<T>` change was therefore applied to the
+lling-llang feature branch for actual-worktree validation. The executable
+code matches frozen C exactly; only the diagnostic comment was rewritten as
+a production explanation. No package has been published from this change.
+
+## Applied-source validation and release boundary
+
+The applied `SharedStateCache<T>` source has SHA-256
+`1fb42071bf9342048328e6827036d0c5ed62d6c310c31b0790df793713ed1579`.
+Its diff against frozen C consists solely of the explanatory comment above
+the CacheAll fast path. In the actual lling-llang feature worktree, the
+default-feature release suite passed 2812 of 2812 tests and the all-feature
+release suite passed 3132 of 3132. The all-feature
+`resource_dictionary_layer` example ran and produced the expected correction
+candidate `the` at edit cost 1. Formatting and whitespace checks passed;
+`pgmcp bug-gate` found no open bugs anchored to the changed files.
+[The applied-source validation archive](evidence/selected-cache-C-adopted-validation-20260928.tar.zst),
+SHA-256
+`e2ef4c7d7b2f0de169fe6c89f5f338c7daf5b2ce69c545ab7efd8ecc91079a23`,
+preserves all commands, source identities and raw logs.
+
+The accepted change is generic over immutable cache payloads, so tropical
+and Arctic automata and their duallity adapters use the same fast path and
+bounded LRU infrastructure; there is no per-binding copy of the algorithm.
+The noisy final-reader-drop case remains a useful monitor: future claims
+about a small regression must retain paired pass order, exact executable
+identities and simultaneous sibling telemetry. A repeatable source-caused
+regression would justify a new candidate and a new complete matrix, not
+retroactive removal of excluded measurements. This feature-branch change
+does not publish a package or change the 4.0.0-rc.6 release boundary.
