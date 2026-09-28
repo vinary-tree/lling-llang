@@ -1954,17 +1954,106 @@ The complete estimate table SHA-256 is
 the paired-change table SHA-256 is
 `b921f01178ce030aae05c4aa4b82f9cc5926f513f2aeafe5e7d013c90f0f7f78`.
 
-This qualifies replay only. Reclamation, raw ABI, real-adapter and independent
-FZF comparisons still require complete audited results. In particular, replay
-does not explain or resolve the historical uncached FZF regression. Adoption
-still requires a source-equivalent implementation commit; the broader task
-is not complete.
+At this 8 September checkpoint, only replay was qualified. The remaining
+measurements were completed in the separate 28 September comparison below.
+Neither checkpoint by itself authorizes adopting the candidate.
+
+## Full selected-source qualification — 28 September 2026
+
+The previously selected source was reconstructed from the archived commit and
+source hashes, then rebuilt as six exact binaries: generic cache, raw
+`vt.scalar-wfst.1` resource ABI, and real duallity dictionary adapters for
+both A (reference) and B (candidate). The only selected cache-source change
+relative to the archived inline-residency source is `#[inline(always)]` on
+private `Snapshot::new`. The source graph and each executable hash are frozen
+in the evidence archive before comparison. These are new measurements, not
+reused September 8 samples.
+
+Each case ran B1/A1/A2/B2 with 20 Criterion samples per pass, one-second
+warmup, two-second measurement, an at-least-95%-idle selected-CPU prepass
+before each pass, and an exact executable-hash check. A four-gibibyte memory
+ceiling, no swap, one-CPU quota and 64-task ceiling bounded every launch.
+The independent auditor checked case identity, sample count, finite estimates,
+confidence intervals, iteration counts, pass order and attempt receipts.
+No completed block was rerun or spliced with another. All five suites passed
+that audit: 179 cases and 716 preserved case/pass records.
+
+| Separate suite | Cases | Review flags above 10% slowdown | Observation |
+|---|---:|---:|---|
+| Generic residency replay | 40 | 2 | Capacity-one, 640-unit payload cases exceeded the threshold in the first pair only. |
+| Clear and final-reader reclamation | 72 | 8 | Several small-capacity final-reader-drop cases exceeded it, five in both pairs. |
+| Raw resource ABI | 7 | 1 | CacheAll `warm_info/0` was 13.91% and 15.54% slower. |
+| Real duallity adapters | 48 | 3 | Three NoCache cases exceeded it in the first pair only. |
+| Independent FZF repeat | 12 | 0 | The historical uncached FZF slowdown did not recur in this cohort. |
+
+The designated capacity-64 hot cases still clear the at-least-25% speedup
+gate in both pairs. Across the paired points, B reduces generic hot-residency
+time by 61.76–69.22%, raw-ABI bounded-hot time by 59.03–64.64%, and real
+adapter bounded-hot time by 60.55–67.29%. These are elapsed-time point
+estimates, not confidence intervals for the ratio. The improvement is
+substantial, but **B is not accepted**: all 14 review flags remain evidence
+until their causes and remedies are established. A passing hot gate cannot
+erase a slower CacheAll, NoCache or final-release case.
+
+The selected-CPU prepass measures idleness before, not during, a timed sample
+and did not qualify the simultaneous-multithreading (SMT) sibling. Some
+flagged first pairs had an active sibling during host preflight. That is a
+possible source of interference, not proof that those regressions are noise.
+The raw-ABI CacheAll slowdown occurred in both pairs and merits particular
+attention. Quota throttles were recorded for whole scopes that also include
+preflight and statistical analysis; they cannot be assigned to a particular
+sample from the scope totals alone.
+
+### Follow-up attribution, not an adopted optimization
+
+Headless AMD uProf timer and retired-instruction profiles put
+`ResourceContext::state` and persistent hash-array-mapped-trie (HAMT) lookup
+on the raw-ABI hot path. The timer's sampling granularity cannot explain a
+4–5 ns difference on its own. Disassembly shows that A reaches the hash lookup
+before testing cache policy, whereas B dispatches on its storage variant
+first. A separately built C variant of B placed a direct CacheAll hit before
+the general variant lookup. C improved `warm_info/0` from about 35 ns to
+about 29 ns in both pairs against B in one isolated comparison; a seven-case
+comparison reproduced a 17.5% improvement in its cleaner second pair, without
+a consistent large LRU-hot or steady-miss loss. Its first reference pass had
+SMT-sibling activity and a broad interval. A separate A-versus-C comparison
+also varied substantially between C processes (36.03 and 30.47 ns). Thus the
+branch layout is a strong candidate cause, but process variation and hash-map
+seeding have not been separated, and C is not a production fix.
+
+The timed `last_reader_drop` workload first clears and drops the cache in
+untimed setup; it measures the last returned `Arc<Vec<u64>>` releases, not
+snapshot-root destruction. A/B allocation counters agree on the number and
+bytes of timed payload deallocations in the flagged small cases. Rebuilt A/B
+binaries with an identical cache-free drop control did not reproduce the
+original persistent 10–27% gap in that control. Most cache-specific rebuilt
+cases were close, but `all/2/0/1` again slowed in one pair (34.09 versus
+29.56 ns). This makes allocation history, code layout and interference
+plausible mechanisms; it does not establish any of them. Disabling glibc's
+thread-local malloc cache changed the pattern, but its later passes suffered
+heavy SMT-sibling activity and wide intervals, so that intervention is
+inconclusive and cannot substitute for default-allocator qualification.
+
+[The full qualification archive](evidence/selected-cache-qualification-20260928.tar.zst)
+contains frozen source and binary identities, all five raw matrices, complete
+attempt and resource receipts, the auditor and its checks, estimates and
+paired-change tables. Its SHA-256 is
+`54c4d4f3718344d07fd9d3fbb20c9d35c6d34734a10df3c6fd464c94b5d625c8`.
+[The diagnostic companion](evidence/selected-cache-diagnostics-20260928.tar.zst)
+contains the prospective diagnostic plans, exact source deltas, all raw
+diagnostic samples, SMT telemetry, allocation counts, headless uProf reports,
+negative results and interpretation. Its SHA-256 is
+`500a36b10262fdff95cc385f44dec64a67e982fce9a4bf0303c855b01f112eba`.
+Compiled artifacts are excluded from both archives; their hashes and build
+receipts are included.
 
 ## Remaining qualification within this task
 
-Revalidate affected release and broader-feature suites, strict linting, native
-examples and documentation against the selected committed implementation; the
-earlier successful suites remain evidence for their recorded graphs. Compare cold,
-warm and bounded-LRU workloads, sparse IDs and multithreaded access with
-statistics overhead controlled. Record the final exact source graph and
-benchmark limitations before claiming this task complete.
+Determine or rule out the remaining regressions under a sibling-aware timing
+protocol; isolate allocator/setup effects without redefining the measured
+contract; decide on a general CacheAll fast path that preserves bounded-LRU
+gains; and run a new complete, independently audited A/B qualification for
+any changed candidate. Only then revalidate release and broader-feature
+suites, linting, native examples and documentation against an adopted
+implementation. Earlier successful suites remain evidence only for their
+recorded graphs. The task is not complete.
