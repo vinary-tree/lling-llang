@@ -2135,13 +2135,70 @@ build receipts. The frozen A/B archive above preserves the common source
 graph and reference artifacts. C is still a diagnostic candidate, not a
 production optimization or an accepted release change.
 
+## C/A order reversal and CPU-attribution study — 28 September 2026
+
+Before further timing, the 18 original review flags and ten matched controls
+were registered as 16 generic, nine real-adapter and three raw-ABI cases.
+The unchanged A and C executables ran in A1/C1/C2/A2 order, with selected-core
+eligibility checks and simultaneous one-second measurements of both logical
+threads of the selected physical core. This is an attribution study, not a
+substitute for the complete qualification. The first generic block completed
+all four timing passes and 64 records, but its wrapper exited 2 after timing
+because the summarizer option appeared after positional arguments. The raw
+records were kept; the option order was corrected and the same samples passed
+exact-case validation without a benchmark rerun. The adapter and raw-ABI
+blocks completed and validated normally.
+
+| Reversed-order block | Cases and records | Main observation |
+|---|---:|---|
+| Generic attempt 001 | 16 and 64 | The previously flagged capacity-1024, 640-unit, one-holder final-reader drop was 1310.35% slower in C1/A1 but 7.60% slower in C2/A2. C1 samples were bimodal, and selected-core system time rose to 8–10% during that case. |
+| Real adapters | 9 and 36 | No candidate slowdown exceeded 10% in either pair; previously flagged NoCache cases did not repeat their original pair-position flags. |
+| Raw resource ABI | 3 and 12 | No slowdown exceeded 10%; the LRU64 hot-set case was 62.17% and 62.81% faster. |
+| Generic full-set replication 002 | 16 and 64 | The capacity-1024 final-reader drop was 17.29% slower in C1/A1 and 8.55% slower in C2/A2. Two capacity-two drop cases exceeded 10% only in the second pair. Candidate windows overlapped sibling activity while corresponding reference windows were quieter. |
+
+The capacity-1024 case also had a 10.45% second-pair flag in the original C
+qualification. Thus it would be wrong to say the *case* never reappeared:
+it did, but no completed recheck showed a greater-than-10% slowdown in both
+of its paired comparisons. The original second-pair flag shifted to the first
+pair in the reversed-order blocks. Those observations weaken a stable
+source-only interpretation but do not prove equivalence. In particular, the
+release path being timed does not execute C's new CacheAll lookup, while the
+benchmark repeatedly constructs a 1024-entry cache outside the tiny
+approximately 90-nanosecond measured final-reader drop. Allocator state,
+sample-window interference and executable layout can therefore matter.
+
+Two further four-case blocks were registered with a deliberately stringent
+whole-block gate: every one-second sibling observation had to be at least
+95% idle. Both completed all 16 records but exited 75 and were excluded:
+the first had nine busy sibling seconds among 79, and the second likewise
+contained busy seconds. The first excluded block's capacity-1024 samples
+were individually quiet, so the whole-block gate was too broad for the
+specific causal question. Its favorable ratios were **not** retroactively
+accepted. A new, prospectively registered case-window method instead
+requires, for every pass of a case, six observations around its Criterion
+sample file: sibling idle at least 95% and selected-core system time at most
+5%. Its first two fresh attempts also exited 75 because the primary case
+had busy candidate windows; one sibling reached only 72% idle. Every exit-75
+attempt and all of its raw ratios remain in the archive. There is still no
+eligible quiet four-pass comparison for that case, so the small-drop
+regression question remains open and C has not been adopted.
+
+[The C-attribution archive](evidence/selected-cache-C-attribution-20260928.tar.zst)
+preserves all prospective plans and amendments, exact source and executable
+hashes, validator and runner versions, every completed or excluded block,
+Criterion samples, per-pass CPU eligibility and simultaneous sibling
+telemetry. Its SHA-256 is
+`232b5a37d59470e405ba8e9897ae553a18251f7ce5261c9daffea4a70d731bc7`.
+The frozen source graphs and full 179-case qualification remain in the
+preceding archive. No excluded block was pooled or used to overwrite an
+accepted one.
+
 ## Remaining qualification within this task
 
-Prospectively recheck every C review flag, with complementary A1/C1/C2/A2
-order and selected-CPU plus simultaneous-multithreading-sibling telemetry.
-Test process-seed and order effects, including unaffected NoCache controls;
-isolate allocator/setup effects without redefining the measured release
-contract. If a repeatable source regression remains, change the candidate
+Complete an eligible quiet four-pass capacity-1024 reclamation comparison,
+then determine whether any residual slowdown is source-caused or allocator
+and setup variation. The targeted correctness run on the frozen C graph is
+in progress. If a repeatable source regression remains, change the candidate
 and rerun the complete independently audited matrix. Only after a candidate
 is accepted should the source be adopted and release, broader-feature,
 native-example and documentation checks be rerun against the actual adopted
