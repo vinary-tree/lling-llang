@@ -2077,13 +2077,72 @@ all completed passes and samples, selected/sibling CPU telemetry, exact
 executable hashes and full interpretation. Its SHA-256 is
 `2f69e6ffe79e0cf46264954878ef01edb6a761183b6a388c1241bf31c7c5c54f`.
 
+## Prospective direct-CacheAll variant C — 28 September 2026
+
+The B candidate above was not adopted. A diagnostic C source retained B's
+inline-residency implementation and private `Snapshot::new` annotation, then
+placed a direct CacheAll lookup before the general policy lookup in
+`SharedStateCache::get_or_try_insert_with`. The branch changes neither the
+resident-value contract nor the bounded-LRU update algorithm. The C cache
+source SHA-256 is
+`c06856d71cf190a8b0fca80caff94f70eb8a3424cf84f706e44e50aa90459ed8`.
+The complete six-repository B and C source graphs differ only in that cache
+file; the isolated generic B and C harnesses also differ only in that file.
+Three C executables were built for the generic cache, raw resource ABI and
+real duallity adapters. Their hashes, alongside unchanged A reference hashes,
+were registered before timing in the archived `c-plan.json`. All 112 generic,
+seven raw-ABI and 48 adapter smoke workloads passed with exact identities.
+
+The prospective C/A protocol repeated the full 179-case matrix, with the
+same 20-sample Criterion settings, four-pass C1/A1/A2/C2 blocked order,
+95%-idle selected-CPU prepass, four-gibibyte/no-swap scope and exact input
+hashes. Four whole-block attempts exited 75 on CPU eligibility and were
+retained but excluded; previously accepted blocks were never rerun or pooled
+with partial attempts. The independent auditor accepted all five suites,
+checking 716 case/pass records, case IDs, samples, intervals, raw iteration
+counts and attempt history.
+
+| Separate suite | Cases | Above-10% review flags | Paired hot-path result |
+|---|---:|---:|---|
+| Generic residency replay | 40 | 1, second pair only | Designated capacity-64 hot cases 56.95–68.23% faster. |
+| Clear and final-reader reclamation | 72 | 12, each in one pair only | Release and clear paths require attribution. |
+| Raw resource ABI | 7 | 0 | Bounded hot set 60.89–63.38% faster. |
+| Real duallity adapters | 48 | 5, second pair only | Four families' bounded hot cases 60.52–68.56% faster. |
+| Independent FZF repeat | 12 | 0 | No uncached FZF threshold failure in this repeat. |
+
+Across the matrix, nine flags occur only in the first pair and nine only in
+the second; none occurs in both. There are no failures of the registered 25%
+hot-path gate. The raw-ABI CacheAll `warm_info/0` case that had regressed
+13.91% and 15.54% under B is 3.30% faster in C's first pair and 0.055%
+slower in its second, measured against A. This supports a CacheAll lookup
+branch-layout cause for that particular B loss, but does not prove that every
+single-pair difference is source-caused. In particular, C's new CacheAll
+branch cannot execute under NoCache, yet universal and generalized NoCache
+cases account for several second-pair flags. Conversely, most reclamation
+flags are first-pair-only, including release paths that do not execute the
+new lookup branch. The random `ahash` seed is also renewed in each benchmark
+process. Process order, seed variation, sibling load, allocator state and
+code layout therefore remain competing explanations; none may be dismissed
+without a controlled check. The original B flags remain in their own archive.
+
+[The complete C qualification archive](evidence/selected-cache-C-qualification-20260928.tar.zst)
+contains the preregistration, frozen source and executable identities, all
+five raw suites, excluded eligibility attempts, resource receipts, exact
+auditor, estimates and paired-change tables. Its SHA-256 is
+`ff9d8c7b60ae4895902eac50c869a858d20e47844b21e8733e025ee766d6be69`.
+It excludes compiled executables but preserves their SHA-256 identities and
+build receipts. The frozen A/B archive above preserves the common source
+graph and reference artifacts. C is still a diagnostic candidate, not a
+production optimization or an accepted release change.
+
 ## Remaining qualification within this task
 
-Determine or rule out the remaining regressions under a sibling-aware timing
-protocol; isolate allocator/setup effects without redefining the measured
-contract; decide on a general CacheAll fast path that preserves bounded-LRU
-gains; and run a new complete, independently audited A/B qualification for
-any changed candidate. Only then revalidate release and broader-feature
-suites, linting, native examples and documentation against an adopted
-implementation. Earlier successful suites remain evidence only for their
-recorded graphs. The task is not complete.
+Prospectively recheck every C review flag, with complementary A1/C1/C2/A2
+order and selected-CPU plus simultaneous-multithreading-sibling telemetry.
+Test process-seed and order effects, including unaffected NoCache controls;
+isolate allocator/setup effects without redefining the measured release
+contract. If a repeatable source regression remains, change the candidate
+and rerun the complete independently audited matrix. Only after a candidate
+is accepted should the source be adopted and release, broader-feature,
+native-example and documentation checks be rerun against the actual adopted
+graph. The task is not complete.
