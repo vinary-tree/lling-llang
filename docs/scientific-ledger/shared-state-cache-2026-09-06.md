@@ -2047,6 +2047,36 @@ negative results and interpretation. Its SHA-256 is
 Compiled artifacts are excluded from both archives; their hashes and build
 receipts are included.
 
+### Sibling-aware rechecks of first-pair-only flags
+
+The five first-pair-only flags were rechecked as prospective, targeted
+diagnostics using the same frozen A/B executables. These checks are not
+replacements for any of the 179 qualified cases. The first generic recheck
+stayed below the 10% slowdown threshold but was not quiet: its SMT sibling
+was below 95% idle in 18 of 56 one-second samples. That complete block was
+retained. A separately registered generic replication used a fresh CPU 3/35
+preflight and observed its sibling at least 95% idle in all 40 recorded
+seconds. In that quieter block, B's capacity-one, 640-unit hot-cyclic case
+was 0.88% and 0.25% faster, and its miss-cyclic case was 8.01% and 16.91%
+faster in the two pairs. Thus neither original generic first-pair slowdown
+recurred under this independent, sibling-quiet measurement.
+
+The three duallity NoCache rechecks likewise stayed within the 10% threshold
+in both pairs: generalized `info/64` was 0.54–1.18% faster, universal
+`info/64` was 1.76–2.43% faster, and generalized `info_arcs/64` ranged from
+5.01% slower in its first pair to 4.32% faster in its second. Its sibling
+had one busy second during the first candidate pass, so even this targeted
+cohort does not prove that all original first-pair flags were interference.
+The quiet generic replication weakens a stable source-regression hypothesis;
+the original flags remain visible and a changed candidate still needs its
+entire matrix rerun.
+
+[The targeted-recheck companion](evidence/selected-cache-flagged-rechecks-20260928.tar.zst)
+preserves each prospective plan and amendment, the pre-timing failed launch,
+all completed passes and samples, selected/sibling CPU telemetry, exact
+executable hashes and full interpretation. Its SHA-256 is
+`2f69e6ffe79e0cf46264954878ef01edb6a761183b6a388c1241bf31c7c5c54f`.
+
 ## Remaining qualification within this task
 
 Determine or rule out the remaining regressions under a sibling-aware timing
