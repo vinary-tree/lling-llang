@@ -2271,3 +2271,17 @@ identities and simultaneous sibling telemetry. A repeatable source-caused
 regression would justify a new candidate and a new complete matrix, not
 retroactive removal of excluded measurements. This feature-branch change
 does not publish a package or change the 4.0.0-rc.6 release boundary.
+
+## Completion evidence and verification boundary
+
+The current pgmcp acceptance revision for this cache leaf separates three
+claims so they can be independently checked: semantic correctness across
+the release test suites (`cache-semantic-contract`), the frozen paired
+performance verdict with every environmental exclusion retained
+(`cache-paired-performance`), and identity plus validation of the adopted
+source (`cache-adopted-build-and-ledger`). The correctness, attribution,
+qualification, and adopted-source archives linked above are the evidence
+for those claims; none is a substitute for independent verification or
+actual user signoff. The implementation is complete on the feature branch,
+but release publication and any subsequent acceptance decision are separate
+events.
