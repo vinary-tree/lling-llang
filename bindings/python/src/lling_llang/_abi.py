@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 6
+API_REVISION = 7
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -325,6 +325,10 @@ _bind("lling_llang_api_revision", [])
 _bind("lling_last_error_message", [], ctypes.c_char_p)
 
 _bind("lling_wfst_builder_new", [ctypes.POINTER(ctypes.c_void_p)])
+_bind(
+    "lling_wfst_builder_new_for_domains",
+    [ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p)],
+)
 _bind("lling_wfst_builder_free", [ctypes.c_void_p], None)
 _bind("lling_wfst_builder_reserve_states", [ctypes.c_void_p, ctypes.c_size_t])
 _bind(

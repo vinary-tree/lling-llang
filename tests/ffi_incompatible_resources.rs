@@ -15,13 +15,11 @@
 //! the raw wire the expected `VtStatus::…::to_raw()` value is pinned too.
 //!
 //! Formal-model correspondence (invariant registry owned by the coordinator):
-//! - `// INVARIANT-HOOK: LLING-BRIDGE-4` — non-tropical weights (NaN, -inf)
-//!   are rejected at every ABI ingestion path: import AND lazy composition
-//!   expansion surface ProviderError, never a silent NaN weight (the F1
-//!   regression shape at the composition layer).
-//! - `// INVARIANT-HOOK: LLING-BRIDGE-2` — the weight-domain handshake:
-//!   resources advertising any scalar domain other than TropicalF64 are
-//!   refused before a single weight crosses the bridge.
+//! - `// INVARIANT-HOOK: LLING-BRIDGE-4` — values outside the advertised
+//!   carrier are rejected at every ABI ingestion path: import AND lazy
+//!   composition expansion surface ProviderError, never a silent NaN weight.
+//! - `// INVARIANT-HOOK: LLING-BRIDGE-2` — composition requires equal unit and
+//!   weight domains, while import preserves every supported scalar domain.
 #![cfg(feature = "ffi")]
 
 mod support;
@@ -66,6 +64,18 @@ fn assert_import_rejected(resource: VtResource, expected: LlingLlangStatus, frag
         message.contains(fragment),
         "error message {message:?} must mention {fragment:?}"
     );
+}
+
+fn assert_import_accepted(resource: VtResource) {
+    let mut out: *mut LlingWfst = ptr::null_mut();
+    assert_eq!(
+        lling_wfst_import(resource, &mut out),
+        LlingLlangStatus::Ok,
+        "import must succeed (error: {})",
+        last_error()
+    );
+    assert!(!out.is_null(), "successful import must write a handle");
+    unsafe { lling_wfst_free(out) };
 }
 
 #[test]
@@ -131,10 +141,10 @@ fn dictionary_resource_is_incompatible() {
     assert_eq!(metrics.balance(), 0, "no retain may leak from rejections");
 }
 
-// INVARIANT-HOOK: LLING-BRIDGE-2 — the weight-domain handshake refuses every
-// non-tropical scalar domain before any weight is ingested.
+// INVARIANT-HOOK: LLING-BRIDGE-2 — import preserves every scalar domain, but
+// composition rejects operands whose weight domains differ.
 #[test]
-fn wrong_weight_domain_is_incompatible() {
+fn every_weight_domain_imports_but_mismatched_composition_is_incompatible() {
     for domain in [
         VtWeightDomain::LogF64,
         VtWeightDomain::ProbabilityF64,
@@ -143,28 +153,34 @@ fn wrong_weight_domain_is_incompatible() {
         VtWeightDomain::CountF64,
         VtWeightDomain::BooleanF64,
     ] {
+        let mut states = chain_states(&[('a', 'x')], 1.0, 0.0);
+        states[0].final_weight = match domain {
+            VtWeightDomain::TropicalF64
+            | VtWeightDomain::LogF64
+            | VtWeightDomain::SignedTropicalF64 => f64::INFINITY,
+            VtWeightDomain::ArcticF64 => f64::NEG_INFINITY,
+            VtWeightDomain::ProbabilityF64
+            | VtWeightDomain::CountF64
+            | VtWeightDomain::BooleanF64 => 0.0,
+        };
         let provider = TestWfst::new(
-            chain_states(&[('a', 'x')], 1.0, 0.0),
+            states,
             0,
             TestWfstConfig::default().with_weight_domain(domain),
         );
-        assert_import_rejected(
-            provider.as_raw(),
-            LlingLlangStatus::IncompatibleResource,
-            "expected tropical",
-        );
+        assert_import_accepted(provider.as_raw());
 
         let clean = clean_provider();
         let mut out: *mut LlingWfst = ptr::null_mut();
         assert_eq!(
             lling_wfst_compose(provider.as_raw(), clean.as_raw(), &mut out),
             LlingLlangStatus::IncompatibleResource,
-            "compose must refuse a {domain:?} left operand"
+            "compose must refuse mismatched {domain:?}/tropical operands"
         );
         assert_eq!(
             lling_wfst_compose(clean.as_raw(), provider.as_raw(), &mut out),
             LlingLlangStatus::IncompatibleResource,
-            "compose must refuse a {domain:?} right operand"
+            "compose must refuse mismatched tropical/{domain:?} operands"
         );
 
         let metrics = provider.metrics();
@@ -174,25 +190,29 @@ fn wrong_weight_domain_is_incompatible() {
 }
 
 #[test]
-fn wrong_unit_domain_is_incompatible() {
+fn every_unit_domain_imports_but_mismatched_composition_is_incompatible() {
     for domain in [VtUnitDomain::Byte, VtUnitDomain::U64] {
         let provider = TestWfst::new(
             chain_states(&[('a', 'x')], 1.0, 0.0),
             0,
             TestWfstConfig::default().with_unit_domain(domain),
         );
-        assert_import_rejected(
-            provider.as_raw(),
-            LlingLlangStatus::IncompatibleResource,
-            "Unicode scalar",
+        assert_import_accepted(provider.as_raw());
+        let clean = clean_provider();
+        let mut out: *mut LlingWfst = ptr::null_mut();
+        assert_eq!(
+            lling_wfst_compose(provider.as_raw(), clean.as_raw(), &mut out),
+            LlingLlangStatus::IncompatibleResource
         );
+        assert!(out.is_null());
+        assert!(last_error().contains("label domain"));
     }
 }
 
 // INVARIANT-HOOK: LLING-BRIDGE-4 — NaN and -inf (the F1 shape) are rejected
 // as provider errors on the import path, at every weight position.
 #[test]
-fn non_tropical_weights_reject_at_import() {
+fn invalid_tropical_weights_reject_at_import() {
     // Arc-weight poison in both invalid shapes.
     for poison in [f64::NEG_INFINITY, f64::NAN] {
         let states = vec![
@@ -233,7 +253,7 @@ fn non_tropical_weights_reject_at_import() {
 // state then surfaces ProviderError through the raw wire — never a silent
 // NaN arc weight (the F1 regression at the composition layer).
 #[test]
-fn non_tropical_weights_reject_during_composition_expansion() {
+fn invalid_tropical_weights_reject_during_composition_expansion() {
     for poison in [f64::NEG_INFINITY, f64::NAN] {
         let states = vec![
             TestState::interior(vec![TestArc {
@@ -323,22 +343,17 @@ fn label_beyond_char_max_pins_exact_statuses() {
             TestState::accepting(0.0, Vec::new()),
         ];
 
-        // Import DECODES labels into chars, so the failure is the native
-        // representation limit: BindingError::RepresentationLimit ->
-        // LLING_STATUS_LIMIT_EXCEEDED.
+        // The provider violates its advertised Unicode domain. That is
+        // malformed provider output rather than resource size exhaustion.
         let provider = TestWfst::tropical(states.clone(), 0);
         assert_import_rejected(
             provider.as_raw(),
-            LlingLlangStatus::LimitExceeded,
-            "representation",
+            LlingLlangStatus::ProviderError,
+            "declared domain",
         );
 
-        // The composition layer expands lazily and re-exports through the
-        // vtable; a non-scalar label is a representation limit of this char
-        // specialization, so it now surfaces as LimitExceeded here too --
-        // uniformly with the import path and the documented status contract
-        // (LLING-STAT-3 / ledger LLING-B8; harmonized from the earlier
-        // ProviderError coarsening).
+        // Lazy composition reports the same malformed-provider class through
+        // the family status wire when expansion first reaches the bad arc.
         let poisoned = TestWfst::tropical(states, 0);
         let clean = clean_provider();
         let mut composed: *mut LlingWfst = ptr::null_mut();
@@ -366,8 +381,8 @@ fn label_beyond_char_max_pins_exact_statuses() {
                     &mut written,
                     &mut total,
                 ),
-                VtStatus::LimitExceeded.to_raw(),
-                "label {bad_label:#x} must surface as LimitExceeded on composition expansion"
+                VtStatus::ProviderError.to_raw(),
+                "label {bad_label:#x} must surface as ProviderError on composition expansion"
             );
         }
         lling_resource_release(resource);

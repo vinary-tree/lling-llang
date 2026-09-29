@@ -218,7 +218,7 @@ weight domain, acyclicity, and threading behavior.
 |---|---:|
 | Lling-Llang | `4.0.0-rc.6` |
 | lling-llang C ABI | `1` |
-| lling-llang API revision | at least `6` |
+| lling-llang API revision | at least `7` |
 | Vinary-Tree-Interop | `4.0.0` compatible |
 | Raku | language version `6.d` |
 

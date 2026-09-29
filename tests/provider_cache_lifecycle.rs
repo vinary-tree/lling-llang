@@ -309,6 +309,36 @@ fn provider_fault_statuses_survive_both_abi_callbacks_and_are_not_retained() {
 }
 
 #[test]
+fn domain_invalid_provider_output_is_rejected_before_shared_cache_publication() {
+    // Merge regression: the generic-domain provider validation must run inside
+    // the shared-cache miss callback, not after an invalid state is published.
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    let provider = Arc::new(CallbackProvider(move |id| {
+        let mut state = complete_state(id, 1);
+        if observed.fetch_add(1, Ordering::Relaxed) == 0 {
+            state.arcs[0].input_label = 0x11_0000;
+        }
+        Ok(state)
+    }));
+    let resource = OwnedWfstResource::from_provider(provider);
+    let cache = resource.provider_cache().expect("provider cache");
+    assert_eq!(
+        info_result(&resource, 0),
+        Err(VtStatus::ProviderError.to_raw())
+    );
+    assert_eq!(cache.statistics().resident_states, 0);
+    assert_eq!(info(&resource, 0), (1, 1, 0.0));
+    assert_eq!(info(&resource, 0), (1, 1, 0.0));
+    assert_eq!(calls.load(Ordering::Relaxed), 2);
+    let stats = cache.statistics();
+    assert_eq!(
+        (stats.misses, stats.faults, stats.insertions, stats.hits),
+        (2, 1, 1, 1)
+    );
+}
+
+#[test]
 fn failing_outer_abi_call_is_not_hidden_by_successful_same_id_reentry() {
     let owner = Arc::new(OnceLock::<OwnedWfstResource>::new());
     let weak_owner = Arc::downgrade(&owner);

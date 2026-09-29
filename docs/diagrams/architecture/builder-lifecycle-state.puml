@@ -23,16 +23,16 @@ state "Open\n(graph: Some)" as Open #FCF3CF
 state "Consumed\n(graph: None)" as Consumed #FFECB3
 state "Built handle\nLlingWfst (immutable)" as Handle #DCEDC8
 
-[*] --> Open : lling_wfst_builder_new(&b) → OK
+[*] --> Open : lling_wfst_builder_new[_for_domains](&b) → OK
 
 Open --> Open : reserve_states(n) → OK
 Open --> Open : add_state(&s) → OK\nset_start(s) → OK | INVALID_ARGUMENT
 Open --> Open : set_final(s, w) / clear_final(s)\n→ OK | INVALID_ARGUMENT
-Open --> Open : add_arc(...) → OK | INVALID_ARGUMENT\n(non-tropical weight: NaN or −inf;\nnon-scalar label, presence flag > 1,\nabsent endpoint)
+Open --> Open : add_arc(...) → OK | INVALID_ARGUMENT\n(weight or present label outside its selected domain;\npresence flag > 1; absent endpoint)
 Open --> Open : <color:#B71C1C>build(&w) with no start state\n→ INVALID_ARGUMENT (graph restored)</color>
 Open --> Consumed : build(&w) → OK\n(<latex>O(1)</latex> freeze into LlingWfst)
 Consumed --> Handle : out_wfst receives the handle
-Consumed --> Consumed : any builder call\n→ <color:#B71C1C>CLOSED</color>
+Consumed --> Consumed : domain-valid builder call\n→ <color:#B71C1C>CLOSED</color>
 Open --> [*] : lling_wfst_builder_free
 Consumed --> [*] : lling_wfst_builder_free
 Handle --> [*] : lling_wfst_free\n(after releasing exported resources)
@@ -42,7 +42,7 @@ note right of Open
   one builder belongs to one thread.
   All argument validation happens here —
   the built handle can never contain a
-  NaN / −∞ weight or an invalid label.
+  weight or label outside its declared domain.
 end note
 
 note bottom of Consumed
@@ -51,6 +51,9 @@ note bottom of Consumed
   out-null (builder untouched) → CLOSED →
   no-start (graph restored). Only a
   successful build consumes the builder.
+  set_final/add_arc validate domain values
+  before CLOSED, preserving their public
+  argument-validation precedence.
 end note
 
 legend right

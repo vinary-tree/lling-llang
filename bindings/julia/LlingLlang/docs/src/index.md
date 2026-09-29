@@ -7,6 +7,46 @@ host-defined lattice values published by LLattice.jl. Start with the package
 [README](https://github.com/vinary-tree/lling-llang/tree/master/bindings/julia/LlingLlang#readme)
 for ownership, concurrency, security, and complete examples.
 
+## Build a typed scalar WFST
+
+`WfstBuilder{Label,Weight}` accepts the three family label carriers (`UInt8`,
+`Char`, and `UInt64`) and seven checked scalar-weight types. The default
+`WfstBuilder()` is the familiar Unicode/tropical specialization.
+
+```julia
+using LlingLlang
+
+builder = WfstBuilder{UInt64,CountWeight}(size_hint=2)
+source = add_state!(builder)
+target = add_state!(builder)
+set_start!(builder, source)
+set_final!(builder, target, CountWeight(3))
+add_arc!(builder, source, UInt64(10), UInt64(20), target, CountWeight(2))
+graph = build!(builder)
+
+arc = only(arcs(graph, source))
+@assert arc isa WfstArc{UInt64,CountWeight}
+@assert state(graph, target).final_weight == CountWeight(3)
+close(graph)
+```
+
+`TropicalWeight`, `LogWeight`, `ProbabilityWeight`, `ArcticWeight`,
+`SignedTropicalWeight`, `CountWeight`, and `BooleanWeight` reject values
+outside their ABI carriers at construction. Native composition requires equal
+label and weight types and applies that weight domain's path multiplication.
+
+For named byte or `UInt64` vocabularies, attach input/output `SymbolTable`s to
+the builder. Tables assign dense labels and freeze with the graph. For lazy
+custom automata, subtype `AbstractWfstProvider`, return matching
+`ProviderState{Label,Weight}` values, then call
+`provider(Label, Weight, implementation)`. The Rust engine captures and caches
+those states without cloning the automaton algorithm into Julia.
+
+Every returned `Wfst` owns one family-resource retain. Call `close`
+deterministically; finalizers exist only as leak-safety fallbacks. `resource`
+creates an independent retain, while `compose` captures one immutable snapshot
+of each operand.
+
 ## Consume a host-defined lattice
 
 LLattice.jl owns the provider implementation; `DynamicLatticeValue` is

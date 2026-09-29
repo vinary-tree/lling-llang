@@ -1,5 +1,5 @@
 @startuml c-abi-surface
-' The complete lling-llang C ABI surface: all 64 exported lling_* functions,
+' The complete lling-llang C ABI surface: all 65 exported lling_* functions,
 ' grouped by role, with algebra/WFST/cancellation handles, typed metadata,
 ' and the family two-word VtResource. Palette: docs/diagrams/README.md —
 ' lling #FCF3CF, VtResource handle #DCEDC8, foreign trust boundary #FFCDD2.
@@ -24,7 +24,7 @@ skinparam note {
 hide empty members
 hide circle
 
-title <b>lling-llang C ABI surface — 64 exported functions</b>\n<size:11><i>Project ABI v1, API revision 6 · typed metadata headers carry format version 2</i></size>
+title <b>lling-llang C ABI surface — 65 exported functions</b>\n<size:11><i>Project ABI v1, API revision 7 · typed metadata headers carry format version 2</i></size>
 
 package "Versioning (2)" {
   class "lling_abi_version() : uint32_t\nlling_llang_api_revision() : uint32_t" as VERS #FCF3CF
@@ -74,11 +74,12 @@ package "Host-defined lattice (12)" {
   }
 }
 
-package "Builder lifecycle (9)" {
+package "Builder lifecycle (10)" {
   class "LlingWfstBuilder" as BUILDER #FCF3CF {
     caller-owned, mutable, single-threaded
     --
     +lling_wfst_builder_new(out_builder)
+    +lling_wfst_builder_new_for_domains(unit, weight, out_builder)
     +lling_wfst_builder_free(builder)
     +lling_wfst_builder_reserve_states(builder, additional)
     +lling_wfst_builder_add_state(builder, out_state)

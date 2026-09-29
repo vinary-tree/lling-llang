@@ -302,7 +302,7 @@ implicitly `noexcept`.
 
 - Requires C++20 (`std::exchange`, `[[nodiscard]]`; the package smoke test
   compiles with `cxx_std_20`).
-- ABI v1, API revision 6: call `lling_abi_version()` /
+- ABI v1, API revision 7: call `lling_abi_version()` /
   `lling_llang_api_revision()` for a runtime handshake when loading the library
   dynamically; the revision only grows within an ABI version (see the
   [C ABI reference](../../docs/api/c-abi-reference.md#version-constants-and-the-handshake)).

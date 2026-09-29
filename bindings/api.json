@@ -174,7 +174,7 @@
   },
   "packageVersion": "4.0.0-rc.6",
   "abiVersion": 1,
-  "apiRevision": 6,
+  "apiRevision": 7,
   "cPrefix": "lling_",
   "headers": {
     "c": "include/lling_llang.h",
@@ -304,6 +304,7 @@
       "ownership": "caller-owned-until-build",
       "methods": [
         "new",
+        "new_for_domains",
         "free",
         "reserve_states",
         "add_state",
@@ -325,7 +326,11 @@
     },
     "ScalarWfstResource": {
       "interface": "vt.scalar-wfst.1",
-      "unitDomain": "UNICODE_SCALAR",
+      "unitDomains": [
+        "byte",
+        "unicode-scalar",
+        "u64"
+      ],
       "producedWeightDomains": [
         "tropical-f64",
         "log-f64",
@@ -335,7 +340,15 @@
         "count-f64",
         "boolean-f64"
       ],
-      "consumedWeightDomain": "tropical-f64",
+      "consumedWeightDomains": [
+        "tropical-f64",
+        "log-f64",
+        "probability-f64",
+        "arctic-f64",
+        "signed-tropical-f64",
+        "count-f64",
+        "boolean-f64"
+      ],
       "methods": [
         "snapshot",
         "start",
@@ -2272,6 +2285,52 @@
         "nullability": "not-applicable"
       },
       "parameters": [
+        {
+          "name": "out_builder",
+          "cType": "LlingWfstBuilder**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_wfst_builder_new_for_domains",
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-builder-new-for-domains",
+      "sinceApiRevision": 7,
+      "threading": "caller-synchronized-mutable-handle",
+      "capability": "wfst-builder",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "unit_domain",
+          "cType": "uint32_t",
+          "rakuType": "uint32",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "weight_domain",
+          "cType": "uint32_t",
+          "rakuType": "uint32",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
         {
           "name": "out_builder",
           "cType": "LlingWfstBuilder**",

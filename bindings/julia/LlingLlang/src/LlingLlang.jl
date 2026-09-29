@@ -30,7 +30,19 @@ export ABI_VERSION,
     OutcomeV2,
     CancellationV2,
     NativeError,
+    AbstractScalarWeight,
+    TropicalWeight,
+    LogWeight,
+    ProbabilityWeight,
+    ArcticWeight,
+    SignedTropicalWeight,
+    CountWeight,
+    BooleanWeight,
+    SymbolTable,
     WfstBuilder,
+    Wfst,
+    WfstArc,
+    WfstState,
     ProviderArc,
     ProviderState,
     AbstractWfstProvider,
@@ -48,6 +60,11 @@ export ABI_VERSION,
     request!,
     cancellation_reason,
     reserve_states!,
+    intern!,
+    freeze!,
+    isfrozen,
+    symbol,
+    label,
     add_state!,
     set_start!,
     set_final!,
@@ -56,6 +73,10 @@ export ABI_VERSION,
     build!,
     import_wfst,
     compose,
+    state,
+    arcs,
+    input_symbols,
+    output_symbols,
     resource,
     provider,
     semiring_provider,
@@ -343,22 +364,262 @@ function close!(value::CancellationV2)
 end
 Base.close(value::CancellationV2) = close!(value)
 
-"""Mutable Unicode/tropical WFST builder. `build!` consumes it on success."""
-mutable struct WfstBuilder
-    handle::Ptr{Cvoid}
-    closed::Bool
+# Typed scalar ABI domains --------------------------------------------------
+
+"""Marker for an isbits Julia value in one built-in scalar semiring."""
+abstract type AbstractScalarWeight end
+
+macro checked_float_weight(name, predicate, message)
+    quote
+        struct $(esc(name)) <: AbstractScalarWeight
+            value::Float64
+            function $(esc(name))(value::Real)
+                raw = Float64(value)
+                $(esc(predicate))(raw) || throw(ArgumentError($(esc(message))))
+                new(raw)
+            end
+        end
+    end
 end
 
-function WfstBuilder(; size_hint::Integer=0)
+positive_infinity_carrier(value) = isfinite(value) || value == Inf
+probability_carrier(value) = isfinite(value) && value >= 0.0
+arctic_carrier(value) = isfinite(value) || value == -Inf
+
+@checked_float_weight(TropicalWeight, positive_infinity_carrier,
+    "tropical weights must be finite or +Inf")
+@checked_float_weight(LogWeight, positive_infinity_carrier,
+    "log weights must be finite or +Inf")
+@checked_float_weight(ProbabilityWeight, probability_carrier,
+    "probability weights must be finite and nonnegative")
+@checked_float_weight(ArcticWeight, arctic_carrier,
+    "arctic weights must be finite or -Inf")
+@checked_float_weight(SignedTropicalWeight, positive_infinity_carrier,
+    "signed tropical weights must be finite or +Inf")
+
+@doc "A min-plus scalar weight; finite values and `Inf` are representable." TropicalWeight
+@doc "A negative-log scalar weight; finite values and `Inf` are representable." LogWeight
+@doc "A nonnegative finite scalar weight with sum/product operations." ProbabilityWeight
+@doc "A max-plus scalar weight; finite values and `-Inf` are representable." ArcticWeight
+@doc "A signed min-plus scalar weight; finite values and `Inf` are representable." SignedTropicalWeight
+
+const MAX_EXACT_COUNT = UInt64(1) << 53
+
+"""An exact path count representable in the family ABI's `Float64` slot."""
+struct CountWeight <: AbstractScalarWeight
+    value::UInt64
+    function CountWeight(value::Integer)
+        0 <= value <= MAX_EXACT_COUNT || throw(ArgumentError(
+            "count weights must be integers in 0:2^53"))
+        new(UInt64(value))
+    end
+end
+
+"""A reachability weight encoded as exactly zero or one on the ABI wire."""
+struct BooleanWeight <: AbstractScalarWeight
+    value::Bool
+end
+BooleanWeight(value::Integer) = value in (0, 1) ? BooleanWeight(value == 1) :
+    throw(ArgumentError("Boolean weights must be false/true or zero/one"))
+
+unit_domain(::Type{UInt8}) = VTI.UNIT_BYTE
+unit_domain(::Type{Char}) = VTI.UNIT_UNICODE_SCALAR
+unit_domain(::Type{UInt64}) = VTI.UNIT_U64
+unit_domain(::Type{L}) where {L} = throw(ArgumentError(
+    "unsupported WFST label type $L; use UInt8, Char, or UInt64"))
+
+weight_domain(::Type{TropicalWeight}) = VTI.WEIGHT_TROPICAL_F64
+weight_domain(::Type{LogWeight}) = VTI.WEIGHT_LOG_F64
+weight_domain(::Type{ProbabilityWeight}) = VTI.WEIGHT_PROBABILITY_F64
+weight_domain(::Type{ArcticWeight}) = VTI.WEIGHT_ARCTIC_F64
+weight_domain(::Type{SignedTropicalWeight}) = VTI.WEIGHT_SIGNED_TROPICAL_F64
+weight_domain(::Type{CountWeight}) = VTI.WEIGHT_COUNT_F64
+weight_domain(::Type{BooleanWeight}) = VTI.WEIGHT_BOOLEAN_F64
+weight_domain(::Type{W}) where {W} = throw(ArgumentError(
+    "unsupported WFST weight type $W; use a built-in scalar weight"))
+
+label_type(domain::VTI.UnitDomain) = domain == VTI.UNIT_BYTE ? UInt8 :
+    domain == VTI.UNIT_UNICODE_SCALAR ? Char :
+    domain == VTI.UNIT_U64 ? UInt64 :
+    throw(ArgumentError("unknown WFST unit domain $domain"))
+weight_type(domain::VTI.WeightDomain) = domain == VTI.WEIGHT_TROPICAL_F64 ? TropicalWeight :
+    domain == VTI.WEIGHT_LOG_F64 ? LogWeight :
+    domain == VTI.WEIGHT_PROBABILITY_F64 ? ProbabilityWeight :
+    domain == VTI.WEIGHT_ARCTIC_F64 ? ArcticWeight :
+    domain == VTI.WEIGHT_SIGNED_TROPICAL_F64 ? SignedTropicalWeight :
+    domain == VTI.WEIGHT_COUNT_F64 ? CountWeight :
+    domain == VTI.WEIGHT_BOOLEAN_F64 ? BooleanWeight :
+    throw(ArgumentError("unknown WFST weight domain $domain"))
+
+raw_weight(weight::Union{TropicalWeight,LogWeight,ProbabilityWeight,
+    ArcticWeight,SignedTropicalWeight}) = weight.value
+raw_weight(weight::CountWeight) = Float64(weight.value)
+raw_weight(weight::BooleanWeight) = weight.value ? 1.0 : 0.0
+
+decode_weight(::Type{W}, value::Real) where {W<:AbstractScalarWeight} = W(value)
+function decode_weight(::Type{CountWeight}, value::Real)
+    raw = Float64(value)
+    isfinite(raw) && 0.0 <= raw <= Float64(MAX_EXACT_COUNT) && isinteger(raw) ||
+        throw(ArgumentError("count weight is not an exact integer in 0:2^53"))
+    CountWeight(UInt64(raw))
+end
+function decode_weight(::Type{BooleanWeight}, value::Real)
+    raw = Float64(value)
+    raw == 0.0 && return BooleanWeight(false)
+    raw == 1.0 && return BooleanWeight(true)
+    throw(ArgumentError("Boolean weight is not exactly zero or one"))
+end
+
+Base.zero(::Type{TropicalWeight}) = TropicalWeight(Inf)
+Base.one(::Type{TropicalWeight}) = TropicalWeight(0.0)
+Base.zero(::Type{LogWeight}) = LogWeight(Inf)
+Base.one(::Type{LogWeight}) = LogWeight(0.0)
+Base.zero(::Type{ProbabilityWeight}) = ProbabilityWeight(0.0)
+Base.one(::Type{ProbabilityWeight}) = ProbabilityWeight(1.0)
+Base.zero(::Type{ArcticWeight}) = ArcticWeight(-Inf)
+Base.one(::Type{ArcticWeight}) = ArcticWeight(0.0)
+Base.zero(::Type{SignedTropicalWeight}) = SignedTropicalWeight(Inf)
+Base.one(::Type{SignedTropicalWeight}) = SignedTropicalWeight(0.0)
+Base.zero(::Type{CountWeight}) = CountWeight(0)
+Base.one(::Type{CountWeight}) = CountWeight(1)
+Base.zero(::Type{BooleanWeight}) = BooleanWeight(false)
+Base.one(::Type{BooleanWeight}) = BooleanWeight(true)
+
+Base.:+(left::TropicalWeight, right::TropicalWeight) =
+    TropicalWeight(min(left.value, right.value))
+Base.:*(left::TropicalWeight, right::TropicalWeight) =
+    TropicalWeight(isinf(left.value) || isinf(right.value) ? Inf : left.value + right.value)
+Base.:+(left::LogWeight, right::LogWeight) = begin
+    a, b = left.value, right.value
+    isinf(a) ? right : isinf(b) ? left :
+        LogWeight(min(a, b) - log1p(exp(-abs(a - b))))
+end
+Base.:*(left::LogWeight, right::LogWeight) =
+    LogWeight(isinf(left.value) || isinf(right.value) ? Inf : left.value + right.value)
+Base.:+(left::ProbabilityWeight, right::ProbabilityWeight) =
+    ProbabilityWeight(left.value + right.value)
+Base.:*(left::ProbabilityWeight, right::ProbabilityWeight) =
+    ProbabilityWeight(left.value * right.value)
+Base.:+(left::ArcticWeight, right::ArcticWeight) =
+    ArcticWeight(max(left.value, right.value))
+function Base.:*(left::ArcticWeight, right::ArcticWeight)
+    (left.value == -Inf || right.value == -Inf) && return zero(ArcticWeight)
+    raw = left.value + right.value
+    ArcticWeight(raw == Inf ? floatmax(Float64) : raw == -Inf ? -floatmax(Float64) : raw)
+end
+Base.:+(left::SignedTropicalWeight, right::SignedTropicalWeight) =
+    SignedTropicalWeight(min(left.value, right.value))
+Base.:*(left::SignedTropicalWeight, right::SignedTropicalWeight) =
+    SignedTropicalWeight(isinf(left.value) || isinf(right.value) ? Inf : left.value + right.value)
+Base.:+(left::CountWeight, right::CountWeight) =
+    CountWeight(Base.Checked.checked_add(left.value, right.value))
+Base.:*(left::CountWeight, right::CountWeight) =
+    CountWeight(Base.Checked.checked_mul(left.value, right.value))
+Base.:+(left::BooleanWeight, right::BooleanWeight) =
+    BooleanWeight(left.value || right.value)
+Base.:*(left::BooleanWeight, right::BooleanWeight) =
+    BooleanWeight(left.value && right.value)
+Base.:(==)(left::W, right::W) where {W<:AbstractScalarWeight} =
+    left.value == right.value
+Base.iszero(weight::AbstractScalarWeight) = weight == zero(typeof(weight))
+Base.isone(weight::AbstractScalarWeight) = weight == one(typeof(weight))
+
+"""A dense, optionally frozen vocabulary mapping strings to byte or u64 labels."""
+mutable struct SymbolTable{L<:Union{UInt8,UInt64}}
+    symbols::Vector{String}
+    labels::Dict{String,L}
+    frozen::Bool
+end
+SymbolTable{L}() where {L<:Union{UInt8,UInt64}} =
+    SymbolTable{L}(String[], Dict{String,L}(), false)
+function SymbolTable{L}(symbols) where {L<:Union{UInt8,UInt64}}
+    table = SymbolTable{L}()
+    for value in symbols
+        intern!(table, value)
+    end
+    table
+end
+
+"""Return `value`'s dense label, inserting it unless `table` is frozen."""
+function intern!(table::SymbolTable{L}, value::AbstractString) where {L}
+    text = String(value)
+    haskey(table.labels, text) && return table.labels[text]
+    table.frozen && throw(ArgumentError("cannot intern a new symbol after freeze!"))
+    index = length(table.symbols)
+    index <= typemax(L) || throw(OverflowError("symbol table exhausted $L labels"))
+    id = L(index)
+    push!(table.symbols, text)
+    table.labels[text] = id
+    id
+end
+"""Return the existing dense label for `value`, or throw `KeyError`."""
+label(table::SymbolTable, value::AbstractString) = get(table.labels, value) do
+    throw(KeyError(value))
+end
+"""Return the symbol assigned to a dense label, or throw `KeyError`."""
+function symbol(table::SymbolTable{L}, value::L) where {L}
+    index = Int(value) + 1
+    1 <= index <= length(table.symbols) || throw(KeyError(value))
+    table.symbols[index]
+end
+"""Prevent future symbols from being interned and return `table`."""
+freeze!(table::SymbolTable) = (table.frozen = true; table)
+"""Return whether `table` refuses new symbols."""
+isfrozen(table::SymbolTable) = table.frozen
+Base.length(table::SymbolTable) = length(table.symbols)
+Base.isempty(table::SymbolTable) = isempty(table.symbols)
+Base.getindex(table::SymbolTable, value::AbstractString) = label(table, value)
+Base.getindex(table::SymbolTable{L}, value::L) where {L} = symbol(table, value)
+Base.iterate(table::SymbolTable{L}, state::Int=1) where {L} =
+    state > length(table.symbols) ? nothing :
+    ((L(state - 1) => table.symbols[state]), state + 1)
+function Base.copy(table::SymbolTable{L}) where {L}
+    SymbolTable{L}(copy(table.symbols), copy(table.labels), table.frozen)
+end
+
+function frozen_copy(table::Union{Nothing,SymbolTable{L}}) where {L}
+    isnothing(table) && return nothing
+    freeze!(copy(table))
+end
+
+"""Mutable builder parameterized by label and built-in scalar-weight types."""
+mutable struct WfstBuilder{L,W<:AbstractScalarWeight,S1,S2}
+    handle::Ptr{Cvoid}
+    closed::Bool
+    input_symbols::S1
+    output_symbols::S2
+end
+
+function checked_symbols(::Type{L}, table) where {L}
+    isnothing(table) && return nothing
+    L in (UInt8, UInt64) || throw(ArgumentError(
+        "symbol tables apply only to UInt8 and UInt64 label domains"))
+    table isa SymbolTable{L} || throw(ArgumentError(
+        "symbol table label type does not match $L"))
+    copy(table)
+end
+
+function WfstBuilder{L,W}(; size_hint::Integer=0,
+    input_symbols=nothing, output_symbols=nothing) where {L,W<:AbstractScalarWeight}
     size_hint >= 0 || throw(ArgumentError("size_hint cannot be negative"))
+    input_table = checked_symbols(L, input_symbols)
+    output_table = checked_symbols(L, output_symbols)
     output = Ref{Ptr{Cvoid}}(C_NULL)
-    checked(ccall(native(:lling_wfst_builder_new), UInt32,
-        (Ref{Ptr{Cvoid}},), output), :wfst_builder_new)
-    builder = WfstBuilder(output[], false)
+    if L === Char && W === TropicalWeight
+        checked(ccall(native(:lling_wfst_builder_new), UInt32,
+            (Ref{Ptr{Cvoid}},), output), :wfst_builder_new)
+    else
+        checked(ccall(native(:lling_wfst_builder_new_for_domains), UInt32,
+            (UInt32, UInt32, Ref{Ptr{Cvoid}}), UInt32(unit_domain(L)),
+            UInt32(weight_domain(W)), output), :wfst_builder_new_for_domains)
+    end
+    builder = WfstBuilder{L,W,typeof(input_table),typeof(output_table)}(
+        output[], false, input_table, output_table)
     finalizer(finalize_close, builder)
     size_hint == 0 || reserve_states!(builder, size_hint)
     builder
 end
+WfstBuilder(; kwargs...) = WfstBuilder{Char,TropicalWeight}(; kwargs...)
 
 function open_handle(builder::WfstBuilder)
     builder.closed && throw(NativeError(STATUS_CLOSED, :builder, "builder is closed"))
@@ -388,18 +649,16 @@ function set_start!(builder::WfstBuilder, state::Integer)
     builder
 end
 
-function valid_weight(weight::Real)
-    value = Float64(weight)
-    (!isnan(value) && value != -Inf) ||
-        throw(ArgumentError("tropical weights must be finite or +Inf"))
-    value
-end
+typed_weight(::Type{W}, weight::W) where {W<:AbstractScalarWeight} = weight
+typed_weight(::Type{W}, weight::Real) where {W<:AbstractScalarWeight} = W(weight)
 
-"""Mark `state` final with a tropical final `weight`."""
-function set_final!(builder::WfstBuilder, state::Integer, weight::Real=0.0)
+"""Mark `state` final with a value from the builder's scalar semiring."""
+function set_final!(builder::WfstBuilder{L,W}, state::Integer,
+    weight=one(W)) where {L,W}
+    value = typed_weight(W, weight)
     checked(ccall(native(:lling_wfst_builder_set_final), UInt32,
         (Ptr{Cvoid}, UInt32, Float64), open_handle(builder), state,
-        valid_weight(weight)), :set_final)
+        raw_weight(value)), :set_final)
     builder
 end
 
@@ -410,34 +669,53 @@ function clear_final!(builder::WfstBuilder, state::Integer)
     builder
 end
 
-wire_label(::Nothing) = (UInt64(0), UInt8(0))
-wire_label(value::Char) = (UInt64(value), UInt8(1))
-function wire_label(value::AbstractString)
+wire_label(::Type{L}, ::Nothing, symbols) where {L} = (UInt64(0), UInt8(0))
+wire_label(::Type{Char}, value::Char, symbols) = (UInt64(value), UInt8(1))
+function wire_label(::Type{Char}, value::AbstractString, symbols)
     characters = collect(value)
-    length(characters) == 1 || throw(ArgumentError("a WFST label is one Unicode scalar"))
-    wire_label(only(characters))
+    length(characters) == 1 || throw(ArgumentError(
+        "a Unicode WFST label is exactly one scalar"))
+    wire_label(Char, only(characters), symbols)
 end
-function wire_label(value::Integer)
-    value >= 0 || throw(ArgumentError("a WFST label cannot be negative"))
+function wire_label(::Type{Char}, value::Integer, symbols)
+    value >= 0 || throw(ArgumentError("a Unicode WFST label cannot be negative"))
     scalar = UInt32(value)
-    isvalid(Char, scalar) || throw(ArgumentError("a WFST label must be a Unicode scalar"))
+    isvalid(Char, scalar) || throw(ArgumentError("label is not a Unicode scalar"))
     (UInt64(scalar), UInt8(1))
+end
+function wire_label(::Type{UInt8}, value::Integer, symbols)
+    0 <= value <= typemax(UInt8) || throw(ArgumentError("byte label is outside 0:255"))
+    (UInt64(value), UInt8(1))
+end
+function wire_label(::Type{UInt64}, value::Integer, symbols)
+    value >= 0 || throw(ArgumentError("u64 label cannot be negative"))
+    value <= typemax(UInt64) || throw(ArgumentError("u64 label is out of range"))
+    (UInt64(value), UInt8(1))
+end
+function wire_label(::Type{L}, value::AbstractString,
+    symbols::Union{Nothing,SymbolTable{L}}) where {L<:Union{UInt8,UInt64}}
+    isnothing(symbols) && throw(ArgumentError(
+        "string labels in the $L domain require a SymbolTable{$L}"))
+    (UInt64(intern!(symbols, value)), UInt8(1))
 end
 
 """
 Append an arc from `from` to `target`.
 
-Each label is one `Char`, one-character string, Unicode-scalar integer, or
-`nothing` for epsilon. The default tropical weight is zero.
+Labels use the builder's `UInt8`, `Char`, or `UInt64` domain; strings are
+interned through the corresponding tape's symbol table. `nothing` is epsilon.
+The default weight is the selected semiring's multiplicative identity.
 """
-function add_arc!(builder::WfstBuilder, from::Integer, input, output,
-    target::Integer, weight::Real=0.0)
-    input_value, has_input = wire_label(input)
-    output_value, has_output = wire_label(output)
+function add_arc!(builder::WfstBuilder{L,W}, from::Integer, input, output,
+    target::Integer, weight=one(W)) where {L,W}
+    handle = open_handle(builder)
+    input_value, has_input = wire_label(L, input, builder.input_symbols)
+    output_value, has_output = wire_label(L, output, builder.output_symbols)
+    weight_value = typed_weight(W, weight)
     checked(ccall(native(:lling_wfst_builder_add_arc), UInt32,
         (Ptr{Cvoid}, UInt32, UInt64, UInt8, UInt64, UInt8, UInt32, Float64),
-        open_handle(builder), from, input_value, has_input, output_value,
-        has_output, target, valid_weight(weight)), :add_arc)
+        handle, from, input_value, has_input, output_value,
+        has_output, target, raw_weight(weight_value)), :add_arc)
     builder
 end
 
@@ -453,54 +731,180 @@ end
 Base.close(builder::WfstBuilder) = close!(builder)
 Base.isopen(builder::WfstBuilder) = !builder.closed
 
-function adopt_native_wfst(handle::Ptr{Cvoid})
+"""Immutable type-stable view over one retained scalar-WFST resource."""
+mutable struct Wfst{L,W<:AbstractScalarWeight,S1,S2}
+    native::VTI.Wfst
+    input_symbols::S1
+    output_symbols::S2
+end
+
+function Wfst(native::VTI.Wfst, ::Type{L}, ::Type{W};
+    input_symbols=nothing, output_symbols=nothing) where {L,W<:AbstractScalarWeight}
+    VTI.unit_domain(native) == unit_domain(L) || throw(ArgumentError(
+        "resource label domain does not match $L"))
+    VTI.weight_domain(native) == weight_domain(W) || throw(ArgumentError(
+        "resource weight domain does not match $W"))
+    input_table = frozen_copy(checked_symbols(L, input_symbols))
+    output_table = frozen_copy(checked_symbols(L, output_symbols))
+    Wfst{L,W,typeof(input_table),typeof(output_table)}(
+        native, input_table, output_table)
+end
+
+function adopt_native_wfst(handle::Ptr{Cvoid}, ::Type{L}, ::Type{W};
+    input_symbols=nothing, output_symbols=nothing) where {L,W<:AbstractScalarWeight}
     raw = Ref(VTI.VtResourceRaw(C_NULL, Ptr{VTI.VtResourceVTable}(C_NULL)))
     try
         checked(ccall(native(:lling_wfst_resource), UInt32,
             (Ptr{Cvoid}, Ref{VTI.VtResourceRaw}), handle, raw), :wfst_resource)
-        VTI.wfstransducer(VTI.adopt_resource(raw[]); take=true)
+        graph = VTI.wfstransducer(VTI.adopt_resource(raw[]); take=true)
+        try
+            Wfst(graph, L, W; input_symbols, output_symbols)
+        catch
+            close(graph)
+            rethrow()
+        end
     finally
         ccall(native(:lling_wfst_free), Cvoid, (Ptr{Cvoid},), handle)
     end
 end
 
 """Consume `builder` and return its immutable interoperable WFST."""
-function build!(builder::WfstBuilder)
+function build!(builder::WfstBuilder{L,W}) where {L,W}
     output = Ref{Ptr{Cvoid}}(C_NULL)
     checked(ccall(native(:lling_wfst_builder_build), UInt32,
         (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), open_handle(builder), output), :build)
     close!(builder)
-    adopt_native_wfst(output[])
+    adopt_native_wfst(output[], L, W;
+        input_symbols=builder.input_symbols,
+        output_symbols=builder.output_symbols)
 end
 
 raw_resource(resource::VTI.Resource) = VTI.raw_resource(resource)
 raw_resource(wfst::VTI.Wfst) = VTI.raw_resource(wfst.resource)
+raw_resource(wfst::Wfst) = raw_resource(wfst.native)
+
+Base.close(wfst::Wfst) = close!(wfst)
+Base.isopen(wfst::Wfst) = isopen(wfst.native)
+close!(wfst::Wfst) = VTI.close!(wfst.native)
+VTI.start(wfst::Wfst) = VTI.start(wfst.native)
+VTI.state_count(wfst::Wfst) = VTI.state_count(wfst.native)
+VTI.state_info(wfst::Wfst, state::Integer) = VTI.state_info(wfst.native, state)
+VTI.arcs(wfst::Wfst, state::Integer; kwargs...) = VTI.arcs(wfst.native, state; kwargs...)
+VTI.unit_domain(wfst::Wfst{L}) where {L} = unit_domain(L)
+VTI.weight_domain(wfst::Wfst{L,W}) where {L,W} = weight_domain(W)
+VTI.flags(wfst::Wfst) = VTI.flags(wfst.native)
+function VTI.snapshot(wfst::Wfst{L,W}) where {L,W}
+    Wfst(VTI.snapshot(wfst.native), L, W;
+        input_symbols=wfst.input_symbols,
+        output_symbols=wfst.output_symbols)
+end
+
+"""One type-stable immutable arc decoded from the family ABI."""
+struct WfstArc{L,W<:AbstractScalarWeight}
+    input::Union{Nothing,L}
+    output::Union{Nothing,L}
+    target::UInt64
+    weight::W
+end
+
+"""A type-stable state snapshot with its outgoing arcs."""
+struct WfstState{L,W<:AbstractScalarWeight}
+    id::UInt64
+    final::Bool
+    final_weight::W
+    arcs::Vector{WfstArc{L,W}}
+end
+
+decode_label(::Type{UInt8}, value::UInt64) = UInt8(value)
+decode_label(::Type{Char}, value::UInt64) = Char(UInt32(value))
+decode_label(::Type{UInt64}, value::UInt64) = value
+"""Return type-stable outgoing arcs for `state`, preserving epsilon as `nothing`."""
+function arcs(wfst::Wfst{L,W}, state::Integer; kwargs...) where {L,W}
+    [WfstArc{L,W}(
+        isnothing(arc.input) ? nothing : decode_label(L, arc.input),
+        isnothing(arc.output) ? nothing : decode_label(L, arc.output),
+        arc.target, decode_weight(W, arc.weight))
+     for arc in VTI.arcs(wfst.native, state; kwargs...)]
+end
+"""Return a type-stable state snapshot, or `nothing` for an unknown ID."""
+function state(wfst::Wfst{L,W}, id::Integer; kwargs...) where {L,W}
+    info = VTI.state_info(wfst.native, id)
+    isnothing(info) && return nothing
+    WfstState{L,W}(UInt64(id), info.final,
+        decode_weight(W, info.final_weight), arcs(wfst, id; kwargs...))
+end
+"""Return the frozen input-tape symbol table, or `nothing` for raw labels."""
+input_symbols(wfst::Wfst) = wfst.input_symbols
+"""Return the frozen output-tape symbol table, or `nothing` for raw labels."""
+output_symbols(wfst::Wfst) = wfst.output_symbols
 
 """Return one independent retained resource for a WFST."""
 resource(wfst::VTI.Wfst) = VTI.retain(wfst.resource)
+resource(wfst::Wfst) = resource(wfst.native)
 
 """Copy a compatible immutable resource into a native lling-llang WFST."""
-function import_wfst(source::Union{VTI.Resource,VTI.Wfst})
+function import_wfst(::Type{L}, ::Type{W},
+    source::Union{VTI.Resource,VTI.Wfst,Wfst};
+    input_symbols=nothing, output_symbols=nothing) where {L,W<:AbstractScalarWeight}
     output = Ref{Ptr{Cvoid}}(C_NULL)
     raw = raw_resource(source)
     checked(ccall(native(:lling_wfst_import), UInt32,
         (VTI.VtResourceRaw, Ref{Ptr{Cvoid}}), raw, output), :wfst_import)
-    adopt_native_wfst(output[])
+    adopt_native_wfst(output[], L, W; input_symbols, output_symbols)
+end
+function import_wfst(source::Wfst{L,W}) where {L,W}
+    import_wfst(L, W, source;
+        input_symbols=source.input_symbols,
+        output_symbols=source.output_symbols)
+end
+function import_wfst(source::VTI.Wfst)
+    import_wfst(label_type(VTI.unit_domain(source)),
+        weight_type(VTI.weight_domain(source)), source)
+end
+function import_wfst(source::VTI.Resource)
+    probe = VTI.wfstransducer(source)
+    try
+        import_wfst(label_type(VTI.unit_domain(probe)),
+            weight_type(VTI.weight_domain(probe)), source)
+    finally
+        close(probe)
+    end
 end
 
 """
-Lazily compose snapshots of two scalar WFST resources.
+Lazily compose snapshots of two domain-compatible scalar WFST resources.
 
-The product joins the first output tape to the second input tape and adds
-matching tropical weights.
+The product joins the first output tape to the second input tape and combines
+matching weights with the declared built-in semiring's multiplication.
 """
-function compose(first::Union{VTI.Resource,VTI.Wfst},
-    second::Union{VTI.Resource,VTI.Wfst})
+function compose(first::Wfst{L,W}, second::Wfst{L,W}) where {L,W}
+    if !isnothing(first.output_symbols) && !isnothing(second.input_symbols) &&
+        first.output_symbols.symbols != second.input_symbols.symbols
+        throw(ArgumentError("composition's middle-tape symbol tables differ"))
+    end
     output = Ref{Ptr{Cvoid}}(C_NULL)
     checked(ccall(native(:lling_wfst_compose), UInt32,
         (VTI.VtResourceRaw, VTI.VtResourceRaw, Ref{Ptr{Cvoid}}),
         raw_resource(first), raw_resource(second), output), :wfst_compose)
-    adopt_native_wfst(output[])
+    adopt_native_wfst(output[], L, W;
+        input_symbols=first.input_symbols,
+        output_symbols=second.output_symbols)
+end
+function compose(::Wfst{L1,W1}, ::Wfst{L2,W2}) where {L1,W1,L2,W2}
+    L1 == L2 || throw(ArgumentError(
+        "composition requires equal label types; received $L1 and $L2"))
+    throw(ArgumentError(
+        "composition requires equal weight types; received $W1 and $W2"))
+end
+function compose(first::VTI.Wfst, second::VTI.Wfst)
+    first_unit = VTI.unit_domain(first)
+    first_weight = VTI.weight_domain(first)
+    first_unit == VTI.unit_domain(second) || throw(ArgumentError(
+        "composition requires equal label domains"))
+    first_weight == VTI.weight_domain(second) || throw(ArgumentError(
+        "composition requires equal weight domains"))
+    compose(Wfst(first, label_type(first_unit), weight_type(first_weight)),
+        Wfst(second, label_type(first_unit), weight_type(first_weight)))
 end
 
 # Dynamic-semiring consumer -------------------------------------------------
@@ -1430,33 +1834,47 @@ end
 """Implement `wfst_start`, `wfst_state_count`, and `wfst_state` for this type."""
 abstract type AbstractWfstProvider end
 
-"""One provider arc. `nothing` denotes epsilon on either tape."""
-struct ProviderArc
-    input::Union{Nothing,UInt64}
-    output::Union{Nothing,UInt64}
+"""One type-stable provider arc. `nothing` denotes epsilon on either tape."""
+struct ProviderArc{L,W<:AbstractScalarWeight}
+    input::Union{Nothing,L}
+    output::Union{Nothing,L}
     target::UInt64
-    weight::Float64
-    function ProviderArc(input, output, target::Integer, weight::Real=0.0)
-        input_value = isnothing(input) ? nothing : first(wire_label(input))
-        output_value = isnothing(output) ? nothing : first(wire_label(output))
+    weight::W
+    function ProviderArc{L,W}(input, output, target::Integer,
+        weight=one(W)) where {L,W<:AbstractScalarWeight}
+        unit_domain(L)
+        weight_domain(W)
         target >= 0 || throw(ArgumentError("target cannot be negative"))
-        new(input_value, output_value, UInt64(target), valid_weight(weight))
+        target <= typemax(UInt64) || throw(ArgumentError("target is out of range"))
+        typed_input = typed_provider_label(L, input)
+        typed_output = typed_provider_label(L, output)
+        new{L,W}(typed_input, typed_output, UInt64(target), typed_weight(W, weight))
     end
 end
+function typed_provider_label(::Type{L}, value) where {L}
+    raw, present = wire_label(L, value, nothing)
+    present == 0 ? nothing : decode_label(L, raw)
+end
+ProviderArc(input, output, target::Integer, weight=one(TropicalWeight)) =
+    ProviderArc{Char,TropicalWeight}(input, output, target, weight)
 
 """One immutable state returned by a host provider."""
-struct ProviderState
+struct ProviderState{L,W<:AbstractScalarWeight}
     valid::Bool
     final::Bool
-    final_weight::Float64
-    arcs::Vector{ProviderArc}
-    function ProviderState(; valid::Bool=true, final::Bool=false,
-        final_weight::Real=(final ? 0.0 : Inf), arcs=ProviderArc[])
-        value = valid_weight(final_weight)
-        new(valid, valid && final, valid && final ? value : Inf,
-            Vector{ProviderArc}(arcs))
+    final_weight::W
+    arcs::Vector{ProviderArc{L,W}}
+    function ProviderState{L,W}(; valid::Bool=true, final::Bool=false,
+        final_weight=(final ? one(W) : zero(W)),
+        arcs=ProviderArc{L,W}[]) where {L,W<:AbstractScalarWeight}
+        unit_domain(L)
+        weight_domain(W)
+        value = typed_weight(W, final_weight)
+        new{L,W}(valid, valid && final, valid && final ? value : zero(W),
+            Vector{ProviderArc{L,W}}(arcs))
     end
 end
+ProviderState(; kwargs...) = ProviderState{Char,TropicalWeight}(; kwargs...)
 
 """Return a provider's non-negative start-state identifier."""
 function wfst_start(provider::AbstractWfstProvider)
@@ -1469,14 +1887,14 @@ function wfst_state(provider::AbstractWfstProvider, state::UInt64)
     throw(MethodError(wfst_state, (provider, state)))
 end
 
-mutable struct ProviderContext
+mutable struct ProviderContext{L,W<:AbstractScalarWeight,P<:AbstractWfstProvider}
     references::Int
-    implementation::AbstractWfstProvider
+    implementation::P
     unit_domain::VTI.UnitDomain
     weight_domain::VTI.WeightDomain
     flags::UInt64
     cache_lock::ReentrantLock
-    states::Dict{UInt64,ProviderState}
+    states::Dict{UInt64,ProviderState{L,W}}
     last_error::String
     table::Base.RefValue{VTI.VtWfstVTable}
 end
@@ -1591,17 +2009,23 @@ function provider_count(pointer::Ptr{Cvoid}, output::Ptr{Csize_t},
     end
 end
 
-function cached_state(context::ProviderContext, state::UInt64)
+function cached_state(context::ProviderContext{L,W}, state::UInt64) where {L,W}
     cached = lock(context.cache_lock) do
         get(context.states, state, nothing)
     end
     cached === nothing || return cached
     # The customer callback deliberately runs outside the cache lock.
     expanded = wfst_state(context.implementation, state)
-    expanded isa ProviderState ||
-        throw(ArgumentError("wfst_state must return ProviderState"))
+    expected = ProviderState{L,W}
+    expanded isa expected || throw(ArgumentError(
+        "wfst_state must return $expected for this provider"))
+    # Cache an owned arc vector. A provider may retain the value it returned;
+    # later mutation of that value must not rewrite an already-published ABI
+    # state behind an immutable resource's back.
+    owned = ProviderState{L,W}(valid=expanded.valid, final=expanded.final,
+        final_weight=expanded.final_weight, arcs=expanded.arcs)
     lock(context.cache_lock) do
-        get!(context.states, state, expanded)
+        get!(context.states, state, owned)
     end
 end
 
@@ -1614,7 +2038,7 @@ function provider_state_info(pointer::Ptr{Cvoid}, state::UInt64,
         expanded = cached_state(context, state)
         unsafe_store!(valid, UInt8(expanded.valid))
         unsafe_store!(finality, UInt8(expanded.final))
-        unsafe_store!(weight, expanded.final_weight)
+        unsafe_store!(weight, raw_weight(expanded.final_weight))
         Cint(VTI.STATUS_OK)
     catch error
         record_error!(context, error)
@@ -1637,7 +2061,7 @@ function provider_state_arcs(pointer::Ptr{Cvoid}, state::UInt64, start::Csize_t,
             arc = arcs[offset + index]
             unsafe_store!(output, VTI.VtWfstArc(
                 something(arc.input, UInt64(0)), something(arc.output, UInt64(0)),
-                arc.target, arc.weight, UInt8(!isnothing(arc.input)),
+                arc.target, raw_weight(arc.weight), UInt8(!isnothing(arc.input)),
                 UInt8(!isnothing(arc.output)), ntuple(_ -> UInt8(0), 6)), index)
         end
         unsafe_store!(written, Csize_t(count))
@@ -1671,34 +2095,45 @@ function initialize_callbacks!()
 end
 
 """
-    provider(implementation; unit_domain=UNIT_UNICODE_SCALAR,
-             weight_domain=WEIGHT_TROPICAL_F64, parallel=false, acyclic=false)
+    provider(Label, Weight, implementation; parallel=false, acyclic=false,
+             input_symbols=nothing, output_symbols=nothing)
 
 Expose an immutable Julia `AbstractWfstProvider` through `vt.scalar-wfst.1`.
 State callbacks are cached once per state. Customer code never executes while
 the facade holds its cache lock. Set `parallel=true` only when the provider is
 safe for concurrent and reentrant calls.
 """
-function provider(implementation::AbstractWfstProvider;
-    unit_domain::VTI.UnitDomain=VTI.UNIT_UNICODE_SCALAR,
-    weight_domain::VTI.WeightDomain=VTI.WEIGHT_TROPICAL_F64,
-    parallel::Bool=false, acyclic::Bool=false)
+function provider(::Type{L}, ::Type{W}, implementation::P;
+    parallel::Bool=false, acyclic::Bool=false,
+    input_symbols=nothing, output_symbols=nothing) where
+    {L,W<:AbstractScalarWeight,P<:AbstractWfstProvider}
+    declared_unit_domain = unit_domain(L)
+    declared_weight_domain = weight_domain(W)
+    input_table = checked_symbols(L, input_symbols)
+    output_table = checked_symbols(L, output_symbols)
     flags = VTI.WFST_FLAG_IMMUTABLE | VTI.WFST_FLAG_LAZY |
         (parallel ? VTI.WFST_FLAG_PARALLEL_REENTRANT : UInt64(0)) |
         (acyclic ? VTI.WFST_FLAG_ACYCLIC : UInt64(0))
     table = Ref(VTI.VtWfstVTable(sizeof(VTI.VtWfstVTable),
-        VTI.WFST_INTERFACE_VERSION, UInt32(unit_domain), UInt32(weight_domain), 0,
+        VTI.WFST_INTERFACE_VERSION, UInt32(declared_unit_domain),
+        UInt32(declared_weight_domain), 0,
         flags, CALLBACKS[:snapshot], CALLBACKS[:start], CALLBACKS[:count],
         CALLBACKS[:state_info], CALLBACKS[:state_arcs]))
-    context = ProviderContext(1, implementation, unit_domain, weight_domain,
-        flags, ReentrantLock(), Dict{UInt64,ProviderState}(), "", table)
+    context = ProviderContext{L,W,P}(1, implementation, declared_unit_domain,
+        declared_weight_domain, flags, ReentrantLock(),
+        Dict{UInt64,ProviderState{L,W}}(), "", table)
     pointer = pointer_from_objref(context)
     lock(PROVIDERS_LOCK) do
         PROVIDERS[pointer] = context
     end
     raw = raw_provider(context)
-    VTI.wfstransducer(VTI.adopt_resource(raw; anchors=[context]); take=true)
+    native_wfst = VTI.wfstransducer(
+        VTI.adopt_resource(raw; anchors=[context]); take=true)
+    Wfst(native_wfst, L, W; input_symbols=input_table, output_symbols=output_table)
 end
+
+provider(implementation::AbstractWfstProvider; kwargs...) =
+    provider(Char, TropicalWeight, implementation; kwargs...)
 
 function __init__()
     initialize_callbacks!()

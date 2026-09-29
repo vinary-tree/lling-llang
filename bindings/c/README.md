@@ -1,7 +1,7 @@
 # lling-llang C binding
 
 The C17/C23 facade is the normative native boundary for building immutable
-Unicode-scalar weighted finite-state transducers (WFSTs), importing and lazily
+scalar weighted finite-state transducers (WFSTs), importing and lazily
 composing family WFST resources, and exporting retained `vt.scalar-wfst.1`
 resources. The public surface is [`lling_llang.h`](../../include/lling_llang.h);
 the exact preconditions and status sets are in the
@@ -47,13 +47,20 @@ handoff.
 | `VtResource` | Two-word `{context, vtable}` handle. `lling_wfst_resource` returns one owned retain implementing `vt.scalar-wfst.1`. |
 | `LlingWfstDescriptorV2` / `LlingBudgetV2` / `LlingOutcomeV2` | Pointer-free, range-checked typed metadata with canonical identities, limits, and orthogonal outcome axes. |
 | `LlingCancellationV2` | Thread-safe first-reason-wins cancellation handle; release through the caller's pointer slot. |
-| label | Optional Unicode scalar. `has_label == 0` denotes epsilon; otherwise the scalar must be valid. |
-| weight | `double` interpreted under the advertised weight domain. The constructed/imported/composed C surface is tropical. |
+| label | Optional byte, Unicode scalar, or `uint64_t`, selected when the builder is created. `has_label == 0` denotes epsilon. |
+| weight | `double` interpreted under one of the seven family scalar domains. Domain membership is checked at every ingress. |
 
 The builder lifecycle is Open → Consumed. A failed build caused by a missing
 start state leaves it Open, so the caller may repair and retry. State expansion
 uses `state_info` and paged `state_arcs`; concatenate pages until the stable
 `total` is reached.
+
+`lling_wfst_builder_new` remains the concise Unicode/tropical constructor.
+API revision 7 adds `lling_wfst_builder_new_for_domains`, which accepts the
+three `VtUnitDomain` and seven `VtWeightDomain` wire discriminants. Built,
+imported, snapshotted, and composed resources preserve those domains.
+Composition requires both operands to agree and applies the declared
+semiring's multiplication to matching arc and final weights.
 
 `lling_lattice_open` borrows a live `VtResource` for the call and returns an
 independently retained `LlingLatticeValue`. Algebra operations return new
@@ -129,13 +136,15 @@ The project ABI, project API revision, family ABI, interface version, and
 package version are independent counters. If loading fails, check the native
 artifact's OS/CPU, the bundled interop header/version, loader search path, and
 package pins in that order. An incompatible-resource result usually means the
-resource lacks Unicode-scalar `vt.scalar-wfst.1` or advertises another weight
-domain. For dynamic lattices, it can also mean that the resource lacks
+resource lacks a supported `vt.scalar-wfst.1`, has an invalid vtable, or its
+composition peer advertises a different unit or weight domain. For dynamic
+lattices, it can also mean that the resource lacks
 `vt.lattice.val.1`, publishes contradictory thread flags, or omits a callback
 required by an advertised capability.
 Project ABI v1 remains current. API revision 5 added typed metadata carrying
 its own `LLING_ABI_V2 == 2` format version; revision 6 adds semiring domain and
-value diagnostics plus bounded addition and multiplication folds.
+value diagnostics plus bounded addition and multiplication folds; revision 7
+adds generic scalar-WFST construction and domain-preserving import/composition.
 
 ## Maintainer workflow
 
