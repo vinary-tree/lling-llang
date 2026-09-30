@@ -73,6 +73,9 @@ export ABI_VERSION,
     build!,
     import_wfst,
     compose,
+    concat,
+    closure,
+    closure_plus,
     project_input,
     project_output,
     state,
@@ -939,11 +942,109 @@ function unary_wfst_call(operation::Symbol, source::Wfst, budget::BudgetV2;
             ccall(native(:lling_wfst_reverse), UInt32,
                 (VTI.VtResourceRaw, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
                 raw, budget_ref, output)
+    elseif operation === :closure
+        status = pointer_form ?
+            ccall(native(:lling_wfst_closure_ref), UInt32,
+                (Ref{VTI.VtResourceRaw}, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                raw_ref, budget_ref, output) :
+            ccall(native(:lling_wfst_closure), UInt32,
+                (VTI.VtResourceRaw, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                raw, budget_ref, output)
+    elseif operation === :closure_plus
+        status = pointer_form ?
+            ccall(native(:lling_wfst_closure_plus_ref), UInt32,
+                (Ref{VTI.VtResourceRaw}, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                raw_ref, budget_ref, output) :
+            ccall(native(:lling_wfst_closure_plus), UInt32,
+                (VTI.VtResourceRaw, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                raw, budget_ref, output)
     else
         throw(ArgumentError("unknown unary WFST operation: $operation"))
     end
     checked(status, operation)
     output[]
+end
+
+function rational_binary_wfst_call(operation::Symbol, first::Wfst, second::Wfst,
+    budget::BudgetV2; pointer_form::Bool=false)
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    first_raw = raw_resource(first)
+    second_raw = raw_resource(second)
+    first_ref = Ref(first_raw)
+    second_ref = Ref(second_raw)
+    budget_ref = Ref(budget)
+    if operation === :union
+        status = pointer_form ?
+            ccall(native(:lling_wfst_union_refs), UInt32,
+                (Ref{VTI.VtResourceRaw}, Ref{VTI.VtResourceRaw},
+                    Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                first_ref, second_ref, budget_ref, output) :
+            ccall(native(:lling_wfst_union), UInt32,
+                (VTI.VtResourceRaw, VTI.VtResourceRaw,
+                    Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                first_raw, second_raw, budget_ref, output)
+    elseif operation === :concat
+        status = pointer_form ?
+            ccall(native(:lling_wfst_concat_refs), UInt32,
+                (Ref{VTI.VtResourceRaw}, Ref{VTI.VtResourceRaw},
+                    Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                first_ref, second_ref, budget_ref, output) :
+            ccall(native(:lling_wfst_concat), UInt32,
+                (VTI.VtResourceRaw, VTI.VtResourceRaw,
+                    Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                first_raw, second_raw, budget_ref, output)
+    else
+        throw(ArgumentError("unknown binary WFST operation: $operation"))
+    end
+    checked(status, operation)
+    output[]
+end
+
+function require_parallel_symbols(first::Wfst, second::Wfst)
+    for field in (:input_symbols, :output_symbols)
+        left = getfield(first, field)
+        right = getfield(second, field)
+        if isnothing(left) != isnothing(right) ||
+            (!isnothing(left) && left.symbols != right.symbols)
+            throw(ArgumentError("rational WFST operands have different $field"))
+        end
+    end
+end
+
+"""Lazily accept paths from either graph, preserving both tape domains."""
+function Base.union(first::Wfst{L,W}, second::Wfst{L,W};
+    budget::BudgetV2=BudgetV2()) where {L,W}
+    require_parallel_symbols(first, second)
+    handle = rational_binary_wfst_call(:union, first, second, budget)
+    adopt_native_wfst(handle, L, W;
+        input_symbols=first.input_symbols,
+        output_symbols=first.output_symbols)
+end
+
+"""Lazily accept paths from the first graph followed by the second."""
+function concat(first::Wfst{L,W}, second::Wfst{L,W};
+    budget::BudgetV2=BudgetV2()) where {L,W}
+    require_parallel_symbols(first, second)
+    handle = rational_binary_wfst_call(:concat, first, second, budget)
+    adopt_native_wfst(handle, L, W;
+        input_symbols=first.input_symbols,
+        output_symbols=first.output_symbols)
+end
+
+"""Lazily accept zero or more repetitions of a weighted graph."""
+function closure(source::Wfst{L,W}; budget::BudgetV2=BudgetV2()) where {L,W}
+    handle = unary_wfst_call(:closure, source, budget)
+    adopt_native_wfst(handle, L, W;
+        input_symbols=source.input_symbols,
+        output_symbols=source.output_symbols)
+end
+
+"""Lazily accept one or more repetitions, including empty when the input does."""
+function closure_plus(source::Wfst{L,W}; budget::BudgetV2=BudgetV2()) where {L,W}
+    handle = unary_wfst_call(:closure_plus, source, budget)
+    adopt_native_wfst(handle, L, W;
+        input_symbols=source.input_symbols,
+        output_symbols=source.output_symbols)
 end
 
 """Lazily keep input labels on both tapes; `budget` bounds input and potential output."""

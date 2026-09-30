@@ -4,7 +4,7 @@ mod v2;
 pub use v2::*;
 
 use crate::bindings::{
-    export_native_lazy_wfst, export_native_wfst, import_native_wfst_with_budget,
+    export_native_lazy_wfst, export_native_wfst, import_native_wfst_with_budget_and_stats,
     valid_scalar_label, valid_scalar_weight, wfst_domains, AbiScalarLabel, AbiScalarWeight,
     BindingError, GraphBudget, OwnedWfstResource, ScalarWfstGraph,
 };
@@ -15,7 +15,12 @@ use crate::semiring::{
     ArcticWeight, BoolWeight, CountWeight, LogWeight, ProbabilityWeight, SignedTropicalWeight,
     TropicalWeight,
 };
-use crate::wfst::{unary::reverse, unary::ProjectSource, VectorWfst, Wfst, NO_STATE};
+use crate::wfst::{
+    rational::{ClosurePlusSource, ClosureSource, ConcatSource, UnionSource},
+    unary::reverse,
+    unary::ProjectSource,
+    VectorWfst, NO_STATE,
+};
 use std::cell::RefCell;
 use std::ffi::{c_char, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -27,7 +32,7 @@ pub use lattice::*;
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_LLANG_API_REVISION: u32 = 8;
+pub const LLING_LLANG_API_REVISION: u32 = 9;
 
 /// Status returned by lling-llang C functions.
 #[repr(u32)]
@@ -1081,43 +1086,60 @@ fn unary_wfst_typed<L: AbiScalarLabel, W: AbiScalarWeight>(
     mut budget: GraphBudget,
     operation: UnaryOperation,
 ) -> Result<OwnedWfstResource, BindingError> {
-    let graph: VectorWfst<L, W> = import_native_wfst_with_budget(resource, &mut budget)?;
-    let states =
-        u64::try_from(graph.num_states()).map_err(|_| BindingError::RepresentationLimit)?;
-    let mut arcs = 0_u64;
-    let mut finals = 0_u64;
-    for state in 0..graph.num_states() {
-        let state = u32::try_from(state).map_err(|_| BindingError::RepresentationLimit)?;
-        let count = u64::try_from(graph.transitions(state).len())
-            .map_err(|_| BindingError::RepresentationLimit)?;
-        arcs = arcs
-            .checked_add(count)
-            .ok_or(BindingError::BudgetExceeded("arcs"))?;
-        finals += u64::from(graph.is_final(state));
-    }
+    let (graph, stats): (VectorWfst<L, W>, _) =
+        import_native_wfst_with_budget_and_stats(resource, &mut budget)?;
     match operation {
         UnaryOperation::ProjectInput => {
-            budget.charge_output::<L, W>(states, arcs)?;
+            budget.charge_output::<L, W>(stats.states, stats.arcs)?;
             export_native_lazy_wfst(ProjectSource::<L, W, _, true>::new(graph))
         }
         UnaryOperation::ProjectOutput => {
-            budget.charge_output::<L, W>(states, arcs)?;
+            budget.charge_output::<L, W>(stats.states, stats.arcs)?;
             export_native_lazy_wfst(ProjectSource::<L, W, _, false>::new(graph))
         }
         UnaryOperation::Reverse => {
-            if states >= u64::from(NO_STATE) {
+            if stats.states >= u64::from(NO_STATE) {
                 return Err(BindingError::RepresentationLimit);
             }
-            let output_states = states
+            let output_states = stats
+                .states
                 .checked_add(1)
                 .ok_or(BindingError::BudgetExceeded("states"))?;
-            let output_arcs = arcs
-                .checked_add(finals)
+            let output_arcs = stats
+                .arcs
+                .checked_add(stats.finals)
                 .ok_or(BindingError::BudgetExceeded("arcs"))?;
             budget.charge_output::<L, W>(output_states, output_arcs)?;
             export_native_wfst(&reverse(&graph))
         }
     }
+}
+
+// One exhaustive type dispatch is shared by all checked scalar operations.
+// The leaf function contains the operation-specific semantics; labels and
+// semirings never require duplicated algorithm bodies.
+macro_rules! dispatch_scalar_weight {
+    ($label:ty, $weight:expr, $function:ident, $($argument:expr),*) => {
+        match $weight {
+            VtWeightDomain::TropicalF64 => $function::<$label, TropicalWeight>($($argument),*),
+            VtWeightDomain::LogF64 => $function::<$label, LogWeight>($($argument),*),
+            VtWeightDomain::ProbabilityF64 => $function::<$label, ProbabilityWeight>($($argument),*),
+            VtWeightDomain::ArcticF64 => $function::<$label, ArcticWeight>($($argument),*),
+            VtWeightDomain::SignedTropicalF64 => $function::<$label, SignedTropicalWeight>($($argument),*),
+            VtWeightDomain::CountF64 => $function::<$label, CountWeight>($($argument),*),
+            VtWeightDomain::BooleanF64 => $function::<$label, BoolWeight>($($argument),*),
+        }
+    };
+}
+
+macro_rules! dispatch_scalar_domains {
+    ($unit:expr, $weight:expr, $function:ident, $($argument:expr),*) => {
+        match $unit {
+            VtUnitDomain::Byte => dispatch_scalar_weight!(u8, $weight, $function, $($argument),*),
+            VtUnitDomain::UnicodeScalar => dispatch_scalar_weight!(char, $weight, $function, $($argument),*),
+            VtUnitDomain::U64 => dispatch_scalar_weight!(u64, $weight, $function, $($argument),*),
+        }
+    };
 }
 
 fn unary_wfst_dispatch(
@@ -1126,38 +1148,26 @@ fn unary_wfst_dispatch(
     operation: UnaryOperation,
 ) -> Result<OwnedWfstResource, BindingError> {
     let (unit, weight) = wfst_domains(resource)?;
-    macro_rules! dispatch_weight {
-        ($label:ty) => {
-            match weight {
-                VtWeightDomain::TropicalF64 => {
-                    unary_wfst_typed::<$label, TropicalWeight>(resource, budget, operation)
-                }
-                VtWeightDomain::LogF64 => {
-                    unary_wfst_typed::<$label, LogWeight>(resource, budget, operation)
-                }
-                VtWeightDomain::ProbabilityF64 => {
-                    unary_wfst_typed::<$label, ProbabilityWeight>(resource, budget, operation)
-                }
-                VtWeightDomain::ArcticF64 => {
-                    unary_wfst_typed::<$label, ArcticWeight>(resource, budget, operation)
-                }
-                VtWeightDomain::SignedTropicalF64 => {
-                    unary_wfst_typed::<$label, SignedTropicalWeight>(resource, budget, operation)
-                }
-                VtWeightDomain::CountF64 => {
-                    unary_wfst_typed::<$label, CountWeight>(resource, budget, operation)
-                }
-                VtWeightDomain::BooleanF64 => {
-                    unary_wfst_typed::<$label, BoolWeight>(resource, budget, operation)
-                }
-            }
-        };
+    dispatch_scalar_domains!(unit, weight, unary_wfst_typed, resource, budget, operation)
+}
+
+fn graph_budget_from_v2(budget: *const LlingBudgetV2) -> Result<GraphBudget, LlingLlangStatus> {
+    let budget = read_v2_struct(
+        budget,
+        "budget",
+        LLING_BUDGET_STATES | LLING_BUDGET_ARCS | LLING_BUDGET_BYTES | LLING_BUDGET_WORK,
+    )?;
+    if !validate_budget_v2(&budget) {
+        set_error("budget flags, limits, or reserved fields are not canonical");
+        return Err(LlingLlangStatus::InvalidArgument);
     }
-    match unit {
-        VtUnitDomain::Byte => dispatch_weight!(u8),
-        VtUnitDomain::UnicodeScalar => dispatch_weight!(char),
-        VtUnitDomain::U64 => dispatch_weight!(u64),
-    }
+    let flags = budget.header.flags;
+    Ok(GraphBudget::new(
+        (flags & LLING_BUDGET_STATES != 0).then_some(budget.max_states),
+        (flags & LLING_BUDGET_ARCS != 0).then_some(budget.max_arcs),
+        (flags & LLING_BUDGET_BYTES != 0).then_some(budget.max_bytes),
+        (flags & LLING_BUDGET_WORK != 0).then_some(budget.max_work),
+    ))
 }
 
 fn unary_wfst(
@@ -1168,23 +1178,8 @@ fn unary_wfst(
 ) -> LlingLlangStatus {
     boundary(|| {
         let output = required_mut(out_wfst, "out_wfst")?;
-        let budget = read_v2_struct(
-            budget,
-            "budget",
-            LLING_BUDGET_STATES | LLING_BUDGET_ARCS | LLING_BUDGET_BYTES | LLING_BUDGET_WORK,
-        )?;
-        if !validate_budget_v2(&budget) {
-            set_error("budget flags, limits, or reserved fields are not canonical");
-            return Err(LlingLlangStatus::InvalidArgument);
-        }
-        let flags = budget.header.flags;
-        let limit = GraphBudget::new(
-            (flags & LLING_BUDGET_STATES != 0).then_some(budget.max_states),
-            (flags & LLING_BUDGET_ARCS != 0).then_some(budget.max_arcs),
-            (flags & LLING_BUDGET_BYTES != 0).then_some(budget.max_bytes),
-            (flags & LLING_BUDGET_WORK != 0).then_some(budget.max_work),
-        );
-        let resource = unary_wfst_dispatch(resource, limit, operation).map_err(map_error)?;
+        let budget = graph_budget_from_v2(budget)?;
+        let resource = unary_wfst_dispatch(resource, budget, operation).map_err(map_error)?;
         *output = Box::into_raw(Box::new(LlingWfst { resource }));
         Ok(())
     })
@@ -1279,6 +1274,347 @@ pub unsafe extern "C" fn lling_wfst_reverse_ref(
     out_wfst: *mut *mut LlingWfst,
 ) -> LlingLlangStatus {
     unary_wfst_ref(resource, budget, out_wfst, UnaryOperation::Reverse)
+}
+
+#[derive(Clone, Copy)]
+enum RationalBinaryOperation {
+    Union,
+    Concat,
+}
+
+#[derive(Clone, Copy)]
+enum RationalUnaryOperation {
+    Closure,
+    ClosurePlus,
+}
+
+fn rational_binary_typed<L: AbiScalarLabel, W: AbiScalarWeight>(
+    first: VtResource,
+    second: VtResource,
+    mut budget: GraphBudget,
+    operation: RationalBinaryOperation,
+) -> Result<OwnedWfstResource, BindingError> {
+    let (first, left): (VectorWfst<L, W>, _) =
+        import_native_wfst_with_budget_and_stats(first, &mut budget)?;
+    let (second, right): (VectorWfst<L, W>, _) =
+        import_native_wfst_with_budget_and_stats(second, &mut budget)?;
+    let input_states = left
+        .states
+        .checked_add(right.states)
+        .ok_or(BindingError::BudgetExceeded("states"))?;
+    let input_arcs = left
+        .arcs
+        .checked_add(right.arcs)
+        .ok_or(BindingError::BudgetExceeded("arcs"))?;
+    let (output_states, output_arcs) = match operation {
+        RationalBinaryOperation::Union => (
+            input_states
+                .checked_add(1)
+                .ok_or(BindingError::BudgetExceeded("states"))?,
+            input_arcs
+                .checked_add(2)
+                .ok_or(BindingError::BudgetExceeded("arcs"))?,
+        ),
+        RationalBinaryOperation::Concat => (
+            input_states,
+            input_arcs
+                .checked_add(left.finals)
+                .ok_or(BindingError::BudgetExceeded("arcs"))?,
+        ),
+    };
+    if output_states > u64::from(NO_STATE) {
+        return Err(BindingError::RepresentationLimit);
+    }
+    budget.charge_output::<L, W>(output_states, output_arcs)?;
+    match operation {
+        RationalBinaryOperation::Union => {
+            export_native_lazy_wfst(UnionSource::<L, W, _, _>::new(first, second))
+        }
+        RationalBinaryOperation::Concat => {
+            export_native_lazy_wfst(ConcatSource::<L, W, _, _>::new(first, second))
+        }
+    }
+}
+
+fn rational_unary_typed<L: AbiScalarLabel, W: AbiScalarWeight>(
+    resource: VtResource,
+    mut budget: GraphBudget,
+    operation: RationalUnaryOperation,
+) -> Result<OwnedWfstResource, BindingError> {
+    let (graph, stats): (VectorWfst<L, W>, _) =
+        import_native_wfst_with_budget_and_stats(resource, &mut budget)?;
+    let (output_states, output_arcs) = match operation {
+        RationalUnaryOperation::Closure => (
+            stats
+                .states
+                .checked_add(1)
+                .ok_or(BindingError::BudgetExceeded("states"))?,
+            stats
+                .arcs
+                .checked_add(stats.finals)
+                .and_then(|arcs| arcs.checked_add(1))
+                .ok_or(BindingError::BudgetExceeded("arcs"))?,
+        ),
+        RationalUnaryOperation::ClosurePlus => (
+            stats.states,
+            stats
+                .arcs
+                .checked_add(stats.finals)
+                .ok_or(BindingError::BudgetExceeded("arcs"))?,
+        ),
+    };
+    if output_states > u64::from(NO_STATE) {
+        return Err(BindingError::RepresentationLimit);
+    }
+    budget.charge_output::<L, W>(output_states, output_arcs)?;
+    match operation {
+        RationalUnaryOperation::Closure => {
+            export_native_lazy_wfst(ClosureSource::<L, W, _>::new(graph))
+        }
+        RationalUnaryOperation::ClosurePlus => {
+            export_native_lazy_wfst(ClosurePlusSource::<L, W, _>::new(graph))
+        }
+    }
+}
+
+fn rational_binary_dispatch(
+    first: VtResource,
+    second: VtResource,
+    budget: GraphBudget,
+    operation: RationalBinaryOperation,
+) -> Result<OwnedWfstResource, BindingError> {
+    let (unit, weight) = wfst_domains(first)?;
+    let (other_unit, other_weight) = wfst_domains(second)?;
+    if other_unit != unit {
+        return Err(BindingError::UnitDomainMismatch(other_unit));
+    }
+    if other_weight != weight {
+        return Err(BindingError::WeightDomainMismatch(other_weight));
+    }
+    dispatch_scalar_domains!(
+        unit,
+        weight,
+        rational_binary_typed,
+        first,
+        second,
+        budget,
+        operation
+    )
+}
+
+fn rational_unary_dispatch(
+    resource: VtResource,
+    budget: GraphBudget,
+    operation: RationalUnaryOperation,
+) -> Result<OwnedWfstResource, BindingError> {
+    let (unit, weight) = wfst_domains(resource)?;
+    dispatch_scalar_domains!(
+        unit,
+        weight,
+        rational_unary_typed,
+        resource,
+        budget,
+        operation
+    )
+}
+
+fn rational_binary_wfst(
+    first: VtResource,
+    second: VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+    operation: RationalBinaryOperation,
+) -> LlingLlangStatus {
+    boundary(|| {
+        let output = required_mut(out_wfst, "out_wfst")?;
+        let budget = graph_budget_from_v2(budget)?;
+        let resource =
+            rational_binary_dispatch(first, second, budget, operation).map_err(map_error)?;
+        *output = Box::into_raw(Box::new(LlingWfst { resource }));
+        Ok(())
+    })
+}
+
+fn rational_unary_wfst(
+    resource: VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+    operation: RationalUnaryOperation,
+) -> LlingLlangStatus {
+    boundary(|| {
+        let output = required_mut(out_wfst, "out_wfst")?;
+        let budget = graph_budget_from_v2(budget)?;
+        let resource = rational_unary_dispatch(resource, budget, operation).map_err(map_error)?;
+        *output = Box::into_raw(Box::new(LlingWfst { resource }));
+        Ok(())
+    })
+}
+
+/// Lazily accept either borrowed scalar WFST, with a shared cumulative budget.
+#[no_mangle]
+pub extern "C" fn lling_wfst_union(
+    first: VtResource,
+    second: VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    rational_binary_wfst(
+        first,
+        second,
+        budget,
+        out_wfst,
+        RationalBinaryOperation::Union,
+    )
+}
+
+/// Lazily accept the first borrowed WFST followed by the second.
+#[no_mangle]
+pub extern "C" fn lling_wfst_concat(
+    first: VtResource,
+    second: VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    rational_binary_wfst(
+        first,
+        second,
+        budget,
+        out_wfst,
+        RationalBinaryOperation::Concat,
+    )
+}
+
+/// Lazily accept zero or more repetitions of a borrowed scalar WFST.
+#[no_mangle]
+pub extern "C" fn lling_wfst_closure(
+    resource: VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    rational_unary_wfst(resource, budget, out_wfst, RationalUnaryOperation::Closure)
+}
+
+/// Lazily accept one or more repetitions of a borrowed scalar WFST.
+#[no_mangle]
+pub extern "C" fn lling_wfst_closure_plus(
+    resource: VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    rational_unary_wfst(
+        resource,
+        budget,
+        out_wfst,
+        RationalUnaryOperation::ClosurePlus,
+    )
+}
+
+fn rational_binary_wfst_refs(
+    first: *const VtResource,
+    second: *const VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+    operation: RationalBinaryOperation,
+) -> LlingLlangStatus {
+    if first.is_null() {
+        set_error("first resource is null");
+        return LlingLlangStatus::NullPointer;
+    }
+    if second.is_null() {
+        set_error("second resource is null");
+        return LlingLlangStatus::NullPointer;
+    }
+    rational_binary_wfst(
+        unsafe { *first },
+        unsafe { *second },
+        budget,
+        out_wfst,
+        operation,
+    )
+}
+
+fn rational_unary_wfst_ref(
+    resource: *const VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+    operation: RationalUnaryOperation,
+) -> LlingLlangStatus {
+    if resource.is_null() {
+        set_error("resource is null");
+        return LlingLlangStatus::NullPointer;
+    }
+    rational_unary_wfst(unsafe { *resource }, budget, out_wfst, operation)
+}
+
+/// Pointer-form union for FFIs unable to pass C aggregates by value.
+///
+/// # Safety
+/// Each resource pointer must be null or readable for the duration of the call.
+#[no_mangle]
+pub unsafe extern "C" fn lling_wfst_union_refs(
+    first: *const VtResource,
+    second: *const VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    rational_binary_wfst_refs(
+        first,
+        second,
+        budget,
+        out_wfst,
+        RationalBinaryOperation::Union,
+    )
+}
+
+/// Pointer-form concatenation for FFIs unable to pass C aggregates by value.
+///
+/// # Safety
+/// Each resource pointer must be null or readable for the duration of the call.
+#[no_mangle]
+pub unsafe extern "C" fn lling_wfst_concat_refs(
+    first: *const VtResource,
+    second: *const VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    rational_binary_wfst_refs(
+        first,
+        second,
+        budget,
+        out_wfst,
+        RationalBinaryOperation::Concat,
+    )
+}
+
+/// Pointer-form closure for FFIs unable to pass C aggregates by value.
+///
+/// # Safety
+/// `resource` must be null or readable for the duration of the call.
+#[no_mangle]
+pub unsafe extern "C" fn lling_wfst_closure_ref(
+    resource: *const VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    rational_unary_wfst_ref(resource, budget, out_wfst, RationalUnaryOperation::Closure)
+}
+
+/// Pointer-form Kleene plus for FFIs unable to pass C aggregates by value.
+///
+/// # Safety
+/// `resource` must be null or readable for the duration of the call.
+#[no_mangle]
+pub unsafe extern "C" fn lling_wfst_closure_plus_ref(
+    resource: *const VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    rational_unary_wfst_ref(
+        resource,
+        budget,
+        out_wfst,
+        RationalUnaryOperation::ClosurePlus,
+    )
 }
 
 /// Return a new owned resource retain for a WFST handle.
@@ -1550,7 +1886,7 @@ mod tests {
     use crate::bindings::import_native_wfst;
     use crate::bindings::ScalarStateData;
     use crate::semiring::Semiring;
-    use crate::wfst::{MutableWfst, WeightedTransition, WfstState};
+    use crate::wfst::{MutableWfst, WeightedTransition, Wfst, WfstState};
     #[test]
     fn provider_limit_and_closed_statuses_keep_their_direct_abi_meaning() {
         assert_eq!(
@@ -1583,6 +1919,16 @@ mod tests {
                 ..Default::default()
             },
             ..Default::default()
+        }
+    }
+
+    fn set_budget_axis(budget: &mut LlingBudgetV2, flag: u64, value: u64) {
+        match flag {
+            LLING_BUDGET_STATES => budget.max_states = value,
+            LLING_BUDGET_ARCS => budget.max_arcs = value,
+            LLING_BUDGET_BYTES => budget.max_bytes = value,
+            LLING_BUDGET_WORK => budget.max_work = value,
+            _ => unreachable!(),
         }
     }
 
@@ -1794,6 +2140,228 @@ mod tests {
             lling_wfst_reverse(resource.as_raw(), &canonical_budget(), ptr::null_mut()),
             LlingLlangStatus::NullPointer
         );
+    }
+
+    fn rational_matrix_case<L: AbiScalarLabel, W: AbiScalarWeight>() {
+        let mut graph = VectorWfst::<L, W>::new();
+        let first = graph.add_state();
+        let final_state = graph.add_state();
+        graph.set_start(first);
+        graph.set_final(final_state, W::one());
+        graph
+            .try_add_transition(WeightedTransition::new(
+                first,
+                Some(L::decode(97).unwrap()),
+                Some(L::decode(98).unwrap()),
+                final_state,
+                W::one(),
+            ))
+            .unwrap();
+        let resource = export_native_wfst(&graph).unwrap();
+        let budget = canonical_budget();
+
+        let mut handle = ptr::null_mut();
+        assert_eq!(
+            lling_wfst_union(resource.as_raw(), resource.as_raw(), &budget, &mut handle),
+            LlingLlangStatus::Ok,
+        );
+        let actual: VectorWfst<L, W> = unary_result(handle);
+        let native =
+            export_native_lazy_wfst(UnionSource::<L, W, _, _>::new(graph.clone(), graph.clone()))
+                .unwrap();
+        let expected: VectorWfst<L, W> = import_native_wfst(native.as_raw()).unwrap();
+        assert_same_graph(&actual, &expected);
+        assert_eq!(actual.num_states(), 5);
+
+        handle = ptr::null_mut();
+        assert_eq!(
+            unsafe {
+                lling_wfst_concat_refs(&resource.as_raw(), &resource.as_raw(), &budget, &mut handle)
+            },
+            LlingLlangStatus::Ok,
+        );
+        let actual: VectorWfst<L, W> = unary_result(handle);
+        let native = export_native_lazy_wfst(ConcatSource::<L, W, _, _>::new(
+            graph.clone(),
+            graph.clone(),
+        ))
+        .unwrap();
+        let expected: VectorWfst<L, W> = import_native_wfst(native.as_raw()).unwrap();
+        assert_same_graph(&actual, &expected);
+        assert_eq!(actual.num_states(), 4);
+
+        handle = ptr::null_mut();
+        assert_eq!(
+            lling_wfst_closure(resource.as_raw(), &budget, &mut handle),
+            LlingLlangStatus::Ok,
+        );
+        let actual: VectorWfst<L, W> = unary_result(handle);
+        let native = export_native_lazy_wfst(ClosureSource::<L, W, _>::new(graph.clone())).unwrap();
+        let expected: VectorWfst<L, W> = import_native_wfst(native.as_raw()).unwrap();
+        assert_same_graph(&actual, &expected);
+        assert!(actual.is_final(actual.start()));
+
+        handle = ptr::null_mut();
+        assert_eq!(
+            unsafe { lling_wfst_closure_plus_ref(&resource.as_raw(), &budget, &mut handle) },
+            LlingLlangStatus::Ok,
+        );
+        let actual: VectorWfst<L, W> = unary_result(handle);
+        let native = export_native_lazy_wfst(ClosurePlusSource::<L, W, _>::new(graph)).unwrap();
+        let expected: VectorWfst<L, W> = import_native_wfst(native.as_raw()).unwrap();
+        assert_same_graph(&actual, &expected);
+        assert_eq!(actual.num_states(), 2);
+        assert!(!actual.is_final(actual.start()));
+        assert!(actual.transitions(1).iter().any(|arc| {
+            arc.input.is_none() && arc.output.is_none() && arc.to == actual.start()
+        }));
+    }
+
+    #[test]
+    fn rational_c_dispatch_matches_native_sources_across_every_scalar_domain() {
+        macro_rules! all_weights {
+            ($label:ty) => {
+                rational_matrix_case::<$label, TropicalWeight>();
+                rational_matrix_case::<$label, LogWeight>();
+                rational_matrix_case::<$label, ProbabilityWeight>();
+                rational_matrix_case::<$label, ArcticWeight>();
+                rational_matrix_case::<$label, SignedTropicalWeight>();
+                rational_matrix_case::<$label, CountWeight>();
+                rational_matrix_case::<$label, BoolWeight>();
+            };
+        }
+        all_weights!(u8);
+        all_weights!(char);
+        all_weights!(u64);
+    }
+
+    #[test]
+    fn rational_c_budget_domain_and_failure_atomicity_are_exact() {
+        let mut graph = VectorWfst::<char, TropicalWeight>::new();
+        let start = graph.add_state();
+        let final_state = graph.add_state();
+        graph.set_start(start);
+        graph.set_final(final_state, TropicalWeight::one());
+        graph
+            .try_add_transition(WeightedTransition::new(
+                start,
+                Some('a'),
+                Some('b'),
+                final_state,
+                TropicalWeight::one(),
+            ))
+            .unwrap();
+        let resource = export_native_wfst(&graph).unwrap();
+        let sentinel = ptr::dangling_mut::<LlingWfst>();
+        let mut output = sentinel;
+
+        let state_bytes = (std::mem::size_of::<WfstState<char, TropicalWeight>>()
+            + std::mem::size_of::<ScalarStateData>()) as u64;
+        let arc_bytes = (std::mem::size_of::<VtWfstArc>()
+            + std::mem::size_of::<WeightedTransition<char, TropicalWeight>>())
+            as u64;
+        for (flag, below, exact) in [
+            (LLING_BUDGET_STATES, 8, 9),
+            (LLING_BUDGET_ARCS, 5, 6),
+            (
+                LLING_BUDGET_BYTES,
+                9 * state_bytes + 6 * arc_bytes - 1,
+                9 * state_bytes + 6 * arc_bytes,
+            ),
+            (LLING_BUDGET_WORK, 14, 15),
+        ] {
+            let mut budget = canonical_budget();
+            budget.header.flags = flag;
+            set_budget_axis(&mut budget, flag, below);
+            assert_eq!(
+                lling_wfst_union(resource.as_raw(), resource.as_raw(), &budget, &mut output),
+                LlingLlangStatus::LimitExceeded
+            );
+            assert_eq!(output, sentinel);
+            set_budget_axis(&mut budget, flag, exact);
+            assert_eq!(
+                lling_wfst_union(resource.as_raw(), resource.as_raw(), &budget, &mut output),
+                LlingLlangStatus::Ok
+            );
+            let _: VectorWfst<char, TropicalWeight> = unary_result(output);
+            output = sentinel;
+        }
+
+        let mut bad_budget = canonical_budget();
+        bad_budget.header.flags = LLING_BUDGET_STATES;
+        assert_eq!(
+            lling_wfst_concat(
+                resource.as_raw(),
+                resource.as_raw(),
+                &bad_budget,
+                &mut output
+            ),
+            LlingLlangStatus::InvalidArgument
+        );
+        assert_eq!(output, sentinel);
+        let mut byte_graph = VectorWfst::<u8, TropicalWeight>::new();
+        let byte_start = byte_graph.add_state();
+        byte_graph.set_start(byte_start);
+        byte_graph.set_final(byte_start, TropicalWeight::one());
+        let byte_resource = export_native_wfst(&byte_graph).unwrap();
+        assert_eq!(
+            lling_wfst_union(
+                resource.as_raw(),
+                byte_resource.as_raw(),
+                &canonical_budget(),
+                &mut output
+            ),
+            LlingLlangStatus::IncompatibleResource
+        );
+        assert_eq!(output, sentinel);
+        let mut bool_graph = VectorWfst::<char, BoolWeight>::new();
+        let bool_start = bool_graph.add_state();
+        bool_graph.set_start(bool_start);
+        bool_graph.set_final(bool_start, BoolWeight::one());
+        let bool_resource = export_native_wfst(&bool_graph).unwrap();
+        assert_eq!(
+            lling_wfst_concat(
+                resource.as_raw(),
+                bool_resource.as_raw(),
+                &canonical_budget(),
+                &mut output
+            ),
+            LlingLlangStatus::IncompatibleResource
+        );
+        assert_eq!(output, sentinel);
+        assert_eq!(
+            unsafe {
+                lling_wfst_union_refs(
+                    ptr::null(),
+                    &resource.as_raw(),
+                    &canonical_budget(),
+                    &mut output,
+                )
+            },
+            LlingLlangStatus::NullPointer
+        );
+        assert_eq!(output, sentinel);
+        assert_eq!(
+            lling_wfst_closure(resource.as_raw(), &canonical_budget(), ptr::null_mut()),
+            LlingLlangStatus::NullPointer
+        );
+
+        // Kleene plus must accept epsilon when its operand already does.
+        let mut epsilon = VectorWfst::<char, TropicalWeight>::new();
+        let only = epsilon.add_state();
+        epsilon.set_start(only);
+        epsilon.set_final(only, TropicalWeight::one());
+        let epsilon_resource = export_native_wfst(&epsilon).unwrap();
+        assert_eq!(
+            lling_wfst_closure_plus(epsilon_resource.as_raw(), &canonical_budget(), &mut output),
+            LlingLlangStatus::Ok
+        );
+        let result: VectorWfst<char, TropicalWeight> = unary_result(output);
+        assert!(result.is_final(result.start()));
+        assert!(result
+            .transitions(result.start())
+            .iter()
+            .any(|arc| arc.to == result.start()));
     }
 
     #[test]

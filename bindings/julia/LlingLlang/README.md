@@ -149,6 +149,20 @@ end
 reversed = reverse(graph;
     budget=BudgetV2(max_states=5, max_arcs=3, max_work=8))
 close(reversed)
+
+either = union(graph, graph;
+    budget=BudgetV2(max_states=9, max_arcs=6, max_work=15))
+@assert length(arcs(either, 0)) == 2
+close(either)
+
+twice = concat(graph, graph)
+close(twice)
+zero_or_more = closure(graph)
+@assert VTI.state_info(zero_or_more, VTI.start(zero_or_more)).final
+close(zero_or_more)
+one_or_more = closure_plus(graph)
+@assert !VTI.state_info(one_or_more, VTI.start(one_or_more)).final
+close(one_or_more)
 close(graph)
 ```
 
@@ -156,6 +170,13 @@ close(graph)
 allocations made by a custom provider. A rejected budget publishes no result
 and throws `NativeError` with `STATUS_LIMIT_EXCEEDED`. A default `BudgetV2()`
 has no active limits.
+
+`union` chooses either operand's paths; `concat` sequences them; `closure`
+and `closure_plus` repeat paths zero-or-more and one-or-more times. They
+import checked input snapshots before returning independently owned, lazy
+results. Binary operations require matching label/weight domains and matching
+Julia symbol tables on both tapes. Kleene-plus accepts an empty path if its
+input already does, because a required repetition may itself be empty.
 
 ### Implement a lazy Julia provider
 

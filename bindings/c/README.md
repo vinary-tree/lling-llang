@@ -73,6 +73,15 @@ Failures leave the output pointer untouched; successful handles belong to
 the caller. See the [C ABI reference](../../docs/api/c-abi-reference.md#budgeted-unary-transforms-api-revision-8)
 for exact state/arc/work accounting and a complete call example.
 
+API revision 9 adds `lling_wfst_union`, `lling_wfst_concat`,
+`lling_wfst_closure`, and `lling_wfst_closure_plus`, plus pointer forms.
+Both binary inputs must have identical unit and weight domains. Their
+reachable snapshots are imported during the call; output states remain lazy.
+Kleene-plus accepts empty input exactly when its operand does. The same
+canonical budget and failure-atomic ownership rules apply; see the
+[rational algebra contract](../../docs/api/c-abi-reference.md#rational-graph-algebra-api-revision-9)
+for the exact cumulative counts.
+
 `lling_lattice_open` borrows a live `VtResource` for the call and returns an
 independently retained `LlingLatticeValue`. Algebra operations return new
 owned handles. Free every result with `lling_lattice_free`; copying an opaque
@@ -156,7 +165,8 @@ Project ABI v1 remains current. API revision 5 added typed metadata carrying
 its own `LLING_ABI_V2 == 2` format version; revision 6 adds semiring domain and
 value diagnostics plus bounded addition and multiplication folds; revision 7
 adds generic scalar-WFST construction and domain-preserving import/composition;
-revision 8 adds budgeted projection and reversal.
+revision 8 adds budgeted projection and reversal; revision 9 adds budgeted
+union, concatenation, closure, and Kleene-plus.
 
 ## Maintainer workflow
 

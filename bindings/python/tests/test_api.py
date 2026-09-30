@@ -255,6 +255,41 @@ class ApiTests(unittest.TestCase):
                 lling.project_input(graph, budget=lling.Budget(max_states=3))
             self.assertEqual(failure.exception.status, lling.Status.LIMIT_EXCEEDED)
 
+    def test_union_concat_and_kleene_repetition_are_lazy_native_resources(self) -> None:
+        with lling.WfstBuilder(size_hint=2) as builder:
+            start = builder.add_state()
+            final = builder.add_state()
+            builder.set_start(start).set_final(final)
+            builder.add_arc(start, "a", "b", final, 0.5)
+            graph = builder.build()
+        with graph:
+            with lling.union(
+                graph, graph, budget=lling.Budget(max_states=9, max_arcs=6, max_work=15)
+            ) as either:
+                self.assertEqual(len(either.arcs(either.start)), 2)
+                self.assertTrue(
+                    all(arc.input_label is None for arc in either.arcs(either.start))
+                )
+            with lling.concat(graph, graph) as twice:
+                self.assertIsNone(twice.arcs(1)[0].input_label)
+            with lling.closure(graph) as repeated:
+                state = repeated.state_info(repeated.start)
+                assert state is not None
+                self.assertTrue(state.final)
+            with lling.closure_plus(graph) as repeated:
+                state = repeated.state_info(repeated.start)
+                assert state is not None
+                self.assertFalse(state.final)
+                self.assertTrue(
+                    any(
+                        arc.input_label is None and arc.target_state == repeated.start
+                        for arc in repeated.arcs(1)
+                    )
+                )
+            with self.assertRaises(lling.NativeError) as failure:
+                lling.union(graph, graph, budget=lling.Budget(max_states=8))
+            self.assertEqual(failure.exception.status, lling.Status.LIMIT_EXCEEDED)
+
     def test_host_lattice_is_retained_batched_and_law_checked(self) -> None:
         options = lling.LatticeOptions(lling.DomainId.ascii("test.maxmin.v1.."))
         providers = [

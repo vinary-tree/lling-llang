@@ -94,7 +94,7 @@ Cancellation (4)   new, request, reason, single-release free
 
 ```c
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 8u
+#define LLING_LLANG_API_REVISION 9u
 #define LLING_ABI_V2 2u
 
 LLING_LLANG_API uint32_t lling_abi_version(void);
@@ -193,6 +193,11 @@ API revision 8 adds budgeted input projection, output projection, and reversal
 for every supported scalar label and weight domain. Each has an aggregate-by-
 value entry point and a pointer-form twin for foreign runtimes. Existing
 signatures and project ABI version 1 remain unchanged.
+
+API revision 9 adds budgeted union, concatenation, Kleene closure, and
+Kleene-plus. The four native output constructions remain lazy, and the
+corresponding C functions preserve their label and semiring domains. This is
+another additive project-ABI-v1 change; no existing call signature changes.
 
 ### Common prefix and layouts
 
@@ -883,6 +888,73 @@ later provider failure from its resource vtable; a successful constructor
 means its imported snapshot and declared potential graph budget were checked,
 not that every projected state has been eagerly materialized.
 
+### Rational graph algebra (API revision 9)
+
+Union chooses a path from either input graph. Concatenation follows a complete
+path in the first graph with a path in the second; an epsilon arc from each
+first-graph final state carries that state's final weight into the second
+graph. Kleene closure accepts zero or more repetitions, so its new start is
+final. Kleene-plus accepts one or more repetitions; it **does** accept the
+empty word if the input already accepts the empty word. Its direct native
+source adds weighted epsilon arcs from input finals back to the original start
+without nesting one lazy graph inside another.
+
+```c
+LLING_LLANG_API LlingLlangStatus lling_wfst_union(
+    VtResource first, VtResource second, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_concat(
+    VtResource first, VtResource second, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_closure(
+    VtResource resource, const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_closure_plus(
+    VtResource resource, const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_union_refs(
+    const VtResource* first, const VtResource* second,
+    const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_concat_refs(
+    const VtResource* first, const VtResource* second,
+    const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_closure_ref(
+    const VtResource* resource, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_closure_plus_ref(
+    const VtResource* resource, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+```
+
+All four operations import checked reachable input snapshots during the call,
+then publish an independently owned, lazy output resource. Binary operands
+must declare the **same** unit and weight domains; all three unit domains and
+all seven built-in semirings are supported. The native import requires dense
+state identifiers, so **input capture is not lazy** even though output-state
+expansion is. Existing composition remains separately lazy at construction
+and retains its unchanged revision-1 signature. A canonical, non-null
+`LlingBudgetV2` covers both imported inputs (one for unary calls) and the
+complete potential output. On any error, `*out_wfst` is untouched and every
+temporary snapshot is released. The byte axis counts graph payload, not
+foreign-provider allocations or total process memory.
+
+For exact budget planning, let $`n_i`$, $`m_i`$, and $`f_i`$ denote reachable
+states, arcs, and finals in input $`i`$. A single-input operation uses
+$`n,m,f`$ instead. The table gives the cumulative state, arc, and abstract
+work counts, including input materialization and potential output expansion:
+
+| Operation | States | Arcs | Work |
+|---|---:|---:|---:|
+| Union | $`2(n_1+n_2)+1`$ | $`2(m_1+m_2)+2`$ | sum of state and arc columns |
+| Concatenation | $`2(n_1+n_2)`$ | $`2(m_1+m_2)+f_1`$ | sum of state and arc columns |
+| Closure | $`2n+1`$ | $`2m+f+1`$ | sum of state and arc columns |
+| Kleene-plus | $`2n`$ | $`2m+f`$ | sum of state and arc columns |
+
+For example, union of two independently captured two-state/one-arc graphs,
+each with one final state, fits exactly within 9 state units, 6 arc units, and
+15 work units. `max_bytes` additionally depends on native/scalar structure
+layouts and should not be treated as a portable RSS cap. Leave a dimension's
+flag inactive to disable that limit. A caller owns the result handle only on
+`OK`; free it with `lling_wfst_free` after use.
+
 ### `lling_wfst_resource`
 
 ```c
@@ -921,7 +993,7 @@ Arc weights cross the family ABI as IEEE-754 `double`; the vtable's
 `weight_domain` declares which semiring
 $`\langle K, \oplus, \otimes, \bar{0}, \bar{1} \rangle`$ that scalar denotes.
 lling-llang can **produce and consume** resources in all seven built-in
-domains through import, composition, and the revision-8 unary operations.
+domains through import, composition, and the revision-8/9 unary and rational operations.
 The definitions below match the
 normative family table in the
 [interop ABI reference](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md#71-vtweightdomain--seven-semirings-in-one-double)

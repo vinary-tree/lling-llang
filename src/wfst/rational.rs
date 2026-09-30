@@ -709,18 +709,99 @@ where
     LazyWfstWrapper::new(source)
 }
 
-/// Create a lazy Kleene plus ($`T^+`$) of a WFST.
+/// Lazy Kleene-plus ($`T^+`$) source over an owned WFST.
 ///
-/// Equivalent to $`T\otimes T^*`$; accepts one or more repetitions.
-///
-/// This is implemented as concatenation of T with closure of T.
-pub fn closure_plus<L, W, T>(fst: &T) -> ConcatWfst<L, W, T, ClosureWfst<L, W, T>>
+/// Every final state retains its final weight and gains one epsilon arc back
+/// to the original start, weighted by that final weight. This is equivalent
+/// to $`T\otimes T^*`$ without nesting a lazy WFST behind infallible `Wfst`
+/// accessors, and it preserves the original dense state IDs.
+#[derive(Clone)]
+pub struct ClosurePlusSource<L, W, T>
+where
+    W: Semiring,
+    T: Wfst<L, W>,
+{
+    fst: T,
+    n: usize,
+    _phantom: std::marker::PhantomData<(L, W)>,
+}
+
+impl<L, W, T> ClosurePlusSource<L, W, T>
 where
     W: Semiring,
     L: Clone + Send + Sync,
     T: Wfst<L, W>,
 {
-    concat(fst, &closure(fst))
+    /// Retain an owned input without traversing it.
+    pub fn new(fst: T) -> Self {
+        let n = fst.num_states();
+        Self {
+            fst,
+            n,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<L, W, T> StateSource<L, W> for ClosurePlusSource<L, W, T>
+where
+    W: Semiring,
+    L: Clone + Send + Sync,
+    T: Wfst<L, W>,
+{
+    fn compute_state(&self, request: ExpansionRequest<'_>) -> StateExpansion<L, W> {
+        let state = request.state();
+        if (state as usize) >= self.n || !self.fst.is_valid_state(state) {
+            return StateExpansion::failed(ExpansionFailure::invalid_state(state));
+        }
+        let is_final = self.fst.is_final(state);
+        let final_weight = self.fst.final_weight(state);
+        let mut transitions: SmallVec<[WeightedTransition<L, W>; 4]> = self
+            .fst
+            .transitions(state)
+            .iter()
+            .filter(|arc| (arc.to as usize) < self.n)
+            .cloned()
+            .collect();
+        if is_final {
+            let start = self.fst.start();
+            if (start as usize) < self.n && self.fst.is_valid_state(start) {
+                transitions.push(WeightedTransition::epsilon(state, start, final_weight));
+            }
+            StateExpansion::final_state(final_weight, transitions)
+        } else {
+            StateExpansion::non_final(transitions)
+        }
+    }
+
+    fn start(&self) -> StateId {
+        let start = self.fst.start();
+        if (start as usize) < self.n && self.fst.is_valid_state(start) {
+            start
+        } else {
+            NO_STATE
+        }
+    }
+
+    fn num_states_hint(&self) -> Option<usize> {
+        Some(self.n)
+    }
+}
+
+/// Type alias for a lazy Kleene-plus WFST.
+pub type ClosurePlusWfst<L, W, T> = LazyWfstWrapper<ClosurePlusSource<L, W, T>, L, W>;
+
+/// Create a lazy Kleene plus ($`T^+`$) of a WFST.
+///
+/// Equivalent to $`T\otimes T^*`$; accepts one or more repetitions. Unlike
+/// that nested construction, each state is computed directly from the input.
+pub fn closure_plus<L, W, T>(fst: &T) -> ClosurePlusWfst<L, W, T>
+where
+    W: Semiring,
+    L: Clone + Send + Sync,
+    T: Wfst<L, W>,
+{
+    LazyWfstWrapper::new(ClosurePlusSource::new(fst.clone()))
 }
 
 // =============================================================================
@@ -919,6 +1000,21 @@ mod tests {
 
         // Start should NOT be final (closure_plus doesn't accept empty)
         assert!(!kp.is_final(0));
+    }
+
+    #[test]
+    fn test_closure_plus_expands_second_repetition() {
+        let fst = make_single_arc_fst('a');
+        let mut plus = closure_plus(&fst);
+        plus.expand(0).unwrap();
+        plus.expand(1).unwrap();
+        // The old concat-of-lazy-closure representation routed this edge into
+        // an unexpanded nested WFST and panicked on the next traversal.
+        assert!(plus
+            .transitions_lazy(1)
+            .iter()
+            .any(|arc| arc.is_epsilon() && arc.to == 0));
+        assert_eq!(plus.transitions_lazy(0).len(), 1);
     }
 
     #[test]
@@ -1296,10 +1392,10 @@ mod tests {
                 prop_assert!(k.is_final(0), "Closure super-start should be final");
             }
 
-            /// Closure plus start is NEVER final because it's concat(fst, closure(fst))
-            /// and concat makes fst1 states non-final.
+            /// Kleene plus accepts the empty path exactly when its operand
+            /// already does; one repetition may itself consume no symbols.
             #[test]
-            fn closure_plus_start_not_final(
+            fn closure_plus_preserves_start_finality(
                 fst in arb_tropical_wfst(5, 2)
             ) {
                 if fst.num_states() == 0 || fst.start() == NO_STATE {
@@ -1307,14 +1403,11 @@ mod tests {
                 }
 
                 let mut kp = closure_plus(&fst);
-                kp.expand(0).unwrap();
-
-                // closure_plus = concat(fst, closure(fst))
-                // In concat, fst1 states are NEVER final (they have epsilon to fst2)
-                prop_assert!(
-                    !kp.is_final(0),
-                    "Closure+ start should never be final (concat makes fst1 non-final)"
-                );
+                let start = fst.start();
+                kp.expand(start).unwrap();
+                prop_assert_eq!(kp.num_states(), fst.num_states());
+                prop_assert_eq!(kp.is_final(start), fst.is_final(start));
+                prop_assert_eq!(kp.final_weight(start), fst.final_weight(start));
             }
 
             /// Union preserves final state count (sum of both FSTs' finals).

@@ -82,11 +82,15 @@ from ._control import (
 from ._wfst import (
     Wfst,
     WfstBuilder,
+    closure,
+    closure_plus,
     compose,
+    concat,
     import_wfst,
     project_input,
     project_output,
     reverse,
+    union,
 )
 
 __version__ = "4.0.0rc6"
@@ -147,13 +151,17 @@ __all__ = [
     "abi_version",
     "api_revision",
     "authoritative_exact",
+    "closure",
+    "closure_plus",
     "compose",
+    "concat",
     "identity_matches",
     "import_wfst",
     "project_input",
     "project_output",
     "reverse",
     "typed_evidence_allowed",
+    "union",
     "validate_budget",
     "validate_header",
     "validate_lattice_laws",

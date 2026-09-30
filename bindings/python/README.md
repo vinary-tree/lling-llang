@@ -72,7 +72,7 @@ The public surface is organized around five ownership-safe groups:
 
 | Group | Principal API | Purpose |
 |---|---|---|
-| Native WFST | `WfstBuilder`, `Wfst`, `import_wfst`, `compose`, `project_input`, `project_output`, `reverse` | Construct, import, compose, and transform weighted graphs |
+| Native WFST | `WfstBuilder`, `Wfst`, `import_wfst`, `compose`, `union`, `concat`, `closure`, `closure_plus`, `project_input`, `project_output`, `reverse` | Construct, import, combine, and transform weighted graphs |
 | Host WFST | `ScalarWfstSnapshot`, `ScalarWfstResource` | Let Python implement immutable custom automata |
 | Host lattice | `LatticeProvider`, `LatticeResource`, `LatticeValue` | Export Python join/meet values and consume them through native validation |
 | Host semiring | `SemiringProvider`, `SemiringResource`, `SemiringContext` | Export a Python weight algebra with negotiated optional capabilities |
@@ -112,12 +112,29 @@ with graph:
         graph, budget=lling.Budget(max_states=5, max_arcs=3, max_work=8)
     ) as reversed_graph:
         first_arc = reversed_graph.arcs(reversed_graph.start)[0]
+
+    with lling.union(
+        graph, graph, budget=lling.Budget(max_states=9, max_arcs=6, max_work=15)
+    ) as either:
+        assert len(either.arcs(either.start)) == 2
+
+    with lling.concat(graph, graph) as twice:
+        first_arc = twice.arcs(twice.start)[0]
+    with lling.closure(graph) as repeated_zero_or_more:
+        assert repeated_zero_or_more.state_info(repeated_zero_or_more.start).final
+    with lling.closure_plus(graph) as repeated_one_or_more:
+        assert not repeated_one_or_more.state_info(repeated_one_or_more.start).final
 ```
 
 `Budget.max_bytes` limits accounted graph payload, not process memory or
 allocations inside a custom provider. Leave it inactive when a portable
 state/arc/work bound is sufficient. A limit failure raises `NativeError` with
 `Status.LIMIT_EXCEEDED`; no result resource is published.
+Union chooses paths from either graph; concatenation sequences their paths;
+closure and Kleene-plus repeat paths zero-or-more or one-or-more times. All
+four import their reachable input snapshots during the call and expand the
+output lazily. Binary inputs must agree on both unit and weight domains.
+Kleene-plus accepts the empty word if its input already does.
 
 Generate the API reference directly from the typed package:
 
@@ -277,7 +294,7 @@ The Python distribution uses PEP 440 spelling `4.0.0rc6`; the coordinated
 Rust and source tag use SemVer spelling `4.0.0-rc.6`. The package requires
 the exact same Python release of `vinary-tree-interop`.
 
-At import, the facade requires native ABI version 1 and API revision 8 or
+At import, the facade requires native ABI version 1 and API revision 9 or
 newer. Structure sizes are checked before any object construction. Additive
 native revisions remain acceptable; an ABI-major mismatch fails import.
 

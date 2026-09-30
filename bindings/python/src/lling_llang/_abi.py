@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 8
+API_REVISION = 9
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -406,6 +406,56 @@ _bind(
 )
 _bind(
     "lling_wfst_reverse_ref",
+    [
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(Budget),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_wfst_union",
+    [VtResource, VtResource, ctypes.POINTER(Budget), ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_wfst_concat",
+    [VtResource, VtResource, ctypes.POINTER(Budget), ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_wfst_closure",
+    [VtResource, ctypes.POINTER(Budget), ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_wfst_closure_plus",
+    [VtResource, ctypes.POINTER(Budget), ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_wfst_union_refs",
+    [
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(Budget),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_wfst_concat_refs",
+    [
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(Budget),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_wfst_closure_ref",
+    [
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(Budget),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_wfst_closure_plus_ref",
     [
         ctypes.POINTER(VtResource),
         ctypes.POINTER(Budget),

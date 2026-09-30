@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 8u
+#define LLING_LLANG_API_REVISION 9u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -325,6 +325,31 @@ LLING_LLANG_API LlingLlangStatus lling_wfst_project_output_ref(
     const VtResource* resource, const LlingBudgetV2* budget,
     LlingWfst** out_wfst);
 LLING_LLANG_API LlingLlangStatus lling_wfst_reverse_ref(
+    const VtResource* resource, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+/* Rational operations use the same cumulative, graph-payload ABI-v2 budget
+ * contract as revision-8 unary transforms. Output states remain lazy.
+ * Binary inputs must have identical unit and weight domains. */
+LLING_LLANG_API LlingLlangStatus lling_wfst_union(
+    VtResource first, VtResource second, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_concat(
+    VtResource first, VtResource second, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_closure(
+    VtResource resource, const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_closure_plus(
+    VtResource resource, const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_union_refs(
+    const VtResource* first, const VtResource* second,
+    const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_concat_refs(
+    const VtResource* first, const VtResource* second,
+    const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_closure_ref(
+    const VtResource* resource, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_closure_plus_ref(
     const VtResource* resource, const LlingBudgetV2* budget,
     LlingWfst** out_wfst);
 /* On success, out_resource owns one retain. */

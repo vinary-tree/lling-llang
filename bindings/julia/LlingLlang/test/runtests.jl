@@ -133,6 +133,47 @@ end
     close(graph)
 end
 
+@testset "native rational WFST algebra and lazy repetition" begin
+    builder = WfstBuilder(size_hint=2)
+    first = add_state!(builder)
+    second = add_state!(builder)
+    set_start!(builder, first)
+    set_final!(builder, second, 0.0)
+    add_arc!(builder, first, 'a', 'b', second, 0.5)
+    graph = build!(builder)
+
+    either = union(graph, graph;
+        budget=BudgetV2(max_states=9, max_arcs=6, max_work=15))
+    @test length(arcs(either, 0)) == 2
+    @test all(arc -> isnothing(arc.input) && isnothing(arc.output), arcs(either, 0))
+    twice = concat(graph, graph)
+    @test length(arcs(twice, 1)) == 1
+    @test isnothing(only(arcs(twice, 1)).input)
+    zero_or_more = closure(graph)
+    @test VTI.state_info(zero_or_more, 0).final
+    one_or_more = closure_plus(graph)
+    @test !VTI.state_info(one_or_more, 0).final
+    @test any(arc -> isnothing(arc.input) && arc.target == 0, arcs(one_or_more, 1))
+    @test_throws NativeError union(graph, graph; budget=BudgetV2(max_states=8))
+
+    ref_handle = LlingLlang.rational_binary_wfst_call(:union, graph, graph,
+        BudgetV2(); pointer_form=true)
+    ref_union = LlingLlang.adopt_native_wfst(ref_handle, Char, TropicalWeight)
+    @test length(arcs(ref_union, 0)) == 2
+    close(ref_union)
+    ref_handle = LlingLlang.unary_wfst_call(:closure_plus, graph, BudgetV2();
+        pointer_form=true)
+    ref_plus = LlingLlang.adopt_native_wfst(ref_handle, Char, TropicalWeight)
+    @test any(arc -> isnothing(arc.input) && arc.target == 0, arcs(ref_plus, 1))
+    close(ref_plus)
+
+    close(one_or_more)
+    close(zero_or_more)
+    close(twice)
+    close(either)
+    close(graph)
+end
+
 @testset "all built-in scalar WFST domains" begin
     @test_throws ArgumentError TropicalWeight(-Inf)
     @test_throws ArgumentError LogWeight(NaN)

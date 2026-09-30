@@ -263,3 +263,60 @@ def reverse(
 ) -> Wfst:
     """Constructively reverse a WFST within an input-plus-output graph budget."""
     return _unary_wfst(source, budget, "reverse")
+
+
+def _binary_wfst(
+    first: NativeResource | VtResource,
+    second: NativeResource | VtResource,
+    budget: Budget | None,
+    operation: str,
+) -> Wfst:
+    first_raw = native_resource(first)
+    second_raw = native_resource(second)
+    limit = Budget() if budget is None else budget
+    output = ctypes.c_void_p()
+    function = getattr(lib, f"lling_wfst_{operation}_refs")
+    check(
+        function(
+            ctypes.byref(first_raw),
+            ctypes.byref(second_raw),
+            ctypes.byref(limit),
+            ctypes.byref(output),
+        ),
+        f"wfst_{operation}",
+    )
+    return _adopt_native_wfst(output)
+
+
+def union(
+    first: NativeResource | VtResource,
+    second: NativeResource | VtResource,
+    *,
+    budget: Budget | None = None,
+) -> Wfst:
+    """Lazily accept paths from either graph without changing their domains."""
+    return _binary_wfst(first, second, budget, "union")
+
+
+def concat(
+    first: NativeResource | VtResource,
+    second: NativeResource | VtResource,
+    *,
+    budget: Budget | None = None,
+) -> Wfst:
+    """Lazily accept paths from the first graph followed by the second."""
+    return _binary_wfst(first, second, budget, "concat")
+
+
+def closure(
+    source: NativeResource | VtResource, *, budget: Budget | None = None
+) -> Wfst:
+    """Lazily accept zero or more repetitions of a scalar WFST."""
+    return _unary_wfst(source, budget, "closure")
+
+
+def closure_plus(
+    source: NativeResource | VtResource, *, budget: Budget | None = None
+) -> Wfst:
+    """Lazily accept one or more repetitions of a scalar WFST."""
+    return _unary_wfst(source, budget, "closure_plus")

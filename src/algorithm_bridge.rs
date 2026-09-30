@@ -155,6 +155,16 @@ pub(crate) struct GraphBudget {
     used: [u64; 4],
 }
 
+/// Reachable native graph shape collected during the checked import pass.
+/// Reusing these counts avoids traversing an imported graph again merely to
+/// budget a downstream transform.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct NativeGraphStats {
+    pub(crate) states: u64,
+    pub(crate) arcs: u64,
+    pub(crate) finals: u64,
+}
+
 impl GraphBudget {
     pub(crate) fn new(
         max_states: Option<u64>,
@@ -490,6 +500,17 @@ where
     L: AbiScalarLabel,
     W: AbiScalarWeight,
 {
+    import_native_wfst_with_budget_and_stats(resource, budget).map(|(graph, _)| graph)
+}
+
+pub(crate) fn import_native_wfst_with_budget_and_stats<L, W>(
+    resource: VtResource,
+    budget: &mut GraphBudget,
+) -> Result<(VectorWfst<L, W>, NativeGraphStats), BindingError>
+where
+    L: AbiScalarLabel,
+    W: AbiScalarWeight,
+{
     let live = unsafe { discover_wfst(resource)? };
     let (unit_domain, weight_domain) = unsafe { ((*live).unit_domain, (*live).weight_domain) };
     if unit_domain != L::DOMAIN {
@@ -506,6 +527,11 @@ where
     graph.set_start(start);
     let mut ids = HashMap::from([(captured.start, start)]);
     let mut queue = VecDeque::from([captured.start]);
+    let mut stats = NativeGraphStats {
+        states: 0,
+        arcs: 0,
+        finals: 0,
+    };
 
     while let Some(raw_state) = queue.pop_front() {
         let local_state = ids[&raw_state];
@@ -523,6 +549,10 @@ where
             ));
         }
         if state.is_final {
+            stats.finals = stats
+                .finals
+                .checked_add(1)
+                .ok_or(BindingError::RepresentationLimit)?;
             // `MutableWfst::set_final` clears a semiring-zero final. The ABI
             // carries finality separately, so preserve it through state_mut.
             let final_state = graph
@@ -534,6 +564,10 @@ where
         }
         let arc_count =
             u64::try_from(state.arcs.len()).map_err(|_| BindingError::RepresentationLimit)?;
+        stats.arcs = stats
+            .arcs
+            .checked_add(arc_count)
+            .ok_or(BindingError::RepresentationLimit)?;
         let arc_bytes = arc_count
             .checked_mul(arc_payload_bytes::<L, W>())
             .ok_or(BindingError::RepresentationLimit)?;
@@ -580,7 +614,9 @@ where
                 .map_err(|_| BindingError::RepresentationLimit)?;
         }
     }
-    Ok(graph)
+    stats.states =
+        u64::try_from(graph.num_states()).map_err(|_| BindingError::RepresentationLimit)?;
+    Ok((graph, stats))
 }
 
 /// Export any native scalar WFST into a retained, immutable ABI resource.

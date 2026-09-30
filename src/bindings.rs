@@ -25,7 +25,7 @@ pub use algorithm_bridge::{
     export_native_lazy_wfst, export_native_lazy_wfst_with_cache, export_native_wfst,
     import_native_wfst, AbiScalarLabel, AbiScalarWeight,
 };
-pub(crate) use algorithm_bridge::{import_native_wfst_with_budget, GraphBudget};
+pub(crate) use algorithm_bridge::{import_native_wfst_with_budget_and_stats, GraphBudget};
 
 /// Binding failures raised while validating or traversing a foreign WFST.
 #[derive(Clone, Debug, PartialEq)]
