@@ -10,8 +10,10 @@
 //! an epsilon transition:
 //!
 //! - `None`: No epsilon in progress, both FSTs can advance
-//! - `Eps1`: FST1 output epsilon in progress, only FST2 can advance
-//! - `Eps2`: FST2 input epsilon in progress, only FST1 can advance
+//! - `Eps1`: FST1 output epsilon in progress; FST1 may continue, then FST2
+//!   may begin its epsilon run
+//! - `Eps2`: FST2 input epsilon in progress; FST2 may continue, but FST1
+//!   cannot resume until a non-epsilon match resets the filter
 //!
 //! # Example
 //!
@@ -98,7 +100,10 @@ impl EpsilonFilter {
             EpsilonFilterType::Sequencing => {
                 match state {
                     FilterState::None => (true, true, true),
-                    FilterState::Eps1 => (true, false, true), // FST1 eps or match
+                    // Canonical order between matches is all FST1 epsilons,
+                    // then all FST2 epsilons. Disallowing the handoff here
+                    // loses valid paths when both operands contain epsilons.
+                    FilterState::Eps1 => (true, true, true),
                     FilterState::Eps2 => (false, true, true), // FST2 eps or match
                 }
             }
@@ -226,7 +231,7 @@ mod tests {
 
         let (eps1, eps2, match_) = filter.allowed_moves(FilterState::Eps1);
         assert!(eps1); // FST1 can continue with epsilons
-        assert!(!eps2); // FST2 cannot start epsilon sequence
+        assert!(eps2); // FST2 may begin after the FST1 epsilon run
         assert!(match_); // Matching still allowed
     }
 
@@ -295,7 +300,7 @@ mod tests {
 
         // eps2 input
         assert!(filter.is_transition_allowed(FilterState::None, false, true, false));
-        assert!(!filter.is_transition_allowed(FilterState::Eps1, false, true, false));
+        assert!(filter.is_transition_allowed(FilterState::Eps1, false, true, false));
         assert!(filter.is_transition_allowed(FilterState::Eps2, false, true, false));
     }
 

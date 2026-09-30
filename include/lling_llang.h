@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 10u
+#define LLING_LLANG_API_REVISION 11u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -306,6 +306,17 @@ LLING_LLANG_API LlingLlangStatus lling_wfst_compose(
 LLING_LLANG_API LlingLlangStatus lling_wfst_compose_refs(
     const VtResource* first, const VtResource* second,
     LlingWfst** out_wfst);
+/* Weighted intersection is defined only for verified acceptors (identical
+ * input/output labels, including epsilon) of equal scalar/semiring domains.
+ * All four budget axes are required. The output owns an eager snapshot;
+ * failure leaves out_wfst untouched. Bounds are conservative graph/work
+ * reservations; byte units are retained native graph payload, not RSS. */
+LLING_LLANG_API LlingLlangStatus lling_wfst_acceptor_intersect(
+    VtResource first, VtResource second, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_acceptor_intersect_refs(
+    const VtResource* first, const VtResource* second,
+    const LlingBudgetV2* budget, LlingWfst** out_wfst);
 /* Unary operations borrow resource and require a canonical ABI-v2 budget.
  * Projection remains lazy; reversal is constructive. The budget covers input
  * plus the complete potential output graph. max_bytes accounts graph payload,

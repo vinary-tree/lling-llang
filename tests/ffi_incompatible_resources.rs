@@ -25,11 +25,12 @@
 mod support;
 
 use lling_llang::ffi::{
-    lling_last_error_message, lling_resource_release, lling_wfst_closure, lling_wfst_closure_plus,
-    lling_wfst_compose, lling_wfst_concat, lling_wfst_connect, lling_wfst_determinize,
-    lling_wfst_free, lling_wfst_import, lling_wfst_minimize, lling_wfst_project_input,
-    lling_wfst_project_output, lling_wfst_remove_epsilon, lling_wfst_resource, lling_wfst_reverse,
-    lling_wfst_union, LlingBudgetV2, LlingLlangStatus, LlingWfst, LLING_ABI_V2, LLING_BUDGET_ARCS,
+    lling_last_error_message, lling_resource_release, lling_wfst_acceptor_intersect,
+    lling_wfst_closure, lling_wfst_closure_plus, lling_wfst_compose, lling_wfst_concat,
+    lling_wfst_connect, lling_wfst_determinize, lling_wfst_free, lling_wfst_import,
+    lling_wfst_minimize, lling_wfst_project_input, lling_wfst_project_output,
+    lling_wfst_remove_epsilon, lling_wfst_resource, lling_wfst_reverse, lling_wfst_union,
+    LlingBudgetV2, LlingLlangStatus, LlingWfst, LLING_ABI_V2, LLING_BUDGET_ARCS,
     LLING_BUDGET_BYTES, LLING_BUDGET_STATES, LLING_BUDGET_WORK,
 };
 use std::ffi::CStr;
@@ -50,6 +51,78 @@ fn last_error() -> String {
 /// A well-formed one-arc tropical provider: `0 -a:x/1-> 1`, final(1)=0.
 fn clean_provider() -> TestWfst {
     TestWfst::tropical(chain_states(&[('a', 'x')], 1.0, 0.0), 0)
+}
+
+#[test]
+fn acceptor_intersection_validates_before_traversal_and_releases_snapshots() {
+    let first = TestWfst::tropical(chain_states(&[('a', 'a')], 2.0, 0.0), 0);
+    let second = TestWfst::tropical(chain_states(&[('a', 'a')], 3.0, 0.0), 0);
+    let first_metrics = first.metrics();
+    let second_metrics = second.metrics();
+    let mut budget = LlingBudgetV2::default();
+    budget.header.struct_size = std::mem::size_of::<LlingBudgetV2>() as u32;
+    budget.header.abi_version = LLING_ABI_V2;
+    budget.max_states = 1_000;
+    budget.max_arcs = 10_000;
+    budget.max_bytes = 10_000_000;
+    budget.max_work = 100_000;
+    let sentinel = ptr::dangling_mut::<LlingWfst>();
+    let mut output = sentinel;
+    assert_eq!(
+        lling_wfst_acceptor_intersect(first.as_raw(), second.as_raw(), &budget, &mut output),
+        LlingLlangStatus::InvalidArgument
+    );
+    assert_eq!(output, sentinel);
+    assert_eq!(first_metrics.snapshots(), 0);
+    assert_eq!(second_metrics.snapshots(), 0);
+    assert_eq!(first_metrics.state_info_calls(), 0);
+    assert_eq!(second_metrics.state_info_calls(), 0);
+
+    budget.header.flags =
+        LLING_BUDGET_STATES | LLING_BUDGET_ARCS | LLING_BUDGET_BYTES | LLING_BUDGET_WORK;
+    assert_eq!(
+        lling_wfst_acceptor_intersect(first.as_raw(), second.as_raw(), &budget, &mut output),
+        LlingLlangStatus::Ok,
+        "{}",
+        last_error()
+    );
+    assert_ne!(output, sentinel);
+    drop(first);
+    drop(second);
+    assert_eq!(first_metrics.balance(), 0);
+    assert_eq!(second_metrics.balance(), 0);
+    let mut result = VtResource::NULL;
+    assert_eq!(
+        unsafe { lling_wfst_resource(output, &mut result) },
+        LlingLlangStatus::Ok,
+        "the eager result must outlive both foreign inputs"
+    );
+    lling_resource_release(result);
+    unsafe { lling_wfst_free(output) };
+
+    let malformed = TestWfst::new(
+        chain_states(&[('a', 'a')], 1.0, 0.0),
+        0,
+        TestWfstConfig::default().with_misbehavior(Misbehavior::OvershootWritten),
+    );
+    let clean = TestWfst::tropical(chain_states(&[('a', 'a')], 1.0, 0.0), 0);
+    let malformed_metrics = malformed.metrics();
+    let clean_metrics = clean.metrics();
+    for (left, right) in [
+        (malformed.as_raw(), clean.as_raw()),
+        (clean.as_raw(), malformed.as_raw()),
+    ] {
+        output = sentinel;
+        assert_eq!(
+            lling_wfst_acceptor_intersect(left, right, &budget, &mut output),
+            LlingLlangStatus::ProviderError
+        );
+        assert_eq!(output, sentinel);
+    }
+    drop(malformed);
+    drop(clean);
+    assert_eq!(malformed_metrics.balance(), 0);
+    assert_eq!(clean_metrics.balance(), 0);
 }
 
 #[test]

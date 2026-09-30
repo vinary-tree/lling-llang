@@ -73,6 +73,7 @@ export ABI_VERSION,
     build!,
     import_wfst,
     compose,
+    acceptor_intersect,
     concat,
     closure,
     closure_plus,
@@ -924,6 +925,50 @@ end
 """Compose a typed lling-llang WFST with a raw VinaryTreeInterop WFST."""
 function compose(first::Wfst{L,W}, second::VTI.Wfst) where {L,W}
     compose(first, Wfst(second, L, W))
+end
+
+"""Weighted intersection of verified scalar acceptors under a required four-axis budget."""
+function acceptor_intersect(first::Wfst{L,W}, second::Wfst{L,W};
+    budget::BudgetV2, pointer_form::Bool=false) where {L,W}
+    for graph in (first, second)
+        if !isnothing(graph.input_symbols) && !isnothing(graph.output_symbols) &&
+            graph.input_symbols.symbols != graph.output_symbols.symbols
+            throw(ArgumentError("acceptor input/output symbol tables differ"))
+        end
+    end
+    if !isnothing(first.input_symbols) && !isnothing(second.input_symbols) &&
+        first.input_symbols.symbols != second.input_symbols.symbols
+        throw(ArgumentError("acceptor intersection symbol tables differ"))
+    end
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    first_raw, second_raw = raw_resource(first), raw_resource(second)
+    status = pointer_form ?
+        ccall(native(:lling_wfst_acceptor_intersect_refs), UInt32,
+            (Ref{VTI.VtResourceRaw}, Ref{VTI.VtResourceRaw}, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+            Ref(first_raw), Ref(second_raw), Ref(budget), output) :
+        ccall(native(:lling_wfst_acceptor_intersect), UInt32,
+            (VTI.VtResourceRaw, VTI.VtResourceRaw, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+            first_raw, second_raw, Ref(budget), output)
+    checked(status, :wfst_acceptor_intersect)
+    adopt_native_wfst(output[], L, W;
+        input_symbols=first.input_symbols,
+        output_symbols=first.output_symbols)
+end
+function acceptor_intersect(::Wfst{L1,W1}, ::Wfst{L2,W2};
+    budget::BudgetV2, pointer_form::Bool=false) where {L1,W1,L2,W2}
+    L1 == L2 || throw(ArgumentError("acceptor intersection requires equal label types"))
+    throw(ArgumentError("acceptor intersection requires equal weight types"))
+end
+function acceptor_intersect(first::VTI.Wfst, second::VTI.Wfst;
+    budget::BudgetV2, pointer_form::Bool=false)
+    first_unit, first_weight = VTI.unit_domain(first), VTI.weight_domain(first)
+    first_unit == VTI.unit_domain(second) || throw(ArgumentError(
+        "acceptor intersection requires equal label domains"))
+    first_weight == VTI.weight_domain(second) || throw(ArgumentError(
+        "acceptor intersection requires equal weight domains"))
+    acceptor_intersect(Wfst(first, label_type(first_unit), weight_type(first_weight)),
+        Wfst(second, label_type(first_unit), weight_type(first_weight));
+        budget=budget, pointer_form=pointer_form)
 end
 
 function unary_wfst_call(operation::Symbol, source::Wfst, budget::BudgetV2;

@@ -615,7 +615,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::semiring::TropicalWeight;
+    use crate::semiring::{CountWeight, TropicalWeight};
     use crate::wfst::{VectorWfst, VectorWfstBuilder};
 
     fn build_simple_fst() -> VectorWfst<char, TropicalWeight> {
@@ -673,6 +673,41 @@ mod tests {
         assert_eq!(paths[0].inputs, vec!['a']);
         assert_eq!(paths[0].outputs, vec!['b']);
         assert_eq!(paths[0].weight.value(), 1.5);
+    }
+
+    #[test]
+    fn sequencing_filter_keeps_one_weighted_pair_when_both_sides_have_epsilon() {
+        let first = VectorWfstBuilder::new()
+            .add_states(2)
+            .start(0)
+            .final_state(1, CountWeight::one())
+            .arc(0, None::<u8>, None, 1, CountWeight::new(2))
+            .build();
+        let second = VectorWfstBuilder::new()
+            .add_states(2)
+            .start(0)
+            .final_state(1, CountWeight::one())
+            .arc(0, None::<u8>, None, 1, CountWeight::new(3))
+            .build();
+        let mut canonical = compose(first.clone(), second.clone());
+        let paths: Vec<_> = canonical.accepting_paths().collect();
+        assert_eq!(
+            paths.len(),
+            1,
+            "one pair of operand paths has one interleaving"
+        );
+        assert!(paths[0].inputs.is_empty());
+        assert!(paths[0].outputs.is_empty());
+        assert_eq!(paths[0].weight, CountWeight::new(6));
+
+        // Negative control: without an epsilon filter, both left/right and
+        // right/left interleavings count the same pair twice.
+        let mut unfiltered = LazyComposition::with_filter(first, second, EpsilonFilterType::None);
+        let unfiltered_paths: Vec<_> = unfiltered.accepting_paths().collect();
+        assert_eq!(unfiltered_paths.len(), 2);
+        assert!(unfiltered_paths
+            .iter()
+            .all(|path| path.weight == CountWeight::new(6)));
     }
 
     #[test]

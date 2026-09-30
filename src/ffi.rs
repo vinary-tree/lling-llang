@@ -32,7 +32,7 @@ pub use lattice::*;
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_LLANG_API_REVISION: u32 = 10;
+pub const LLING_LLANG_API_REVISION: u32 = 11;
 
 /// Status returned by lling-llang C functions.
 #[repr(u32)]
@@ -1144,6 +1144,45 @@ macro_rules! dispatch_scalar_domains {
 
 mod transforms;
 use transforms::{materialize, materialize_ref, MaterializingTransform};
+mod set_operations;
+
+/// Intersect two verified weighted acceptors using native epsilon-filtered composition.
+///
+/// Both inputs must have equal scalar label and semiring domains, and every
+/// reachable arc must have equal input and output labels (including epsilon).
+/// All four budget flags are required. The result owns an eager snapshot;
+/// `out_wfst` is unchanged on failure.
+#[no_mangle]
+pub extern "C" fn lling_wfst_acceptor_intersect(
+    first: VtResource,
+    second: VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    set_operations::acceptor_intersect(first, second, budget, out_wfst)
+}
+
+/// Pointer-form weighted acceptor intersection.
+///
+/// # Safety
+/// `first` and `second` must be null or point to readable `VtResource` values.
+#[no_mangle]
+pub unsafe extern "C" fn lling_wfst_acceptor_intersect_refs(
+    first: *const VtResource,
+    second: *const VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    if first.is_null() {
+        set_error("first resource is null");
+        return LlingLlangStatus::NullPointer;
+    }
+    if second.is_null() {
+        set_error("second resource is null");
+        return LlingLlangStatus::NullPointer;
+    }
+    set_operations::acceptor_intersect(unsafe { *first }, unsafe { *second }, budget, out_wfst)
+}
 
 /// Materialize native weighted determinization of a scalar WFST.
 #[no_mangle]

@@ -228,6 +228,16 @@ def compose(
     return _adopt_native_wfst(output)
 
 
+def acceptor_intersect(
+    first: NativeResource | VtResource,
+    second: NativeResource | VtResource,
+    *,
+    budget: Budget,
+) -> Wfst:
+    """Intersect verified equal-domain weighted acceptors within four-axis limits."""
+    return _binary_wfst(first, second, budget, "acceptor_intersect")
+
+
 def _unary_wfst(
     source: NativeResource | VtResource,
     budget: Budget | None,

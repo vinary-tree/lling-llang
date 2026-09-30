@@ -124,6 +124,38 @@ class ProbabilitySemiring:
 
 
 class ApiTests(unittest.TestCase):
+    def test_acceptor_intersection_is_weighted_and_rejects_transducers(self) -> None:
+        def graph(label: str, output: str, weight: float) -> lling.Wfst:
+            with lling.WfstBuilder(size_hint=2) as builder:
+                start = builder.add_state()
+                final = builder.add_state()
+                builder.set_start(start).set_final(final)
+                builder.add_arc(start, label, output, final, weight)
+                return builder.build()
+
+        budget = lling.Budget(
+            max_states=1_000,
+            max_arcs=10_000,
+            max_bytes=10_000_000,
+            max_work=100_000,
+        )
+        with graph("a", "a", 2.0) as left, graph("a", "a", 3.0) as right:
+            with lling.acceptor_intersect(left, right, budget=budget) as result:
+                arc = result.arcs(result.start)[0]
+                self.assertEqual(
+                    (arc.input_label, arc.output_label), (ord("a"), ord("a"))
+                )
+                self.assertEqual(arc.weight, 5.0)
+            with graph("a", "b", 1.0) as transducer:
+                with self.assertRaises(lling.NativeError) as failure:
+                    lling.acceptor_intersect(left, transducer, budget=budget)
+                self.assertEqual(
+                    failure.exception.status, lling.Status.INVALID_ARGUMENT
+                )
+            with self.assertRaises(lling.NativeError) as failure:
+                lling.acceptor_intersect(left, right, budget=lling.Budget())
+            self.assertEqual(failure.exception.status, lling.Status.INVALID_ARGUMENT)
+
     def test_typed_abi_layouts_validation_and_cancellation(self) -> None:
         self.assertEqual(lling.abi_version(), lling.ABI_VERSION)
         self.assertGreaterEqual(lling.api_revision(), lling.API_REVISION)

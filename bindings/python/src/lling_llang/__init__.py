@@ -82,6 +82,7 @@ from ._control import (
 from ._wfst import (
     Wfst,
     WfstBuilder,
+    acceptor_intersect,
     closure,
     closure_plus,
     compose,
@@ -149,6 +150,7 @@ __all__ = [
     "WfstFlag",
     "__version__",
     "abi_version",
+    "acceptor_intersect",
     "api_revision",
     "authoritative_exact",
     "closure",

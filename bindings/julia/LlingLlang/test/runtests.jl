@@ -307,6 +307,33 @@ end
     close(graph)
 end
 
+@testset "weighted acceptor intersection checks domains and budgets" begin
+    left = scalar_chain(UInt8, TropicalWeight, UInt8('a'),
+        TropicalWeight(2), one(TropicalWeight))
+    right = scalar_chain(UInt8, TropicalWeight, UInt8('a'),
+        TropicalWeight(3), one(TropicalWeight))
+    budget = BudgetV2(max_states=1_000, max_arcs=10_000,
+        max_bytes=10_000_000, max_work=100_000)
+    for pointer_form in (false, true)
+        intersection = acceptor_intersect(left, right; budget, pointer_form)
+        @test only(arcs(intersection, VTI.start(intersection))).weight ==
+            TropicalWeight(5)
+        close(intersection)
+    end
+    transducer_builder = WfstBuilder{UInt8,TropicalWeight}(size_hint=2)
+    first, last = add_state!(transducer_builder), add_state!(transducer_builder)
+    set_start!(transducer_builder, first)
+    set_final!(transducer_builder, last, one(TropicalWeight))
+    add_arc!(transducer_builder, first, UInt8('a'), UInt8('b'), last,
+        one(TropicalWeight))
+    transducer = build!(transducer_builder)
+    @test_throws NativeError acceptor_intersect(left, transducer; budget)
+    @test_throws NativeError acceptor_intersect(left, right; budget=BudgetV2())
+    close(transducer)
+    close(left)
+    close(right)
+end
+
 @testset "symbol tables are dense, owned, and frozen with a graph" begin
     inputs = SymbolTable{UInt8}(["known"])
     outputs = SymbolTable{UInt8}()

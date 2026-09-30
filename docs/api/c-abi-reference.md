@@ -94,7 +94,7 @@ Cancellation (4)   new, request, reason, single-release free
 
 ```c
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 10u
+#define LLING_LLANG_API_REVISION 11u
 #define LLING_ABI_V2 2u
 
 LLING_LLANG_API uint32_t lling_abi_version(void);
@@ -202,6 +202,10 @@ another additive project-ABI-v1 change; no existing call signature changes.
 API revision 10 adds materializing determinization, minimization, epsilon
 removal, and connect/trim, each with a pointer-form twin. These are additive
 project-ABI-v1 entry points; revision-8/9 budget semantics are unchanged.
+
+API revision 11 adds domain-qualified weighted acceptor intersection and its
+pointer-form twin. It does not add generic WFST intersection, difference, or
+an ambiguously named Cartesian product.
 
 ### Common prefix and layouts
 
@@ -1036,6 +1040,62 @@ foreign provider fault. Null pointers return `NULL_POINTER`. On every failure,
 native algorithms have no cooperative cancellation hook, so revision 10 does
 not advertise a cancellation parameter.
 
+### Weighted acceptor intersection (API revision 11)
+
+```c
+LLING_LLANG_API LlingLlangStatus lling_wfst_acceptor_intersect(
+    VtResource first, VtResource second, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_acceptor_intersect_refs(
+    const VtResource* first, const VtResource* second,
+    const LlingBudgetV2* budget, LlingWfst** out_wfst);
+```
+
+Both operands must have the **same** scalar label domain and the same one of
+the seven built-in semirings. Every *reachable* input arc must have identical
+input/output labels, including presence: `a:a` and `ε:ε` are valid;
+`a:b`, `a:ε`, and `ε:a` are not. The checked imports capture the two provider
+snapshots, then the result materializes native epsilon-filtered composition
+of two independent immutable copies. Thus it computes weighted acceptor-series
+intersection: for each string, the two accepted weights combine with the
+declared semiring's multiplication. It does not compute language-set
+subtraction. Caller mutations or release of either original provider after
+success cannot change the result.
+
+The native epsilon filter uses one canonical interleaving between ordinary
+label matches: first all left-operand epsilon moves, then all right-operand
+epsilon moves. This preserves each pair of accepting paths exactly once,
+including non-idempotent Count and Probability weights. The ordering follows
+the sequencing-filter construction in the [OpenFst composition-filter
+paper](https://www.openfst.org/twiki/pub/FST/FstAdvancedUsage/ciaa10.pdf).
+All seven built-in scalar semirings have commutative multiplication; no claim
+is made here for arbitrary host-defined or noncommutative weight algebras.
+
+The budget must be a canonical non-null `LlingBudgetV2` with **all four** flags,
+validated before provider traversal. Let the checked input shapes be
+$`(n_1,a_1)`$ and $`(n_2,a_2)`$. The budget includes both imports, both
+independent exported copies, the composition cache, its checked materialized
+graph, and the independently exported result. Each output copy is bounded
+by $`3n_1n_2`$ states and
+$`3(a_1a_2+a_1n_2+a_2n_1)`$ arcs: composition has three epsilon-filter
+states; in each, there is at most one state per input-state pair, at most
+$`a_1a_2`$ matching-arc pairs, and at most $`a_1n_2+a_2n_1`$
+unilateral epsilon moves. A separate logical-work reservation of one visit
+per potential state and candidate transition covers the native match scans;
+each of three output charges reserves another visit per emitted state/arc. Overflow or
+any exceeded axis returns `LIMIT_EXCEEDED`. These are strict *logical graph*
+and source-level work reservations, intentionally conservative: a finite
+budget may reject feasible small output. `max_bytes` counts retained native
+graph payload, **not** temporary allocation, foreign-provider memory, or
+peak RSS. It is not a CPU-time or cancellation bound.
+
+Malformed or missing budgets and non-acceptor arcs return `INVALID_ARGUMENT`;
+unequal domains return `INCOMPATIBLE_RESOURCE`; foreign callback failures
+return `PROVIDER_ERROR`. Null pointers return `NULL_POINTER`. Every failure
+leaves `*out_wfst` unchanged and releases temporary snapshots. An unencodable
+native weight product is rejected before success, not deferred to traversal.
+Both symbols are additive: existing `compose` remains unrestricted and lazy.
+
 ### Neighboring operations and naming boundaries
 
 The revision-9 names refer to specific native scalar-WFST constructions,
@@ -1046,7 +1106,8 @@ contracts determine which public names are justified:
 |---|---|---|
 | `compose` | [`composition/fst_fst.rs`](../../src/composition/fst_fst.rs) matches the first graph's output tape against the second graph's input tape through an epsilon filter. | Already exported as `lling_wfst_compose`; its signature and lazy product-state behavior remain unchanged. It is neither concatenation nor general Cartesian product. |
 | `relabel` | [`wfst/unary.rs`](../../src/wfst/unary.rs) implements inversion and the two tape projections, but no arbitrary label-mapping source or vocabulary-domain policy. | Do not rename projection as relabeling. A relabeling ABI requires an independently specified native mapping operation, label-validation rules, and bounded callback/ownership contract. |
-| `intersection` / `difference` | [`symbolic/sfa.rs`](../../src/symbolic/sfa.rs) implements symbolic-language intersection; the scalar-WFST core has no corresponding general weighted intersection or difference operation. Difference is not defined uniformly across all seven semirings. | Do not alias composition to intersection, or invent a scalar-weight subtraction rule. A separate, domain-qualified native algorithm is required before exporting either name. |
+| `acceptor_intersect` | Native [`composition/fst_fst.rs`](../../src/composition/fst_fst.rs), restricted after complete checked acceptor validation. | Exposed as `lling_wfst_acceptor_intersect`; semiring multiplication is defined for all seven built-ins. It is not general transducer intersection. |
+| General `intersection` / `difference` | [`symbolic/sfa.rs`](../../src/symbolic/sfa.rs) implements symbolic-language intersection, not arbitrary scalar-transducer intersection. Weighted difference lacks a uniform complement/subtraction law across seven semirings. | No generic scalar-WFST aliases. Native work must first specify the exact domain, complement/residuation law, epsilon policy, and weighted meaning. |
 | `product` | The current C product-state construction is tape composition. [`wfst/rational.rs`](../../src/wfst/rational.rs) defines union and sequential concatenation instead. | Keep these distinct operations and names; expose another product variant only after its native transition/weight semantics and domain constraints are specified and tested. |
 
 The [WFST operations guide](../architecture/wfst-operations.md) explains the

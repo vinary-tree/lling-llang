@@ -23,10 +23,12 @@ pub(super) enum MaterializingTransform {
     Connect,
 }
 
-fn materializing_budget(budget: *const LlingBudgetV2) -> Result<GraphBudget, LlingLlangStatus> {
+pub(super) fn materializing_budget(
+    budget: *const LlingBudgetV2,
+) -> Result<GraphBudget, LlingLlangStatus> {
     let raw = read_v2_struct(budget, "budget", ALL_BUDGET_FLAGS)?;
     if !validate_budget_v2(&raw) || raw.header.flags != ALL_BUDGET_FLAGS {
-        set_error("materializing transforms require a canonical budget with all four limit flags");
+        set_error("bounded graph operations require a canonical budget with all four limit flags");
         return Err(LlingLlangStatus::InvalidArgument);
     }
     graph_budget_from_v2(budget)
@@ -455,7 +457,7 @@ mod tests {
             export_native_wfst(&graph::<ArcticWeight>()).unwrap(),
             export_native_wfst(&graph::<BoolWeight>()).unwrap(),
         ] {
-            let sentinel = 1usize as *mut LlingWfst;
+            let sentinel = ptr::dangling_mut::<LlingWfst>();
             let mut output = sentinel;
             assert_eq!(
                 lling_wfst_determinize(source.as_raw(), &b, &mut output),
@@ -478,7 +480,7 @@ mod tests {
     #[test]
     fn flags_limits_and_nulls_fail_atomically() {
         let source = export_native_wfst(&graph::<TropicalWeight>()).unwrap();
-        let sentinel = 1usize as *mut LlingWfst;
+        let sentinel = ptr::dangling_mut::<LlingWfst>();
         let mut output = sentinel;
         let mut b = budget();
         b.header.flags &= !LLING_BUDGET_WORK;
@@ -508,7 +510,7 @@ mod tests {
     #[test]
     fn work_reservation_is_exact_for_connect_and_epsilon_preflight_is_conservative() {
         let source = export_native_wfst(&graph::<TropicalWeight>()).unwrap();
-        let sentinel = 1usize as *mut LlingWfst;
+        let sentinel = ptr::dangling_mut::<LlingWfst>();
         let mut output = sentinel;
         let mut b = budget();
         // Import: 2 states + 1 arc = 3 work; source-derived connect
@@ -555,7 +557,7 @@ mod tests {
             weight: TropicalWeight::one(),
         });
         let source = export_native_wfst(&nondeterministic).unwrap();
-        let sentinel = 1usize as *mut LlingWfst;
+        let sentinel = ptr::dangling_mut::<LlingWfst>();
         let mut output = sentinel;
         assert_eq!(
             lling_wfst_minimize(source.as_raw(), &budget(), &mut output),

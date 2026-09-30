@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 10
+API_REVISION = 11
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -373,6 +373,19 @@ _bind(
     [
         ctypes.POINTER(VtResource),
         ctypes.POINTER(VtResource),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_wfst_acceptor_intersect",
+    [VtResource, VtResource, ctypes.POINTER(Budget), ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_wfst_acceptor_intersect_refs",
+    [
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(Budget),
         ctypes.POINTER(ctypes.c_void_p),
     ],
 )
