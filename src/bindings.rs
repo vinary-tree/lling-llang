@@ -8,7 +8,7 @@
 
 use crate::composition::{EpsilonFilter, FilterState};
 use crate::semiring::TropicalWeight;
-use crate::wfst::{MutableWfst, StateId, VectorWfst, Wfst, NO_STATE};
+use crate::wfst::{StateId, VectorWfst, Wfst, NO_STATE};
 use std::collections::{HashMap, VecDeque};
 use std::ffi::c_void;
 use std::fmt;
@@ -17,6 +17,12 @@ use vinary_tree_interop::{
     wfst_flags, VtInterfaceId, VtResource, VtResourceVTable, VtStatus, VtUnitDomain,
     VtWeightDomain, VtWfstArc, VtWfstVTable, VT_ABI_VERSION, VT_RECOMMENDED_ARC_BATCH,
     VT_WFST_INTERFACE_ID, VT_WFST_INTERFACE_VERSION,
+};
+
+#[path = "algorithm_bridge.rs"]
+mod algorithm_bridge;
+pub use algorithm_bridge::{
+    export_native_wfst, import_native_wfst, AbiScalarLabel, AbiScalarWeight,
 };
 
 /// Binding failures raised while validating or traversing a foreign WFST.
@@ -1409,165 +1415,21 @@ unsafe fn discover_wfst(resource: VtResource) -> Result<*const VtWfstVTable, Bin
     Ok(interface)
 }
 
-unsafe fn discover_tropical_wfst(
-    resource: VtResource,
-) -> Result<*const VtWfstVTable, BindingError> {
-    let table = discover_wfst(resource)?;
-    if (*table).unit_domain != VtUnitDomain::UnicodeScalar {
-        return Err(BindingError::UnitDomainMismatch((*table).unit_domain));
-    }
-    if (*table).weight_domain != VtWeightDomain::TropicalF64 {
-        return Err(BindingError::WeightDomainMismatch((*table).weight_domain));
-    }
-    Ok(table)
-}
-
 /// Capture and import a Unicode/tropical scalar-WFST resource.
 ///
-/// The traversal copies each reachable state and arc exactly once into lling-
-/// llang's compact eager representation. This is used at a cross-runtime
-/// composition boundary; native resource production itself is $`\mathcal{O}(1)`$.
+/// The generic native bridge checks the ABI domain before capture and visits
+/// each reachable state once. This retains the historic typed entry point
+/// while sharing its conversion and validation with every scalar specialization.
 pub fn import_tropical_wfst(
     resource: VtResource,
 ) -> Result<VectorWfst<char, TropicalWeight>, BindingError> {
-    unsafe {
-        let live = discover_tropical_wfst(resource)?;
-        let mut snapshot = VtResource::NULL;
-        check_status((*live).snapshot.unwrap()(resource.context, &mut snapshot))?;
-        if snapshot.is_null() {
-            return Err(BindingError::InvalidProviderOutput(
-                "snapshot returned null",
-            ));
-        }
-        let snapshot = RawOwnedResource(snapshot);
-        let table = discover_tropical_wfst(snapshot.0)?;
-        let mut raw_start = 0;
-        check_status((*table).start.unwrap()(snapshot.0.context, &mut raw_start))?;
-
-        let mut graph = VectorWfst::new();
-        let local_start = graph.add_state();
-        graph.set_start(local_start);
-        let mut ids = HashMap::from([(raw_start, local_start)]);
-        let mut queue = VecDeque::from([raw_start]);
-        let mut page = vec![VtWfstArc::default(); VT_RECOMMENDED_ARC_BATCH];
-
-        while let Some(raw_state) = queue.pop_front() {
-            let local_state = ids[&raw_state];
-            let mut valid = 0;
-            let mut is_final = 0;
-            let mut final_weight = f64::INFINITY;
-            check_status((*table).state_info.unwrap()(
-                snapshot.0.context,
-                raw_state,
-                &mut valid,
-                &mut is_final,
-                &mut final_weight,
-            ))?;
-            if valid != 1 || is_final > 1 || !TropicalWeight::is_valid_raw(final_weight) {
-                return Err(BindingError::InvalidProviderOutput(
-                    "invalid state_info fields",
-                ));
-            }
-            if is_final == 1 {
-                let state = graph
-                    .state_mut(local_state)
-                    .ok_or(BindingError::RepresentationLimit)?;
-                state.is_final = true;
-                state.final_weight = TropicalWeight::new(final_weight);
-            }
-
-            let mut offset = 0usize;
-            loop {
-                let mut written = 0usize;
-                let mut total = 0usize;
-                check_status((*table).state_arcs.unwrap()(
-                    snapshot.0.context,
-                    raw_state,
-                    offset,
-                    page.as_mut_ptr(),
-                    page.len(),
-                    &mut written,
-                    &mut total,
-                ))?;
-                // F3 harmonization: the same acceptance predicate `expand_state`
-                // runs (the ConsumerAcceptance `accepts_dec` law). The
-                // `offset + written > total` conjunct rejects an overshooting
-                // final page immediately, rather than one iteration late after
-                // buffering a page of extra arcs.
-                if written > page.len()
-                    || offset > total
-                    || offset.saturating_add(written) > total
-                    || (written == 0 && offset < total)
-                {
-                    return Err(BindingError::InvalidProviderOutput(
-                        "invalid arc page counts",
-                    ));
-                }
-                graph.reserve_transitions(local_state, written);
-                for arc in page.iter().take(written) {
-                    if arc.has_input > 1
-                        || arc.has_output > 1
-                        || arc.reserved != [0; 6]
-                        || !TropicalWeight::is_valid_raw(arc.weight)
-                    {
-                        return Err(BindingError::InvalidProviderOutput("invalid arc fields"));
-                    }
-                    let input = if arc.has_input == 0 {
-                        None
-                    } else {
-                        Some(
-                            char::from_u32(
-                                u32::try_from(arc.input_label)
-                                    .map_err(|_| BindingError::RepresentationLimit)?,
-                            )
-                            .ok_or(BindingError::RepresentationLimit)?,
-                        )
-                    };
-                    let output = if arc.has_output == 0 {
-                        None
-                    } else {
-                        Some(
-                            char::from_u32(
-                                u32::try_from(arc.output_label)
-                                    .map_err(|_| BindingError::RepresentationLimit)?,
-                            )
-                            .ok_or(BindingError::RepresentationLimit)?,
-                        )
-                    };
-                    let target = if let Some(target) = ids.get(&arc.target_state) {
-                        *target
-                    } else {
-                        if graph.num_states() >= StateId::MAX as usize {
-                            return Err(BindingError::RepresentationLimit);
-                        }
-                        let target = graph.add_state();
-                        ids.insert(arc.target_state, target);
-                        queue.push_back(arc.target_state);
-                        target
-                    };
-                    graph.add_arc(
-                        local_state,
-                        input,
-                        output,
-                        target,
-                        TropicalWeight::new(arc.weight),
-                    );
-                }
-                offset = offset
-                    .checked_add(written)
-                    .ok_or(BindingError::RepresentationLimit)?;
-                if offset == total {
-                    break;
-                }
-            }
-        }
-        Ok(graph)
-    }
+    import_native_wfst(resource)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::wfst::MutableWfst;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct FailedStateProvider(VtStatus);
