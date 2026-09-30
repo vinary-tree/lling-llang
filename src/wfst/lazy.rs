@@ -538,6 +538,46 @@ pub trait StateSource<L, W: Semiring>: Clone + Send + Sync {
     }
 }
 
+/// Compute one state of an immutable source without constructing or mutating a
+/// [`LazyWfstWrapper`]. This is intended for independent, parallel consumers
+/// that provide their own state cache and retry policy, such as a language ABI
+/// resource. The source snapshot is checked on both sides of the invocation;
+/// a changed source never yields a state from the wrong snapshot.
+pub(crate) fn compute_state_at_snapshot<S, L, W>(
+    source: &S,
+    expected: SourceSnapshot,
+    state: StateId,
+    attempt: u64,
+    cancellation: &CancellationToken,
+) -> Result<StateExpansion<L, W>, ExpansionError>
+where
+    S: StateSource<L, W>,
+    W: Semiring,
+{
+    let observed = source.snapshot();
+    if observed != expected {
+        return Err(ExpansionError::StaleSnapshot { expected, observed });
+    }
+    let outcome = source.compute_state(ExpansionRequest {
+        state,
+        snapshot: expected,
+        attempt,
+        cancellation,
+    });
+    let observed = source.snapshot();
+    if observed != expected {
+        return Err(ExpansionError::StaleSnapshot { expected, observed });
+    }
+    if let Some(reason) = cancellation.reason() {
+        return Err(ExpansionError::Cancelled(reason));
+    }
+    match outcome {
+        StateExpansion::Failed(failure) => Err(ExpansionError::Failure(failure)),
+        StateExpansion::Cancelled(reason) => Err(ExpansionError::Cancelled(reason)),
+        expanded => Ok(expanded),
+    }
+}
+
 /// Failure of a lifecycle operation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExpansionError {

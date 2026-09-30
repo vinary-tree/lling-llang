@@ -7,16 +7,24 @@
 //! mathematics in the FFI layer.
 
 use super::{
-    discover_wfst, valid_scalar_label, valid_scalar_weight, BindingError, CapturedWfst,
-    OwnedWfstResource, ScalarWfstGraph, MAX_EXACT_F64_INTEGER,
+    discover_wfst, scalar_zero, valid_scalar_label, valid_scalar_weight, BindingError,
+    CapturedWfst, OwnedWfstResource, ScalarWfstGraph, ScalarWfstProvider, ScalarWfstState,
+    MAX_EXACT_F64_INTEGER,
 };
 use crate::semiring::{
     ArcticWeight, BoolWeight, CountWeight, LogWeight, ProbabilityWeight, Semiring,
     SignedTropicalWeight, TropicalWeight,
 };
-use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition, Wfst, NO_STATE};
+use crate::wfst::{
+    compute_state_at_snapshot, CancellationToken, ExpansionError, ExpansionFailureKind,
+    MutableWfst, SharedCachePolicy, SourceSnapshot, StateExpansion, StateId, StateSource,
+    VectorWfst, WeightedTransition, Wfst, NO_STATE,
+};
 use std::collections::{HashMap, VecDeque};
-use vinary_tree_interop::{VtResource, VtUnitDomain, VtWeightDomain, VtWfstArc};
+use std::marker::PhantomData;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use vinary_tree_interop::{VtResource, VtStatus, VtUnitDomain, VtWeightDomain, VtWfstArc};
 
 /// A native label that can be represented exactly by the scalar WFST ABI.
 pub trait AbiScalarLabel: Clone + Send + Sync + 'static {
@@ -136,6 +144,232 @@ fn encode_weight<W: AbiScalarWeight>(weight: W) -> Result<f64, BindingError> {
     valid_scalar_weight(W::DOMAIN, value)
         .then_some(value)
         .ok_or(BindingError::RepresentationLimit)
+}
+
+fn encode_arc<L: AbiScalarLabel, W: AbiScalarWeight>(
+    state_count: Option<usize>,
+    source: StateId,
+    transition: &WeightedTransition<L, W>,
+) -> Result<VtWfstArc, BindingError> {
+    if transition.from != source
+        || transition.to == NO_STATE
+        || state_count.is_some_and(|count| transition.to as usize >= count)
+    {
+        return Err(BindingError::RepresentationLimit);
+    }
+    let weight = encode_weight(transition.weight)?;
+    let input_label = transition.input.as_ref().map_or(0, L::encode);
+    let output_label = transition.output.as_ref().map_or(0, L::encode);
+    if (transition.input.is_some() && !valid_scalar_label(L::DOMAIN, input_label))
+        || (transition.output.is_some() && !valid_scalar_label(L::DOMAIN, output_label))
+    {
+        return Err(BindingError::RepresentationLimit);
+    }
+    Ok(VtWfstArc {
+        input_label,
+        output_label,
+        target_state: u64::from(transition.to),
+        weight,
+        has_input: u8::from(transition.input.is_some()),
+        has_output: u8::from(transition.output.is_some()),
+        reserved: [0; 6],
+    })
+}
+
+struct NativeStateSourceProvider<L, W, S>
+where
+    L: AbiScalarLabel,
+    W: AbiScalarWeight,
+    S: StateSource<L, W>,
+{
+    source: S,
+    snapshot: SourceSnapshot,
+    states_hint: Option<usize>,
+    start: u64,
+    has_dead_start: bool,
+    attempts: AtomicU64,
+    _types: PhantomData<(L, W)>,
+}
+
+impl<L, W, S> NativeStateSourceProvider<L, W, S>
+where
+    L: AbiScalarLabel,
+    W: AbiScalarWeight,
+    S: StateSource<L, W>,
+{
+    fn new(source: S) -> Result<Self, BindingError> {
+        let states_hint = source.num_states_hint();
+        if states_hint.is_some_and(|count| count >= NO_STATE as usize) {
+            return Err(BindingError::RepresentationLimit);
+        }
+        let raw_start = source.start();
+        let has_dead_start = raw_start == NO_STATE;
+        if !has_dead_start && states_hint.is_some_and(|count| raw_start as usize >= count) {
+            return Err(BindingError::RepresentationLimit);
+        }
+        Ok(Self {
+            snapshot: source.snapshot(),
+            source,
+            states_hint,
+            start: u64::from(raw_start),
+            has_dead_start,
+            attempts: AtomicU64::new(0),
+            _types: PhantomData,
+        })
+    }
+
+    fn invalid_state() -> ScalarWfstState {
+        ScalarWfstState {
+            valid: false,
+            is_final: false,
+            final_weight: scalar_zero(W::DOMAIN),
+            arcs: Vec::new(),
+        }
+    }
+}
+
+impl<L, W, S> ScalarWfstProvider for NativeStateSourceProvider<L, W, S>
+where
+    L: AbiScalarLabel,
+    W: AbiScalarWeight,
+    S: StateSource<L, W> + 'static,
+{
+    fn unit_domain(&self) -> VtUnitDomain {
+        L::DOMAIN
+    }
+
+    fn weight_domain(&self) -> VtWeightDomain {
+        W::DOMAIN
+    }
+
+    fn start(&self) -> Result<u64, VtStatus> {
+        Ok(self.start)
+    }
+
+    fn num_states(&self) -> Result<Option<usize>, VtStatus> {
+        // StateSource offers an upper bound, not necessarily an exact count.
+        Ok(None)
+    }
+
+    fn state(&self, raw_state: u64) -> Result<ScalarWfstState, VtStatus> {
+        if self.has_dead_start && raw_state == u64::from(NO_STATE) {
+            return Ok(ScalarWfstState {
+                valid: true,
+                is_final: false,
+                final_weight: scalar_zero(W::DOMAIN),
+                arcs: Vec::new(),
+            });
+        }
+        let Ok(state) = StateId::try_from(raw_state) else {
+            return Ok(Self::invalid_state());
+        };
+        if state == NO_STATE
+            || self
+                .states_hint
+                .is_some_and(|count| state as usize >= count)
+        {
+            return Ok(Self::invalid_state());
+        }
+        let attempt = self
+            .attempts
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
+                Some(old.saturating_add(1))
+            })
+            .unwrap_or(u64::MAX)
+            .saturating_add(1);
+        let cancellation = CancellationToken::new();
+        let expansion = match compute_state_at_snapshot(
+            &self.source,
+            self.snapshot,
+            state,
+            attempt,
+            &cancellation,
+        ) {
+            Ok(StateExpansion::Expanded {
+                is_final,
+                final_weight,
+                transitions,
+            }) => (is_final, final_weight, transitions),
+            Err(ExpansionError::Failure(failure))
+                if failure.kind() == ExpansionFailureKind::InvalidState =>
+            {
+                return Ok(Self::invalid_state());
+            }
+            Err(ExpansionError::Failure(failure))
+                if failure.kind() == ExpansionFailureKind::ResourceExhausted =>
+            {
+                return Err(VtStatus::LimitExceeded);
+            }
+            Err(_) => return Err(VtStatus::ProviderError),
+            Ok(_) => return Err(VtStatus::ProviderError),
+        };
+        let (is_final, final_weight, transitions) = expansion;
+        let final_weight = if is_final {
+            encode_weight(final_weight).map_err(|_| VtStatus::LimitExceeded)?
+        } else {
+            scalar_zero(W::DOMAIN)
+        };
+        let arcs = transitions
+            .iter()
+            .map(|arc| {
+                encode_arc(self.states_hint, state, arc).map_err(|_| VtStatus::LimitExceeded)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ScalarWfstState {
+            valid: true,
+            is_final,
+            final_weight,
+            arcs,
+        })
+    }
+}
+
+/// Publish an immutable native state source without expanding any state.
+/// The default outer cache retains no state payloads; callers may opt into a
+/// bounded LRU through [`export_native_lazy_wfst_with_cache`]. Sources are
+/// evaluated independently and in parallel against one captured snapshot.
+///
+/// # Example
+///
+/// ```
+/// use lling_llang::bindings::{export_native_lazy_wfst, import_native_wfst};
+/// use lling_llang::semiring::BoolWeight;
+/// use lling_llang::wfst::{union, MutableWfst, VectorWfst, Wfst};
+///
+/// let mut operand = VectorWfst::<u8, BoolWeight>::new();
+/// let start = operand.add_state();
+/// operand.set_start(start);
+/// operand.set_final(start, BoolWeight::new(true));
+/// let resource = export_native_lazy_wfst(union(&operand, &operand).into_source())?;
+/// let restored: VectorWfst<u8, BoolWeight> = import_native_wfst(resource.as_raw())?;
+/// assert_eq!(restored.transitions(restored.start()).len(), 2);
+/// # Ok::<(), lling_llang::bindings::BindingError>(())
+/// ```
+pub fn export_native_lazy_wfst<L, W, S>(source: S) -> Result<OwnedWfstResource, BindingError>
+where
+    L: AbiScalarLabel,
+    W: AbiScalarWeight,
+    S: StateSource<L, W> + 'static,
+{
+    export_native_lazy_wfst_with_cache(source, SharedCachePolicy::NoCache)
+}
+
+/// Publish a native state source with an explicit outer cache-residency policy.
+/// The source's own cache, if any, remains independently configured.
+pub fn export_native_lazy_wfst_with_cache<L, W, S>(
+    source: S,
+    policy: SharedCachePolicy,
+) -> Result<OwnedWfstResource, BindingError>
+where
+    L: AbiScalarLabel,
+    W: AbiScalarWeight,
+    S: StateSource<L, W> + 'static,
+{
+    let provider = NativeStateSourceProvider::new(source)?;
+    Ok(OwnedWfstResource::from_provider_with_cache(
+        Arc::new(provider),
+        policy,
+    ))
 }
 
 /// Capture a scalar resource and convert its reachable states directly into a
@@ -278,26 +512,7 @@ where
             graph.set_final(state, weight);
         }
         for transition in fst.transitions(state) {
-            if transition.from != state || transition.to as usize >= state_count {
-                return Err(BindingError::RepresentationLimit);
-            }
-            let weight = encode_weight(transition.weight)?;
-            let input_label = transition.input.as_ref().map_or(0, L::encode);
-            let output_label = transition.output.as_ref().map_or(0, L::encode);
-            if (transition.input.is_some() && !valid_scalar_label(L::DOMAIN, input_label))
-                || (transition.output.is_some() && !valid_scalar_label(L::DOMAIN, output_label))
-            {
-                return Err(BindingError::RepresentationLimit);
-            }
-            let arc = VtWfstArc {
-                input_label,
-                output_label,
-                target_state: u64::from(transition.to),
-                weight,
-                has_input: u8::from(transition.input.is_some()),
-                has_output: u8::from(transition.output.is_some()),
-                reserved: [0; 6],
-            };
+            let arc = encode_arc(Some(state_count), state, transition)?;
             if !graph.add_arc(state, arc) {
                 return Err(BindingError::RepresentationLimit);
             }
@@ -309,7 +524,89 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::wfst::{ExpansionFailure, ExpansionRequest};
     use std::fmt::Debug;
+    use std::num::NonZeroUsize;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Clone)]
+    struct VectorStateSource<L: AbiScalarLabel, W: AbiScalarWeight> {
+        fst: VectorWfst<L, W>,
+    }
+
+    impl<L: AbiScalarLabel, W: AbiScalarWeight> StateSource<L, W> for VectorStateSource<L, W> {
+        fn compute_state(&self, request: ExpansionRequest<'_>) -> StateExpansion<L, W> {
+            let state = request.state();
+            if !self.fst.is_valid_state(state) {
+                return StateExpansion::failed(ExpansionFailure::invalid_state(state));
+            }
+            StateExpansion::Expanded {
+                is_final: self.fst.is_final(state),
+                final_weight: self.fst.final_weight(state),
+                transitions: self.fst.transitions(state).iter().cloned().collect(),
+            }
+        }
+
+        fn start(&self) -> StateId {
+            self.fst.start()
+        }
+
+        fn num_states_hint(&self) -> Option<usize> {
+            Some(self.fst.num_states())
+        }
+    }
+
+    #[derive(Clone)]
+    struct CountingSource {
+        inner: VectorStateSource<u8, BoolWeight>,
+        expansions: Arc<AtomicUsize>,
+    }
+
+    impl StateSource<u8, BoolWeight> for CountingSource {
+        fn compute_state(&self, request: ExpansionRequest<'_>) -> StateExpansion<u8, BoolWeight> {
+            self.expansions.fetch_add(1, Ordering::SeqCst);
+            self.inner.compute_state(request)
+        }
+
+        fn start(&self) -> StateId {
+            self.inner.start()
+        }
+
+        fn num_states_hint(&self) -> Option<usize> {
+            self.inner.num_states_hint()
+        }
+    }
+
+    #[derive(Clone)]
+    struct EpochSource {
+        inner: VectorStateSource<u8, BoolWeight>,
+        epoch: Arc<AtomicUsize>,
+        mutate_during_expansion: bool,
+    }
+
+    impl StateSource<u8, BoolWeight> for EpochSource {
+        fn compute_state(&self, request: ExpansionRequest<'_>) -> StateExpansion<u8, BoolWeight> {
+            let result = self.inner.compute_state(request);
+            if self.mutate_during_expansion {
+                self.epoch.fetch_add(1, Ordering::SeqCst);
+            }
+            result
+        }
+
+        fn snapshot(&self) -> SourceSnapshot {
+            let mut bytes = [0; 32];
+            bytes[..8].copy_from_slice(&(self.epoch.load(Ordering::SeqCst) as u64).to_le_bytes());
+            SourceSnapshot::from_bytes(bytes)
+        }
+
+        fn start(&self) -> StateId {
+            self.inner.start()
+        }
+
+        fn num_states_hint(&self) -> Option<usize> {
+            self.inner.num_states_hint()
+        }
+    }
 
     #[derive(Clone)]
     struct InvalidByteLabel;
@@ -341,17 +638,20 @@ mod tests {
         final_state.final_weight = W::zero();
         source.add_arc(start, None, Some(label), end, W::one());
 
-        let exported = export_native_wfst(&source).unwrap();
-        let restored: VectorWfst<L, W> = import_native_wfst(exported.as_raw()).unwrap();
-        assert_eq!(restored.num_states(), 2);
-        assert_eq!(restored.start(), start);
-        assert!(restored.is_final(end));
-        assert_eq!(restored.final_weight(end), W::zero());
-        let arc = &restored.transitions(start)[0];
-        assert_eq!(arc.input, None);
-        assert_eq!(arc.output, Some(label));
-        assert_eq!(arc.weight, W::one());
-        assert_eq!(arc.to, end);
+        let eager = export_native_wfst(&source).unwrap();
+        let lazy = export_native_lazy_wfst(VectorStateSource { fst: source }).unwrap();
+        for exported in [&eager, &lazy] {
+            let restored: VectorWfst<L, W> = import_native_wfst(exported.as_raw()).unwrap();
+            assert_eq!(restored.num_states(), 2);
+            assert_eq!(restored.start(), start);
+            assert!(restored.is_final(end));
+            assert_eq!(restored.final_weight(end), W::zero());
+            let arc = &restored.transitions(start)[0];
+            assert_eq!(arc.input, None);
+            assert_eq!(arc.output, Some(label));
+            assert_eq!(arc.weight, W::one());
+            assert_eq!(arc.to, end);
+        }
     }
 
     macro_rules! every_weight {
@@ -406,6 +706,11 @@ mod tests {
         assert_eq!(restored.num_states(), 1);
         assert!(!restored.is_final(restored.start()));
         assert!(restored.transitions(restored.start()).is_empty());
+
+        let lazy = export_native_lazy_wfst(VectorStateSource { fst: source }).unwrap();
+        let restored: VectorWfst<u8, BoolWeight> = import_native_wfst(lazy.as_raw()).unwrap();
+        assert_eq!(restored.num_states(), 1);
+        assert!(!restored.is_final(restored.start()));
     }
 
     #[test]
@@ -447,5 +752,156 @@ mod tests {
             export_native_wfst(&invalid_weight),
             Err(BindingError::RepresentationLimit)
         ));
+    }
+
+    #[test]
+    fn lazy_publication_does_not_expand_and_uses_configurable_bounded_residency() {
+        let mut fst = VectorWfst::<u8, BoolWeight>::new();
+        let first = fst.add_state();
+        let second = fst.add_state();
+        fst.set_start(first);
+        fst.set_final(second, BoolWeight::one());
+        fst.add_arc(first, Some(b'a'), None, second, BoolWeight::one());
+        let expansions = Arc::new(AtomicUsize::new(0));
+        let counting = CountingSource {
+            inner: VectorStateSource { fst },
+            expansions: Arc::clone(&expansions),
+        };
+        let policy = SharedCachePolicy::Lru {
+            capacity: NonZeroUsize::new(1).unwrap(),
+        };
+        let resource = export_native_lazy_wfst_with_cache(counting, policy).unwrap();
+        let control = resource.provider_cache().unwrap();
+        assert_eq!(control.policy(), policy);
+        assert_eq!(expansions.load(Ordering::SeqCst), 0);
+
+        let restored: VectorWfst<u8, BoolWeight> = import_native_wfst(resource.as_raw()).unwrap();
+        assert_eq!(restored.num_states(), 2);
+        assert_eq!(restored.transitions(restored.start()).len(), 1);
+        assert!(expansions.load(Ordering::SeqCst) > 0);
+        assert!(control.statistics().resident_states <= 1);
+    }
+
+    #[test]
+    fn lazy_invalid_result_fails_when_expanded_without_partial_publication() {
+        let mut source = VectorWfst::<u8, BoolWeight>::new();
+        let start = source.add_state();
+        source.set_start(start);
+        source.add_arc(start, Some(b'a'), None, 10, BoolWeight::one());
+        let resource = export_native_lazy_wfst(VectorStateSource { fst: source }).unwrap();
+        assert_eq!(
+            import_native_wfst::<u8, BoolWeight>(resource.as_raw()).unwrap_err(),
+            BindingError::Provider(VtStatus::LimitExceeded)
+        );
+    }
+
+    #[test]
+    fn native_rational_union_source_expands_through_the_scalar_resource() {
+        use crate::wfst::rational::union;
+
+        let mut left = VectorWfst::<u8, BoolWeight>::new();
+        let left_start = left.add_state();
+        let left_end = left.add_state();
+        left.set_start(left_start);
+        left.set_final(left_end, BoolWeight::one());
+        left.add_arc(left_start, Some(b'a'), None, left_end, BoolWeight::one());
+
+        let mut right = VectorWfst::<u8, BoolWeight>::new();
+        let right_start = right.add_state();
+        let right_end = right.add_state();
+        right.set_start(right_start);
+        right.set_final(right_end, BoolWeight::one());
+        right.add_arc(right_start, Some(b'b'), None, right_end, BoolWeight::one());
+
+        let source = union(&left, &right).into_source();
+        let resource = export_native_lazy_wfst(source).unwrap();
+        let native: VectorWfst<u8, BoolWeight> = import_native_wfst(resource.as_raw()).unwrap();
+        assert_eq!(native.num_states(), 5);
+        assert_eq!(native.transitions(native.start()).len(), 2);
+        let mut inputs: Vec<_> = (0..native.num_states() as StateId)
+            .flat_map(|state| native.transitions(state).iter().filter_map(|arc| arc.input))
+            .collect();
+        inputs.sort_unstable();
+        assert_eq!(inputs, [b'a', b'b']);
+        assert_eq!(native.final_states().count(), 2);
+    }
+
+    #[test]
+    fn changed_source_snapshot_cannot_publish_a_state() {
+        let mut fst = VectorWfst::<u8, BoolWeight>::new();
+        let start = fst.add_state();
+        fst.set_start(start);
+        fst.set_final(start, BoolWeight::one());
+        let epoch = Arc::new(AtomicUsize::new(0));
+        let source = EpochSource {
+            inner: VectorStateSource { fst },
+            epoch: Arc::clone(&epoch),
+            mutate_during_expansion: false,
+        };
+        let resource = export_native_lazy_wfst(source).unwrap();
+        epoch.store(1, Ordering::SeqCst);
+        assert_eq!(
+            import_native_wfst::<u8, BoolWeight>(resource.as_raw()).unwrap_err(),
+            BindingError::Provider(VtStatus::ProviderError)
+        );
+
+        let mut fst = VectorWfst::<u8, BoolWeight>::new();
+        let start = fst.add_state();
+        fst.set_start(start);
+        fst.set_final(start, BoolWeight::one());
+        let source = EpochSource {
+            inner: VectorStateSource { fst },
+            epoch: Arc::new(AtomicUsize::new(0)),
+            mutate_during_expansion: true,
+        };
+        let resource = export_native_lazy_wfst(source).unwrap();
+        assert_eq!(
+            import_native_wfst::<u8, BoolWeight>(resource.as_raw()).unwrap_err(),
+            BindingError::Provider(VtStatus::ProviderError)
+        );
+    }
+
+    #[test]
+    fn concurrent_imports_observe_one_immutable_source_snapshot() {
+        let mut fst = VectorWfst::<u8, BoolWeight>::new();
+        let first = fst.add_state();
+        let second = fst.add_state();
+        fst.set_start(first);
+        fst.set_final(second, BoolWeight::one());
+        fst.add_arc(first, Some(b'z'), None, second, BoolWeight::one());
+        let resource = Arc::new(
+            export_native_lazy_wfst_with_cache(
+                VectorStateSource { fst },
+                SharedCachePolicy::Lru {
+                    capacity: NonZeroUsize::new(1).unwrap(),
+                },
+            )
+            .unwrap(),
+        );
+        std::thread::scope(|scope| {
+            let workers: Vec<_> = (0..8)
+                .map(|_| {
+                    let resource = Arc::clone(&resource);
+                    scope.spawn(move || {
+                        let graph: VectorWfst<u8, BoolWeight> =
+                            import_native_wfst(resource.as_raw()).unwrap();
+                        assert_eq!(graph.num_states(), 2);
+                        assert_eq!(graph.transitions(graph.start())[0].input, Some(b'z'));
+                        assert_eq!(graph.final_states().count(), 1);
+                    })
+                })
+                .collect();
+            for worker in workers {
+                worker.join().unwrap();
+            }
+        });
+        assert!(
+            resource
+                .provider_cache()
+                .unwrap()
+                .statistics()
+                .resident_states
+                <= 1
+        );
     }
 }

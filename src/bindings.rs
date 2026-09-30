@@ -22,7 +22,8 @@ use vinary_tree_interop::{
 #[path = "algorithm_bridge.rs"]
 mod algorithm_bridge;
 pub use algorithm_bridge::{
-    export_native_wfst, import_native_wfst, AbiScalarLabel, AbiScalarWeight,
+    export_native_lazy_wfst, export_native_lazy_wfst_with_cache, export_native_wfst,
+    import_native_wfst, AbiScalarLabel, AbiScalarWeight,
 };
 
 /// Binding failures raised while validating or traversing a foreign WFST.

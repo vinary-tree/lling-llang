@@ -27,6 +27,7 @@ mod types;
 pub mod unary;
 mod vector;
 
+pub(crate) use lazy::compute_state_at_snapshot;
 pub use lazy::{
     CancellationReason, CancellationToken, ExpansionError, ExpansionFailure, ExpansionFailureKind,
     ExpansionMode, ExpansionObservation, ExpansionRequest, ExpansionStatus, LazyState,
