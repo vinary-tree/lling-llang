@@ -94,6 +94,17 @@ jobs:
             -o target/lling-c-compose
           target/lling-c-compose
 
+      - name: C11 budgeted rational and unary ABI consumer
+        shell: bash
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror \
+            -Iinclude -I../vinary-tree-interop/include \
+            bindings/c/examples/rational_unary_demo.c \
+            -Ltarget/debug -llling_llang \
+            -Wl,-rpath,"$PWD/target/debug" \
+            -o target/lling-c-rational-unary
+          target/lling-c-rational-unary
+
       - name: C++ RAII and host-lattice smoke test
         shell: bash
         run: |

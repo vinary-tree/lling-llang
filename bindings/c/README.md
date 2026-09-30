@@ -1,6 +1,6 @@
 # lling-llang C binding
 
-The C17/C23 facade is the normative native boundary for building immutable
+The C11-and-later facade is the normative native boundary for building immutable
 scalar weighted finite-state transducers (WFSTs), importing and lazily
 composing family WFST resources, and exporting retained `vt.scalar-wfst.1`
 resources. The public surface is [`lling_llang.h`](../../include/lling_llang.h);
@@ -33,6 +33,22 @@ observes the product arc `a:z/0.75`, validates typed metadata and cancellation,
 and balances every owner. The four-library
 family pipeline in duallity independently tests producer-to-adapter-to-composer
 handoff.
+
+[`rational_unary_demo.c`](examples/rational_unary_demo.c) is a separate C11
+consumer compiled and run by CI. It calls every revision-8/9 budgeted unary
+and rational entry point in both by-value and pointer forms, validates an exact
+union budget plus below-limit and malformed-budget failures, rejects a domain
+mismatch without replacing an existing output pointer, and releases input
+resources before reading and freeing every owned result. Build it from a
+source checkout with:
+
+```sh
+cc -std=c11 -Wall -Wextra -Werror \
+  -Iinclude -I../vinary-tree-interop/include \
+  bindings/c/examples/rational_unary_demo.c -Ltarget/debug -llling_llang \
+  -Wl,-rpath,"$PWD/target/debug" -o target/lling-c-rational-unary
+target/lling-c-rational-unary
+```
 
 ![C ABI surface from host call through contained Rust implementation and retained family resource.](../../docs/diagrams/api/c-abi-surface.svg)
 

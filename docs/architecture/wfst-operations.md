@@ -188,13 +188,18 @@ let k = closure(&fst_a);
 ```rust
 use lling_llang::wfst::closure_plus;
 
-// Plus: accepts "a", "aa", "aaa", ... (but NOT empty)
+// Plus: accepts "a", "aa", "aaa", ... for this nonempty operand
 let kp = closure_plus(&fst_a);
 
-// Start is NOT final (doesn't accept empty string)
+// Start is not final here because fst_a does not accept the empty string.
 ```
 
 **Relation to Closure**: $`T^+ \equiv T \otimes T^* \equiv T^* \otimes T`$
+The required repetition may itself consume no symbols: $`T^+`$ accepts
+$`\varepsilon`$ exactly when $`T`$ does. Unlike a nested concatenation of
+lazy sources, the implementation adds a weighted epsilon arc from each final
+state back to the original start, so subsequent repetitions do not traverse
+an unexpanded inner WFST.
 
 ## Unary Operations
 

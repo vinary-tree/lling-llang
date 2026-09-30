@@ -955,6 +955,24 @@ layouts and should not be treated as a portable RSS cap. Leave a dimension's
 flag inactive to disable that limit. A caller owns the result handle only on
 `OK`; free it with `lling_wfst_free` after use.
 
+### Neighboring operations and naming boundaries
+
+The revision-9 names refer to specific native scalar-WFST constructions,
+not to every operation called a “product” in automata theory. The source
+contracts determine which public names are justified:
+
+| Candidate name | Native evidence | C ABI disposition |
+|---|---|---|
+| `compose` | [`composition/fst_fst.rs`](../../src/composition/fst_fst.rs) matches the first graph's output tape against the second graph's input tape through an epsilon filter. | Already exported as `lling_wfst_compose`; its signature and lazy product-state behavior remain unchanged. It is neither concatenation nor general Cartesian product. |
+| `relabel` | [`wfst/unary.rs`](../../src/wfst/unary.rs) implements inversion and the two tape projections, but no arbitrary label-mapping source or vocabulary-domain policy. | Do not rename projection as relabeling. A relabeling ABI requires an independently specified native mapping operation, label-validation rules, and bounded callback/ownership contract. |
+| `intersection` / `difference` | [`symbolic/sfa.rs`](../../src/symbolic/sfa.rs) implements symbolic-language intersection; the scalar-WFST core has no corresponding general weighted intersection or difference operation. Difference is not defined uniformly across all seven semirings. | Do not alias composition to intersection, or invent a scalar-weight subtraction rule. A separate, domain-qualified native algorithm is required before exporting either name. |
+| `product` | The current C product-state construction is tape composition. [`wfst/rational.rs`](../../src/wfst/rational.rs) defines union and sequential concatenation instead. | Keep these distinct operations and names; expose another product variant only after its native transition/weight semantics and domain constraints are specified and tested. |
+
+The [WFST operations guide](../architecture/wfst-operations.md) explains the
+native rational/unary operators and the difference between lazy and
+constructive transforms. These boundaries prevent foreign-language facades
+from promising an algorithm that the Rust core does not actually provide.
+
 ### `lling_wfst_resource`
 
 ```c

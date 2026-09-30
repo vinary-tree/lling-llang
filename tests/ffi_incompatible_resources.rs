@@ -25,8 +25,10 @@
 mod support;
 
 use lling_llang::ffi::{
-    lling_last_error_message, lling_resource_release, lling_wfst_compose, lling_wfst_free,
-    lling_wfst_import, lling_wfst_resource, LlingLlangStatus, LlingWfst,
+    lling_last_error_message, lling_resource_release, lling_wfst_closure, lling_wfst_closure_plus,
+    lling_wfst_compose, lling_wfst_concat, lling_wfst_free, lling_wfst_import,
+    lling_wfst_project_input, lling_wfst_project_output, lling_wfst_resource, lling_wfst_reverse,
+    lling_wfst_union, LlingBudgetV2, LlingLlangStatus, LlingWfst, LLING_ABI_V2,
 };
 use std::ffi::CStr;
 use std::ptr;
@@ -46,6 +48,70 @@ fn last_error() -> String {
 /// A well-formed one-arc tropical provider: `0 -a:x/1-> 1`, final(1)=0.
 fn clean_provider() -> TestWfst {
     TestWfst::tropical(chain_states(&[('a', 'x')], 1.0, 0.0), 0)
+}
+
+#[test]
+fn budgeted_rational_and_unary_imports_reject_malformed_pages_without_leaks() {
+    type Unary =
+        extern "C" fn(VtResource, *const LlingBudgetV2, *mut *mut LlingWfst) -> LlingLlangStatus;
+    type Binary = extern "C" fn(
+        VtResource,
+        VtResource,
+        *const LlingBudgetV2,
+        *mut *mut LlingWfst,
+    ) -> LlingLlangStatus;
+    let malformed = TestWfst::new(
+        chain_states(&[('a', 'x')], 1.0, 0.0),
+        0,
+        TestWfstConfig::default().with_misbehavior(Misbehavior::OvershootWritten),
+    );
+    let clean = clean_provider();
+    let malformed_metrics = malformed.metrics();
+    let clean_metrics = clean.metrics();
+    let mut budget = LlingBudgetV2::default();
+    budget.header.struct_size = std::mem::size_of::<LlingBudgetV2>() as u32;
+    budget.header.abi_version = LLING_ABI_V2;
+    let sentinel = ptr::dangling_mut::<LlingWfst>();
+
+    for (name, operation) in [
+        ("union", lling_wfst_union as Binary),
+        ("concat", lling_wfst_concat as Binary),
+    ] {
+        for (first, second) in [
+            (malformed.as_raw(), clean.as_raw()),
+            (clean.as_raw(), malformed.as_raw()),
+        ] {
+            let mut output = sentinel;
+            assert_eq!(
+                operation(first, second, &budget, &mut output),
+                LlingLlangStatus::ProviderError,
+                "{name} must reject a malformed page in either operand"
+            );
+            assert_eq!(output, sentinel, "{name} must not publish a result");
+        }
+    }
+    for (name, operation) in [
+        ("project input", lling_wfst_project_input as Unary),
+        ("project output", lling_wfst_project_output as Unary),
+        ("reverse", lling_wfst_reverse as Unary),
+        ("closure", lling_wfst_closure as Unary),
+        ("closure plus", lling_wfst_closure_plus as Unary),
+    ] {
+        let mut output = sentinel;
+        assert_eq!(
+            operation(malformed.as_raw(), &budget, &mut output),
+            LlingLlangStatus::ProviderError,
+            "{name} must reject a malformed page"
+        );
+        assert_eq!(output, sentinel, "{name} must not publish a result");
+    }
+
+    assert!(malformed_metrics.snapshots() > 0);
+    assert!(clean_metrics.snapshots() > 0);
+    drop(malformed);
+    drop(clean);
+    assert_eq!(malformed_metrics.balance(), 0, "malformed provider leak");
+    assert_eq!(clean_metrics.balance(), 0, "valid operand leak");
 }
 
 /// Assert that importing `resource` fails with `expected`, leaving the
