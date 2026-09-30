@@ -217,7 +217,11 @@ where
     let mut initial_subset: WeightedSubset<W> = BTreeMap::new();
     initial_subset.insert(start, W::one());
 
-    // Create initial state in result
+    // Create initial state in result. Enforce the cap before allocating, not
+    // only at the next queue iteration: one source state may have many labels.
+    if config.max_states == Some(0) {
+        return Err(DeterminizeError::StateLimitExceeded { limit: 0 });
+    }
     let initial_state = result.add_state();
     result.set_start(initial_state);
 
@@ -227,13 +231,6 @@ where
 
     // Main determinization loop
     while let Some((output_state, subset)) = queue.pop_front() {
-        // Check state limit
-        if let Some(limit) = config.max_states {
-            if result.num_states() > limit {
-                return Err(DeterminizeError::StateLimitExceeded { limit });
-            }
-        }
-
         // Compute final weight for this subset
         // Final weight is ⊕ of all final weights for states in the subset
         let mut final_weight = W::zero();
@@ -327,6 +324,11 @@ where
             {
                 existing
             } else {
+                if let Some(limit) = config.max_states {
+                    if result.num_states() >= limit {
+                        return Err(DeterminizeError::StateLimitExceeded { limit });
+                    }
+                }
                 let new_state = result.add_state();
                 subset_to_state.insert(normalized_key, new_state);
                 queue.push_back((new_state, normalized_subset));

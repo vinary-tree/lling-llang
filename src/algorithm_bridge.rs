@@ -204,7 +204,7 @@ impl GraphBudget {
         Ok(())
     }
 
-    fn remaining(&self, axis: usize) -> u64 {
+    pub(crate) fn remaining(&self, axis: usize) -> u64 {
         self.limits[axis].map_or(u64::MAX, |limit| limit.saturating_sub(self.used[axis]))
     }
 

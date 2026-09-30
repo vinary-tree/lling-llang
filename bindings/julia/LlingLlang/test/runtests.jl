@@ -267,6 +267,46 @@ end
     close(right)
 end
 
+@testset "mixed VinaryTreeInterop and lling-llang composition" begin
+    first = scalar_chain(UInt8, TropicalWeight, UInt8(7),
+        one(TropicalWeight), one(TropicalWeight))
+    second = scalar_chain(UInt8, TropicalWeight, UInt8(7),
+        one(TropicalWeight), one(TropicalWeight))
+    left_mixed = compose(first.native, second)
+    right_mixed = compose(first, second.native)
+    @test length(arcs(left_mixed, VTI.start(left_mixed))) == 1
+    @test length(arcs(right_mixed, VTI.start(right_mixed))) == 1
+    close(left_mixed)
+    close(right_mixed)
+
+    wrong = scalar_chain(UInt64, TropicalWeight, UInt64(7),
+        one(TropicalWeight), one(TropicalWeight))
+    @test_throws ArgumentError compose(wrong.native, second)
+    @test_throws ArgumentError compose(first, wrong.native)
+    close(wrong)
+    close(first)
+    close(second)
+end
+
+@testset "materializing core transforms require four-axis budgets" begin
+    graph = scalar_chain(UInt8, TropicalWeight, UInt8(7),
+        one(TropicalWeight), one(TropicalWeight))
+    budget = BudgetV2(max_states=16, max_arcs=256,
+        max_bytes=100_000, max_work=100_000)
+    for operation in (determinize, minimize, remove_epsilon, connect)
+        output = operation(graph; budget)
+        @test length(arcs(output, VTI.start(output))) == 1
+        close(output)
+    end
+    @test_throws NativeError connect(graph; budget=BudgetV2())
+    raw = LlingLlang.unary_wfst_call(:determinize, graph, budget;
+        pointer_form=true)
+    pointer_output = LlingLlang.adopt_native_wfst(raw, UInt8, TropicalWeight)
+    @test length(arcs(pointer_output, VTI.start(pointer_output))) == 1
+    close(pointer_output)
+    close(graph)
+end
+
 @testset "symbol tables are dense, owned, and frozen with a graph" begin
     inputs = SymbolTable{UInt8}(["known"])
     outputs = SymbolTable{UInt8}()

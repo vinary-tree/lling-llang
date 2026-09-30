@@ -57,6 +57,10 @@ mod queue;
 mod rrwm;
 mod sample;
 mod shortest_distance;
+mod transform_budget;
+pub(crate) use transform_budget::{
+    minimize_distance_iteration_cap, worst_case_work, NativeTransformKind,
+};
 
 pub use connect::{
     compute_accessible, compute_coaccessible, connect, count_useful_states, is_connected,
@@ -85,6 +89,7 @@ pub use determinize::{
 };
 
 pub use minimize::{estimate_reduction, minimize, MinimizeConfig, MinimizeError};
+pub(crate) use minimize::{minimize_with_distance_config, CheckedMinimizeError};
 
 pub use sample::{
     estimate_expected_weight, sample_path, sample_paths, sample_paths_until, SampleConfig,

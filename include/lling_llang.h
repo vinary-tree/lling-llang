@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 9u
+#define LLING_LLANG_API_REVISION 10u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -325,6 +325,33 @@ LLING_LLANG_API LlingLlangStatus lling_wfst_project_output_ref(
     const VtResource* resource, const LlingBudgetV2* budget,
     LlingWfst** out_wfst);
 LLING_LLANG_API LlingLlangStatus lling_wfst_reverse_ref(
+    const VtResource* resource, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+/* Materializing native transforms require all four ABI-v2 budget flags.
+ * Limits admit the input and conservative potential output; actual output is
+ * also checked. Bytes cover graph payload, not RSS or native scratch storage;
+ * work reserves a source-derived upper bound on native graph visits, not
+ * an exact CPU/step count. Finite
+ * limits may reject feasible output. There is no cooperative cancellation
+ * hook in these native algorithms. On failure, out_wfst is untouched. */
+LLING_LLANG_API LlingLlangStatus lling_wfst_determinize(
+    VtResource resource, const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_minimize(
+    VtResource resource, const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_remove_epsilon(
+    VtResource resource, const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_connect(
+    VtResource resource, const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_determinize_ref(
+    const VtResource* resource, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_minimize_ref(
+    const VtResource* resource, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_remove_epsilon_ref(
+    const VtResource* resource, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_connect_ref(
     const VtResource* resource, const LlingBudgetV2* budget,
     LlingWfst** out_wfst);
 /* Rational operations use the same cumulative, graph-payload ABI-v2 budget

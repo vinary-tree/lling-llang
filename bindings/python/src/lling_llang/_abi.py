@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 9
+API_REVISION = 10
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -406,6 +406,54 @@ _bind(
 )
 _bind(
     "lling_wfst_reverse_ref",
+    [
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(Budget),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_wfst_determinize",
+    [VtResource, ctypes.POINTER(Budget), ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_wfst_minimize",
+    [VtResource, ctypes.POINTER(Budget), ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_wfst_remove_epsilon",
+    [VtResource, ctypes.POINTER(Budget), ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_wfst_connect",
+    [VtResource, ctypes.POINTER(Budget), ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_wfst_determinize_ref",
+    [
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(Budget),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_wfst_minimize_ref",
+    [
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(Budget),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_wfst_remove_epsilon_ref",
+    [
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(Budget),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_wfst_connect_ref",
     [
         ctypes.POINTER(VtResource),
         ctypes.POINTER(Budget),

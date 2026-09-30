@@ -94,7 +94,7 @@ Cancellation (4)   new, request, reason, single-release free
 
 ```c
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 9u
+#define LLING_LLANG_API_REVISION 10u
 #define LLING_ABI_V2 2u
 
 LLING_LLANG_API uint32_t lling_abi_version(void);
@@ -198,6 +198,10 @@ API revision 9 adds budgeted union, concatenation, Kleene closure, and
 Kleene-plus. The four native output constructions remain lazy, and the
 corresponding C functions preserve their label and semiring domains. This is
 another additive project-ABI-v1 change; no existing call signature changes.
+
+API revision 10 adds materializing determinization, minimization, epsilon
+removal, and connect/trim, each with a pointer-form twin. These are additive
+project-ABI-v1 entry points; revision-8/9 budget semantics are unchanged.
 
 ### Common prefix and layouts
 
@@ -954,6 +958,83 @@ each with one final state, fits exactly within 9 state units, 6 arc units, and
 layouts and should not be treated as a portable RSS cap. Leave a dimension's
 flag inactive to disable that limit. A caller owns the result handle only on
 `OK`; free it with `lling_wfst_free` after use.
+
+### Materializing core transforms (API revision 10)
+
+These eight additive entry points call the native Rust algorithms and publish
+an independently owned, eagerly materialized WFST. `connect` is the native
+trim operation, which clears unreachable/non-coaccessible states and arcs; it
+does not renumber the underlying vector states. Minimization requires an
+already deterministic, input-epsilon-free graph. Determinization removes full
+epsilon transitions first and can reject conflicting output labels or
+remaining input-epsilon transitions. Epsilon removal rejects non-convergent
+epsilon cycles. The native algorithm sources are
+[`determinize.rs`](../../src/algorithms/determinize.rs),
+[`minimize.rs`](../../src/algorithms/minimize.rs),
+[`epsilon_removal.rs`](../../src/algorithms/epsilon_removal.rs), and
+[`connect.rs`](../../src/algorithms/connect.rs).
+
+```c
+LLING_LLANG_API LlingLlangStatus lling_wfst_determinize(
+    VtResource resource, const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_minimize(
+    VtResource resource, const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_remove_epsilon(
+    VtResource resource, const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_connect(
+    VtResource resource, const LlingBudgetV2* budget, LlingWfst** out_wfst);
+/* The four matching _ref forms accept const VtResource* instead. */
+```
+
+All four require a non-null canonical `LlingBudgetV2` with **all four** flags
+(`STATES`, `ARCS`, `BYTES`, `WORK`) active, checked before any provider
+snapshot or traversal. The budget cumulatively covers checked input import,
+native work reservation, any epsilon-removal intermediate, and actual output.
+It also checks a conservative *potential* output before running the native
+transform. The states/arcs limits apply to retained input/intermediate/output
+shape; `max_bytes` counts their native/scalar graph payload, not temporary
+algorithm storage, allocator overhead, foreign-provider allocations, or peak
+RSS. `max_work` is a strict limit on **reserved source-level graph visits**,
+not a wall-clock, CPU-instruction, or all-allocations cap. The formulas are
+deliberately conservative; a finite budget may reject an output that would
+fit if computed. Overflowing a bound also returns `LIMIT_EXCEEDED`.
+
+The reservation formulas in
+[`transform_budget.rs`](../../src/algorithms/transform_budget.rs)
+use $`n`$ reachable input states, $`a`$ arcs, $`s`$ the determinization output
+state cap, and $`k=n^2+n+1`$ the checked minimization distance-iteration cap:
+
+| Native transform | Reserved work upper bound | Potential output bound |
+|---|---:|---:|
+| Connect | $`8((n+1)+(a+1))`$ | $`n`$ states, $`a`$ arcs |
+| Epsilon removal | $`16(n+1)^3(a+1)^2`$ | $`n`$ states, $`n^2a`$ arcs |
+| Determinization | $`16(s+1)(n+1)(a+1)`$ | $`s`$ states, $`sa`$ arcs |
+| Minimization | $`64(n+1)^2(a+1)^2+k(a+1)`$ | $`n`$ states, $`a`$ arcs |
+
+Connect performs a fixed number of state/arc scans. Epsilon removal's closure
+has at most $`n`$ targets per state, so expanding an arc from each source can
+produce at most $`n^2a`$ candidates; its target-bucket deduplication may
+compare candidates pairwise. Determinization processes at most $`s`$ weighted
+subsets, each containing at most $`n`$ states and at most $`a`$ outgoing arcs.
+Minimization's worklist can split at most $`n-1`$ times; at most $`na`$
+predecessor-block requeues scan at most $`n+a`$ entries each. Its weight-push
+shortest-distance pass is capped at $`k`$ queue pops; each pop visits at most
+$`a`$ arcs. These bounds are intentionally padded for setup, sorting, graph
+rebuild, and final connect passes. For determinization with full epsilon arcs,
+the epsilon-removal intermediate is reserved first, then the post-removal
+shape is used for the determinization reservation.
+
+All three scalar label domains work. Determinization and minimization require
+the native divisible/ordered/quantizable traits and therefore accept Tropical,
+Log, Probability, Count, and SignedTropical weights; Arctic and Boolean return
+`INCOMPATIBLE_RESOURCE` for these two calls. Epsilon removal and connect
+accept all seven built-in scalar weights. `INVALID_ARGUMENT` denotes malformed
+budgets or semantically invalid native input; `LIMIT_EXCEEDED` denotes any
+budget, native state, or representation limit; `PROVIDER_ERROR` denotes a
+foreign provider fault. Null pointers return `NULL_POINTER`. On every failure,
+`*out_wfst` is untouched and temporary snapshot retains are released. The
+native algorithms have no cooperative cancellation hook, so revision 10 does
+not advertise a cancellation parameter.
 
 ### Neighboring operations and naming boundaries
 

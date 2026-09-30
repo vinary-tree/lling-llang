@@ -32,7 +32,7 @@ pub use lattice::*;
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_LLANG_API_REVISION: u32 = 9;
+pub const LLING_LLANG_API_REVISION: u32 = 10;
 
 /// Status returned by lling-llang C functions.
 #[repr(u32)]
@@ -1140,6 +1140,121 @@ macro_rules! dispatch_scalar_domains {
             VtUnitDomain::U64 => dispatch_scalar_weight!(u64, $weight, $function, $($argument),*),
         }
     };
+}
+
+mod transforms;
+use transforms::{materialize, materialize_ref, MaterializingTransform};
+
+/// Materialize native weighted determinization of a scalar WFST.
+#[no_mangle]
+pub extern "C" fn lling_wfst_determinize(
+    resource: VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    materialize(
+        resource,
+        budget,
+        out_wfst,
+        MaterializingTransform::Determinize,
+    )
+}
+
+/// Materialize native weighted minimization of a deterministic scalar WFST.
+#[no_mangle]
+pub extern "C" fn lling_wfst_minimize(
+    resource: VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    materialize(resource, budget, out_wfst, MaterializingTransform::Minimize)
+}
+
+/// Materialize native epsilon removal of a scalar WFST.
+#[no_mangle]
+pub extern "C" fn lling_wfst_remove_epsilon(
+    resource: VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    materialize(
+        resource,
+        budget,
+        out_wfst,
+        MaterializingTransform::RemoveEpsilon,
+    )
+}
+
+/// Materialize native connect/trim of a scalar WFST.
+#[no_mangle]
+pub extern "C" fn lling_wfst_connect(
+    resource: VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    materialize(resource, budget, out_wfst, MaterializingTransform::Connect)
+}
+
+/// Pointer-form native weighted determinization.
+///
+/// # Safety
+/// `resource` must be null or point to a readable `VtResource`.
+#[no_mangle]
+pub unsafe extern "C" fn lling_wfst_determinize_ref(
+    resource: *const VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    materialize_ref(
+        resource,
+        budget,
+        out_wfst,
+        MaterializingTransform::Determinize,
+    )
+}
+
+/// Pointer-form native weighted minimization.
+///
+/// # Safety
+/// `resource` must be null or point to a readable `VtResource`.
+#[no_mangle]
+pub unsafe extern "C" fn lling_wfst_minimize_ref(
+    resource: *const VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    materialize_ref(resource, budget, out_wfst, MaterializingTransform::Minimize)
+}
+
+/// Pointer-form native epsilon removal.
+///
+/// # Safety
+/// `resource` must be null or point to a readable `VtResource`.
+#[no_mangle]
+pub unsafe extern "C" fn lling_wfst_remove_epsilon_ref(
+    resource: *const VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    materialize_ref(
+        resource,
+        budget,
+        out_wfst,
+        MaterializingTransform::RemoveEpsilon,
+    )
+}
+
+/// Pointer-form native connect/trim.
+///
+/// # Safety
+/// `resource` must be null or point to a readable `VtResource`.
+#[no_mangle]
+pub unsafe extern "C" fn lling_wfst_connect_ref(
+    resource: *const VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    materialize_ref(resource, budget, out_wfst, MaterializingTransform::Connect)
 }
 
 fn unary_wfst_dispatch(

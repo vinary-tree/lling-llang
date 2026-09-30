@@ -26,9 +26,11 @@ mod support;
 
 use lling_llang::ffi::{
     lling_last_error_message, lling_resource_release, lling_wfst_closure, lling_wfst_closure_plus,
-    lling_wfst_compose, lling_wfst_concat, lling_wfst_free, lling_wfst_import,
-    lling_wfst_project_input, lling_wfst_project_output, lling_wfst_resource, lling_wfst_reverse,
-    lling_wfst_union, LlingBudgetV2, LlingLlangStatus, LlingWfst, LLING_ABI_V2,
+    lling_wfst_compose, lling_wfst_concat, lling_wfst_connect, lling_wfst_determinize,
+    lling_wfst_free, lling_wfst_import, lling_wfst_minimize, lling_wfst_project_input,
+    lling_wfst_project_output, lling_wfst_remove_epsilon, lling_wfst_resource, lling_wfst_reverse,
+    lling_wfst_union, LlingBudgetV2, LlingLlangStatus, LlingWfst, LLING_ABI_V2, LLING_BUDGET_ARCS,
+    LLING_BUDGET_BYTES, LLING_BUDGET_STATES, LLING_BUDGET_WORK,
 };
 use std::ffi::CStr;
 use std::ptr;
@@ -48,6 +50,104 @@ fn last_error() -> String {
 /// A well-formed one-arc tropical provider: `0 -a:x/1-> 1`, final(1)=0.
 fn clean_provider() -> TestWfst {
     TestWfst::tropical(chain_states(&[('a', 'x')], 1.0, 0.0), 0)
+}
+
+#[test]
+fn materializing_transforms_validate_before_traversal_and_balance_snapshots() {
+    type Unary =
+        extern "C" fn(VtResource, *const LlingBudgetV2, *mut *mut LlingWfst) -> LlingLlangStatus;
+    let operations: [(&str, Unary); 4] = [
+        ("determinize", lling_wfst_determinize),
+        ("minimize", lling_wfst_minimize),
+        ("remove epsilon", lling_wfst_remove_epsilon),
+        ("connect", lling_wfst_connect),
+    ];
+    let clean = clean_provider();
+    let metrics = clean.metrics();
+    let mut budget = LlingBudgetV2::default();
+    budget.header.struct_size = std::mem::size_of::<LlingBudgetV2>() as u32;
+    budget.header.abi_version = LLING_ABI_V2;
+    budget.max_states = 16;
+    budget.max_arcs = 256;
+    budget.max_bytes = 100_000;
+    budget.max_work = 100_000;
+    let sentinel = ptr::dangling_mut::<LlingWfst>();
+
+    let mut surviving = ptr::null_mut();
+    for (name, operation) in operations {
+        let mut output = sentinel;
+        assert_eq!(
+            operation(clean.as_raw(), &budget, &mut output),
+            LlingLlangStatus::InvalidArgument,
+            "{name}"
+        );
+        assert_eq!(output, sentinel);
+    }
+    assert_eq!(
+        metrics.snapshots(),
+        0,
+        "invalid flags must not capture provider"
+    );
+    assert_eq!(
+        metrics.state_info_calls(),
+        0,
+        "invalid flags must not traverse provider"
+    );
+
+    budget.header.flags =
+        LLING_BUDGET_STATES | LLING_BUDGET_ARCS | LLING_BUDGET_BYTES | LLING_BUDGET_WORK;
+    for (name, operation) in operations {
+        let mut output = sentinel;
+        assert_eq!(
+            operation(clean.as_raw(), &budget, &mut output),
+            LlingLlangStatus::Ok,
+            "{name}: {}",
+            last_error()
+        );
+        assert_ne!(output, sentinel);
+        if name == "determinize" {
+            surviving = output;
+        } else {
+            unsafe { lling_wfst_free(output) };
+        }
+    }
+    assert_eq!(metrics.snapshots(), 4);
+    drop(clean);
+    assert_eq!(
+        metrics.balance(),
+        0,
+        "materializing inputs must release snapshot retains"
+    );
+    let mut retained = VtResource::NULL;
+    assert_eq!(
+        unsafe { lling_wfst_resource(surviving, &mut retained) },
+        LlingLlangStatus::Ok,
+        "materialized output must survive release of its input provider"
+    );
+    lling_resource_release(retained);
+    unsafe { lling_wfst_free(surviving) };
+
+    let malformed = TestWfst::new(
+        chain_states(&[('a', 'x')], 1.0, 0.0),
+        0,
+        TestWfstConfig::default().with_misbehavior(Misbehavior::OvershootWritten),
+    );
+    let metrics = malformed.metrics();
+    for (name, operation) in operations {
+        let mut output = sentinel;
+        assert_eq!(
+            operation(malformed.as_raw(), &budget, &mut output),
+            LlingLlangStatus::ProviderError,
+            "{name}"
+        );
+        assert_eq!(output, sentinel);
+    }
+    drop(malformed);
+    assert_eq!(
+        metrics.balance(),
+        0,
+        "failed materialization must release snapshot retains"
+    );
 }
 
 #[test]

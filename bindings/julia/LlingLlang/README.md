@@ -117,6 +117,10 @@ finally
 end
 ```
 
+`compose` also accepts a raw `VinaryTreeInterop.Wfst` on either side of a
+typed `LlingLlang.Wfst`. The raw operand is checked against the typed label
+and weight domains; no ownership transfer or test-only conversion is needed.
+
 Input and output projection copy the chosen tape's label to both tapes,
 producing an acceptor without eagerly expanding its output states. `reverse`
 is Julia's ordinary `Base.reverse` method specialized for `Wfst`; it reverses
@@ -170,6 +174,21 @@ close(graph)
 allocations made by a custom provider. A rejected budget publishes no result
 and throws `NativeError` with `STATUS_LIMIT_EXCEEDED`. A default `BudgetV2()`
 has no active limits.
+
+The revision-10 `determinize`, `minimize`, `remove_epsilon`, and `connect`
+methods eagerly materialize the corresponding native transforms. They require
+an explicit `budget` with nonzero state, arc, byte, and work limits; unlike the
+older lazy unary methods, `BudgetV2()` is rejected. Work is a conservative
+upper-bound reservation over native graph visits, not elapsed time, and bytes
+count retained graph payload rather than peak memory. A finite limit may
+therefore reject a graph that could be produced within that limit. For example:
+
+```julia
+limits = BudgetV2(max_states=16, max_arcs=256,
+    max_bytes=100_000, max_work=100_000)
+trimmed = connect(open_graph; budget=limits) # an open Wfst
+close(trimmed)
+```
 
 `union` chooses either operand's paths; `concat` sequences them; `closure`
 and `closure_plus` repeat paths zero-or-more and one-or-more times. They

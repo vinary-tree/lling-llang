@@ -54,7 +54,7 @@ use crate::semiring::{DivisibleSemiring, QuantizableSemiring, Semiring};
 use crate::wfst::{MutableWfst, StateId, WeightedTransition, Wfst, NO_STATE};
 
 use super::connect::{connect, ConnectConfig};
-use super::push::{push_weights, PushConfig, PushDirection};
+use super::push::{push_weights, PushConfig, PushDirection, PushError};
 use super::shortest_distance::ShortestDistanceConfig;
 
 /// Default epsilon for floating-point weight comparison during minimization.
@@ -173,6 +173,19 @@ impl std::fmt::Display for MinimizeError {
 
 impl std::error::Error for MinimizeError {}
 
+/// Internal checked-path failure; public `minimize` keeps its original error
+/// surface and unrestricted native shortest-distance behavior.
+pub(crate) enum CheckedMinimizeError {
+    Native(MinimizeError),
+    DistanceLimitExceeded,
+}
+
+impl From<MinimizeError> for CheckedMinimizeError {
+    fn from(error: MinimizeError) -> Self {
+        Self::Native(error)
+    }
+}
+
 /// A signature for a state, used for partition refinement.
 ///
 /// Uses QuantizedWeight instead of raw weights to enable approximate comparison,
@@ -234,6 +247,27 @@ where
     W: DivisibleSemiring + QuantizableSemiring + PartialOrd + Clone + Debug,
     F: MutableWfst<L, W> + Wfst<L, W> + Default + Clone,
 {
+    match minimize_with_distance_config(fst, config, ShortestDistanceConfig::default()) {
+        Ok(output) => Ok(output),
+        Err(CheckedMinimizeError::Native(error)) => Err(error),
+        Err(CheckedMinimizeError::DistanceLimitExceeded) => Err(MinimizeError::PushError(
+            "distance iteration limit exceeded".to_owned(),
+        )),
+    }
+}
+
+/// Checked C path: bounds weight-pushing iterations without changing the
+/// public `MinimizeConfig` layout or `MinimizeError` variants.
+pub(crate) fn minimize_with_distance_config<L, W, F>(
+    fst: &F,
+    config: MinimizeConfig,
+    distance_config: ShortestDistanceConfig,
+) -> Result<F, CheckedMinimizeError>
+where
+    L: Clone + Eq + Hash + Ord + Debug,
+    W: DivisibleSemiring + QuantizableSemiring + PartialOrd + Clone + Debug,
+    F: MutableWfst<L, W> + Wfst<L, W> + Default + Clone,
+{
     let n = fst.num_states();
     if n == 0 {
         return Ok(F::default());
@@ -243,12 +277,12 @@ where
 
     let start = fst.start();
     if start == NO_STATE {
-        return Err(MinimizeError::NoStartState);
+        return Err(MinimizeError::NoStartState.into());
     }
 
     // Check that input is deterministic
     if !super::determinize::is_deterministic(fst) {
-        return Err(MinimizeError::NotDeterministic);
+        return Err(MinimizeError::NotDeterministic.into());
     }
 
     // Clone and preprocess
@@ -264,17 +298,22 @@ where
         let push_config = PushConfig {
             direction: config.push_direction,
             remove_non_coaccessible: false, // We already connected if needed
-            distance_config: ShortestDistanceConfig::default(),
+            distance_config: distance_config.clone(),
         };
-        push_weights(&mut working, push_config)
-            .map_err(|e| MinimizeError::PushError(e.to_string()))?;
+        push_weights(&mut working, push_config).map_err(|error| {
+            if distance_config.max_iterations.is_some() && error == PushError::NoPotentials {
+                CheckedMinimizeError::DistanceLimitExceeded
+            } else {
+                CheckedMinimizeError::Native(MinimizeError::PushError(error.to_string()))
+            }
+        })?;
     }
 
     // Partition refinement to find equivalent states
     let partitions = compute_partitions(&working, config.weight_epsilon)?;
 
     // Build minimized WFST from partitions
-    build_minimized(&working, &partitions)
+    build_minimized(&working, &partitions).map_err(Into::into)
 }
 
 /// Compute state partitions by worklist-driven partition refinement.
@@ -826,6 +865,18 @@ mod tests {
         let result = minimize(&fst, MinimizeConfig::standard())
             .expect("algorithms/minimize.rs: required value was None/Err");
         assert_eq!(result.num_states(), 0);
+    }
+
+    #[test]
+    fn checked_minimize_caps_distance_without_changing_public_default() {
+        let fst = build_minimal_fst();
+        let mut distance = ShortestDistanceConfig::default();
+        distance.max_iterations = Some(0);
+        assert!(matches!(
+            minimize_with_distance_config(&fst, MinimizeConfig::default(), distance),
+            Err(CheckedMinimizeError::DistanceLimitExceeded)
+        ));
+        assert!(minimize(&fst, MinimizeConfig::default()).is_ok());
     }
 
     #[test]

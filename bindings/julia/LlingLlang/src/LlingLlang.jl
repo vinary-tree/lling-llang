@@ -76,6 +76,10 @@ export ABI_VERSION,
     concat,
     closure,
     closure_plus,
+    determinize,
+    minimize,
+    remove_epsilon,
+    connect,
     project_input,
     project_output,
     state,
@@ -912,6 +916,16 @@ function compose(first::VTI.Wfst, second::VTI.Wfst)
         Wfst(second, label_type(first_unit), weight_type(first_weight)))
 end
 
+"""Compose a raw VinaryTreeInterop WFST with a typed lling-llang WFST."""
+function compose(first::VTI.Wfst, second::Wfst{L,W}) where {L,W}
+    compose(Wfst(first, L, W), second)
+end
+
+"""Compose a typed lling-llang WFST with a raw VinaryTreeInterop WFST."""
+function compose(first::Wfst{L,W}, second::VTI.Wfst) where {L,W}
+    compose(first, Wfst(second, L, W))
+end
+
 function unary_wfst_call(operation::Symbol, source::Wfst, budget::BudgetV2;
     pointer_form::Bool=false)
     output = Ref{Ptr{Cvoid}}(C_NULL)
@@ -940,6 +954,38 @@ function unary_wfst_call(operation::Symbol, source::Wfst, budget::BudgetV2;
                 (Ref{VTI.VtResourceRaw}, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
                 raw_ref, budget_ref, output) :
             ccall(native(:lling_wfst_reverse), UInt32,
+                (VTI.VtResourceRaw, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                raw, budget_ref, output)
+    elseif operation === :determinize
+        status = pointer_form ?
+            ccall(native(:lling_wfst_determinize_ref), UInt32,
+                (Ref{VTI.VtResourceRaw}, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                raw_ref, budget_ref, output) :
+            ccall(native(:lling_wfst_determinize), UInt32,
+                (VTI.VtResourceRaw, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                raw, budget_ref, output)
+    elseif operation === :minimize
+        status = pointer_form ?
+            ccall(native(:lling_wfst_minimize_ref), UInt32,
+                (Ref{VTI.VtResourceRaw}, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                raw_ref, budget_ref, output) :
+            ccall(native(:lling_wfst_minimize), UInt32,
+                (VTI.VtResourceRaw, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                raw, budget_ref, output)
+    elseif operation === :remove_epsilon
+        status = pointer_form ?
+            ccall(native(:lling_wfst_remove_epsilon_ref), UInt32,
+                (Ref{VTI.VtResourceRaw}, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                raw_ref, budget_ref, output) :
+            ccall(native(:lling_wfst_remove_epsilon), UInt32,
+                (VTI.VtResourceRaw, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                raw, budget_ref, output)
+    elseif operation === :connect
+        status = pointer_form ?
+            ccall(native(:lling_wfst_connect_ref), UInt32,
+                (Ref{VTI.VtResourceRaw}, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                raw_ref, budget_ref, output) :
+            ccall(native(:lling_wfst_connect), UInt32,
                 (VTI.VtResourceRaw, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
                 raw, budget_ref, output)
     elseif operation === :closure
@@ -1069,6 +1115,34 @@ function Base.reverse(source::Wfst{L,W}; budget::BudgetV2=BudgetV2()) where {L,W
     adopt_native_wfst(handle, L, W;
         input_symbols=source.input_symbols,
         output_symbols=source.output_symbols)
+end
+
+"""Materialize native determinization within a required four-axis budget."""
+function determinize(source::Wfst{L,W}; budget::BudgetV2) where {L,W}
+    handle = unary_wfst_call(:determinize, source, budget)
+    adopt_native_wfst(handle, L, W;
+        input_symbols=source.input_symbols, output_symbols=source.output_symbols)
+end
+
+"""Materialize native minimization of a deterministic graph within a required budget."""
+function minimize(source::Wfst{L,W}; budget::BudgetV2) where {L,W}
+    handle = unary_wfst_call(:minimize, source, budget)
+    adopt_native_wfst(handle, L, W;
+        input_symbols=source.input_symbols, output_symbols=source.output_symbols)
+end
+
+"""Materialize native epsilon removal within a required four-axis budget."""
+function remove_epsilon(source::Wfst{L,W}; budget::BudgetV2) where {L,W}
+    handle = unary_wfst_call(:remove_epsilon, source, budget)
+    adopt_native_wfst(handle, L, W;
+        input_symbols=source.input_symbols, output_symbols=source.output_symbols)
+end
+
+"""Materialize native connect/trim within a required four-axis budget."""
+function connect(source::Wfst{L,W}; budget::BudgetV2) where {L,W}
+    handle = unary_wfst_call(:connect, source, budget)
+    adopt_native_wfst(handle, L, W;
+        input_symbols=source.input_symbols, output_symbols=source.output_symbols)
 end
 
 # Dynamic-semiring consumer -------------------------------------------------
