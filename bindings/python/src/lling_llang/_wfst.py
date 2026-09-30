@@ -7,7 +7,7 @@ import math
 
 from vinary_tree_interop import NativeResource, ScalarWfst, VtResource
 
-from ._abi import NativeError, Status, check, lib, native_resource
+from ._abi import Budget, NativeError, Status, check, lib, native_resource
 
 
 def _u32(value: object, subject: str) -> int:
@@ -226,3 +226,40 @@ def compose(
         "wfst_compose",
     )
     return _adopt_native_wfst(output)
+
+
+def _unary_wfst(
+    source: NativeResource | VtResource,
+    budget: Budget | None,
+    operation: str,
+) -> Wfst:
+    raw = native_resource(source)
+    limit = Budget() if budget is None else budget
+    output = ctypes.c_void_p()
+    function = getattr(lib, f"lling_wfst_{operation}_ref")
+    check(
+        function(ctypes.byref(raw), ctypes.byref(limit), ctypes.byref(output)),
+        f"wfst_{operation}",
+    )
+    return _adopt_native_wfst(output)
+
+
+def project_input(
+    source: NativeResource | VtResource, *, budget: Budget | None = None
+) -> Wfst:
+    """Lazily keep input labels on both tapes within an input-plus-output budget."""
+    return _unary_wfst(source, budget, "project_input")
+
+
+def project_output(
+    source: NativeResource | VtResource, *, budget: Budget | None = None
+) -> Wfst:
+    """Lazily keep output labels on both tapes within an input-plus-output budget."""
+    return _unary_wfst(source, budget, "project_output")
+
+
+def reverse(
+    source: NativeResource | VtResource, *, budget: Budget | None = None
+) -> Wfst:
+    """Constructively reverse a WFST within an input-plus-output graph budget."""
+    return _unary_wfst(source, budget, "reverse")

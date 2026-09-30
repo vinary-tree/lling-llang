@@ -25,6 +25,7 @@ pub use algorithm_bridge::{
     export_native_lazy_wfst, export_native_lazy_wfst_with_cache, export_native_wfst,
     import_native_wfst, AbiScalarLabel, AbiScalarWeight,
 };
+pub(crate) use algorithm_bridge::{import_native_wfst_with_budget, GraphBudget};
 
 /// Binding failures raised while validating or traversing a foreign WFST.
 #[derive(Clone, Debug, PartialEq)]
@@ -47,6 +48,8 @@ pub enum BindingError {
     InvalidProviderOutput(&'static str),
     /// A state, label, or state count cannot fit lling-llang's native model.
     RepresentationLimit,
+    /// A caller-selected native operation budget was exhausted.
+    BudgetExceeded(&'static str),
 }
 
 impl fmt::Display for BindingError {
@@ -76,6 +79,7 @@ impl fmt::Display for BindingError {
             Self::RepresentationLimit => {
                 formatter.write_str("WFST exceeds the native state or label representation")
             }
+            Self::BudgetExceeded(axis) => write!(formatter, "WFST {axis} budget exceeded"),
         }
     }
 }
@@ -189,7 +193,7 @@ fn scalar_times(domain: VtWeightDomain, left: f64, right: f64) -> Result<f64, Bi
 }
 
 #[derive(Clone, Debug)]
-struct ScalarStateData {
+pub(crate) struct ScalarStateData {
     is_final: bool,
     final_weight: f64,
     arcs: Vec<VtWfstArc>,
@@ -473,7 +477,7 @@ impl CapturedWfst {
         {
             return Ok(cached);
         }
-        let expanded = unsafe { self.gate.call(|| self.expand_state(state)) }?;
+        let expanded = unsafe { self.gate.call(|| self.expand_state_limited(state, None)) }?;
         let expanded = Arc::new(expanded);
         let mut cache = self
             .states
@@ -485,7 +489,22 @@ impl CapturedWfst {
             .clone())
     }
 
-    unsafe fn expand_state(&self, state: u64) -> Result<StateData, BindingError> {
+    fn state_uncached_with_arc_limit(
+        &self,
+        state: u64,
+        max_arcs: usize,
+    ) -> Result<StateData, BindingError> {
+        unsafe {
+            self.gate
+                .call(|| self.expand_state_limited(state, Some(max_arcs)))
+        }
+    }
+
+    unsafe fn expand_state_limited(
+        &self,
+        state: u64,
+        max_arcs: Option<usize>,
+    ) -> Result<StateData, BindingError> {
         let table = &*self.table;
         let mut valid = 0;
         let mut is_final = 0;
@@ -512,7 +531,11 @@ impl CapturedWfst {
         }
 
         let mut arcs = Vec::new();
-        let mut page = vec![VtWfstArc::default(); VT_RECOMMENDED_ARC_BATCH];
+        let page_capacity = max_arcs
+            .unwrap_or(VT_RECOMMENDED_ARC_BATCH)
+            .min(VT_RECOMMENDED_ARC_BATCH)
+            .max(1);
+        let mut page = vec![VtWfstArc::default(); page_capacity];
         let mut offset = 0usize;
         loop {
             let mut written = 0usize;
@@ -534,6 +557,9 @@ impl CapturedWfst {
                 return Err(BindingError::InvalidProviderOutput(
                     "invalid arc page counts",
                 ));
+            }
+            if max_arcs.is_some_and(|limit| total > limit) {
+                return Err(BindingError::BudgetExceeded("arcs"));
             }
             for arc in page.iter().take(written) {
                 if arc.has_input > 1
@@ -1414,6 +1440,13 @@ unsafe fn discover_wfst(resource: VtResource) -> Result<*const VtWfstVTable, Bin
         return Err(BindingError::IncompatibleWfstInterface);
     }
     Ok(interface)
+}
+
+pub(crate) fn wfst_domains(
+    resource: VtResource,
+) -> Result<(VtUnitDomain, VtWeightDomain), BindingError> {
+    let table = unsafe { discover_wfst(resource)? };
+    Ok(unsafe { ((*table).unit_domain, (*table).weight_domain) })
 }
 
 /// Capture and import a Unicode/tropical scalar-WFST resource.

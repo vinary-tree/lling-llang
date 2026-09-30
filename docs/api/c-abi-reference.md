@@ -94,7 +94,7 @@ Cancellation (4)   new, request, reason, single-release free
 
 ```c
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 7u
+#define LLING_LLANG_API_REVISION 8u
 #define LLING_ABI_V2 2u
 
 LLING_LLANG_API uint32_t lling_abi_version(void);
@@ -188,6 +188,11 @@ before calling them.
 API revision 7 adds domain-generic scalar-WFST construction and preserves all
 supported scalar domains through import and lazy composition. It is also an
 additive project-ABI-v1 change.
+
+API revision 8 adds budgeted input projection, output projection, and reversal
+for every supported scalar label and weight domain. Each has an aggregate-by-
+value entry point and a pointer-form twin for foreign runtimes. Existing
+signatures and project ABI version 1 remain unchanged.
 
 ### Common prefix and layouts
 
@@ -701,12 +706,12 @@ LLING_LLANG_API LlingLlangStatus lling_wfst_builder_build(
 > leave the builder exactly as it was — set a start state and call `build`
 > again.
 
-## Immutable handles and resources — six functions
+## Immutable handles and resources
 
 `LlingWfst` is an opaque, caller-owned, **immutable** scalar WFST: safe to
 share across threads, usable concurrently, and exportable as a family
-`VtResource` any number of times. Three constructors produce it (`build`,
-`import`, `compose`); one destructor frees it.
+`VtResource` any number of times. Builders, import, composition, and unary
+transforms can produce it; one destructor frees it.
 
 ### `lling_wfst_free`
 
@@ -799,6 +804,85 @@ while accommodating foreign runtimes such as Raku NativeCall that represent a
 `NULL_POINTER`; non-null pointed resources undergo the same capability and
 domain validation as the aggregate-by-value entry point.
 
+### Budgeted unary transforms (API revision 8)
+
+Projection makes an *acceptor*: it copies one selected label onto both tapes
+of each arc, retaining weights, finality, and graph topology. Input projection
+selects the input tape; output projection selects the output tape. Both return
+lazy resources: the input snapshot is validated and imported once during the
+call, while projected output states are calculated on demand without a
+resource-wide expansion lock. Reversal is constructive because it must inspect
+every input arc. It adds a new start state with epsilon arcs to former finals,
+and makes the former start final. The accepted paths therefore run backward.
+
+```c
+LLING_LLANG_API LlingLlangStatus lling_wfst_project_input(
+    VtResource resource, const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_project_output(
+    VtResource resource, const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_reverse(
+    VtResource resource, const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_project_input_ref(
+    const VtResource* resource, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_project_output_ref(
+    const VtResource* resource, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_reverse_ref(
+    const VtResource* resource, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+```
+
+All six functions borrow the resource and require a non-null, canonical
+`LlingBudgetV2` (its four limit flags may all be inactive). They validate the
+output pointer before capturing a provider snapshot. If any check or transform
+fails, `*out_wfst` remains unchanged and all temporary captures are released.
+On `OK`, `*out_wfst` owns one handle, freed with `lling_wfst_free`. A null
+pointer returns `NULL_POINTER`; malformed budget fields return
+`INVALID_ARGUMENT`; incompatible resource domains return
+`INCOMPATIBLE_RESOURCE`; provider faults return `PROVIDER_ERROR`; exhausted
+limits or non-representable results return `LIMIT_EXCEEDED`.
+
+The budget is cumulative across the imported input and the *complete potential
+output*, including lazy projection. Let $`n`$ and $`m`$ be reachable input
+states and arcs, and let $`f`$ be reachable final states. Projection reserves
+$`2n`$ states, $`2m`$ arcs, and at least $`2(n+m)`$ abstract work units. Reversal
+reserves $`2n+1`$ states, $`2m+f`$ arcs, and at least
+$`2n+1+2m+f`$ work units. Byte limits account native and scalar graph
+payloads; they are **not** process-RSS limits and cannot bound allocations
+inside a foreign provider. State/arc layout sizes are implementation-specific,
+so callers needing portable bounds should prefer state, arc, and work limits.
+An all-inactive canonical budget imposes no graph limit.
+
+For example, given one two-state, one-arc graph with one final state, input
+projection fits `max_states = 4`, `max_arcs = 2`, and `max_work = 6` exactly;
+reversal needs 5 states, 3 arcs, and 8 work units. Activate only the limits
+you intend to enforce:
+
+```c
+LlingBudgetV2 budget = {0};
+budget.header.struct_size = (uint32_t)sizeof budget;
+budget.header.abi_version = LLING_ABI_V2;
+budget.header.flags = LLING_BUDGET_STATES | LLING_BUDGET_ARCS |
+                      LLING_BUDGET_WORK;
+budget.max_states = 4;
+budget.max_arcs = 2;
+budget.max_work = 6;
+LlingWfst* projected = NULL;
+LlingLlangStatus status = lling_wfst_project_input(resource, &budget, &projected);
+if (status == LLING_STATUS_OK) {
+    /* Use projected or export a retained VtResource, then release the handle. */
+    lling_wfst_free(projected);
+}
+```
+
+The six entry points dispatch over all three label domains and seven built-in
+weight domains. They preserve the input domain pair, rather than coercing to a
+Unicode/tropical graph. C-side traversal of a lazy result can still report a
+later provider failure from its resource vtable; a successful constructor
+means its imported snapshot and declared potential graph budget were checked,
+not that every projected state has been eagerly materialized.
+
 ### `lling_wfst_resource`
 
 ```c
@@ -836,10 +920,9 @@ LLING_LLANG_API void lling_resource_release(VtResource resource);
 Arc weights cross the family ABI as IEEE-754 `double`; the vtable's
 `weight_domain` declares which semiring
 $`\langle K, \oplus, \otimes, \bar{0}, \bar{1} \rangle`$ that scalar denotes.
-lling-llang can **produce** resources in all seven domains (via the Rust
-`ScalarWfstProvider` surface); the C-ABI **consumers** — `lling_wfst_import`
-and `lling_wfst_compose` — accept **`TROPICAL_F64` only** and answer
-`INCOMPATIBLE_RESOURCE` for the other six. The definitions below match the
+lling-llang can **produce and consume** resources in all seven built-in
+domains through import, composition, and the revision-8 unary operations.
+The definitions below match the
 normative family table in the
 [interop ABI reference](https://github.com/vinary-tree/vinary-tree-interop/blob/master/docs/abi-reference.md#71-vtweightdomain--seven-semirings-in-one-double)
 and lling-llang's own semiring documentation.

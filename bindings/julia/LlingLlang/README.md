@@ -117,6 +117,46 @@ finally
 end
 ```
 
+Input and output projection copy the chosen tape's label to both tapes,
+producing an acceptor without eagerly expanding its output states. `reverse`
+is Julia's ordinary `Base.reverse` method specialized for `Wfst`; it reverses
+the graph constructively. All three methods preserve the concrete label and
+weight types. An optional `BudgetV2` bounds the imported input plus the
+complete potential output. For a two-state, one-arc input with one final
+state, projection needs four state units, two arc units, and six work units;
+reversal needs five, three, and eight respectively:
+
+```julia
+using LlingLlang
+
+builder = WfstBuilder(size_hint=2)
+start = add_state!(builder)
+final = add_state!(builder)
+set_start!(builder, start)
+set_final!(builder, final, 0.0)
+add_arc!(builder, start, 'a', 'b', final, 0.5)
+graph = build!(builder)
+
+projected = project_input(graph;
+    budget=BudgetV2(max_states=4, max_arcs=2, max_work=6))
+try
+    arc = only(arcs(projected, 0))
+    @assert arc.input == arc.output
+finally
+    close(projected)
+end
+
+reversed = reverse(graph;
+    budget=BudgetV2(max_states=5, max_arcs=3, max_work=8))
+close(reversed)
+close(graph)
+```
+
+`max_bytes` accounts native and scalar graph payload, not process RSS or
+allocations made by a custom provider. A rejected budget publishes no result
+and throws `NativeError` with `STATUS_LIMIT_EXCEEDED`. A default `BudgetV2()`
+has no active limits.
+
 ### Implement a lazy Julia provider
 
 ```julia
@@ -234,6 +274,8 @@ their concrete label/weight types and optional symbol tables, and own one
 retained immutable resource.
 `compose` captures independent snapshots of both inputs, so callers may close
 either input immediately after construction without invalidating the product.
+Unary transforms borrow the input for the call and return independently owned
+results.
 Use `close` deterministically; finalizers are leak-safety fallbacks.
 
 Provider objects are rooted while any native retain exists. A provider
@@ -284,6 +326,8 @@ materializing the graph. `compose` hands those resource words to Rust in
 constant time and expands only reachable product states. Arc pages are written
 into caller-owned contiguous buffers by the provider ABI. The Julia facade
 copies each provider state's arc vector once into its immutable cache.
+Projection first imports one checked input snapshot, then defers output-state
+expansion; reversal materializes the output before returning.
 
 ## Security and provider trust
 

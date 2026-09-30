@@ -102,7 +102,8 @@ pub struct LlingBudgetV2 {
     pub max_states: u64,
     /// Maximum number of arcs when [`LLING_BUDGET_ARCS`] is active.
     pub max_arcs: u64,
-    /// Maximum resident or allocated bytes when [`LLING_BUDGET_BYTES`] is active.
+    /// Maximum operation-accounted payload bytes when [`LLING_BUDGET_BYTES`] is active.
+    /// This is not a process-RSS or foreign-provider allocation limit.
     pub max_bytes: u64,
     /// Maximum abstract work units when [`LLING_BUDGET_WORK`] is active.
     pub max_work: u64,

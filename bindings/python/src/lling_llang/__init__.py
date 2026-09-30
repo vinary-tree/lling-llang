@@ -79,7 +79,15 @@ from ._control import (
     validate_budget,
     validate_header,
 )
-from ._wfst import Wfst, WfstBuilder, compose, import_wfst
+from ._wfst import (
+    Wfst,
+    WfstBuilder,
+    compose,
+    import_wfst,
+    project_input,
+    project_output,
+    reverse,
+)
 
 __version__ = "4.0.0rc6"
 
@@ -142,6 +150,9 @@ __all__ = [
     "compose",
     "identity_matches",
     "import_wfst",
+    "project_input",
+    "project_output",
+    "reverse",
     "typed_evidence_allowed",
     "validate_budget",
     "validate_header",

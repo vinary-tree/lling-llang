@@ -74,6 +74,7 @@ WORKFLOW_PATH = ROOT / ".github" / "workflows" / "release-bindings.yml"
 SKIP_DIR_PARTS = {
     ".git",
     ".precomp",
+    "__pycache__",
     "build",
     "node_modules",
     "obj",
@@ -247,6 +248,8 @@ def publishable_files() -> list[Path]:
             continue
         for path in sorted(root.rglob("*")):
             if not path.is_file():
+                continue
+            if path.suffix in {".pyc", ".pyo"}:
                 continue
             # Only repository-relative build/cache directories are excluded.
             # Absolute paths may legitimately place the entire checkout below

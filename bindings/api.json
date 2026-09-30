@@ -174,7 +174,7 @@
   },
   "packageVersion": "4.0.0-rc.6",
   "abiVersion": 1,
-  "apiRevision": 7,
+  "apiRevision": 8,
   "cPrefix": "lling_",
   "headers": {
     "c": "include/lling_llang.h",
@@ -2875,6 +2875,285 @@
           "rakuPassing": "value",
           "direction": "in",
           "ownership": "borrowed-capture-snapshot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_wfst",
+          "cType": "LlingWfst**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_wfst_project_input",
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-project-input",
+      "sinceApiRevision": 8,
+      "threading": "caller-coordinates-immutable-handle-lifetime",
+      "capability": "wfst-resource",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "resource",
+          "cType": "VtResource",
+          "rakuType": "Vinary::Tree::Interop::RawResource",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-capture-snapshot",
+          "nullability": "invalid-resource-rejected"
+        },
+        {
+          "name": "budget",
+          "cType": "const LlingBudgetV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_wfst",
+          "cType": "LlingWfst**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "NativeCall does not portably pass the imported VtResource C aggregate by value; use the pointer-form API"
+      }
+    },
+    {
+      "name": "lling_wfst_project_output",
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-project-output",
+      "sinceApiRevision": 8,
+      "threading": "caller-coordinates-immutable-handle-lifetime",
+      "capability": "wfst-resource",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "resource",
+          "cType": "VtResource",
+          "rakuType": "Vinary::Tree::Interop::RawResource",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-capture-snapshot",
+          "nullability": "invalid-resource-rejected"
+        },
+        {
+          "name": "budget",
+          "cType": "const LlingBudgetV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_wfst",
+          "cType": "LlingWfst**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "NativeCall does not portably pass the imported VtResource C aggregate by value; use the pointer-form API"
+      }
+    },
+    {
+      "name": "lling_wfst_reverse",
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-reverse",
+      "sinceApiRevision": 8,
+      "threading": "caller-coordinates-immutable-handle-lifetime",
+      "capability": "wfst-resource",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "resource",
+          "cType": "VtResource",
+          "rakuType": "Vinary::Tree::Interop::RawResource",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-capture-snapshot",
+          "nullability": "invalid-resource-rejected"
+        },
+        {
+          "name": "budget",
+          "cType": "const LlingBudgetV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_wfst",
+          "cType": "LlingWfst**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "NativeCall does not portably pass the imported VtResource C aggregate by value; use the pointer-form API"
+      }
+    },
+    {
+      "name": "lling_wfst_project_input_ref",
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-project-input-ref",
+      "sinceApiRevision": 8,
+      "threading": "caller-coordinates-immutable-handle-lifetime",
+      "capability": "wfst-resource",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "resource",
+          "cType": "const VtResource*",
+          "rakuType": "Vinary::Tree::Interop::RawResource",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-capture-snapshot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "budget",
+          "cType": "const LlingBudgetV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_wfst",
+          "cType": "LlingWfst**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_wfst_project_output_ref",
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-project-output-ref",
+      "sinceApiRevision": 8,
+      "threading": "caller-coordinates-immutable-handle-lifetime",
+      "capability": "wfst-resource",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "resource",
+          "cType": "const VtResource*",
+          "rakuType": "Vinary::Tree::Interop::RawResource",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-capture-snapshot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "budget",
+          "cType": "const LlingBudgetV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_wfst",
+          "cType": "LlingWfst**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_wfst_reverse_ref",
+      "rustModule": "ffi",
+      "rakuName": "lling-wfst-reverse-ref",
+      "sinceApiRevision": 8,
+      "threading": "caller-coordinates-immutable-handle-lifetime",
+      "capability": "wfst-resource",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "resource",
+          "cType": "const VtResource*",
+          "rakuType": "Vinary::Tree::Interop::RawResource",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-capture-snapshot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "budget",
+          "cType": "const LlingBudgetV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
           "nullability": "non-null"
         },
         {

@@ -224,6 +224,37 @@ class ApiTests(unittest.TestCase):
             with builder.build() as graph:
                 self.assertEqual(graph.start, state)
 
+    def test_projection_reversal_and_budget_are_native_resource_operations(
+        self,
+    ) -> None:
+        with lling.WfstBuilder(size_hint=2) as builder:
+            start = builder.add_state()
+            final = builder.add_state()
+            builder.set_start(start).set_final(final)
+            builder.add_arc(start, "a", "b", final, 0.5)
+            graph = builder.build()
+        with graph:
+            with lling.project_input(graph) as projected:
+                arc = projected.arcs(projected.start)[0]
+                self.assertEqual(
+                    (arc.input_label, arc.output_label), (ord("a"), ord("a"))
+                )
+            with lling.project_output(graph) as projected:
+                arc = projected.arcs(projected.start)[0]
+                self.assertEqual(
+                    (arc.input_label, arc.output_label), (ord("b"), ord("b"))
+                )
+            with lling.reverse(graph) as reversed_graph:
+                first_arc = reversed_graph.arcs(reversed_graph.start)[0]
+                second_arc = reversed_graph.arcs(first_arc.target_state)[0]
+                self.assertEqual(
+                    (second_arc.input_label, second_arc.output_label),
+                    (ord("a"), ord("b")),
+                )
+            with self.assertRaises(lling.NativeError) as failure:
+                lling.project_input(graph, budget=lling.Budget(max_states=3))
+            self.assertEqual(failure.exception.status, lling.Status.LIMIT_EXCEEDED)
+
     def test_host_lattice_is_retained_batched_and_law_checked(self) -> None:
         options = lling.LatticeOptions(lling.DomainId.ascii("test.maxmin.v1.."))
         providers = [

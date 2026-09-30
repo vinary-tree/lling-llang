@@ -102,6 +102,37 @@ end
     close(graph)
 end
 
+@testset "native unary WFST operations and cumulative budgets" begin
+    builder = WfstBuilder(size_hint=2)
+    first = add_state!(builder)
+    second = add_state!(builder)
+    set_start!(builder, first)
+    set_final!(builder, second, 0.0)
+    add_arc!(builder, first, 'a', 'b', second, 0.5)
+    graph = build!(builder)
+    input = project_input(graph)
+    output = project_output(graph)
+    reversed = reverse(graph)
+    @test only(arcs(input, 0)).input === 'a'
+    @test only(arcs(input, 0)).output === 'a'
+    @test only(arcs(output, 0)).input === 'b'
+    @test only(arcs(output, 0)).output === 'b'
+    reversed_first = only(arcs(reversed, 0))
+    reversed_second = only(arcs(reversed, reversed_first.target))
+    @test reversed_second.input === 'a'
+    @test reversed_second.output === 'b'
+    @test_throws NativeError project_input(graph; budget=BudgetV2(max_states=3))
+    ref_handle = LlingLlang.unary_wfst_call(:project_input, graph, BudgetV2();
+        pointer_form=true)
+    ref_projection = LlingLlang.adopt_native_wfst(ref_handle, Char, TropicalWeight)
+    @test only(arcs(ref_projection, 0)).output === 'a'
+    close(ref_projection)
+    close(reversed)
+    close(output)
+    close(input)
+    close(graph)
+end
+
 @testset "all built-in scalar WFST domains" begin
     @test_throws ArgumentError TropicalWeight(-Inf)
     @test_throws ArgumentError LogWeight(NaN)

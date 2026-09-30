@@ -62,6 +62,17 @@ imported, snapshotted, and composed resources preserve those domains.
 Composition requires both operands to agree and applies the declared
 semiring's multiplication to matching arc and final weights.
 
+API revision 8 adds `lling_wfst_project_input`, `lling_wfst_project_output`,
+and `lling_wfst_reverse`, with `_ref` pointer forms for foreign interfaces.
+Projection copies one tape's label to both tapes and leaves output-state
+expansion lazy; reversal constructs the reversed graph. All three preserve
+the source's label and semiring domains. Each borrows an input resource and
+requires a canonical `LlingBudgetV2` for the imported input plus potential
+complete output. A budget with no active flags is valid and unbounded.
+Failures leave the output pointer untouched; successful handles belong to
+the caller. See the [C ABI reference](../../docs/api/c-abi-reference.md#budgeted-unary-transforms-api-revision-8)
+for exact state/arc/work accounting and a complete call example.
+
 `lling_lattice_open` borrows a live `VtResource` for the call and returns an
 independently retained `LlingLatticeValue`. Algebra operations return new
 owned handles. Free every result with `lling_lattice_free`; copying an opaque
@@ -144,7 +155,8 @@ required by an advertised capability.
 Project ABI v1 remains current. API revision 5 added typed metadata carrying
 its own `LLING_ABI_V2 == 2` format version; revision 6 adds semiring domain and
 value diagnostics plus bounded addition and multiplication folds; revision 7
-adds generic scalar-WFST construction and domain-preserving import/composition.
+adds generic scalar-WFST construction and domain-preserving import/composition;
+revision 8 adds budgeted projection and reversal.
 
 ## Maintainer workflow
 

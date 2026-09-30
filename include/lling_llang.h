@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 7u
+#define LLING_LLANG_API_REVISION 8u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -305,6 +305,27 @@ LLING_LLANG_API LlingLlangStatus lling_wfst_compose(
 /* Pointer form for FFIs that cannot pass C aggregates by value. */
 LLING_LLANG_API LlingLlangStatus lling_wfst_compose_refs(
     const VtResource* first, const VtResource* second,
+    LlingWfst** out_wfst);
+/* Unary operations borrow resource and require a canonical ABI-v2 budget.
+ * Projection remains lazy; reversal is constructive. The budget covers input
+ * plus the complete potential output graph. max_bytes accounts graph payload,
+ * not process RSS or allocations inside a foreign provider. On failure,
+ * out_wfst is untouched; on success it owns one handle. */
+LLING_LLANG_API LlingLlangStatus lling_wfst_project_input(
+    VtResource resource, const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_project_output(
+    VtResource resource, const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_reverse(
+    VtResource resource, const LlingBudgetV2* budget, LlingWfst** out_wfst);
+/* Pointer forms for FFIs that cannot pass C aggregates by value. */
+LLING_LLANG_API LlingLlangStatus lling_wfst_project_input_ref(
+    const VtResource* resource, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_project_output_ref(
+    const VtResource* resource, const LlingBudgetV2* budget,
+    LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_wfst_reverse_ref(
+    const VtResource* resource, const LlingBudgetV2* budget,
     LlingWfst** out_wfst);
 /* On success, out_resource owns one retain. */
 LLING_LLANG_API LlingLlangStatus lling_wfst_resource(

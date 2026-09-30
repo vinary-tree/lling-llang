@@ -73,6 +73,8 @@ export ABI_VERSION,
     build!,
     import_wfst,
     compose,
+    project_input,
+    project_output,
     state,
     arcs,
     input_symbols,
@@ -905,6 +907,67 @@ function compose(first::VTI.Wfst, second::VTI.Wfst)
         "composition requires equal weight domains"))
     compose(Wfst(first, label_type(first_unit), weight_type(first_weight)),
         Wfst(second, label_type(first_unit), weight_type(first_weight)))
+end
+
+function unary_wfst_call(operation::Symbol, source::Wfst, budget::BudgetV2;
+    pointer_form::Bool=false)
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    raw = raw_resource(source)
+    raw_ref = Ref(raw)
+    budget_ref = Ref(budget)
+    if operation === :project_input
+        status = pointer_form ?
+            ccall(native(:lling_wfst_project_input_ref), UInt32,
+                (Ref{VTI.VtResourceRaw}, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                raw_ref, budget_ref, output) :
+            ccall(native(:lling_wfst_project_input), UInt32,
+                (VTI.VtResourceRaw, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                raw, budget_ref, output)
+    elseif operation === :project_output
+        status = pointer_form ?
+            ccall(native(:lling_wfst_project_output_ref), UInt32,
+                (Ref{VTI.VtResourceRaw}, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                raw_ref, budget_ref, output) :
+            ccall(native(:lling_wfst_project_output), UInt32,
+                (VTI.VtResourceRaw, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                raw, budget_ref, output)
+    elseif operation === :reverse
+        status = pointer_form ?
+            ccall(native(:lling_wfst_reverse_ref), UInt32,
+                (Ref{VTI.VtResourceRaw}, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                raw_ref, budget_ref, output) :
+            ccall(native(:lling_wfst_reverse), UInt32,
+                (VTI.VtResourceRaw, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+                raw, budget_ref, output)
+    else
+        throw(ArgumentError("unknown unary WFST operation: $operation"))
+    end
+    checked(status, operation)
+    output[]
+end
+
+"""Lazily keep input labels on both tapes; `budget` bounds input and potential output."""
+function project_input(source::Wfst{L,W}; budget::BudgetV2=BudgetV2()) where {L,W}
+    handle = unary_wfst_call(:project_input, source, budget)
+    adopt_native_wfst(handle, L, W;
+        input_symbols=source.input_symbols,
+        output_symbols=source.input_symbols)
+end
+
+"""Lazily keep output labels on both tapes; `budget` bounds input and potential output."""
+function project_output(source::Wfst{L,W}; budget::BudgetV2=BudgetV2()) where {L,W}
+    handle = unary_wfst_call(:project_output, source, budget)
+    adopt_native_wfst(handle, L, W;
+        input_symbols=source.output_symbols,
+        output_symbols=source.output_symbols)
+end
+
+"""Constructively reverse a scalar WFST within an input-plus-output graph budget."""
+function Base.reverse(source::Wfst{L,W}; budget::BudgetV2=BudgetV2()) where {L,W}
+    handle = unary_wfst_call(:reverse, source, budget)
+    adopt_native_wfst(handle, L, W;
+        input_symbols=source.input_symbols,
+        output_symbols=source.output_symbols)
 end
 
 # Dynamic-semiring consumer -------------------------------------------------

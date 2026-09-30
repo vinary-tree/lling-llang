@@ -72,7 +72,7 @@ The public surface is organized around five ownership-safe groups:
 
 | Group | Principal API | Purpose |
 |---|---|---|
-| Native WFST | `WfstBuilder`, `Wfst`, `import_wfst`, `compose` | Construct, import, traverse, and lazily compose Unicode/tropical graphs |
+| Native WFST | `WfstBuilder`, `Wfst`, `import_wfst`, `compose`, `project_input`, `project_output`, `reverse` | Construct, import, compose, and transform weighted graphs |
 | Host WFST | `ScalarWfstSnapshot`, `ScalarWfstResource` | Let Python implement immutable custom automata |
 | Host lattice | `LatticeProvider`, `LatticeResource`, `LatticeValue` | Export Python join/meet values and consume them through native validation |
 | Host semiring | `SemiringProvider`, `SemiringResource`, `SemiringContext` | Export a Python weight algebra with negotiated optional capabilities |
@@ -84,6 +84,40 @@ check. `Wfst.state(state)` combines both into an immutable
 `ScalarWfstState`. `state_count` is `None` for genuinely lazy graphs;
 `len(graph)` therefore raises instead of pretending the currently reached
 frontier is complete.
+
+Input and output projection make acceptors by copying the selected tape's
+label to both tapes. They return lazy results. Reversal changes arc direction
+and introduces a new start state, so it materializes the result. Each operation
+accepts an optional `Budget` that covers the imported input and the complete
+potential output (including a lazy projection). For a two-state, one-arc input
+with one final state:
+
+```python
+import lling_llang as lling
+
+with lling.WfstBuilder(size_hint=2) as builder:
+    start, final = builder.add_state(), builder.add_state()
+    builder.set_start(start).set_final(final)
+    builder.add_arc(start, "a", "b", final, 0.5)
+    graph = builder.build()
+
+with graph:
+    with lling.project_input(
+        graph, budget=lling.Budget(max_states=4, max_arcs=2, max_work=6)
+    ) as projected:
+        arc = projected.arcs(projected.start)[0]
+        assert arc.input_label == arc.output_label
+
+    with lling.reverse(
+        graph, budget=lling.Budget(max_states=5, max_arcs=3, max_work=8)
+    ) as reversed_graph:
+        first_arc = reversed_graph.arcs(reversed_graph.start)[0]
+```
+
+`Budget.max_bytes` limits accounted graph payload, not process memory or
+allocations inside a custom provider. Leave it inactive when a portable
+state/arc/work bound is sufficient. A limit failure raises `NativeError` with
+`Status.LIMIT_EXCEEDED`; no result resource is published.
 
 Generate the API reference directly from the typed package:
 
@@ -152,7 +186,8 @@ Finalizers are a leak-containment fallback, not the primary lifecycle.
 
 - A built or imported `Wfst` owns one retained immutable resource.
 - `compose` captures independent snapshots of both inputs. The inputs may
-  close immediately after successful composition.
+  close immediately after successful composition. Unary transforms borrow the
+  source for the call and return independently owned results.
 - A `LatticeValue` owns one immutable lattice resource. Join, meet, and folds
   return new independently owned values.
 - A `SemiringContext` independently retains its provider. Every
@@ -242,7 +277,7 @@ The Python distribution uses PEP 440 spelling `4.0.0rc6`; the coordinated
 Rust and source tag use SemVer spelling `4.0.0-rc.6`. The package requires
 the exact same Python release of `vinary-tree-interop`.
 
-At import, the facade requires native ABI version 1 and API revision 7 or
+At import, the facade requires native ABI version 1 and API revision 8 or
 newer. Structure sizes are checked before any object construction. Additive
 native revisions remain acceptable; an ABI-major mismatch fails import.
 

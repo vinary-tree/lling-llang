@@ -8,8 +8,8 @@
 
 use super::{
     discover_wfst, scalar_zero, valid_scalar_label, valid_scalar_weight, BindingError,
-    CapturedWfst, OwnedWfstResource, ScalarWfstGraph, ScalarWfstProvider, ScalarWfstState,
-    MAX_EXACT_F64_INTEGER,
+    CapturedWfst, OwnedWfstResource, ScalarStateData, ScalarWfstGraph, ScalarWfstProvider,
+    ScalarWfstState, MAX_EXACT_F64_INTEGER,
 };
 use crate::semiring::{
     ArcticWeight, BoolWeight, CountWeight, LogWeight, ProbabilityWeight, Semiring,
@@ -18,7 +18,7 @@ use crate::semiring::{
 use crate::wfst::{
     compute_state_at_snapshot, CancellationToken, ExpansionError, ExpansionFailureKind,
     MutableWfst, SharedCachePolicy, SourceSnapshot, StateExpansion, StateId, StateSource,
-    VectorWfst, WeightedTransition, Wfst, NO_STATE,
+    VectorWfst, WeightedTransition, Wfst, WfstState, NO_STATE,
 };
 use std::collections::{HashMap, VecDeque};
 use std::marker::PhantomData;
@@ -144,6 +144,102 @@ fn encode_weight<W: AbiScalarWeight>(weight: W) -> Result<f64, BindingError> {
     valid_scalar_weight(W::DOMAIN, value)
         .then_some(value)
         .ok_or(BindingError::RepresentationLimit)
+}
+
+/// Cumulative, deterministic graph-payload limits for one native operation.
+/// The byte axis counts native/scalar state payloads and both ABI/native arc
+/// payloads; it is not a process-RSS cap over foreign provider allocations.
+#[derive(Clone, Debug)]
+pub(crate) struct GraphBudget {
+    limits: [Option<u64>; 4],
+    used: [u64; 4],
+}
+
+impl GraphBudget {
+    pub(crate) fn new(
+        max_states: Option<u64>,
+        max_arcs: Option<u64>,
+        max_bytes: Option<u64>,
+        max_work: Option<u64>,
+    ) -> Self {
+        Self {
+            limits: [max_states, max_arcs, max_bytes, max_work],
+            used: [0; 4],
+        }
+    }
+
+    fn unlimited() -> Self {
+        Self::new(None, None, None, None)
+    }
+
+    pub(crate) fn charge(
+        &mut self,
+        states: u64,
+        arcs: u64,
+        bytes: u64,
+        work: u64,
+    ) -> Result<(), BindingError> {
+        let increments = [states, arcs, bytes, work];
+        let axes = ["states", "arcs", "bytes", "work"];
+        let mut next = self.used;
+        for index in 0..4 {
+            next[index] = next[index]
+                .checked_add(increments[index])
+                .ok_or(BindingError::BudgetExceeded(axes[index]))?;
+            if self.limits[index].is_some_and(|limit| next[index] > limit) {
+                return Err(BindingError::BudgetExceeded(axes[index]));
+            }
+        }
+        self.used = next;
+        Ok(())
+    }
+
+    fn remaining(&self, axis: usize) -> u64 {
+        self.limits[axis].map_or(u64::MAX, |limit| limit.saturating_sub(self.used[axis]))
+    }
+
+    fn max_arcs_for_state<L: AbiScalarLabel, W: AbiScalarWeight>(&self) -> (usize, &'static str) {
+        let arc_bytes = arc_payload_bytes::<L, W>();
+        let choices = [
+            (self.remaining(1), "arcs"),
+            (self.remaining(2) / arc_bytes, "bytes"),
+            (self.remaining(3), "work"),
+        ];
+        let (limit, axis) = choices.into_iter().min_by_key(|choice| choice.0).unwrap();
+        (limit.min(usize::MAX as u64) as usize, axis)
+    }
+
+    /// Reserve the complete potential output graph before constructing or
+    /// publishing it. For lazy transforms this is deliberately conservative:
+    /// callers can never receive a graph whose full expansion exceeds the
+    /// declared logical graph budget.
+    pub(crate) fn charge_output<L: AbiScalarLabel, W: AbiScalarWeight>(
+        &mut self,
+        states: u64,
+        arcs: u64,
+    ) -> Result<(), BindingError> {
+        let state_bytes = states
+            .checked_mul(state_payload_bytes::<L, W>())
+            .ok_or(BindingError::BudgetExceeded("bytes"))?;
+        let arc_bytes = arcs
+            .checked_mul(arc_payload_bytes::<L, W>())
+            .ok_or(BindingError::BudgetExceeded("bytes"))?;
+        let bytes = state_bytes
+            .checked_add(arc_bytes)
+            .ok_or(BindingError::BudgetExceeded("bytes"))?;
+        let work = states
+            .checked_add(arcs)
+            .ok_or(BindingError::BudgetExceeded("work"))?;
+        self.charge(states, arcs, bytes, work)
+    }
+}
+
+fn state_payload_bytes<L: AbiScalarLabel, W: AbiScalarWeight>() -> u64 {
+    (std::mem::size_of::<WfstState<L, W>>() + std::mem::size_of::<ScalarStateData>()) as u64
+}
+
+fn arc_payload_bytes<L: AbiScalarLabel, W: AbiScalarWeight>() -> u64 {
+    (std::mem::size_of::<VtWfstArc>() + std::mem::size_of::<WeightedTransition<L, W>>()) as u64
 }
 
 fn encode_arc<L: AbiScalarLabel, W: AbiScalarWeight>(
@@ -383,6 +479,17 @@ where
     L: AbiScalarLabel,
     W: AbiScalarWeight,
 {
+    import_native_wfst_with_budget(resource, &mut GraphBudget::unlimited())
+}
+
+pub(crate) fn import_native_wfst_with_budget<L, W>(
+    resource: VtResource,
+    budget: &mut GraphBudget,
+) -> Result<VectorWfst<L, W>, BindingError>
+where
+    L: AbiScalarLabel,
+    W: AbiScalarWeight,
+{
     let live = unsafe { discover_wfst(resource)? };
     let (unit_domain, weight_domain) = unsafe { ((*live).unit_domain, (*live).weight_domain) };
     if unit_domain != L::DOMAIN {
@@ -394,6 +501,7 @@ where
 
     let captured = unsafe { CapturedWfst::capture(resource)? };
     let mut graph = VectorWfst::new();
+    budget.charge(1, 0, state_payload_bytes::<L, W>(), 0)?;
     let start = graph.add_state();
     graph.set_start(start);
     let mut ids = HashMap::from([(captured.start, start)]);
@@ -401,7 +509,14 @@ where
 
     while let Some(raw_state) = queue.pop_front() {
         let local_state = ids[&raw_state];
-        let state = captured.state(raw_state)?;
+        budget.charge(0, 0, 0, 1)?;
+        let (arc_limit, limiting_axis) = budget.max_arcs_for_state::<L, W>();
+        let state = captured
+            .state_uncached_with_arc_limit(raw_state, arc_limit)
+            .map_err(|error| match error {
+                BindingError::BudgetExceeded(_) => BindingError::BudgetExceeded(limiting_axis),
+                other => other,
+            })?;
         if !state.valid {
             return Err(BindingError::InvalidProviderOutput(
                 "reachable state is reported invalid",
@@ -417,6 +532,12 @@ where
             final_state.final_weight = W::decode(state.final_weight)
                 .ok_or(BindingError::InvalidProviderOutput("invalid final weight"))?;
         }
+        let arc_count =
+            u64::try_from(state.arcs.len()).map_err(|_| BindingError::RepresentationLimit)?;
+        let arc_bytes = arc_count
+            .checked_mul(arc_payload_bytes::<L, W>())
+            .ok_or(BindingError::RepresentationLimit)?;
+        budget.charge(0, arc_count, arc_bytes, arc_count)?;
         graph.reserve_transitions(local_state, state.arcs.len());
         for arc in state.arcs.iter() {
             let input = if arc.has_input == 0 {
@@ -441,6 +562,7 @@ where
                 if graph.num_states() >= NO_STATE as usize {
                     return Err(BindingError::RepresentationLimit);
                 }
+                budget.charge(1, 0, state_payload_bytes::<L, W>(), 0)?;
                 let target = graph.add_state();
                 ids.insert(arc.target_state, target);
                 queue.push_back(arc.target_state);
@@ -694,6 +816,41 @@ mod tests {
             export_native_wfst(&source),
             Err(BindingError::RepresentationLimit)
         ));
+    }
+
+    #[test]
+    fn input_materialization_enforces_each_budget_axis_before_publication() {
+        let mut source = VectorWfst::<u8, BoolWeight>::new();
+        let start = source.add_state();
+        let end = source.add_state();
+        source.set_start(start);
+        source.set_final(end, BoolWeight::one());
+        source.add_arc(start, Some(b'a'), None, end, BoolWeight::one());
+        let resource = export_native_wfst(&source).unwrap();
+        let state_bytes = state_payload_bytes::<u8, BoolWeight>();
+        let arc_bytes = arc_payload_bytes::<u8, BoolWeight>();
+        let cases = [
+            (GraphBudget::new(Some(1), None, None, None), "states"),
+            (GraphBudget::new(None, Some(0), None, None), "arcs"),
+            (
+                GraphBudget::new(None, None, Some(state_bytes), None),
+                "bytes",
+            ),
+            (GraphBudget::new(None, None, None, Some(1)), "work"),
+        ];
+        for (mut budget, axis) in cases {
+            assert_eq!(
+                import_native_wfst_with_budget::<u8, BoolWeight>(resource.as_raw(), &mut budget)
+                    .unwrap_err(),
+                BindingError::BudgetExceeded(axis)
+            );
+        }
+        let mut exact =
+            GraphBudget::new(Some(2), Some(1), Some(2 * state_bytes + arc_bytes), Some(3));
+        let imported: VectorWfst<u8, BoolWeight> =
+            import_native_wfst_with_budget(resource.as_raw(), &mut exact).unwrap();
+        assert_eq!(imported.num_states(), 2);
+        assert_eq!(imported.transitions(imported.start()).len(), 1);
     }
 
     #[test]

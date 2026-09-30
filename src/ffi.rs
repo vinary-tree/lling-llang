@@ -4,11 +4,18 @@ mod v2;
 pub use v2::*;
 
 use crate::bindings::{
-    valid_scalar_label, valid_scalar_weight, BindingError, OwnedWfstResource, ScalarWfstGraph,
+    export_native_lazy_wfst, export_native_wfst, import_native_wfst_with_budget,
+    valid_scalar_label, valid_scalar_weight, wfst_domains, AbiScalarLabel, AbiScalarWeight,
+    BindingError, GraphBudget, OwnedWfstResource, ScalarWfstGraph,
 };
 use crate::dynamic_semiring::{
     DynamicSemiringContext, DynamicSemiringError, DynamicSemiringWeight, NaturalOrder,
 };
+use crate::semiring::{
+    ArcticWeight, BoolWeight, CountWeight, LogWeight, ProbabilityWeight, SignedTropicalWeight,
+    TropicalWeight,
+};
+use crate::wfst::{unary::reverse, unary::ProjectSource, VectorWfst, Wfst, NO_STATE};
 use std::cell::RefCell;
 use std::ffi::{c_char, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -20,7 +27,7 @@ pub use lattice::*;
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_LLANG_API_REVISION: u32 = 7;
+pub const LLING_LLANG_API_REVISION: u32 = 8;
 
 /// Status returned by lling-llang C functions.
 #[repr(u32)]
@@ -83,7 +90,9 @@ fn map_error(error: BindingError) -> LlingLlangStatus {
         BindingError::Provider(_) | BindingError::InvalidProviderOutput(_) => {
             LlingLlangStatus::ProviderError
         }
-        BindingError::RepresentationLimit => LlingLlangStatus::LimitExceeded,
+        BindingError::RepresentationLimit | BindingError::BudgetExceeded(_) => {
+            LlingLlangStatus::LimitExceeded
+        }
         BindingError::NullResource => LlingLlangStatus::NullPointer,
         BindingError::IncompatibleResourceAbi
         | BindingError::MissingWfstInterface
@@ -1060,6 +1069,218 @@ pub unsafe extern "C" fn lling_wfst_compose_refs(
     lling_wfst_compose(unsafe { *first }, unsafe { *second }, out_wfst)
 }
 
+#[derive(Clone, Copy)]
+enum UnaryOperation {
+    ProjectInput,
+    ProjectOutput,
+    Reverse,
+}
+
+fn unary_wfst_typed<L: AbiScalarLabel, W: AbiScalarWeight>(
+    resource: VtResource,
+    mut budget: GraphBudget,
+    operation: UnaryOperation,
+) -> Result<OwnedWfstResource, BindingError> {
+    let graph: VectorWfst<L, W> = import_native_wfst_with_budget(resource, &mut budget)?;
+    let states =
+        u64::try_from(graph.num_states()).map_err(|_| BindingError::RepresentationLimit)?;
+    let mut arcs = 0_u64;
+    let mut finals = 0_u64;
+    for state in 0..graph.num_states() {
+        let state = u32::try_from(state).map_err(|_| BindingError::RepresentationLimit)?;
+        let count = u64::try_from(graph.transitions(state).len())
+            .map_err(|_| BindingError::RepresentationLimit)?;
+        arcs = arcs
+            .checked_add(count)
+            .ok_or(BindingError::BudgetExceeded("arcs"))?;
+        finals += u64::from(graph.is_final(state));
+    }
+    match operation {
+        UnaryOperation::ProjectInput => {
+            budget.charge_output::<L, W>(states, arcs)?;
+            export_native_lazy_wfst(ProjectSource::<L, W, _, true>::new(graph))
+        }
+        UnaryOperation::ProjectOutput => {
+            budget.charge_output::<L, W>(states, arcs)?;
+            export_native_lazy_wfst(ProjectSource::<L, W, _, false>::new(graph))
+        }
+        UnaryOperation::Reverse => {
+            if states >= u64::from(NO_STATE) {
+                return Err(BindingError::RepresentationLimit);
+            }
+            let output_states = states
+                .checked_add(1)
+                .ok_or(BindingError::BudgetExceeded("states"))?;
+            let output_arcs = arcs
+                .checked_add(finals)
+                .ok_or(BindingError::BudgetExceeded("arcs"))?;
+            budget.charge_output::<L, W>(output_states, output_arcs)?;
+            export_native_wfst(&reverse(&graph))
+        }
+    }
+}
+
+fn unary_wfst_dispatch(
+    resource: VtResource,
+    budget: GraphBudget,
+    operation: UnaryOperation,
+) -> Result<OwnedWfstResource, BindingError> {
+    let (unit, weight) = wfst_domains(resource)?;
+    macro_rules! dispatch_weight {
+        ($label:ty) => {
+            match weight {
+                VtWeightDomain::TropicalF64 => {
+                    unary_wfst_typed::<$label, TropicalWeight>(resource, budget, operation)
+                }
+                VtWeightDomain::LogF64 => {
+                    unary_wfst_typed::<$label, LogWeight>(resource, budget, operation)
+                }
+                VtWeightDomain::ProbabilityF64 => {
+                    unary_wfst_typed::<$label, ProbabilityWeight>(resource, budget, operation)
+                }
+                VtWeightDomain::ArcticF64 => {
+                    unary_wfst_typed::<$label, ArcticWeight>(resource, budget, operation)
+                }
+                VtWeightDomain::SignedTropicalF64 => {
+                    unary_wfst_typed::<$label, SignedTropicalWeight>(resource, budget, operation)
+                }
+                VtWeightDomain::CountF64 => {
+                    unary_wfst_typed::<$label, CountWeight>(resource, budget, operation)
+                }
+                VtWeightDomain::BooleanF64 => {
+                    unary_wfst_typed::<$label, BoolWeight>(resource, budget, operation)
+                }
+            }
+        };
+    }
+    match unit {
+        VtUnitDomain::Byte => dispatch_weight!(u8),
+        VtUnitDomain::UnicodeScalar => dispatch_weight!(char),
+        VtUnitDomain::U64 => dispatch_weight!(u64),
+    }
+}
+
+fn unary_wfst(
+    resource: VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+    operation: UnaryOperation,
+) -> LlingLlangStatus {
+    boundary(|| {
+        let output = required_mut(out_wfst, "out_wfst")?;
+        let budget = read_v2_struct(
+            budget,
+            "budget",
+            LLING_BUDGET_STATES | LLING_BUDGET_ARCS | LLING_BUDGET_BYTES | LLING_BUDGET_WORK,
+        )?;
+        if !validate_budget_v2(&budget) {
+            set_error("budget flags, limits, or reserved fields are not canonical");
+            return Err(LlingLlangStatus::InvalidArgument);
+        }
+        let flags = budget.header.flags;
+        let limit = GraphBudget::new(
+            (flags & LLING_BUDGET_STATES != 0).then_some(budget.max_states),
+            (flags & LLING_BUDGET_ARCS != 0).then_some(budget.max_arcs),
+            (flags & LLING_BUDGET_BYTES != 0).then_some(budget.max_bytes),
+            (flags & LLING_BUDGET_WORK != 0).then_some(budget.max_work),
+        );
+        let resource = unary_wfst_dispatch(resource, limit, operation).map_err(map_error)?;
+        *output = Box::into_raw(Box::new(LlingWfst { resource }));
+        Ok(())
+    })
+}
+
+/// Lazily project a borrowed scalar WFST onto its input labels.
+///
+/// The canonical ABI-v2 budget bounds the imported input plus the potential
+/// complete output graph; bytes are logical graph payload, not process RSS or
+/// allocations performed inside the foreign provider. The returned handle is
+/// owned only on success, and `out_wfst` is otherwise untouched.
+#[no_mangle]
+pub extern "C" fn lling_wfst_project_input(
+    resource: VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    unary_wfst(resource, budget, out_wfst, UnaryOperation::ProjectInput)
+}
+
+/// Lazily project a borrowed scalar WFST onto its output labels.
+///
+/// Budget and ownership rules are identical to [`lling_wfst_project_input`].
+#[no_mangle]
+pub extern "C" fn lling_wfst_project_output(
+    resource: VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    unary_wfst(resource, budget, out_wfst, UnaryOperation::ProjectOutput)
+}
+
+/// Constructively reverse a borrowed scalar WFST.
+///
+/// Budget and ownership rules are identical to [`lling_wfst_project_input`].
+#[no_mangle]
+pub extern "C" fn lling_wfst_reverse(
+    resource: VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    unary_wfst(resource, budget, out_wfst, UnaryOperation::Reverse)
+}
+
+fn unary_wfst_ref(
+    resource: *const VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+    operation: UnaryOperation,
+) -> LlingLlangStatus {
+    if resource.is_null() {
+        set_error("resource is null");
+        return LlingLlangStatus::NullPointer;
+    }
+    unary_wfst(unsafe { *resource }, budget, out_wfst, operation)
+}
+
+/// Pointer-form input projection for FFIs unable to pass C aggregates by value.
+///
+/// # Safety
+/// `resource` must be null or point to a readable `VtResource` for this call.
+#[no_mangle]
+pub unsafe extern "C" fn lling_wfst_project_input_ref(
+    resource: *const VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    unary_wfst_ref(resource, budget, out_wfst, UnaryOperation::ProjectInput)
+}
+
+/// Pointer-form output projection for FFIs unable to pass C aggregates by value.
+///
+/// # Safety
+/// `resource` must be null or point to a readable `VtResource` for this call.
+#[no_mangle]
+pub unsafe extern "C" fn lling_wfst_project_output_ref(
+    resource: *const VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    unary_wfst_ref(resource, budget, out_wfst, UnaryOperation::ProjectOutput)
+}
+
+/// Pointer-form reversal for FFIs unable to pass C aggregates by value.
+///
+/// # Safety
+/// `resource` must be null or point to a readable `VtResource` for this call.
+#[no_mangle]
+pub unsafe extern "C" fn lling_wfst_reverse_ref(
+    resource: *const VtResource,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut LlingWfst,
+) -> LlingLlangStatus {
+    unary_wfst_ref(resource, budget, out_wfst, UnaryOperation::Reverse)
+}
+
 /// Return a new owned resource retain for a WFST handle.
 ///
 /// # Safety
@@ -1326,6 +1547,10 @@ pub extern "C" fn lling_cancellation_v2_free(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bindings::import_native_wfst;
+    use crate::bindings::ScalarStateData;
+    use crate::semiring::Semiring;
+    use crate::wfst::{MutableWfst, WeightedTransition, WfstState};
     #[test]
     fn provider_limit_and_closed_statuses_keep_their_direct_abi_meaning() {
         assert_eq!(
@@ -1349,6 +1574,227 @@ mod tests {
     use vinary_tree_interop::{
         VtWfstArc, VtWfstVTable, VT_WFST_INTERFACE_ID, VT_WFST_INTERFACE_VERSION,
     };
+
+    fn canonical_budget() -> LlingBudgetV2 {
+        LlingBudgetV2 {
+            header: LlingAbiV2Header {
+                struct_size: std::mem::size_of::<LlingBudgetV2>() as u32,
+                abi_version: LLING_ABI_V2,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    fn unary_result<L: AbiScalarLabel, W: AbiScalarWeight>(
+        handle: *mut LlingWfst,
+    ) -> VectorWfst<L, W> {
+        let mut raw = VtResource::NULL;
+        assert_eq!(
+            unsafe { lling_wfst_resource(handle, &mut raw) },
+            LlingLlangStatus::Ok
+        );
+        unsafe { lling_wfst_free(handle) };
+        let graph = import_native_wfst(raw).unwrap();
+        lling_resource_release(raw);
+        graph
+    }
+
+    fn assert_same_graph<L: AbiScalarLabel, W: AbiScalarWeight>(
+        actual: &VectorWfst<L, W>,
+        expected: &VectorWfst<L, W>,
+    ) {
+        assert_eq!(actual.num_states(), expected.num_states());
+        assert_eq!(actual.start(), expected.start());
+        for state in 0..actual.num_states() as u32 {
+            assert_eq!(actual.is_final(state), expected.is_final(state));
+            assert_eq!(
+                actual.final_weight(state).encode(),
+                expected.final_weight(state).encode()
+            );
+            let actual_arcs = actual.transitions(state);
+            let expected_arcs = expected.transitions(state);
+            assert_eq!(actual_arcs.len(), expected_arcs.len());
+            for (actual, expected) in actual_arcs.iter().zip(expected_arcs) {
+                assert_eq!((actual.from, actual.to), (expected.from, expected.to));
+                assert_eq!(
+                    actual.input.as_ref().map(L::encode),
+                    expected.input.as_ref().map(L::encode)
+                );
+                assert_eq!(
+                    actual.output.as_ref().map(L::encode),
+                    expected.output.as_ref().map(L::encode)
+                );
+                assert_eq!(actual.weight.encode(), expected.weight.encode());
+            }
+        }
+    }
+
+    fn unary_matrix_case<L: AbiScalarLabel, W: AbiScalarWeight>() {
+        let mut graph = VectorWfst::<L, W>::new();
+        let first = graph.add_state();
+        let second = graph.add_state();
+        graph.set_start(first);
+        graph.set_final(second, W::one());
+        graph
+            .try_add_transition(WeightedTransition::new(
+                first,
+                Some(L::decode(97).unwrap()),
+                Some(L::decode(98).unwrap()),
+                second,
+                W::one(),
+            ))
+            .unwrap();
+        let resource = export_native_wfst(&graph).unwrap();
+        let budget = canonical_budget();
+        let mut handle = ptr::null_mut();
+        assert_eq!(
+            lling_wfst_project_input(resource.as_raw(), &budget, &mut handle),
+            LlingLlangStatus::Ok,
+        );
+        let input: VectorWfst<L, W> = unary_result(handle);
+        assert_eq!(input.num_states(), 2);
+        assert_eq!(input.start(), 0);
+        assert!(input.is_final(1));
+        assert_eq!(input.transitions(0).len(), 1);
+        let arc = &input.transitions(0)[0];
+        assert_eq!(arc.input.as_ref().map(L::encode), Some(97));
+        assert_eq!(arc.output.as_ref().map(L::encode), Some(97));
+        assert_eq!(arc.weight.encode(), W::one().encode());
+
+        handle = ptr::null_mut();
+        assert_eq!(
+            unsafe { lling_wfst_project_output_ref(&resource.as_raw(), &budget, &mut handle) },
+            LlingLlangStatus::Ok,
+        );
+        let output: VectorWfst<L, W> = unary_result(handle);
+        let arc = &output.transitions(0)[0];
+        assert_eq!(arc.input.as_ref().map(L::encode), Some(98));
+        assert_eq!(arc.output.as_ref().map(L::encode), Some(98));
+        assert_eq!(arc.weight.encode(), W::one().encode());
+
+        handle = ptr::null_mut();
+        assert_eq!(
+            unsafe { lling_wfst_reverse_ref(&resource.as_raw(), &budget, &mut handle) },
+            LlingLlangStatus::Ok,
+        );
+        let reversed: VectorWfst<L, W> = unary_result(handle);
+        assert_eq!(reversed.num_states(), 3);
+        assert_eq!(reversed.start(), 0);
+        assert_eq!(reversed.transitions(0).len(), 1);
+        // Import renumbers reachable states in traversal order. The reversed
+        // path must nevertheless remain start -> former final -> former start.
+        assert_eq!(reversed.transitions(0)[0].to, 1);
+        assert_eq!(reversed.transitions(1).len(), 1);
+        assert_eq!(reversed.transitions(1)[0].to, 2);
+        assert!(reversed.is_final(2));
+        let native_reversed = reverse(&graph);
+        let native_resource = export_native_wfst(&native_reversed).unwrap();
+        let native_normalized: VectorWfst<L, W> =
+            import_native_wfst(native_resource.as_raw()).unwrap();
+        assert_same_graph(&reversed, &native_normalized);
+    }
+
+    #[test]
+    fn unary_c_dispatch_covers_all_scalar_domains_and_semirings() {
+        macro_rules! all_weights {
+            ($label:ty) => {
+                unary_matrix_case::<$label, TropicalWeight>();
+                unary_matrix_case::<$label, LogWeight>();
+                unary_matrix_case::<$label, ProbabilityWeight>();
+                unary_matrix_case::<$label, ArcticWeight>();
+                unary_matrix_case::<$label, SignedTropicalWeight>();
+                unary_matrix_case::<$label, CountWeight>();
+                unary_matrix_case::<$label, BoolWeight>();
+            };
+        }
+        all_weights!(u8);
+        all_weights!(char);
+        all_weights!(u64);
+    }
+
+    #[test]
+    fn unary_c_budget_is_canonical_cumulative_and_failure_atomic() {
+        let mut graph = VectorWfst::<char, TropicalWeight>::new();
+        let first = graph.add_state();
+        let second = graph.add_state();
+        graph.set_start(first);
+        graph.set_final(second, TropicalWeight::one());
+        graph
+            .try_add_transition(WeightedTransition::new(
+                first,
+                Some('a'),
+                Some('b'),
+                second,
+                TropicalWeight::one(),
+            ))
+            .unwrap();
+        let resource = export_native_wfst(&graph).unwrap();
+        let sentinel = ptr::dangling_mut::<LlingWfst>();
+        let mut output = sentinel;
+        let mut invalid = canonical_budget();
+        invalid.header.flags = LLING_BUDGET_STATES;
+        assert_eq!(
+            lling_wfst_project_input(resource.as_raw(), &invalid, &mut output),
+            LlingLlangStatus::InvalidArgument
+        );
+        assert_eq!(output, sentinel);
+
+        let state_bytes = (std::mem::size_of::<WfstState<char, TropicalWeight>>()
+            + std::mem::size_of::<ScalarStateData>()) as u64;
+        let arc_bytes = (std::mem::size_of::<VtWfstArc>()
+            + std::mem::size_of::<WeightedTransition<char, TropicalWeight>>())
+            as u64;
+        let limits = [
+            (LLING_BUDGET_STATES, 3, 4),
+            (LLING_BUDGET_ARCS, 1, 2),
+            (
+                LLING_BUDGET_BYTES,
+                4 * state_bytes + 2 * arc_bytes - 1,
+                4 * state_bytes + 2 * arc_bytes,
+            ),
+            (LLING_BUDGET_WORK, 5, 6),
+        ];
+        for (flag, below, exact) in limits {
+            let mut budget = canonical_budget();
+            budget.header.flags = flag;
+            match flag {
+                LLING_BUDGET_STATES => budget.max_states = below,
+                LLING_BUDGET_ARCS => budget.max_arcs = below,
+                LLING_BUDGET_BYTES => budget.max_bytes = below,
+                LLING_BUDGET_WORK => budget.max_work = below,
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                lling_wfst_project_input(resource.as_raw(), &budget, &mut output),
+                LlingLlangStatus::LimitExceeded
+            );
+            assert_eq!(output, sentinel);
+            match flag {
+                LLING_BUDGET_STATES => budget.max_states = exact,
+                LLING_BUDGET_ARCS => budget.max_arcs = exact,
+                LLING_BUDGET_BYTES => budget.max_bytes = exact,
+                LLING_BUDGET_WORK => budget.max_work = exact,
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                lling_wfst_project_input(resource.as_raw(), &budget, &mut output),
+                LlingLlangStatus::Ok
+            );
+            let _: VectorWfst<char, TropicalWeight> = unary_result(output);
+            output = sentinel;
+        }
+
+        assert_eq!(
+            unsafe { lling_wfst_project_input_ref(ptr::null(), &canonical_budget(), &mut output) },
+            LlingLlangStatus::NullPointer
+        );
+        assert_eq!(output, sentinel);
+        assert_eq!(
+            lling_wfst_reverse(resource.as_raw(), &canonical_budget(), ptr::null_mut()),
+            LlingLlangStatus::NullPointer
+        );
+    }
 
     #[test]
     fn c_builder_exports_batched_resource_arcs() {
