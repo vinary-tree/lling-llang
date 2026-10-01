@@ -88,9 +88,14 @@ struct Counters {
 }
 
 fn increment(counter: &AtomicU64) {
-    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
-        Some(n.saturating_add(1))
-    });
+    let mut previous = counter.load(Ordering::Relaxed);
+    loop {
+        let next = previous.saturating_add(1);
+        match counter.compare_exchange_weak(previous, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => break,
+            Err(actual) => previous = actual,
+        }
+    }
 }
 
 type StateIndex<T> = GenericHashMap<u64, T, ahash::RandomState, imbl::shared_ptr::DefaultSharedPtr>;

@@ -376,13 +376,21 @@ where
         {
             return Ok(Self::invalid_state());
         }
-        let attempt = self
-            .attempts
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
-                Some(old.saturating_add(1))
-            })
-            .unwrap_or(u64::MAX)
-            .saturating_add(1);
+        // Keep the counter saturating across our Rust 1.95 MSRV and newer
+        // toolchains, where AtomicU64::fetch_update is deprecated.
+        let mut previous = self.attempts.load(Ordering::Relaxed);
+        let attempt = loop {
+            let next = previous.saturating_add(1);
+            match self.attempts.compare_exchange_weak(
+                previous,
+                next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break next,
+                Err(actual) => previous = actual,
+            }
+        };
         let cancellation = CancellationToken::new();
         let expansion = match compute_state_at_snapshot(
             &self.source,
