@@ -17,10 +17,9 @@
 //!    both algorithms emit product arcs in the same case order
 //!    (left-epsilon, right-epsilon, match) over the same sequencing filter.
 //!
-//! Epsilon handling is pinned to WHATEVER the eager path implements: the
-//! example pins cover single-sided leading/trailing epsilons (accepted, with
-//! hand-computed weights) and the double-sided trailing-epsilon interleaving
-//! that the sequencing filter conservatively rejects on BOTH paths alike.
+//! Epsilon handling is pinned to the eager path: the example pins cover
+//! single-sided leading/trailing epsilons and the canonical left-then-right
+//! order for double-sided trailing epsilons, all with hand-computed weights.
 //!
 //! Formal-model correspondence (invariant registry owned by the coordinator):
 //! - `// INVARIANT-HOOK: LLING-COMP-1` — lazy ABI composition
@@ -322,19 +321,17 @@ fn epsilon_pin_leading_right_epsilon_is_accepted() {
     assert_eq!(abi_paths, expected, "ABI must match the hand computation");
 }
 
-/// Pin of the sequencing filter's conservative DOUBLE-SIDED epsilon
-/// behavior: when the only interleavings left are a left
-/// $`\varepsilon`$-output move and a right $`\varepsilon`$-input move in
-/// either order, the filter blocks both orders (`Eps1`
-/// forbids eps2 and vice versa), so NEITHER the eager oracle NOR the lazy
-/// ABI accepts — the correspondence holds on the rejecting side too.
+/// Pin of the sequencing filter's DOUBLE-SIDED epsilon behavior: the left
+/// $`\varepsilon`$-output move must precede the right $`\varepsilon`$-input
+/// move. `Eps1` permits the handoff to `Eps2`; `Eps2` forbids the reverse
+/// order, so exactly one path survives in both the eager oracle and lazy ABI.
 ///
 /// - Left: $`0\xrightarrow{a:x/1}1\xrightarrow{b:\varepsilon/1}2`$, with
 ///   $`\operatorname{final}(2)=0`$.
 /// - Right: $`0\xrightarrow{x:y/1}1\xrightarrow{\varepsilon:z/1}2`$, with
 ///   $`\operatorname{final}(2)=0`$.
 #[test]
-fn epsilon_pin_double_sided_trailing_epsilons_block_identically() {
+fn epsilon_pin_double_sided_trailing_epsilons_have_one_canonical_path() {
     let mut left: VectorWfst<char, TropicalWeight> = VectorWfst::new();
     let l0 = left.add_state();
     let l1 = left.add_state();
@@ -354,19 +351,18 @@ fn epsilon_pin_double_sided_trailing_epsilons_block_identically() {
     right.add_arc(r1, None, Some('z'), r2, TropicalWeight::new(1.0));
 
     let mut budget = 10_000usize;
-    let oracle_paths = accepting_paths(&oracle_composition(&left, &right), &mut budget)
-        .expect("tiny fixture fits the budget");
-    let abi_paths = accepting_paths(&abi_composition(&left, &right), &mut budget)
-        .expect("tiny fixture fits the budget");
-    assert!(
-        oracle_paths.is_empty(),
-        "the eager sequencing filter blocks the double-sided interleaving"
+    let oracle_paths = sorted_paths(
+        accepting_paths(&oracle_composition(&left, &right), &mut budget)
+            .expect("tiny fixture fits the budget"),
     );
-    assert!(
-        abi_paths.is_empty(),
-        "the lazy ABI filter must block exactly like the eager oracle"
+    let abi_paths = sorted_paths(
+        accepting_paths(&abi_composition(&left, &right), &mut budget)
+            .expect("tiny fixture fits the budget"),
     );
-    // The structural correspondence holds on the rejecting side too.
+    let expected = vec![("ab".to_string(), "yz".to_string(), 4.0)];
+    assert_eq!(oracle_paths, expected, "the eager filter keeps one order");
+    assert_eq!(abi_paths, expected, "the lazy ABI keeps the same order");
+    // The structural correspondence holds on the accepting side too.
     assert_eq!(
         canonical_of_vector(&abi_composition(&left, &right)),
         canonical_of_vector(&oracle_composition(&left, &right))
