@@ -363,13 +363,15 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: "21" }
-      - name: Install the checksum-pinned TLA+ tools
+      - name: Install the checksum-pinned stable TLA+ tools
         shell: bash
         run: |
+          # v1.8.0 is a rolling prerelease whose JAR is replaced in place.
+          # Use the stable v1.7.4 asset and keep a fail-closed SHA-256 pin.
           curl -fsSL \
             -o "$RUNNER_TEMP/tla2tools.jar" \
-            https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
-          echo "b658b4e504fdf0b721caf7066320f6b6fe5805f4dd2f717d0e47baba4097205e  $RUNNER_TEMP/tla2tools.jar" \
+            https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
+          echo "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88  $RUNNER_TEMP/tla2tools.jar" \
             | sha256sum --check --strict
           echo "TLA2TOOLS_JAR=$RUNNER_TEMP/tla2tools.jar" >> "$GITHUB_ENV"
       - name: Verify portable invariant registries and finite models
