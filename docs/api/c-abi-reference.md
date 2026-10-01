@@ -1053,8 +1053,9 @@ LLING_LLANG_API LlingLlangStatus lling_wfst_acceptor_intersect_refs(
 
 Both operands must have the **same** scalar label domain and the same one of
 the seven built-in semirings. Every *reachable* input arc must have identical
-input/output labels, including presence: `a:a` and `ε:ε` are valid;
-`a:b`, `a:ε`, and `ε:a` are not. The checked imports capture the two provider
+input/output labels, including presence: $`a:a`$ and
+$`\varepsilon:\varepsilon`$ are valid; $`a:b`$, $`a:\varepsilon`$, and
+$`\varepsilon:a`$ are not. The checked imports capture the two provider
 snapshots, then the result materializes native epsilon-filtered composition
 of two independent immutable copies. Thus it computes weighted acceptor-series
 intersection: for each string, the two accepted weights combine with the

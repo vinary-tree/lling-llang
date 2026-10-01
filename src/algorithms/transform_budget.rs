@@ -22,14 +22,15 @@ fn mul(a: u64, b: u64) -> Option<u64> {
 
 /// Bounds the graph-driven visits in the four native algorithms.
 ///
-/// Let `n` be input states and `a` input arcs. `connect` scans masks, adjacency,
-/// and rebuilds at most a constant number of times. Epsilon removal has at
-/// most `n²·a` pre-dedup expanded arcs; its per-target bucket linear search
-/// can compare at most `n³·a²` pairs. Determinization processes at most `cap`
-/// subsets, each with at most `n` members and `a` outgoing arcs/labels.
-/// Minimization's partition can split at most `n-1` times, re-enqueue at most
-/// `n·a` predecessor blocks, and scan at most `n+a` elements per block; its
-/// shortest-distance pass visits at most `iterations` queues of at most `a`
+/// Let $`n`$ be the number of input states and $`a`$ the number of input arcs.
+/// `connect` scans masks and adjacency, then rebuilds at most a constant number
+/// of times. Epsilon removal has at most $`n^{2}a`$ pre-dedup expanded arcs;
+/// its per-target bucket linear search can compare at most $`n^{3}a^{2}`$
+/// pairs. Determinization processes at most $`\mathrm{cap}`$ subsets, each
+/// with at most $`n`$ members and $`a`$ outgoing arcs/labels. Minimization's
+/// partition can split at most $`n-1`$ times, re-enqueue at most $`na`$
+/// predecessor blocks, and scan at most $`n+a`$ elements per block; its
+/// shortest-distance pass visits at most $`\mathrm{iterations}`$ queues of at most $`a`$
 /// arcs. Constants include setup, sorting, pushing, connect, and rebuild.
 pub(crate) fn worst_case_work(kind: NativeTransformKind, n: u64, a: u64) -> Option<u64> {
     let n1 = add(n, 1)?;
