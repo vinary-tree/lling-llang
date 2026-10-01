@@ -360,11 +360,28 @@ See [`proofs/README.md`](proofs/README.md) and [`proofs/doc/proof-status.md`](pr
 
 ## Installation & feature flags
 
-The default build is a **standalone WFST framework with no external dependencies**. Optional
-features pull in integrations and extra layers:
+The default Rust build enables the in-process SMT solver (`smt-z3`) and
+dynamically links Z3. Use Rust 1.95 or newer and the validated Z3 5.0.0
+release, with its headers and shared library from the same installation: the
+current `z3-sys` bindings contain C-enum numbers generated for Z3 5.0.0. Other
+Z3 versions require separate ABI validation. In CI,
+[`scripts/install-z3-ci.sh`](scripts/install-z3-ci.sh) verifies and selects one
+official Z3 archive for the compiler, linker, and runtime. A missing or older
+system Z3 is not a supported default-build configuration.
+
+The standalone native binding build does not need Z3:
+
+```bash
+cargo build --no-default-features --features ffi
+```
+
+That command disables the in-process SMT backend, not the core semiring and
+WFST algorithms. Other optional features add integrations and application
+layers:
 
 | Feature                                                | Enables                                                    |
 |--------------------------------------------------------|------------------------------------------------------------|
+| `smt-z3` (default)                                    | In-process symbolic constraint solving through the validated Z3 5.0.0 library. |
 | `levenshtein`                                          | Fuzzy lexical correction via `liblevenshtein`.             |
 | `pcfg`                                                 | *(reserved — no effect yet)* Probabilistic CFG support.    |
 | `phonetic-rescore`                                     | Phonetic lattice rescoring (Zompist-style rules).          |
@@ -377,7 +394,7 @@ features pull in integrations and extra layers:
 
 ```toml
 [dependencies]
-lling-llang = { version = "0.2", features = ["levenshtein", "serde"] }
+lling-llang = { version = "4.0.0-rc.6", features = ["levenshtein", "serde"] }
 ```
 
 See [`Cargo.toml`](Cargo.toml) for the complete, authoritative list.
