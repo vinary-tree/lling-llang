@@ -33,7 +33,9 @@ pathmap = { version = ">=0.2.2, <0.4", optional = true }
 # Data structures
 smallvec = { version = "1.11", features = ["union"] }
 arc-swap = "1.9.2"
-imbl = "7.0.1"
+# 7.0.2 removes unmaintained bitmaps and uses imbl-sized-chunks >=0.2.0,
+# fixing RUSTSEC-2026-0247 and RUSTSEC-2026-0292 without changing cache semantics.
+imbl = "7.0.2"
 indexmap = "2.0"
 ahash = "0.8"
 # 2.x changed the hash algorithm, so digests differ from 1.x. Safe here: every use
