@@ -38,8 +38,8 @@
 //! The Z3 **library** (the `z3` crate, dynamically linked against the system libz3) is
 //! in-process — in-boundary for `lling-llang`/`pgmcp`. The cvc5 / Z3 **CLI**
 //! certificate path (`--produce-proofs` → Alethe/LFSC) is a *subprocess* and lives in
-//! the WFST sidecar, never here. A fresh Z3 `Context`/`Solver` is built per check, so
-//! no Z3 AST (which borrows its `Context`) is ever stored in a `Store` — keeping
+//! the WFST sidecar, never here. A configured Z3 context and fresh `Solver` are
+//! scoped to each check, so no Z3 AST escapes into a `Store` — keeping
 //! [`SmtStore`](crate::symbolic::logict_smt::SmtStore)
 //! `Clone + Send + Sync` and lifetime-free.
 
@@ -48,7 +48,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::OnceLock;
 
-use z3::ast::Ast; // brings `_eq` into scope for Int/BV
+use z3::ast::Ast;
 
 use super::algebra_tower::Sat3;
 use super::logict::{ConstraintTheory, LogicStream};
@@ -530,15 +530,17 @@ impl Default for Z3Theory {
     }
 }
 
-/// Runtime probe: can a Z3 `Context` be constructed? Cached after the first call;
-/// never panics (a missing/incompatible libz3 yields `false` rather than aborting).
+/// Runtime probe: can a configured Z3 solver be constructed? Cached after the
+/// first call; a Rust panic during construction yields `false`. A missing
+/// dynamically linked libz3 prevents process startup and cannot be caught here.
 pub fn z3_available() -> bool {
     static AVAIL: OnceLock<bool> = OnceLock::new();
     *AVAIL.get_or_init(|| {
         std::panic::catch_unwind(|| {
-            let cfg = z3::Config::new();
-            let _ctx = z3::Context::new(&cfg);
-            true
+            z3::with_z3_config(&z3::Config::new(), || {
+                let _solver = z3::Solver::new();
+                true
+            })
         })
         .unwrap_or(false)
     })
@@ -556,25 +558,26 @@ impl Z3Theory {
         if self.timeout_ms > 0 {
             cfg.set_timeout_msec(self.timeout_ms as u64);
         }
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
-        let mut env = Z3Env::new(&ctx);
-        for c in asserts {
-            let b = env.constraint(c);
-            solver.assert(&b);
-        }
-        match solver.check() {
-            z3::SatResult::Unsat => (Sat3::Unsat, None),
-            z3::SatResult::Unknown => (Sat3::DontKnow, None),
-            z3::SatResult::Sat => {
-                let model = if want_model {
-                    solver.get_model().map(|m| env.extract_model(&m))
-                } else {
-                    None
-                };
-                (Sat3::Sat, model)
+        z3::with_z3_config(&cfg, || {
+            let solver = z3::Solver::new();
+            let mut env = Z3Env::new();
+            for c in asserts {
+                let b = env.constraint(c);
+                solver.assert(&b);
             }
-        }
+            match solver.check() {
+                z3::SatResult::Unsat => (Sat3::Unsat, None),
+                z3::SatResult::Unknown => (Sat3::DontKnow, None),
+                z3::SatResult::Sat => {
+                    let model = if want_model {
+                        solver.get_model().map(|m| env.extract_model(&m))
+                    } else {
+                        None
+                    };
+                    (Sat3::Sat, model)
+                }
+            }
+        })
     }
 }
 
@@ -770,53 +773,51 @@ fn eval_constraint(c: &SmtConstraint, m: &SmtModel) -> bool {
 // ══════════════════════════════════════════════════════════════════════════════
 
 /// A translated numeric term — either an integer or a fixed-width bitvector AST.
-enum Z3Num<'ctx> {
-    Int(z3::ast::Int<'ctx>),
-    Bv(z3::ast::BV<'ctx>),
+enum Z3Num {
+    Int(z3::ast::Int),
+    Bv(z3::ast::BV),
 }
 
 /// Builds Z3 ASTs from the self-contained constraint AST, caching declared variables
 /// so repeated occurrences share one Z3 constant.
-struct Z3Env<'ctx> {
-    ctx: &'ctx z3::Context,
-    ints: HashMap<String, z3::ast::Int<'ctx>>,
-    bvs: HashMap<String, (z3::ast::BV<'ctx>, u32)>,
-    bools: HashMap<String, z3::ast::Bool<'ctx>>,
+struct Z3Env {
+    ints: HashMap<String, z3::ast::Int>,
+    bvs: HashMap<String, (z3::ast::BV, u32)>,
+    bools: HashMap<String, z3::ast::Bool>,
 }
 
-impl<'ctx> Z3Env<'ctx> {
-    fn new(ctx: &'ctx z3::Context) -> Self {
+impl Z3Env {
+    fn new() -> Self {
         Z3Env {
-            ctx,
             ints: HashMap::new(),
             bvs: HashMap::new(),
             bools: HashMap::new(),
         }
     }
 
-    fn int_var(&mut self, name: &str) -> z3::ast::Int<'ctx> {
+    fn int_var(&mut self, name: &str) -> z3::ast::Int {
         self.ints
             .entry(name.to_string())
-            .or_insert_with(|| z3::ast::Int::new_const(self.ctx, name))
+            .or_insert_with(|| z3::ast::Int::new_const(name))
             .clone()
     }
 
-    fn bv_var(&mut self, name: &str, width: u32) -> z3::ast::BV<'ctx> {
+    fn bv_var(&mut self, name: &str, width: u32) -> z3::ast::BV {
         self.bvs
             .entry(name.to_string())
-            .or_insert_with(|| (z3::ast::BV::new_const(self.ctx, name, width), width))
+            .or_insert_with(|| (z3::ast::BV::new_const(name, width), width))
             .0
             .clone()
     }
 
-    fn bool_var(&mut self, name: &str) -> z3::ast::Bool<'ctx> {
+    fn bool_var(&mut self, name: &str) -> z3::ast::Bool {
         self.bools
             .entry(name.to_string())
-            .or_insert_with(|| z3::ast::Bool::new_const(self.ctx, name))
+            .or_insert_with(|| z3::ast::Bool::new_const(name))
             .clone()
     }
 
-    fn term(&mut self, t: &SmtTerm) -> Z3Num<'ctx> {
+    fn term(&mut self, t: &SmtTerm) -> Z3Num {
         enum Task<'a> {
             Eval(&'a SmtTerm),
             Add,
@@ -830,11 +831,11 @@ impl<'ctx> Z3Env<'ctx> {
             match task {
                 Task::Eval(term) => match term {
                     SmtTerm::IntLit(value) => {
-                        values.push(Z3Num::Int(z3::ast::Int::from_i64(self.ctx, *value)));
+                        values.push(Z3Num::Int(z3::ast::Int::from_i64(*value)));
                     }
                     SmtTerm::IntVar(name) => values.push(Z3Num::Int(self.int_var(name))),
                     SmtTerm::BvLit(value, width) => {
-                        values.push(Z3Num::Bv(z3::ast::BV::from_u64(self.ctx, *value, *width)))
+                        values.push(Z3Num::Bv(z3::ast::BV::from_u64(*value, *width)))
                     }
                     SmtTerm::BvVar(name, width) => {
                         values.push(Z3Num::Bv(self.bv_var(name, *width)));
@@ -871,15 +872,10 @@ impl<'ctx> Z3Env<'ctx> {
                 Task::Scale(coefficient) => {
                     let value = values.pop().expect("scaled numeric operand is present");
                     values.push(match value {
-                        Z3Num::Int(x) => {
-                            Z3Num::Int(z3::ast::Int::from_i64(self.ctx, coefficient) * x)
-                        }
+                        Z3Num::Int(x) => Z3Num::Int(z3::ast::Int::from_i64(coefficient) * x),
                         Z3Num::Bv(x) => {
                             let width = x.get_size();
-                            Z3Num::Bv(
-                                z3::ast::BV::from_u64(self.ctx, coefficient as u64, width)
-                                    .bvmul(&x),
-                            )
+                            Z3Num::Bv(z3::ast::BV::from_u64(coefficient as u64, width).bvmul(&x))
                         }
                     });
                 }
@@ -888,7 +884,7 @@ impl<'ctx> Z3Env<'ctx> {
         values.pop().expect("the root term produces one Z3 AST")
     }
 
-    fn constraint(&mut self, c: &SmtConstraint) -> z3::ast::Bool<'ctx> {
+    fn constraint(&mut self, c: &SmtConstraint) -> z3::ast::Bool {
         enum Task<'a> {
             Eval(&'a SmtConstraint),
             Not,
@@ -902,10 +898,10 @@ impl<'ctx> Z3Env<'ctx> {
             match task {
                 Task::Eval(constraint) => match constraint {
                     SmtConstraint::True => {
-                        values.push(z3::ast::Bool::from_bool(self.ctx, true));
+                        values.push(z3::ast::Bool::from_bool(true));
                     }
                     SmtConstraint::False => {
-                        values.push(z3::ast::Bool::from_bool(self.ctx, false));
+                        values.push(z3::ast::Bool::from_bool(false));
                     }
                     SmtConstraint::BoolVar(name) => values.push(self.bool_var(name)),
                     SmtConstraint::Eq(left, right) => {
@@ -946,9 +942,9 @@ impl<'ctx> Z3Env<'ctx> {
                     let right = values.pop().expect("right Boolean Z3 AST is present");
                     let left = values.pop().expect("left Boolean Z3 AST is present");
                     values.push(if matches!(task, Task::And) {
-                        z3::ast::Bool::and(self.ctx, &[&left, &right])
+                        z3::ast::Bool::and(&[&left, &right])
                     } else {
-                        z3::ast::Bool::or(self.ctx, &[&left, &right])
+                        z3::ast::Bool::or(&[&left, &right])
                     });
                 }
             }
@@ -958,17 +954,17 @@ impl<'ctx> Z3Env<'ctx> {
             .expect("the root constraint produces one Boolean Z3 AST")
     }
 
-    fn compare(&mut self, a: &SmtTerm, b: &SmtTerm, cmp: Cmp) -> z3::ast::Bool<'ctx> {
+    fn compare(&mut self, a: &SmtTerm, b: &SmtTerm, cmp: Cmp) -> z3::ast::Bool {
         match (self.term(a), self.term(b)) {
             (Z3Num::Int(x), Z3Num::Int(y)) => match cmp {
-                Cmp::Eq => x._eq(&y),
+                Cmp::Eq => Ast::eq(&x, &y),
                 Cmp::Le => x.le(&y),
                 Cmp::Lt => x.lt(&y),
                 Cmp::Ge => x.ge(&y),
                 Cmp::Gt => x.gt(&y),
             },
             (Z3Num::Bv(x), Z3Num::Bv(y)) => match cmp {
-                Cmp::Eq => x._eq(&y),
+                Cmp::Eq => Ast::eq(&x, &y),
                 Cmp::Le => x.bvule(&y),
                 Cmp::Lt => x.bvult(&y),
                 Cmp::Ge => x.bvuge(&y),
@@ -976,11 +972,11 @@ impl<'ctx> Z3Env<'ctx> {
             },
             // Mismatched sorts: an ill-typed guard — treat as unconstrained `true`
             // rather than abort. (The constraint builder upstream keeps sorts aligned.)
-            _ => z3::ast::Bool::from_bool(self.ctx, true),
+            _ => z3::ast::Bool::from_bool(true),
         }
     }
 
-    fn extract_model(&self, model: &z3::Model<'ctx>) -> SmtModel {
+    fn extract_model(&self, model: &z3::Model) -> SmtModel {
         let mut out = SmtModel::default();
         for (name, ast) in &self.ints {
             if let Some(v) = model.eval(ast, true).and_then(|a| a.as_i64()) {
@@ -1077,8 +1073,7 @@ mod tests {
 
         #[test]
         fn z3_integer_translation_refines_ground_evaluation(term in integer_term_strategy()) {
-            let context = z3::Context::new(&z3::Config::new());
-            let mut environment = Z3Env::new(&context);
+            let mut environment = Z3Env::new();
             let expected = eval_term(&term, &SmtModel::default());
             let Z3Num::Int(ast) = environment.term(&term) else {
                 prop_assert!(false, "integer syntax must translate to an integer Z3 AST");
@@ -1091,8 +1086,7 @@ mod tests {
         fn z3_constraint_translation_refines_ground_evaluation(
             constraint in ground_constraint_strategy(),
         ) {
-            let context = z3::Context::new(&z3::Config::new());
-            let mut environment = Z3Env::new(&context);
+            let mut environment = Z3Env::new();
             let expected = eval_constraint(&constraint, &SmtModel::default());
             prop_assert_eq!(
                 environment.constraint(&constraint).simplify().as_bool(),
@@ -1188,15 +1182,14 @@ mod tests {
                     constraint = SmtConstraint::Not(Box::new(constraint));
                 }
 
-                let context = z3::Context::new(&z3::Config::new());
-                let mut environment = Z3Env::new(&context);
+                let mut environment = Z3Env::new();
                 let translated_term = environment.term(&term);
                 let translated_constraint = environment.constraint(&constraint);
                 match translated_term {
-                    Z3Num::Int(ast) => assert!(!ast.get_z3_ast().is_null()),
+                    Z3Num::Int(ast) => assert_eq!(ast.get_sort(), z3::Sort::int()),
                     Z3Num::Bv(_) => panic!("integer syntax produced a bitvector AST"),
                 }
-                assert!(!translated_constraint.get_z3_ast().is_null());
+                assert_eq!(translated_constraint.get_sort(), z3::Sort::bool());
             })
             .expect("the bounded-stack Z3 worker must spawn")
             .join()
