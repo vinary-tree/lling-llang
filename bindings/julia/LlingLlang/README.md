@@ -16,6 +16,9 @@ Julia code may also implement the weight algebra itself. The native engine
 consumes that algebra through a retained, capability-negotiated semiring
 resource without requiring the weight type to be `isbits` or `Copy`.
 
+The [published development guide and API reference](https://vinary-tree.github.io/lling-llang/dev/)
+documents the current source; it is not a claim that RC.6 is registered.
+
 ## Install
 
 The current release-candidate source layout uses local packages:
