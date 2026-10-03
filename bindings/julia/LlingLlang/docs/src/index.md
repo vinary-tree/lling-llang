@@ -118,6 +118,24 @@ close its result when finished. See the [package guide](https://github.com/vinar
 for a runnable example and ownership details. A complete capture is a
 foundation for global path analysis, not itself a shortest-path algorithm.
 
+## Exact forward/backward distance analysis
+
+`analyze_distances` retains a complete `GraphSnapshot` independently and
+advances the native semiring-distance machine by at most
+`DistanceLimits.work_per_call` vertex/edge transitions per `poll_distance!`.
+Only a complete poll yields a `DistanceResult`; inspect its total with
+`distance_info` and its state vectors in pages with `distance_page`. Acyclic
+graphs support all seven scalar domains. Cyclic tropical, signed-tropical,
+arctic, and Boolean distances are exact when they converge; improving cycles
+report `STATUS_NON_CONVERGENT`. Cyclic probability/log/count sums report
+`STATUS_UNSUPPORTED` until a proven convergent solver is available. Work,
+numeric, cancellation, and unsupported failures never return a partial answer
+as exact. Close the result when finished. See the [package guide](https://github.com/vinary-tree/lling-llang/tree/master/bindings/julia/LlingLlang#compute-exact-forward-and-backward-distances)
+for a runnable example and explicit ownership sequence.
+For probability/log/count graphs with nonzero accepting-path mass,
+`posterior_arcs` and `posterior_final` expose paged arc and final-state
+posterior probabilities from that same exact graph/result pair.
+
 ## Public API
 
 ```@autodocs

@@ -227,6 +227,77 @@ returns a partial graph as a complete result. The source may close after
 `capture_graph` opens because the cursor owns its snapshot; a complete graph
 is independent of that snapshot and remains live until closed.
 
+### Compute exact forward and backward distances
+
+Once a graph is completely captured, `analyze_distances` runs native semiring
+analysis in resumable slices. Forward distance at local state $`q`$ combines
+weights of all start-to-$`q`$ paths with semiring addition; backward distance
+combines all $`q`$-to-final paths, including the state's final weight. The
+reported total is the backward distance at the start. For an acyclic graph,
+the native kernel visits states in a deterministic topological order and
+supports all seven built-in scalar weight domains.
+
+```julia
+builder = WfstBuilder{UInt8,TropicalWeight}(size_hint=2)
+start = add_state!(builder)
+finish = add_state!(builder)
+set_start!(builder, start)
+set_final!(builder, finish, TropicalWeight(3))
+add_arc!(builder, start, UInt8('a'), UInt8('a'), finish, TropicalWeight(2))
+source = build!(builder)
+graph = complete_graph(source)
+close(source) # the complete graph no longer needs the provider snapshot
+
+cursor = analyze_distances(graph; limits=DistanceLimits(
+    max_work=100_000, work_per_call=64))
+close(graph) # the analysis cursor retains its own graph lease
+try
+    while true
+        result = poll_distance!(cursor)
+        result isa DistancePending && continue
+        distances = result::DistanceResult
+        try
+            @assert distance_info(distances).total == TropicalWeight(5)
+            page = distance_page(distances, 0; capacity=2)
+            @assert page.forward == [TropicalWeight(0), TropicalWeight(2)]
+            @assert page.backward == [TropicalWeight(5), TropicalWeight(3)]
+        finally
+            close(distances)
+        end
+        break
+    end
+finally
+    close(cursor)
+end
+```
+
+For probability, log, or count weights with nonzero accepting-path mass,
+`posterior_arcs(distances, local_id; offset=0, capacity=256)` returns a page
+of arc-use probabilities in provider order, and
+`posterior_final(distances, local_id)` returns the probability of terminating
+at that state. Parallel arcs remain distinct. Posterior probabilities use the
+exact forward/backward result bound to the same native graph; no caller-supplied
+graph can accidentally be mixed with another result. Other weight domains and
+zero accepting-path mass fail explicitly. A probability too small to represent
+as a nonzero `Float64` also fails explicitly rather than silently becoming
+zero.
+
+`complete_distances(graph; limits=...)` runs the same bounded polling loop and
+returns an owned result. One `poll_distance!` performs no more than
+`work_per_call` graph-vertex or graph-edge transitions; `max_work` bounds the
+whole analysis. A pending poll is never an exact answer. The caller can
+cancel between transitions. Results remain valid after both the cursor and
+graph close, until the result itself is closed.
+
+For cyclic graphs, the exact native solver handles the idempotent tropical,
+signed-tropical, arctic, and Boolean semirings. A strictly improving cycle
+raises `NativeError` with `STATUS_NON_CONVERGENT`; cyclic probability, log,
+and count sums currently raise `STATUS_UNSUPPORTED` because summing all walks
+requires a separate convergence proof. Count overflow and other scalar
+representation failures raise `STATUS_LIMIT_EXCEEDED`. None of these outcomes
+is silently replaced by a depth-truncated approximation. This native
+analysis does not change the library's existing scalar-composition arithmetic.
+
 ### Implement a lazy Julia provider
 
 ```julia

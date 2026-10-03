@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 9
+API_REVISION = 10
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -29,6 +29,8 @@ class Status(IntEnum):
     PROVIDER_ERROR = 5
     LIMIT_EXCEEDED = 6
     CLOSED = 7
+    NON_CONVERGENT = 8
+    UNSUPPORTED = 9
 
 
 class DescriptorFlag(IntFlag):
@@ -119,6 +121,14 @@ class GraphPoll(IntEnum):
     CANCELLED = 3
 
 
+class DistancePoll(IntEnum):
+    """Bounded native distance-analysis outcomes."""
+
+    PENDING = 1
+    COMPLETE = 2
+    CANCELLED = 3
+
+
 class PathConfig(ctypes.Structure):
     """Versioned, explicit limits for a snapshot-pinned path traversal."""
 
@@ -171,6 +181,17 @@ class GraphArc(ctypes.Structure):
     """Original scalar arc and deterministic local target state ID."""
 
     _fields_ = [("target_local", ctypes.c_uint64), ("arc", PathArc)]
+
+
+class GraphDistanceConfig(ctypes.Structure):
+    """Versioned native graph-analysis work limits."""
+
+    _fields_ = [
+        ("struct_size", ctypes.c_uint32),
+        ("version", ctypes.c_uint32),
+        ("max_work", ctypes.c_uint64),
+        ("work_per_call", ctypes.c_uint64),
+    ]
 
 
 class AbiV2Header(ctypes.Structure):
@@ -504,6 +525,42 @@ _bind(
      ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)],
 )
 _bind("lling_graph_free", [ctypes.c_void_p], None)
+_bind(
+    "lling_graph_distance_open",
+    [ctypes.c_void_p, ctypes.POINTER(GraphDistanceConfig),
+     ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_graph_distance_next",
+    [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)],
+)
+_bind(
+    "lling_graph_distance_take",
+    [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind("lling_graph_distance_cursor_free", [ctypes.c_void_p], None)
+_bind(
+    "lling_graph_distance_info",
+    [ctypes.c_void_p, ctypes.POINTER(ctypes.c_double),
+     ctypes.POINTER(ctypes.c_size_t)],
+)
+_bind(
+    "lling_graph_distance_page",
+    [ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_double),
+     ctypes.POINTER(ctypes.c_double), ctypes.c_size_t,
+     ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)],
+)
+_bind("lling_graph_distance_free", [ctypes.c_void_p], None)
+_bind(
+    "lling_graph_posterior_arcs",
+    [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t,
+     ctypes.POINTER(ctypes.c_double), ctypes.c_size_t,
+     ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)],
+)
+_bind(
+    "lling_graph_posterior_final",
+    [ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_double)],
+)
 
 _bind(
     "lling_semiring_open", [ctypes.POINTER(VtResource), ctypes.POINTER(ctypes.c_void_p)]

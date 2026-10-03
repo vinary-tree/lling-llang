@@ -174,7 +174,7 @@
   },
   "packageVersion": "4.0.0-rc.6",
   "abiVersion": 1,
-  "apiRevision": 9,
+  "apiRevision": 10,
   "cPrefix": "lling_",
   "headers": {
     "c": "include/lling_llang.h",
@@ -214,7 +214,9 @@
         "INCOMPATIBLE_RESOURCE": 4,
         "PROVIDER_ERROR": 5,
         "LIMIT_EXCEEDED": 6,
-        "CLOSED": 7
+        "CLOSED": 7,
+        "NON_CONVERGENT": 8,
+        "UNSUPPORTED": 9
       }
     },
     "precisionV2": {
@@ -3443,6 +3445,99 @@
       "return": {"cType": "void", "rakuType": null, "ownership": "none", "nullability": "not-applicable"},
       "parameters": [
         {"name": "graph", "cType": "LlingGraph*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "inout", "ownership": "consumed-when-non-null", "nullability": "nullable"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_graph_distance_open", "rustModule": "ffi", "rakuName": "lling-graph-distance-open",
+      "sinceApiRevision": 10, "threading": "caller-coordinates-immutable-handle-lifetime", "capability": "bounded-exact-graph-distances",
+      "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "graph", "cType": "const LlingGraph*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-retain-graph", "nullability": "non-null"},
+        {"name": "config", "cType": "const LlingGraphDistanceConfig*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"},
+        {"name": "out_cursor", "cType": "LlingGraphDistanceCursor**", "rakuType": "Pointer", "rakuPassing": "rw", "direction": "out", "ownership": "owned-output-on-success", "nullability": "non-null"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_graph_distance_next", "rustModule": "ffi", "rakuName": "lling-graph-distance-next",
+      "sinceApiRevision": 10, "threading": "caller-synchronized-mutable-handle", "capability": "bounded-exact-graph-distances",
+      "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "cursor", "cType": "LlingGraphDistanceCursor*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "inout", "ownership": "borrowed-for-call", "nullability": "non-null"},
+        {"name": "cancellation", "cType": "const LlingCancellationV2*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "nullable"},
+        {"name": "out_poll", "cType": "uint32_t*", "rakuType": "uint32", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_graph_distance_take", "rustModule": "ffi", "rakuName": "lling-graph-distance-take",
+      "sinceApiRevision": 10, "threading": "caller-synchronized-mutable-handle", "capability": "bounded-exact-graph-distances",
+      "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "cursor", "cType": "LlingGraphDistanceCursor*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "inout", "ownership": "borrowed-for-call", "nullability": "non-null"},
+        {"name": "out_result", "cType": "LlingGraphDistances**", "rakuType": "Pointer", "rakuPassing": "rw", "direction": "out", "ownership": "owned-output-on-success", "nullability": "non-null"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_graph_distance_cursor_free", "rustModule": "ffi", "rakuName": "lling-graph-distance-cursor-free",
+      "sinceApiRevision": 10, "threading": "exclusive-owner-close", "capability": "bounded-exact-graph-distances",
+      "return": {"cType": "void", "rakuType": null, "ownership": "none", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "cursor", "cType": "LlingGraphDistanceCursor*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "inout", "ownership": "consumed-when-non-null", "nullability": "nullable"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_graph_distance_info", "rustModule": "ffi", "rakuName": "lling-graph-distance-info",
+      "sinceApiRevision": 10, "threading": "concurrent-read-only", "capability": "complete-graph-distances",
+      "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "result", "cType": "const LlingGraphDistances*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"},
+        {"name": "out_total_weight", "cType": "double*", "rakuType": "num64", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"},
+        {"name": "out_state_count", "cType": "size_t*", "rakuType": "size_t", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_graph_distance_page", "rustModule": "ffi", "rakuName": "lling-graph-distance-page",
+      "sinceApiRevision": 10, "threading": "concurrent-read-only", "capability": "complete-graph-distances",
+      "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "result", "cType": "const LlingGraphDistances*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"},
+        {"name": "offset", "cType": "size_t", "rakuType": "size_t", "rakuPassing": "value", "direction": "in", "ownership": "value", "nullability": "not-applicable"},
+        {"name": "out_forward", "cType": "double*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "out", "ownership": "borrowed-output-buffer", "nullability": "nullable-if-zero-capacity"},
+        {"name": "out_backward", "cType": "double*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "out", "ownership": "borrowed-output-buffer", "nullability": "nullable-if-zero-capacity"},
+        {"name": "capacity", "cType": "size_t", "rakuType": "size_t", "rakuPassing": "value", "direction": "in", "ownership": "value", "nullability": "not-applicable"},
+        {"name": "out_written", "cType": "size_t*", "rakuType": "size_t", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"},
+        {"name": "out_total", "cType": "size_t*", "rakuType": "size_t", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_graph_distance_free", "rustModule": "ffi", "rakuName": "lling-graph-distance-free",
+      "sinceApiRevision": 10, "threading": "exclusive-owner-close", "capability": "complete-graph-distances",
+      "return": {"cType": "void", "rakuType": null, "ownership": "none", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "result", "cType": "LlingGraphDistances*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "inout", "ownership": "consumed-when-non-null", "nullability": "nullable"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_graph_posterior_arcs", "rustModule": "ffi", "rakuName": "lling-graph-posterior-arcs",
+      "sinceApiRevision": 10, "threading": "concurrent-read-only", "capability": "exact-graph-posteriors",
+      "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "result", "cType": "const LlingGraphDistances*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"},
+        {"name": "local_id", "cType": "size_t", "rakuType": "size_t", "rakuPassing": "value", "direction": "in", "ownership": "value", "nullability": "not-applicable"},
+        {"name": "offset", "cType": "size_t", "rakuType": "size_t", "rakuPassing": "value", "direction": "in", "ownership": "value", "nullability": "not-applicable"},
+        {"name": "out_probabilities", "cType": "double*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "out", "ownership": "borrowed-output-buffer", "nullability": "nullable-if-zero-capacity"},
+        {"name": "capacity", "cType": "size_t", "rakuType": "size_t", "rakuPassing": "value", "direction": "in", "ownership": "value", "nullability": "not-applicable"},
+        {"name": "out_written", "cType": "size_t*", "rakuType": "size_t", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"},
+        {"name": "out_total", "cType": "size_t*", "rakuType": "size_t", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_graph_posterior_final", "rustModule": "ffi", "rakuName": "lling-graph-posterior-final",
+      "sinceApiRevision": 10, "threading": "concurrent-read-only", "capability": "exact-graph-posteriors",
+      "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "result", "cType": "const LlingGraphDistances*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"},
+        {"name": "local_id", "cType": "size_t", "rakuType": "size_t", "rakuPassing": "value", "direction": "in", "ownership": "value", "nullability": "not-applicable"},
+        {"name": "out_probability", "cType": "double*", "rakuType": "num64", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"}
       ], "raku": {"bind": true}
     }
   ],

@@ -1,6 +1,6 @@
 # Generated from bindings/api.json. Do not edit by hand.
 const ABI_VERSION = UInt32(1)
-const API_REVISION = UInt32(9)
+const API_REVISION = UInt32(10)
 const TYPED_ABI_VERSION = UInt32(2)
 const DESCRIPTOR_SIGNATURE_KNOWN = UInt64(1) << 0
 const DESCRIPTOR_SNAPSHOT_PRESENT = UInt64(1) << 1
@@ -17,6 +17,9 @@ const PATH_POLL_CANCELLED = UInt32(5)
 const GRAPH_POLL_PENDING = UInt32(1)
 const GRAPH_POLL_COMPLETE = UInt32(2)
 const GRAPH_POLL_CANCELLED = UInt32(3)
+const DISTANCE_POLL_PENDING = UInt32(1)
+const DISTANCE_POLL_COMPLETE = UInt32(2)
+const DISTANCE_POLL_CANCELLED = UInt32(3)
 
 @enum Status::UInt32 begin
     STATUS_OK = 0
@@ -27,6 +30,8 @@ const GRAPH_POLL_CANCELLED = UInt32(3)
     STATUS_PROVIDER_ERROR = 5
     STATUS_LIMIT_EXCEEDED = 6
     STATUS_CLOSED = 7
+    STATUS_NON_CONVERGENT = 8
+    STATUS_UNSUPPORTED = 9
 end
 
 @enum CancellationReasonV2::UInt32 begin

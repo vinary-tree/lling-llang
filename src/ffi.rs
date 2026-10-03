@@ -16,7 +16,9 @@ use vinary_tree_interop::{VtResource, VtUnitDomain, VtWeightDomain, VtWfstArc};
 
 mod lattice;
 pub use lattice::*;
+mod distance;
 mod graph;
+pub use distance::*;
 pub use graph::*;
 mod path;
 pub use path::*;
@@ -24,7 +26,7 @@ pub use path::*;
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_LLANG_API_REVISION: u32 = 9;
+pub const LLING_LLANG_API_REVISION: u32 = 10;
 
 fn bounded_usize(value: u64, name: &'static str) -> Result<usize, LlingLlangStatus> {
     usize::try_from(value).map_err(|_| {
@@ -55,6 +57,10 @@ pub enum LlingLlangStatus {
     LimitExceeded = 6,
     /// The builder was already consumed.
     Closed = 7,
+    /// A graph cycle makes the requested exact analysis divergent.
+    NonConvergent = 8,
+    /// The requested domain/cycle combination has no supported exact solver.
+    Unsupported = 9,
 }
 
 /// Opaque mutable WFST builder.

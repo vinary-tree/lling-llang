@@ -7,6 +7,7 @@ use super::{
 use crate::bindings::{CapturedGraphCursor, GraphPoll, ScalarGraph, ScalarGraphConfig};
 use std::mem::size_of;
 use std::ptr;
+use std::sync::Arc;
 use vinary_tree_interop::{VtResource, VtWfstArc};
 
 /// Versioned state, arc, and provider-work bounds for one graph capture.
@@ -44,7 +45,7 @@ pub struct LlingGraphCursor {
 
 /// Opaque complete reachable graph, independent of its provider snapshot.
 pub struct LlingGraph {
-    graph: ScalarGraph,
+    pub(super) graph: Arc<ScalarGraph>,
 }
 
 /// More provider work remains; poll again.
@@ -165,7 +166,9 @@ pub unsafe extern "C" fn lling_graph_cursor_take(
             .expect("checked complete")
             .into_graph()
             .map_err(map_error)?;
-        *output = Box::into_raw(Box::new(LlingGraph { graph }));
+        *output = Box::into_raw(Box::new(LlingGraph {
+            graph: Arc::new(graph),
+        }));
         Ok(())
     })
 }

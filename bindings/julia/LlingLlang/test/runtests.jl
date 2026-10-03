@@ -155,6 +155,74 @@ end
     close(graph)
 end
 
+@testset "bounded exact native graph distances" begin
+    @test sizeof(LlingLlang.RawDistanceConfig) == 24
+    @test_throws ArgumentError DistanceLimits(max_work=0)
+    @test_throws ArgumentError DistanceLimits(work_per_call=false)
+
+    for (Weight, first_weight, final_weight, expected) in [
+        (TropicalWeight, TropicalWeight(2), TropicalWeight(3), TropicalWeight(5)),
+        (LogWeight, LogWeight(2), LogWeight(3), LogWeight(5)),
+        (ProbabilityWeight, ProbabilityWeight(0.4), ProbabilityWeight(0.5),
+            ProbabilityWeight(0.2)),
+        (ArcticWeight, ArcticWeight(2), ArcticWeight(3), ArcticWeight(5)),
+        (SignedTropicalWeight, SignedTropicalWeight(-2), SignedTropicalWeight(3),
+            SignedTropicalWeight(1)),
+        (CountWeight, CountWeight(2), CountWeight(3), CountWeight(6)),
+        (BooleanWeight, BooleanWeight(true), BooleanWeight(true), BooleanWeight(true)),
+    ]
+        source = scalar_chain(UInt8, Weight, UInt8('d'), first_weight, final_weight)
+        graph = complete_graph(source; limits=GraphLimits(max_states=2,
+            max_arcs=1, max_work=4, work_per_call=1))
+        close(source)
+        cursor = analyze_distances(graph; limits=DistanceLimits(
+            max_work=30, work_per_call=1))
+        close(graph)
+        @test poll_distance!(cursor) isa DistancePending
+        result = nothing
+        while isnothing(result)
+            polled = poll_distance!(cursor)
+            if !(polled isa DistancePending)
+                result = polled
+            end
+        end
+        @test result isa DistanceResult
+        @test !isopen(cursor)
+        @test distance_info(result) == (total=expected, states=Csize_t(2))
+        page = distance_page(result, 0; capacity=1)
+        @test page.total == 2
+        @test length(page.forward) == 1
+        @test page.forward[1] == one(Weight)
+        @test length(page.backward) == 1
+        @test page.backward[1] == expected
+        @test distance_page(result, 1).backward == [final_weight]
+        if Weight in (LogWeight, ProbabilityWeight, CountWeight)
+            @test isapprox(only(posterior_arcs(result, 0).probabilities), 1.0;
+                atol=1e-12)
+            @test isapprox(posterior_final(result, 1), 1.0; atol=1e-12)
+            @test posterior_final(result, 0) == 0.0
+        else
+            @test_throws NativeError posterior_arcs(result, 0)
+        end
+        close(result)
+        @test !isopen(result)
+    end
+
+    source = scalar_chain(UInt8, TropicalWeight, UInt8('w'),
+        TropicalWeight(1), TropicalWeight(1))
+    graph = complete_graph(source)
+    @test_throws NativeError complete_distances(graph;
+        limits=DistanceLimits(max_work=1, work_per_call=1))
+    cancellation = CancellationV2()
+    cursor = analyze_distances(graph; cancellation)
+    request!(cancellation, LlingLlang.CANCELLATION_REQUESTED_V2)
+    @test_throws DistanceCancelledError poll_distance!(cursor)
+    @test !isopen(cursor)
+    close(cancellation)
+    close(graph)
+    close(source)
+end
+
 @testset "typed ABI-v2 metadata and cancellation" begin
     @test sizeof(AbiV2Header) == 24
     @test sizeof(Id128) == 16

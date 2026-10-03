@@ -39,7 +39,7 @@ pub(crate) struct ScalarGraphState {
 }
 
 /// An exact, finite graph copied from one immutable provider snapshot.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct ScalarGraph {
     pub unit_domain: VtUnitDomain,
     pub weight_domain: VtWeightDomain,

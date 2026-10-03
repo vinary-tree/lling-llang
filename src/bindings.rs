@@ -20,8 +20,12 @@ use vinary_tree_interop::{
 };
 
 mod graph;
+mod graph_analysis;
 mod path;
 pub(crate) use graph::{CapturedGraphCursor, GraphPoll, ScalarGraph, ScalarGraphConfig};
+pub(crate) use graph_analysis::{
+    DistancePoll, GraphAnalysisError, GraphDistanceCursor, GraphDistances,
+};
 pub(crate) use path::{PathPoll, ScalarPath, ScalarPathConfig, ScalarPathCursor};
 
 /// Binding failures raised while validating or traversing a foreign WFST.

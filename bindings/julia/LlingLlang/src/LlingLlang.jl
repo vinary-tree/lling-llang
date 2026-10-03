@@ -57,6 +57,11 @@ export ABI_VERSION,
     GraphCancelledError,
     GraphArc,
     GraphState,
+    DistanceLimits,
+    DistanceCursor,
+    DistanceResult,
+    DistancePending,
+    DistanceCancelledError,
     ProviderArc,
     ProviderState,
     AbstractWfstProvider,
@@ -98,6 +103,13 @@ export ABI_VERSION,
     graph_info,
     graph_state,
     graph_arcs,
+    analyze_distances,
+    poll_distance!,
+    complete_distances,
+    distance_info,
+    distance_page,
+    posterior_arcs,
+    posterior_final,
     input_symbols,
     output_symbols,
     resource,
@@ -1331,6 +1343,218 @@ function graph_state(graph::GraphSnapshot{L,W}, local_id::Integer) where {L,W}
     arcs = graph_arcs(graph, id)
     length(arcs) == count[] || throw(ArgumentError("native graph arc count changed"))
     GraphState{L,W}(id, raw[], final[] == 1, decode_weight(W, weight[]), arcs)
+end
+
+"""Explicit total and per-call native graph-analysis work limits."""
+struct DistanceLimits
+    max_work::UInt64
+    work_per_call::UInt64
+end
+DistanceLimits(; max_work=1_000_000, work_per_call=64) =
+    DistanceLimits(path_bound(max_work, :max_work; positive=true),
+        path_bound(work_per_call, :work_per_call; positive=true))
+
+struct RawDistanceConfig
+    struct_size::UInt32
+    version::UInt32
+    max_work::UInt64
+    work_per_call::UInt64
+end
+RawDistanceConfig(limits::DistanceLimits) = RawDistanceConfig(
+    UInt32(sizeof(RawDistanceConfig)), UInt32(1),
+    limits.max_work, limits.work_per_call)
+
+"""One bounded poll completed without exhausting the distance machine."""
+struct DistancePending end
+const DISTANCE_PENDING = DistancePending()
+
+"""Cancellation ended a distance analysis before exact completion."""
+struct DistanceCancelledError <: Exception
+    reason::Union{Nothing,CancellationReasonV2}
+end
+Base.showerror(io::IO, error::DistanceCancelledError) =
+    print(io, "graph distance analysis cancelled", isnothing(error.reason) ? "" :
+        " ($(error.reason))")
+
+"""Mutable native analysis cursor that retains the complete graph independently."""
+mutable struct DistanceCursor{W<:AbstractScalarWeight}
+    handle::Ptr{Cvoid}
+    cancellation::Union{Nothing,CancellationV2}
+    closed::Bool
+end
+Base.isopen(cursor::DistanceCursor) = !cursor.closed
+function close!(cursor::DistanceCursor)
+    cursor.closed && return nothing
+    ccall(native(:lling_graph_distance_cursor_free), Cvoid, (Ptr{Cvoid},), cursor.handle)
+    cursor.handle = C_NULL
+    cursor.closed = true
+    nothing
+end
+Base.close(cursor::DistanceCursor) = close!(cursor)
+
+"""Exact semiring forward/backward vectors, independent of its graph and cursor."""
+mutable struct DistanceResult{W<:AbstractScalarWeight}
+    handle::Ptr{Cvoid}
+    closed::Bool
+end
+Base.isopen(result::DistanceResult) = !result.closed
+function close!(result::DistanceResult)
+    result.closed && return nothing
+    ccall(native(:lling_graph_distance_free), Cvoid, (Ptr{Cvoid},), result.handle)
+    result.handle = C_NULL
+    result.closed = true
+    nothing
+end
+Base.close(result::DistanceResult) = close!(result)
+
+"""
+Begin exact semiring distance analysis on a complete graph.
+
+The native cursor retains its own graph lease, so `graph` may be closed after
+this call. Each poll consumes at most `limits.work_per_call` vertex/edge
+transitions. Acyclic graphs support all seven scalar domains. Cyclic graphs
+support tropical, signed tropical, arctic, and Boolean domains; an improving
+cycle returns `STATUS_NON_CONVERGENT`, while cyclic probability/log/count sums
+return `STATUS_UNSUPPORTED` instead of a truncated value.
+"""
+function analyze_distances(graph::GraphSnapshot{L,W};
+    limits::DistanceLimits=DistanceLimits(),
+    cancellation::Union{Nothing,CancellationV2}=nothing) where {L,W}
+    isnothing(cancellation) || open_handle(cancellation)
+    config = Ref(RawDistanceConfig(limits))
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    checked(ccall(native(:lling_graph_distance_open), UInt32,
+        (Ptr{Cvoid}, Ref{RawDistanceConfig}, Ref{Ptr{Cvoid}}),
+        open_graph_handle(graph), config, output), :graph_distance_open)
+    cursor = DistanceCursor{W}(output[], cancellation, false)
+    finalizer(finalize_close, cursor)
+    cursor
+end
+
+"""Advance a distance cursor by one bounded native work slice."""
+function poll_distance!(cursor::DistanceCursor{W}) where {W}
+    cursor.closed && throw(NativeError(STATUS_CLOSED, :graph_distance_next,
+        "graph distance cursor is closed"))
+    try
+        poll = Ref{UInt32}(0)
+        cancellation = cursor.cancellation
+        cancellation_handle = isnothing(cancellation) ? C_NULL : open_handle(cancellation)
+        GC.@preserve cancellation begin
+            checked(ccall(native(:lling_graph_distance_next), UInt32,
+                (Ptr{Cvoid}, Ptr{Cvoid}, Ref{UInt32}),
+                cursor.handle, cancellation_handle, poll), :graph_distance_next)
+        end
+        poll[] == DISTANCE_POLL_PENDING && return DISTANCE_PENDING
+        if poll[] == DISTANCE_POLL_COMPLETE
+            output = Ref{Ptr{Cvoid}}(C_NULL)
+            checked(ccall(native(:lling_graph_distance_take), UInt32,
+                (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), cursor.handle, output),
+                :graph_distance_take)
+            result = DistanceResult{W}(output[], false)
+            finalizer(finalize_close, result)
+            close!(cursor)
+            return result
+        end
+        close!(cursor)
+        poll[] == DISTANCE_POLL_CANCELLED && throw(DistanceCancelledError(
+            isnothing(cancellation) ? nothing : cancellation_reason(cancellation)))
+        throw(ArgumentError("native distance cursor returned unknown poll value $(poll[])"))
+    catch
+        close!(cursor)
+        rethrow()
+    end
+end
+
+"""Finish exact distance analysis, closing the cursor on every exit path."""
+function complete_distances(graph::GraphSnapshot; kwargs...)
+    cursor = analyze_distances(graph; kwargs...)
+    try
+        while true
+            result = poll_distance!(cursor)
+            result isa DistancePending || return result
+        end
+    finally
+        close(cursor)
+    end
+end
+
+function open_distance_handle(result::DistanceResult)
+    result.closed && throw(NativeError(STATUS_CLOSED, :graph_distance,
+        "graph distance result is closed"))
+    result.handle
+end
+
+"""Return exact total semiring weight and the number of local states."""
+function distance_info(result::DistanceResult{W}) where {W}
+    total = Ref{Float64}(0)
+    count = Ref{Csize_t}(0)
+    checked(ccall(native(:lling_graph_distance_info), UInt32,
+        (Ptr{Cvoid}, Ref{Float64}, Ref{Csize_t}),
+        open_distance_handle(result), total, count), :graph_distance_info)
+    (total=decode_weight(W, total[]), states=count[])
+end
+
+"""Copy one page of exact forward/backward distances as Julia-owned vectors."""
+function distance_page(result::DistanceResult{W}, offset::Integer;
+    capacity::Integer=256) where {W}
+    start = path_bound(offset, :offset)
+    count = path_bound(capacity, :capacity; positive=true)
+    start <= typemax(Csize_t) || throw(ArgumentError("offset exceeds size_t"))
+    count <= typemax(Csize_t) || throw(ArgumentError("capacity exceeds size_t"))
+    count <= 256 || throw(ArgumentError("distance page capacity exceeds 256"))
+    forward_raw = Vector{Float64}(undef, Int(count))
+    backward_raw = Vector{Float64}(undef, Int(count))
+    written = Ref{Csize_t}(0)
+    total = Ref{Csize_t}(0)
+    checked(ccall(native(:lling_graph_distance_page), UInt32,
+        (Ptr{Cvoid}, Csize_t, Ptr{Float64}, Ptr{Float64},
+            Csize_t, Ref{Csize_t}, Ref{Csize_t}),
+        open_distance_handle(result), Csize_t(start),
+        forward_raw, backward_raw, Csize_t(count), written, total),
+        :graph_distance_page)
+    written[] <= count || throw(ArgumentError("native distance page exceeded capacity"))
+    (forward=map(value -> decode_weight(W, value), @view(forward_raw[1:Int(written[])])),
+        backward=map(value -> decode_weight(W, value), @view(backward_raw[1:Int(written[])])),
+        total=total[])
+end
+
+"""
+Return one page of accepting-path arc posterior probabilities in provider order.
+
+Defined for finite, nonzero path mass in probability, log, and count domains.
+The returned probabilities are Julia-owned `Float64` values. A numeric
+underflow/overflow is an explicit native failure, not an unmarked zero.
+"""
+function posterior_arcs(result::DistanceResult, local_id::Integer;
+    offset::Integer=0, capacity::Integer=256)
+    state = path_bound(local_id, :local_id)
+    start = path_bound(offset, :offset)
+    count = path_bound(capacity, :capacity; positive=true)
+    state <= typemax(Csize_t) || throw(ArgumentError("local_id exceeds size_t"))
+    start <= typemax(Csize_t) || throw(ArgumentError("offset exceeds size_t"))
+    count <= 256 || throw(ArgumentError("posterior page capacity exceeds 256"))
+    values = Vector{Float64}(undef, Int(count))
+    written = Ref{Csize_t}(0)
+    total = Ref{Csize_t}(0)
+    checked(ccall(native(:lling_graph_posterior_arcs), UInt32,
+        (Ptr{Cvoid}, Csize_t, Csize_t, Ptr{Float64},
+            Csize_t, Ref{Csize_t}, Ref{Csize_t}),
+        open_distance_handle(result), Csize_t(state), Csize_t(start),
+        values, Csize_t(count), written, total), :graph_posterior_arcs)
+    written[] <= count || throw(ArgumentError("native posterior page exceeded capacity"))
+    (probabilities=values[1:Int(written[])], total=total[])
+end
+
+"""Return the probability of stopping at one local final state."""
+function posterior_final(result::DistanceResult, local_id::Integer)
+    state = path_bound(local_id, :local_id)
+    state <= typemax(Csize_t) || throw(ArgumentError("local_id exceeds size_t"))
+    output = Ref{Float64}(0)
+    checked(ccall(native(:lling_graph_posterior_final), UInt32,
+        (Ptr{Cvoid}, Csize_t, Ref{Float64}),
+        open_distance_handle(result), Csize_t(state), output),
+        :graph_posterior_final)
+    output[]
 end
 
 decode_label(::Type{UInt8}, value::UInt64) = UInt8(value)
