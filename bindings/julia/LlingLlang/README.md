@@ -183,6 +183,50 @@ distance, and randomized sampling is detailed in the
 [path-extraction](../../../docs/algorithms/path-extraction.md) and
 [path-sampling](../../../docs/algorithms/path-sampling.md) guides.
 
+### Capture a complete reachable graph under explicit limits
+
+`capture_graph(graph)` starts a second, breadth-first native cursor over one
+immutable snapshot. Unlike accepting-path traversal, it visits every reachable
+state once and pages each state's arcs in batches of at most 256. It does not
+ask a lazy provider for a known state count. A complete graph is suitable for
+global analyses; an interrupted or budget-limited capture is never presented
+as exact.
+
+```julia
+cursor = capture_graph(graph; limits=GraphLimits(
+    max_states=10_000, max_arcs=100_000,
+    max_work=100_000, work_per_call=16))
+try
+    while true
+        result = poll_graph!(cursor) # one bounded provider-work slice
+        result isa GraphPending && continue
+        snapshot = result::GraphSnapshot
+        try
+            info = graph_info(snapshot)
+            first = graph_state(snapshot, 0) # local IDs start at zero
+            @assert first.raw_id == info.start_raw
+        finally
+            close(snapshot)
+        end
+        break
+    end
+finally
+    close(cursor)
+end
+```
+
+`complete_graph(graph; limits=...)` performs the same polling loop and returns
+the complete `GraphSnapshot`. The caller must close it. Its local state IDs are
+assigned in breadth-first discovery order, with arcs in provider order, and
+`GraphArc` retains both the compact target ID and original provider target ID.
+`GraphLimits.max_work` and `work_per_call` count provider callbacks, not
+traversal decisions; each callback can have provider-defined latency.
+`GraphCancelledError` reports cancellation, while `NativeError` with
+`STATUS_LIMIT_EXCEEDED` reports a finite resource bound. Neither outcome
+returns a partial graph as a complete result. The source may close after
+`capture_graph` opens because the cursor owns its snapshot; a complete graph
+is independent of that snapshot and remains live until closed.
+
 ### Implement a lazy Julia provider
 
 ```julia

@@ -19,7 +19,9 @@ use vinary_tree_interop::{
     VT_WFST_INTERFACE_ID, VT_WFST_INTERFACE_VERSION,
 };
 
+mod graph;
 mod path;
+pub(crate) use graph::{CapturedGraphCursor, GraphPoll, ScalarGraph, ScalarGraphConfig};
 pub(crate) use path::{PathPoll, ScalarPath, ScalarPathConfig, ScalarPathCursor};
 
 /// Binding failures raised while validating or traversing a foreign WFST.
@@ -106,6 +108,13 @@ struct StateData {
     is_final: bool,
     final_weight: f64,
     arcs: Arc<[VtWfstArc]>,
+}
+
+#[derive(Clone, Copy)]
+struct StateHeader {
+    valid: bool,
+    is_final: bool,
+    final_weight: f64,
 }
 
 const MAX_EXACT_F64_INTEGER: f64 = 9_007_199_254_740_992.0;
@@ -506,11 +515,11 @@ impl CapturedWfst {
             .clone())
     }
 
-    unsafe fn expand_state(
-        &self,
-        state: u64,
-        max_arcs: Option<usize>,
-    ) -> Result<StateData, BindingError> {
+    fn state_header(&self, state: u64) -> Result<StateHeader, BindingError> {
+        unsafe { self.gate.call(|| self.state_header_unlocked(state)) }
+    }
+
+    unsafe fn state_header_unlocked(&self, state: u64) -> Result<StateHeader, BindingError> {
         let table = &*self.table;
         let mut valid = 0;
         let mut is_final = 0;
@@ -527,7 +536,78 @@ impl CapturedWfst {
                 "invalid state_info fields",
             ));
         }
-        if valid == 0 {
+        Ok(StateHeader {
+            valid: valid == 1,
+            is_final: is_final == 1,
+            final_weight,
+        })
+    }
+
+    fn arc_page(
+        &self,
+        state: u64,
+        offset: usize,
+        page: &mut [VtWfstArc],
+    ) -> Result<(usize, usize), BindingError> {
+        unsafe {
+            self.gate
+                .call(|| self.arc_page_unlocked(state, offset, page))
+        }
+    }
+
+    unsafe fn arc_page_unlocked(
+        &self,
+        state: u64,
+        offset: usize,
+        page: &mut [VtWfstArc],
+    ) -> Result<(usize, usize), BindingError> {
+        let table = &*self.table;
+        let mut written = 0usize;
+        let mut total = 0usize;
+        check_status(table.state_arcs.unwrap()(
+            self.resource.0.context,
+            state,
+            offset,
+            page.as_mut_ptr(),
+            page.len(),
+            &mut written,
+            &mut total,
+        ))?;
+        if written > page.len()
+            || offset > total
+            || offset.saturating_add(written) > total
+            || (written == 0 && offset < total)
+        {
+            return Err(BindingError::InvalidProviderOutput(
+                "invalid arc page counts",
+            ));
+        }
+        for arc in page.iter().take(written) {
+            if arc.has_input > 1
+                || arc.has_output > 1
+                || arc.reserved != [0; 6]
+                || !valid_scalar_weight(self.weight_domain, arc.weight)
+            {
+                return Err(BindingError::InvalidProviderOutput("invalid arc fields"));
+            }
+            if (arc.has_input == 1 && !valid_scalar_label(self.unit_domain, arc.input_label))
+                || (arc.has_output == 1 && !valid_scalar_label(self.unit_domain, arc.output_label))
+            {
+                return Err(BindingError::InvalidProviderOutput(
+                    "label does not belong to the declared domain",
+                ));
+            }
+        }
+        Ok((written, total))
+    }
+
+    unsafe fn expand_state(
+        &self,
+        state: u64,
+        max_arcs: Option<usize>,
+    ) -> Result<StateData, BindingError> {
+        let header = self.state_header_unlocked(state)?;
+        if !header.valid {
             return Ok(StateData {
                 valid: false,
                 is_final: false,
@@ -541,23 +621,8 @@ impl CapturedWfst {
         let mut offset = 0usize;
         let mut expected_total = None;
         loop {
-            let mut written = 0usize;
-            let mut total = 0usize;
-            check_status(table.state_arcs.unwrap()(
-                self.resource.0.context,
-                state,
-                offset,
-                page.as_mut_ptr(),
-                page.len(),
-                &mut written,
-                &mut total,
-            ))?;
-            if written > page.len()
-                || offset > total
-                || offset.saturating_add(written) > total
-                || (written == 0 && offset < total)
-                || expected_total.is_some_and(|expected| expected != total)
-            {
+            let (written, total) = self.arc_page_unlocked(state, offset, &mut page)?;
+            if expected_total.is_some_and(|expected| expected != total) {
                 return Err(BindingError::InvalidProviderOutput(
                     "invalid arc page counts",
                 ));
@@ -566,24 +631,7 @@ impl CapturedWfst {
             if max_arcs.is_some_and(|limit| total > limit) {
                 return Err(BindingError::BudgetExceeded("arcs"));
             }
-            for arc in page.iter().take(written) {
-                if arc.has_input > 1
-                    || arc.has_output > 1
-                    || arc.reserved != [0; 6]
-                    || !valid_scalar_weight(self.weight_domain, arc.weight)
-                {
-                    return Err(BindingError::InvalidProviderOutput("invalid arc fields"));
-                }
-                if (arc.has_input == 1 && !valid_scalar_label(self.unit_domain, arc.input_label))
-                    || (arc.has_output == 1
-                        && !valid_scalar_label(self.unit_domain, arc.output_label))
-                {
-                    return Err(BindingError::InvalidProviderOutput(
-                        "label does not belong to the declared domain",
-                    ));
-                }
-                arcs.push(*arc);
-            }
+            arcs.extend_from_slice(&page[..written]);
             offset = offset
                 .checked_add(written)
                 .ok_or(BindingError::RepresentationLimit)?;
@@ -593,8 +641,8 @@ impl CapturedWfst {
         }
         Ok(StateData {
             valid: true,
-            is_final: is_final == 1,
-            final_weight,
+            is_final: header.is_final,
+            final_weight: header.final_weight,
             arcs: arcs.into(),
         })
     }

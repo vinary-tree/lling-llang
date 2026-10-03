@@ -16,13 +16,24 @@ use vinary_tree_interop::{VtResource, VtUnitDomain, VtWeightDomain, VtWfstArc};
 
 mod lattice;
 pub use lattice::*;
+mod graph;
+pub use graph::*;
 mod path;
 pub use path::*;
 
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_LLANG_API_REVISION: u32 = 8;
+pub const LLING_LLANG_API_REVISION: u32 = 9;
+
+fn bounded_usize(value: u64, name: &'static str) -> Result<usize, LlingLlangStatus> {
+    usize::try_from(value).map_err(|_| {
+        set_error(format!(
+            "{name} exceeds this platform's usize representation"
+        ));
+        LlingLlangStatus::LimitExceeded
+    })
+}
 
 /// Status returned by lling-llang C functions.
 #[repr(u32)]

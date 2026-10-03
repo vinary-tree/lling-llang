@@ -104,6 +104,20 @@ when stopping early, or use
 contains a runnable example and the ownership rules. This traversal is not
 weight-ranked n-best search or random sampling.
 
+## Bounded reachable-graph capture
+
+`capture_graph` snapshots a scalar WFST once and incrementally discovers its
+reachable graph without calling `num_states`. Each `poll_graph!` consumes at
+most `GraphLimits.work_per_call` provider callbacks, with at most 256 arcs in
+one page. `GraphPending` means more work remains; only a complete poll yields
+an independently owned `GraphSnapshot`. Use `graph_info`, `graph_state`, and
+`graph_arcs` to inspect its stable breadth-first local IDs and original
+provider IDs. Cancellation and exhausted budgets fail explicitly without
+returning a partial graph as exact. `complete_graph` is the convenience loop;
+close its result when finished. See the [package guide](https://github.com/vinary-tree/lling-llang/tree/master/bindings/julia/LlingLlang#capture-a-complete-reachable-graph-under-explicit-limits)
+for a runnable example and ownership details. A complete capture is a
+foundation for global path analysis, not itself a shortest-path algorithm.
+
 ## Public API
 
 ```@autodocs

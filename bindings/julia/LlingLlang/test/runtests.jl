@@ -101,6 +101,60 @@ end
     close(graph)
 end
 
+@testset "bounded resumable reachable-graph capture" begin
+    @test sizeof(LlingLlang.RawGraphConfig) == 40
+    @test sizeof(LlingLlang.RawGraphArc) == 48
+    @test_throws ArgumentError GraphLimits(max_states=0)
+    @test_throws ArgumentError GraphLimits(work_per_call=false)
+
+    graph = scalar_chain(UInt8, TropicalWeight, UInt8('a'),
+        TropicalWeight(2), TropicalWeight(3))
+    cursor = capture_graph(graph; limits=GraphLimits(max_states=2,
+        max_arcs=1, max_work=4, work_per_call=1))
+    close(graph)
+    @test poll_graph!(cursor) isa GraphPending
+    snapshot = nothing
+    while isnothing(snapshot)
+        result = poll_graph!(cursor)
+        if !(result isa GraphPending)
+            snapshot = result
+        end
+    end
+    @test snapshot isa GraphSnapshot
+    @test !isopen(cursor)
+    @test graph_info(snapshot) == (start_raw=UInt64(0),
+        states=Csize_t(2), arcs=Csize_t(1))
+    first = graph_state(snapshot, 0)
+    second = graph_state(snapshot, 1)
+    @test first.raw_id == 0
+    @test !first.final
+    @test length(first.arcs) == 1
+    @test first.arcs[1].input == UInt8('a')
+    @test first.arcs[1].target_local == 1
+    @test first.arcs[1].target_raw == 1
+    @test isempty(second.arcs)
+    @test second.final_weight == TropicalWeight(3)
+    close(snapshot)
+    @test !isopen(snapshot)
+
+    graph = scalar_chain(UInt8, TropicalWeight, UInt8('b'),
+        TropicalWeight(1), TropicalWeight(2))
+    full = complete_graph(graph; limits=GraphLimits(max_states=2,
+        max_arcs=1, max_work=4, work_per_call=1))
+    @test graph_info(full).states == 2
+    close(full)
+    @test_throws NativeError complete_graph(graph;
+        limits=GraphLimits(max_states=2, max_arcs=0,
+            max_work=4, work_per_call=1))
+    cancellation = CancellationV2()
+    cursor = capture_graph(graph; cancellation)
+    request!(cancellation, LlingLlang.CANCELLATION_REQUESTED_V2)
+    @test_throws GraphCancelledError poll_graph!(cursor)
+    @test !isopen(cursor)
+    close(cancellation)
+    close(graph)
+end
+
 @testset "typed ABI-v2 metadata and cancellation" begin
     @test sizeof(AbiV2Header) == 24
     @test sizeof(Id128) == 16

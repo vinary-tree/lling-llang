@@ -174,7 +174,7 @@
   },
   "packageVersion": "4.0.0-rc.6",
   "abiVersion": 1,
-  "apiRevision": 8,
+  "apiRevision": 9,
   "cPrefix": "lling_",
   "headers": {
     "c": "include/lling_llang.h",
@@ -3358,6 +3358,91 @@
       "return": {"cType": "void", "rakuType": null, "ownership": "none", "nullability": "not-applicable"},
       "parameters": [
         {"name": "path", "cType": "LlingPath*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "inout", "ownership": "consumed-when-non-null", "nullability": "nullable"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_graph_cursor_open", "rustModule": "ffi", "rakuName": "lling-graph-cursor-open",
+      "sinceApiRevision": 9, "threading": "caller-coordinates-immutable-handle-lifetime", "capability": "bounded-graph-capture",
+      "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "resource", "cType": "const VtResource*", "rakuType": "Vinary::Tree::Interop::RawResource", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-capture-snapshot", "nullability": "non-null"},
+        {"name": "config", "cType": "const LlingGraphConfig*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"},
+        {"name": "out_cursor", "cType": "LlingGraphCursor**", "rakuType": "Pointer", "rakuPassing": "rw", "direction": "out", "ownership": "owned-output-on-success", "nullability": "non-null"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_graph_cursor_next", "rustModule": "ffi", "rakuName": "lling-graph-cursor-next",
+      "sinceApiRevision": 9, "threading": "caller-synchronized-mutable-handle", "capability": "bounded-graph-capture",
+      "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "cursor", "cType": "LlingGraphCursor*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "inout", "ownership": "borrowed-for-call", "nullability": "non-null"},
+        {"name": "cancellation", "cType": "const LlingCancellationV2*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "nullable"},
+        {"name": "out_poll", "cType": "uint32_t*", "rakuType": "uint32", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_graph_cursor_take", "rustModule": "ffi", "rakuName": "lling-graph-cursor-take",
+      "sinceApiRevision": 9, "threading": "caller-synchronized-mutable-handle", "capability": "bounded-graph-capture",
+      "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "cursor", "cType": "LlingGraphCursor*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "inout", "ownership": "borrowed-for-call", "nullability": "non-null"},
+        {"name": "out_graph", "cType": "LlingGraph**", "rakuType": "Pointer", "rakuPassing": "rw", "direction": "out", "ownership": "owned-output-on-success", "nullability": "non-null"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_graph_cursor_free", "rustModule": "ffi", "rakuName": "lling-graph-cursor-free",
+      "sinceApiRevision": 9, "threading": "exclusive-owner-close", "capability": "bounded-graph-capture",
+      "return": {"cType": "void", "rakuType": null, "ownership": "none", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "cursor", "cType": "LlingGraphCursor*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "inout", "ownership": "consumed-when-non-null", "nullability": "nullable"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_graph_info", "rustModule": "ffi", "rakuName": "lling-graph-info",
+      "sinceApiRevision": 9, "threading": "concurrent-read-only", "capability": "complete-scalar-graph",
+      "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "graph", "cType": "const LlingGraph*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"},
+        {"name": "out_unit_domain", "cType": "uint32_t*", "rakuType": "uint32", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"},
+        {"name": "out_weight_domain", "cType": "uint32_t*", "rakuType": "uint32", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"},
+        {"name": "out_start_raw", "cType": "uint64_t*", "rakuType": "uint64", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"},
+        {"name": "out_state_count", "cType": "size_t*", "rakuType": "size_t", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"},
+        {"name": "out_arc_count", "cType": "size_t*", "rakuType": "size_t", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_graph_state", "rustModule": "ffi", "rakuName": "lling-graph-state",
+      "sinceApiRevision": 9, "threading": "concurrent-read-only", "capability": "complete-scalar-graph",
+      "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "graph", "cType": "const LlingGraph*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"},
+        {"name": "local_id", "cType": "size_t", "rakuType": "size_t", "rakuPassing": "value", "direction": "in", "ownership": "value", "nullability": "not-applicable"},
+        {"name": "out_raw_id", "cType": "uint64_t*", "rakuType": "uint64", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"},
+        {"name": "out_is_final", "cType": "uint8_t*", "rakuType": "uint8", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"},
+        {"name": "out_final_weight", "cType": "double*", "rakuType": "num64", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"},
+        {"name": "out_arc_count", "cType": "size_t*", "rakuType": "size_t", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_graph_arcs", "rustModule": "ffi", "rakuName": "lling-graph-arcs",
+      "sinceApiRevision": 9, "threading": "concurrent-read-only", "capability": "complete-scalar-graph",
+      "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "graph", "cType": "const LlingGraph*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"},
+        {"name": "local_id", "cType": "size_t", "rakuType": "size_t", "rakuPassing": "value", "direction": "in", "ownership": "value", "nullability": "not-applicable"},
+        {"name": "offset", "cType": "size_t", "rakuType": "size_t", "rakuPassing": "value", "direction": "in", "ownership": "value", "nullability": "not-applicable"},
+        {"name": "out_arcs", "cType": "LlingGraphArc*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "out", "ownership": "borrowed-output-buffer", "nullability": "nullable-if-zero-capacity"},
+        {"name": "capacity", "cType": "size_t", "rakuType": "size_t", "rakuPassing": "value", "direction": "in", "ownership": "value", "nullability": "not-applicable"},
+        {"name": "out_written", "cType": "size_t*", "rakuType": "size_t", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"},
+        {"name": "out_total", "cType": "size_t*", "rakuType": "size_t", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_graph_free", "rustModule": "ffi", "rakuName": "lling-graph-free",
+      "sinceApiRevision": 9, "threading": "exclusive-owner-close", "capability": "complete-scalar-graph",
+      "return": {"cType": "void", "rakuType": null, "ownership": "none", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "graph", "cType": "LlingGraph*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "inout", "ownership": "consumed-when-non-null", "nullability": "nullable"}
       ], "raku": {"bind": true}
     }
   ],

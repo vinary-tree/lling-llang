@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 8u
+#define LLING_LLANG_API_REVISION 9u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -59,6 +59,8 @@ typedef struct LlingLatticeValue LlingLatticeValue;
 typedef struct LlingCancellationV2 LlingCancellationV2;
 typedef struct LlingPathCursor LlingPathCursor;
 typedef struct LlingPath LlingPath;
+typedef struct LlingGraphCursor LlingGraphCursor;
+typedef struct LlingGraph LlingGraph;
 
 /* Revision 8: each path walk owns a captured snapshot and explicit bounds. */
 typedef struct LlingPathConfig {
@@ -82,6 +84,25 @@ typedef struct LlingPathStep {
 #define LLING_PATH_POLL_EXHAUSTED 3u
 #define LLING_PATH_POLL_TRUNCATED 4u
 #define LLING_PATH_POLL_CANCELLED 5u
+
+/* Revision 9: resumable capture of all reachable states, without num_states. */
+typedef struct LlingGraphConfig {
+    uint32_t struct_size;
+    uint32_t version;
+    uint64_t max_states;
+    uint64_t max_arcs;
+    uint64_t max_work;
+    uint64_t work_per_call;
+} LlingGraphConfig;
+
+typedef struct LlingGraphArc {
+    uint64_t target_local;
+    VtWfstArc arc;
+} LlingGraphArc;
+
+#define LLING_GRAPH_POLL_PENDING 1u
+#define LLING_GRAPH_POLL_COMPLETE 2u
+#define LLING_GRAPH_POLL_CANCELLED 3u
 
 typedef struct LlingAbiV2Header {
     uint32_t struct_size;
@@ -182,6 +203,8 @@ static_assert(sizeof(LlingBudgetV2) == 72, "LlingBudgetV2 layout drift");
 static_assert(sizeof(LlingOutcomeV2) == 96, "LlingOutcomeV2 layout drift");
 static_assert(sizeof(LlingPathConfig) == 56, "LlingPathConfig layout drift");
 static_assert(sizeof(LlingPathStep) == 48, "LlingPathStep layout drift");
+static_assert(sizeof(LlingGraphConfig) == 40, "LlingGraphConfig layout drift");
+static_assert(sizeof(LlingGraphArc) == 48, "LlingGraphArc layout drift");
 #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 _Static_assert(sizeof(LlingAbiV2Header) == 24, "LlingAbiV2Header layout drift");
 _Static_assert(sizeof(LlingId128) == 16, "LlingId128 layout drift");
@@ -193,6 +216,8 @@ _Static_assert(sizeof(LlingBudgetV2) == 72, "LlingBudgetV2 layout drift");
 _Static_assert(sizeof(LlingOutcomeV2) == 96, "LlingOutcomeV2 layout drift");
 _Static_assert(sizeof(LlingPathConfig) == 56, "LlingPathConfig layout drift");
 _Static_assert(sizeof(LlingPathStep) == 48, "LlingPathStep layout drift");
+_Static_assert(sizeof(LlingGraphConfig) == 40, "LlingGraphConfig layout drift");
+_Static_assert(sizeof(LlingGraphArc) == 48, "LlingGraphArc layout drift");
 #endif
 
 LLING_LLANG_API uint32_t lling_abi_version(void);
@@ -376,6 +401,29 @@ LLING_LLANG_API LlingLlangStatus lling_path_steps(
     const LlingPath* path, size_t offset, LlingPathStep* out_steps,
     size_t capacity, size_t* out_written, size_t* out_total);
 LLING_LLANG_API void lling_path_free(LlingPath* path);
+/* Revision 9 graph capture. A complete graph is independent of its snapshot. */
+LLING_LLANG_API LlingLlangStatus lling_graph_cursor_open(
+    const VtResource* resource, const LlingGraphConfig* config,
+    LlingGraphCursor** out_cursor);
+LLING_LLANG_API LlingLlangStatus lling_graph_cursor_next(
+    LlingGraphCursor* cursor, const LlingCancellationV2* cancellation,
+    uint32_t* out_poll);
+LLING_LLANG_API LlingLlangStatus lling_graph_cursor_take(
+    LlingGraphCursor* cursor, LlingGraph** out_graph);
+LLING_LLANG_API void lling_graph_cursor_free(LlingGraphCursor* cursor);
+LLING_LLANG_API LlingLlangStatus lling_graph_info(
+    const LlingGraph* graph, uint32_t* out_unit_domain,
+    uint32_t* out_weight_domain, uint64_t* out_start_raw,
+    size_t* out_state_count, size_t* out_arc_count);
+LLING_LLANG_API LlingLlangStatus lling_graph_state(
+    const LlingGraph* graph, size_t local_id, uint64_t* out_raw_id,
+    uint8_t* out_is_final, double* out_final_weight,
+    size_t* out_arc_count);
+LLING_LLANG_API LlingLlangStatus lling_graph_arcs(
+    const LlingGraph* graph, size_t local_id, size_t offset,
+    LlingGraphArc* out_arcs, size_t capacity,
+    size_t* out_written, size_t* out_total);
+LLING_LLANG_API void lling_graph_free(LlingGraph* graph);
 
 #ifdef __cplusplus
 }

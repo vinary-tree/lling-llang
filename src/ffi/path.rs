@@ -1,6 +1,9 @@
 //! Additive C ABI for bounded traversal of snapshot-captured scalar WFSTs.
 
-use super::{boundary, map_error, required_mut, set_error, LlingCancellationV2, LlingLlangStatus};
+use super::{
+    boundary, bounded_usize, map_error, required_mut, set_error, LlingCancellationV2,
+    LlingLlangStatus,
+};
 use crate::bindings::{PathPoll, ScalarPath, ScalarPathConfig, ScalarPathCursor};
 use std::mem::size_of;
 use std::ptr;
@@ -58,15 +61,6 @@ pub const LLING_PATH_POLL_EXHAUSTED: u32 = 3;
 pub const LLING_PATH_POLL_TRUNCATED: u32 = 4;
 /// The caller's cancellation request terminated the cursor.
 pub const LLING_PATH_POLL_CANCELLED: u32 = 5;
-
-fn bounded_usize(value: u64, name: &'static str) -> Result<usize, LlingLlangStatus> {
-    usize::try_from(value).map_err(|_| {
-        set_error(format!(
-            "{name} exceeds this platform's usize representation"
-        ));
-        LlingLlangStatus::LimitExceeded
-    })
-}
 
 fn decode_config(config: LlingPathConfig) -> Result<ScalarPathConfig, LlingLlangStatus> {
     if config.struct_size as usize != size_of::<LlingPathConfig>() || config.version != 1 {

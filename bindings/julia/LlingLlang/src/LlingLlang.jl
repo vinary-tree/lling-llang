@@ -50,6 +50,13 @@ export ABI_VERSION,
     PathPending,
     PathTruncatedError,
     PathCancelledError,
+    GraphLimits,
+    GraphCaptureCursor,
+    GraphSnapshot,
+    GraphPending,
+    GraphCancelledError,
+    GraphArc,
+    GraphState,
     ProviderArc,
     ProviderState,
     AbstractWfstProvider,
@@ -85,6 +92,12 @@ export ABI_VERSION,
     paths,
     poll_path!,
     reduce_paths,
+    capture_graph,
+    poll_graph!,
+    complete_graph,
+    graph_info,
+    graph_state,
+    graph_arcs,
     input_symbols,
     output_symbols,
     resource,
@@ -1066,6 +1079,258 @@ function reduce_paths(operation, initial, source::Wfst; kwargs...)
     finally
         close(iterator)
     end
+end
+
+"""Explicit provider-callback and allocation bounds for reachable-graph capture."""
+struct GraphLimits
+    max_states::UInt64
+    max_arcs::UInt64
+    max_work::UInt64
+    work_per_call::UInt64
+end
+
+function GraphLimits(; max_states=10_000, max_arcs=100_000,
+    max_work=100_000, work_per_call=16)
+    GraphLimits(path_bound(max_states, :max_states; positive=true),
+        path_bound(max_arcs, :max_arcs),
+        path_bound(max_work, :max_work; positive=true),
+        path_bound(work_per_call, :work_per_call; positive=true))
+end
+
+struct RawGraphConfig
+    struct_size::UInt32
+    version::UInt32
+    max_states::UInt64
+    max_arcs::UInt64
+    max_work::UInt64
+    work_per_call::UInt64
+end
+RawGraphConfig(limits::GraphLimits) = RawGraphConfig(
+    UInt32(sizeof(RawGraphConfig)), UInt32(1), limits.max_states,
+    limits.max_arcs, limits.max_work, limits.work_per_call)
+
+struct RawGraphArc
+    target_local::UInt64
+    arc::VTI.VtWfstArc
+end
+
+"""A bounded graph poll consumed one slice without completing capture."""
+struct GraphPending end
+const GRAPH_PENDING = GraphPending()
+
+"""The caller cancelled an in-progress graph capture."""
+struct GraphCancelledError <: Exception
+    reason::Union{Nothing,CancellationReasonV2}
+end
+Base.showerror(io::IO, error::GraphCancelledError) =
+    print(io, "graph capture cancelled", isnothing(error.reason) ? "" :
+        " ($(error.reason))")
+
+"""One native, snapshot-owning, resumable reachable-graph capture."""
+mutable struct GraphCaptureCursor{L,W<:AbstractScalarWeight,S1,S2}
+    handle::Ptr{Cvoid}
+    input_symbols::S1
+    output_symbols::S2
+    cancellation::Union{Nothing,CancellationV2}
+    closed::Bool
+end
+Base.isopen(cursor::GraphCaptureCursor) = !cursor.closed
+function close!(cursor::GraphCaptureCursor)
+    cursor.closed && return nothing
+    ccall(native(:lling_graph_cursor_free), Cvoid, (Ptr{Cvoid},), cursor.handle)
+    cursor.handle = C_NULL
+    cursor.closed = true
+    nothing
+end
+Base.close(cursor::GraphCaptureCursor) = close!(cursor)
+
+"""A complete, compact graph independent of the captured provider resource."""
+mutable struct GraphSnapshot{L,W<:AbstractScalarWeight,S1,S2}
+    handle::Ptr{Cvoid}
+    input_symbols::S1
+    output_symbols::S2
+    closed::Bool
+end
+Base.isopen(graph::GraphSnapshot) = !graph.closed
+function close!(graph::GraphSnapshot)
+    graph.closed && return nothing
+    ccall(native(:lling_graph_free), Cvoid, (Ptr{Cvoid},), graph.handle)
+    graph.handle = C_NULL
+    graph.closed = true
+    nothing
+end
+Base.close(graph::GraphSnapshot) = close!(graph)
+
+"""
+Begin bounded breadth-first capture of all states reachable from the start.
+
+The native cursor owns one immutable snapshot after this call; `source` may
+close. No state-count callback is needed. Local IDs are assigned in breadth-
+first discovery order, with each state's arcs retained in provider order.
+"""
+function capture_graph(source::Wfst{L,W}; limits::GraphLimits=GraphLimits(),
+    cancellation::Union{Nothing,CancellationV2}=nothing) where {L,W}
+    isnothing(cancellation) || open_handle(cancellation)
+    raw = Ref(raw_resource(source))
+    config = Ref(RawGraphConfig(limits))
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    GC.@preserve source begin
+        checked(ccall(native(:lling_graph_cursor_open), UInt32,
+            (Ref{VTI.VtResourceRaw}, Ref{RawGraphConfig}, Ref{Ptr{Cvoid}}),
+            raw, config, output), :graph_cursor_open)
+    end
+    cursor = GraphCaptureCursor{L,W,typeof(source.input_symbols),
+        typeof(source.output_symbols)}(output[], source.input_symbols,
+        source.output_symbols, cancellation, false)
+    finalizer(finalize_close, cursor)
+    cursor
+end
+
+"""
+Advance at most `GraphLimits.work_per_call` provider callbacks.
+
+Return `GraphPending` or one complete `GraphSnapshot`. A state is paged at
+at most 256 arcs per provider call; cancellation is checked between calls.
+The provider's own callback latency is outside this bound. Limit failures
+and cancellation never return a partial graph as an exact result.
+"""
+function poll_graph!(cursor::GraphCaptureCursor{L,W,S1,S2}) where {L,W,S1,S2}
+    cursor.closed && throw(NativeError(STATUS_CLOSED, :graph_cursor_next,
+        "graph capture cursor is closed"))
+    try
+        poll = Ref{UInt32}(0)
+        cancellation = cursor.cancellation
+        cancellation_handle = isnothing(cancellation) ? C_NULL : open_handle(cancellation)
+        GC.@preserve cancellation begin
+            checked(ccall(native(:lling_graph_cursor_next), UInt32,
+                (Ptr{Cvoid}, Ptr{Cvoid}, Ref{UInt32}),
+                cursor.handle, cancellation_handle, poll), :graph_cursor_next)
+        end
+        poll[] == GRAPH_POLL_PENDING && return GRAPH_PENDING
+        if poll[] == GRAPH_POLL_COMPLETE
+            output = Ref{Ptr{Cvoid}}(C_NULL)
+            checked(ccall(native(:lling_graph_cursor_take), UInt32,
+                (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), cursor.handle, output),
+                :graph_cursor_take)
+            graph = GraphSnapshot{L,W,S1,S2}(output[], cursor.input_symbols,
+                cursor.output_symbols, false)
+            finalizer(finalize_close, graph)
+            close!(cursor)
+            return graph
+        end
+        close!(cursor)
+        poll[] == GRAPH_POLL_CANCELLED && throw(GraphCancelledError(
+            isnothing(cancellation) ? nothing : cancellation_reason(cancellation)))
+        throw(ArgumentError("native graph cursor returned unknown poll value $(poll[])"))
+    catch
+        close!(cursor)
+        rethrow()
+    end
+end
+
+"""Finish bounded capture, always closing the cursor on exit."""
+function complete_graph(source::Wfst; kwargs...)
+    cursor = capture_graph(source; kwargs...)
+    try
+        while true
+            result = poll_graph!(cursor)
+            result isa GraphPending || return result
+        end
+    finally
+        close(cursor)
+    end
+end
+
+function open_graph_handle(graph::GraphSnapshot)
+    graph.closed && throw(NativeError(STATUS_CLOSED, :graph,
+        "complete graph is closed"))
+    graph.handle
+end
+
+"""Return exact domains, original start ID, and reachable state/arc counts."""
+function graph_info(graph::GraphSnapshot{L,W}) where {L,W}
+    unit = Ref{UInt32}(0)
+    weight = Ref{UInt32}(0)
+    start = Ref{UInt64}(0)
+    states = Ref{Csize_t}(0)
+    arcs = Ref{Csize_t}(0)
+    checked(ccall(native(:lling_graph_info), UInt32,
+        (Ptr{Cvoid}, Ref{UInt32}, Ref{UInt32}, Ref{UInt64},
+            Ref{Csize_t}, Ref{Csize_t}),
+        open_graph_handle(graph), unit, weight, start, states, arcs), :graph_info)
+    unit[] == UInt32(unit_domain(L)) && weight[] == UInt32(weight_domain(W)) ||
+        throw(ArgumentError("captured graph domains changed"))
+    (start_raw=start[], states=states[], arcs=arcs[])
+end
+
+"""One provider arc with its deterministic compact local target ID."""
+struct GraphArc{L,W<:AbstractScalarWeight}
+    target_local::UInt64
+    input::Union{Nothing,L}
+    output::Union{Nothing,L}
+    target_raw::UInt64
+    weight::W
+end
+
+"""One complete reachable state with its provider and local IDs."""
+struct GraphState{L,W<:AbstractScalarWeight}
+    local_id::UInt64
+    raw_id::UInt64
+    final::Bool
+    final_weight::W
+    arcs::Vector{GraphArc{L,W}}
+end
+
+"""Copy one state's arcs in bounded native pages and Julia-owned storage."""
+function graph_arcs(graph::GraphSnapshot{L,W}, local_id::Integer) where {L,W}
+    id = path_bound(local_id, :local_id)
+    id <= typemax(Csize_t) || throw(ArgumentError("local_id exceeds size_t"))
+    output = GraphArc{L,W}[]
+    offset = 0
+    total = typemax(Int)
+    while offset < total
+        page = Vector{RawGraphArc}(undef, 256)
+        written = Ref{Csize_t}(0)
+        reported = Ref{Csize_t}(0)
+        checked(ccall(native(:lling_graph_arcs), UInt32,
+            (Ptr{Cvoid}, Csize_t, Csize_t, Ptr{RawGraphArc},
+                Csize_t, Ref{Csize_t}, Ref{Csize_t}),
+            open_graph_handle(graph), Csize_t(id), Csize_t(offset),
+            page, Csize_t(length(page)), written, reported), :graph_arcs)
+        reported[] <= typemax(Int) || throw(OverflowError("arc count exceeds Julia indexing"))
+        total = Int(reported[])
+        0 <= written[] <= length(page) ||
+            throw(ArgumentError("native graph arc page returned invalid count"))
+        for raw in @view page[1:Int(written[])]
+            arc = raw.arc
+            push!(output, GraphArc{L,W}(raw.target_local,
+                arc.has_input == 0 ? nothing : decode_label(L, arc.input_label),
+                arc.has_output == 0 ? nothing : decode_label(L, arc.output_label),
+                arc.target_state, decode_weight(W, arc.weight)))
+        end
+        written[] == 0 && offset < total &&
+            throw(ArgumentError("native graph arc page made no progress"))
+        offset += Int(written[])
+    end
+    output
+end
+
+"""Return one complete graph state, indexed by zero-based local ID."""
+function graph_state(graph::GraphSnapshot{L,W}, local_id::Integer) where {L,W}
+    id = path_bound(local_id, :local_id)
+    id <= typemax(Csize_t) || throw(ArgumentError("local_id exceeds size_t"))
+    raw = Ref{UInt64}(0)
+    final = Ref{UInt8}(0)
+    weight = Ref{Float64}(0)
+    count = Ref{Csize_t}(0)
+    checked(ccall(native(:lling_graph_state), UInt32,
+        (Ptr{Cvoid}, Csize_t, Ref{UInt64}, Ref{UInt8},
+            Ref{Float64}, Ref{Csize_t}),
+        open_graph_handle(graph), Csize_t(id), raw, final, weight, count),
+        :graph_state)
+    arcs = graph_arcs(graph, id)
+    length(arcs) == count[] || throw(ArgumentError("native graph arc count changed"))
+    GraphState{L,W}(id, raw[], final[] == 1, decode_weight(W, weight[]), arcs)
 end
 
 decode_label(::Type{UInt8}, value::UInt64) = UInt8(value)

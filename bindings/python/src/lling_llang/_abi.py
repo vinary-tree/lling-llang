@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 8
+API_REVISION = 9
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -111,6 +111,14 @@ class PathPoll(IntEnum):
     CANCELLED = 5
 
 
+class GraphPoll(IntEnum):
+    """Incremental graph capture distinguishes exact completion from cancellation."""
+
+    PENDING = 1
+    COMPLETE = 2
+    CANCELLED = 3
+
+
 class PathConfig(ctypes.Structure):
     """Versioned, explicit limits for a snapshot-pinned path traversal."""
 
@@ -144,6 +152,25 @@ class PathStep(ctypes.Structure):
     """Source state and original scalar arc of one accepting path."""
 
     _fields_ = [("from_state", ctypes.c_uint64), ("arc", PathArc)]
+
+
+class GraphConfig(ctypes.Structure):
+    """Versioned reachable-graph capture limits."""
+
+    _fields_ = [
+        ("struct_size", ctypes.c_uint32),
+        ("version", ctypes.c_uint32),
+        ("max_states", ctypes.c_uint64),
+        ("max_arcs", ctypes.c_uint64),
+        ("max_work", ctypes.c_uint64),
+        ("work_per_call", ctypes.c_uint64),
+    ]
+
+
+class GraphArc(ctypes.Structure):
+    """Original scalar arc and deterministic local target state ID."""
+
+    _fields_ = [("target_local", ctypes.c_uint64), ("arc", PathArc)]
 
 
 class AbiV2Header(ctypes.Structure):
@@ -444,6 +471,39 @@ _bind(
      ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)],
 )
 _bind("lling_path_free", [ctypes.c_void_p], None)
+_bind(
+    "lling_graph_cursor_open",
+    [ctypes.POINTER(VtResource), ctypes.POINTER(GraphConfig),
+     ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_graph_cursor_next",
+    [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)],
+)
+_bind(
+    "lling_graph_cursor_take",
+    [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind("lling_graph_cursor_free", [ctypes.c_void_p], None)
+_bind(
+    "lling_graph_info",
+    [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+     ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint64),
+     ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)],
+)
+_bind(
+    "lling_graph_state",
+    [ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint64),
+     ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_double),
+     ctypes.POINTER(ctypes.c_size_t)],
+)
+_bind(
+    "lling_graph_arcs",
+    [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t,
+     ctypes.POINTER(GraphArc), ctypes.c_size_t,
+     ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)],
+)
+_bind("lling_graph_free", [ctypes.c_void_p], None)
 
 _bind(
     "lling_semiring_open", [ctypes.POINTER(VtResource), ctypes.POINTER(ctypes.c_void_p)]
