@@ -79,6 +79,31 @@ universal lattice laws. Julia handles are same-thread consumers; the Rust
 adapter uses fail-fast atomic admission and does not hold a mutex while host
 code executes.
 
+## Bounded accepting-path traversal
+
+`paths(graph; limits=PathLimits(...))` creates a lazy Julia iterator backed by
+one native cursor and one captured immutable WFST snapshot. It works for
+providers whose state count is unknown and visits arcs in insertion order by
+an iterative depth-first walk. `WfstPath` and `WfstPathStep` retain concrete
+label and weight types; a yielded path remains valid after the cursor closes.
+
+The limits bound distinct expanded states, aggregate arcs, depth, emitted
+paths, total work, and work per call. Normal exhaustion is exact. Reaching the
+depth or path-count bound raises `PathTruncatedError`; cancellation raises
+`PathCancelledError`; other resource-budget exhaustion raises `NativeError`
+with `STATUS_LIMIT_EXCEEDED`. In this path cursor, a computed finite weight
+that overflows or a positive probability that underflows to zero also fails
+explicitly; the existing scalar-composition and native semiring conventions
+are unchanged. `poll_path!` advances one native work slice and returns
+a path, `PathPending`, or `nothing` for exact exhaustion. Ordinary Julia
+iteration repeats pending polls internally; one provider state expansion may
+still read up to the cursor's remaining aggregate arc budget. Close a cursor
+when stopping early, or use
+`reduce_paths` for a fold that closes it on every exit path. The
+[package guide](https://github.com/vinary-tree/lling-llang/tree/master/bindings/julia/LlingLlang#traverse-accepting-paths-with-explicit-bounds)
+contains a runnable example and the ownership rules. This traversal is not
+weight-ranked n-best search or random sampling.
+
 ## Public API
 
 ```@autodocs

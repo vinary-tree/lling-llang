@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 7u
+#define LLING_LLANG_API_REVISION 8u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -57,6 +57,31 @@ typedef struct LlingSemiring LlingSemiring;
 typedef struct LlingSemiringWeight LlingSemiringWeight;
 typedef struct LlingLatticeValue LlingLatticeValue;
 typedef struct LlingCancellationV2 LlingCancellationV2;
+typedef struct LlingPathCursor LlingPathCursor;
+typedef struct LlingPath LlingPath;
+
+/* Revision 8: each path walk owns a captured snapshot and explicit bounds. */
+typedef struct LlingPathConfig {
+    uint32_t struct_size;
+    uint32_t version;
+    uint64_t max_states;
+    uint64_t max_arcs;
+    uint64_t max_work;
+    uint64_t work_per_call;
+    uint64_t max_depth;
+    uint64_t max_paths;
+} LlingPathConfig;
+
+typedef struct LlingPathStep {
+    uint64_t from_state;
+    VtWfstArc arc;
+} LlingPathStep;
+
+#define LLING_PATH_POLL_PATH 1u
+#define LLING_PATH_POLL_PENDING 2u
+#define LLING_PATH_POLL_EXHAUSTED 3u
+#define LLING_PATH_POLL_TRUNCATED 4u
+#define LLING_PATH_POLL_CANCELLED 5u
 
 typedef struct LlingAbiV2Header {
     uint32_t struct_size;
@@ -155,6 +180,8 @@ static_assert(alignof(LlingDigest256) == 1, "LlingDigest256 alignment drift");
 static_assert(sizeof(LlingWfstDescriptorV2) == 120, "LlingWfstDescriptorV2 layout drift");
 static_assert(sizeof(LlingBudgetV2) == 72, "LlingBudgetV2 layout drift");
 static_assert(sizeof(LlingOutcomeV2) == 96, "LlingOutcomeV2 layout drift");
+static_assert(sizeof(LlingPathConfig) == 56, "LlingPathConfig layout drift");
+static_assert(sizeof(LlingPathStep) == 48, "LlingPathStep layout drift");
 #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 _Static_assert(sizeof(LlingAbiV2Header) == 24, "LlingAbiV2Header layout drift");
 _Static_assert(sizeof(LlingId128) == 16, "LlingId128 layout drift");
@@ -164,6 +191,8 @@ _Static_assert(_Alignof(LlingDigest256) == 1, "LlingDigest256 alignment drift");
 _Static_assert(sizeof(LlingWfstDescriptorV2) == 120, "LlingWfstDescriptorV2 layout drift");
 _Static_assert(sizeof(LlingBudgetV2) == 72, "LlingBudgetV2 layout drift");
 _Static_assert(sizeof(LlingOutcomeV2) == 96, "LlingOutcomeV2 layout drift");
+_Static_assert(sizeof(LlingPathConfig) == 56, "LlingPathConfig layout drift");
+_Static_assert(sizeof(LlingPathStep) == 48, "LlingPathStep layout drift");
 #endif
 
 LLING_LLANG_API uint32_t lling_abi_version(void);
@@ -332,6 +361,21 @@ LLING_LLANG_API LlingLlangStatus lling_cancellation_v2_reason(
     const LlingCancellationV2* cancellation, uint32_t* out_reason);
 LLING_LLANG_API LlingLlangStatus lling_cancellation_v2_free(
     LlingCancellationV2** cancellation);
+/* Revision 8 path traversal. Every cursor owns an immutable snapshot. */
+LLING_LLANG_API LlingLlangStatus lling_path_cursor_open(
+    const VtResource* resource, const LlingPathConfig* config,
+    LlingPathCursor** out_cursor);
+LLING_LLANG_API LlingLlangStatus lling_path_cursor_next(
+    LlingPathCursor* cursor, const LlingCancellationV2* cancellation,
+    uint32_t* out_poll, LlingPath** out_path);
+LLING_LLANG_API void lling_path_cursor_free(LlingPathCursor* cursor);
+LLING_LLANG_API LlingLlangStatus lling_path_info(
+    const LlingPath* path, uint64_t* out_final_state, double* out_weight,
+    size_t* out_step_count);
+LLING_LLANG_API LlingLlangStatus lling_path_steps(
+    const LlingPath* path, size_t offset, LlingPathStep* out_steps,
+    size_t capacity, size_t* out_written, size_t* out_total);
+LLING_LLANG_API void lling_path_free(LlingPath* path);
 
 #ifdef __cplusplus
 }

@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 7
+API_REVISION = 8
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -99,6 +99,51 @@ class CancellationReason(IntEnum):
     DEADLINE = 2
     BUDGET = 3
     SOURCE = 4
+
+
+class PathPoll(IntEnum):
+    """Bounded path-cursor result; truncation never means exact completion."""
+
+    PATH = 1
+    PENDING = 2
+    EXHAUSTED = 3
+    TRUNCATED = 4
+    CANCELLED = 5
+
+
+class PathConfig(ctypes.Structure):
+    """Versioned, explicit limits for a snapshot-pinned path traversal."""
+
+    _fields_ = [
+        ("struct_size", ctypes.c_uint32),
+        ("version", ctypes.c_uint32),
+        ("max_states", ctypes.c_uint64),
+        ("max_arcs", ctypes.c_uint64),
+        ("max_work", ctypes.c_uint64),
+        ("work_per_call", ctypes.c_uint64),
+        ("max_depth", ctypes.c_uint64),
+        ("max_paths", ctypes.c_uint64),
+    ]
+
+
+class PathArc(ctypes.Structure):
+    """Exact imported ``VtWfstArc`` C layout carried by one path step."""
+
+    _fields_ = [
+        ("input_label", ctypes.c_uint64),
+        ("output_label", ctypes.c_uint64),
+        ("target_state", ctypes.c_uint64),
+        ("weight", ctypes.c_double),
+        ("has_input", ctypes.c_uint8),
+        ("has_output", ctypes.c_uint8),
+        ("reserved", ctypes.c_uint8 * 6),
+    ]
+
+
+class PathStep(ctypes.Structure):
+    """Source state and original scalar arc of one accepting path."""
+
+    _fields_ = [("from_state", ctypes.c_uint64), ("arc", PathArc)]
 
 
 class AbiV2Header(ctypes.Structure):
@@ -378,6 +423,27 @@ _bind(
 )
 _bind("lling_wfst_resource", [ctypes.c_void_p, ctypes.POINTER(VtResource)])
 _bind("lling_resource_release", [VtResource], None)
+_bind(
+    "lling_path_cursor_open",
+    [ctypes.POINTER(VtResource), ctypes.POINTER(PathConfig), ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_path_cursor_next",
+    [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+     ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind("lling_path_cursor_free", [ctypes.c_void_p], None)
+_bind(
+    "lling_path_info",
+    [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint64),
+     ctypes.POINTER(ctypes.c_double), ctypes.POINTER(ctypes.c_size_t)],
+)
+_bind(
+    "lling_path_steps",
+    [ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(PathStep),
+     ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)],
+)
+_bind("lling_path_free", [ctypes.c_void_p], None)
 
 _bind(
     "lling_semiring_open", [ctypes.POINTER(VtResource), ctypes.POINTER(ctypes.c_void_p)]

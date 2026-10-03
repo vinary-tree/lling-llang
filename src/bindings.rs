@@ -19,9 +19,14 @@ use vinary_tree_interop::{
     VT_WFST_INTERFACE_ID, VT_WFST_INTERFACE_VERSION,
 };
 
+mod path;
+pub(crate) use path::{PathPoll, ScalarPath, ScalarPathConfig, ScalarPathCursor};
+
 /// Binding failures raised while validating or traversing a foreign WFST.
 #[derive(Clone, Debug, PartialEq)]
 pub enum BindingError {
+    /// A caller supplied an invalid configuration or bound.
+    InvalidArgument(&'static str),
     /// One or both resource words were null.
     NullResource,
     /// The base resource contract is incomplete or incompatible.
@@ -38,13 +43,16 @@ pub enum BindingError {
     Provider(VtStatus),
     /// A provider returned inconsistent or malformed output.
     InvalidProviderOutput(&'static str),
-    /// A state, label, or state count cannot fit lling-llang's native model.
+    /// A state, label, count, or computed weight cannot fit the native model.
     RepresentationLimit,
+    /// A bounded operation exhausted one of its declared resources.
+    BudgetExceeded(&'static str),
 }
 
 impl fmt::Display for BindingError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidArgument(message) => write!(formatter, "invalid argument: {message}"),
             Self::NullResource => formatter.write_str("resource context or vtable is null"),
             Self::IncompatibleResourceAbi => formatter.write_str("incompatible resource ABI"),
             Self::MissingWfstInterface => {
@@ -66,9 +74,10 @@ impl fmt::Display for BindingError {
                 formatter,
                 "WFST provider returned invalid output: {message}"
             ),
-            Self::RepresentationLimit => {
-                formatter.write_str("WFST exceeds the native state or label representation")
-            }
+            Self::RepresentationLimit => formatter.write_str(
+                "WFST state, label, count, or computed weight exceeds the native representation",
+            ),
+            Self::BudgetExceeded(name) => write!(formatter, "{name} budget exceeded"),
         }
     }
 }
@@ -140,6 +149,20 @@ pub(crate) fn scalar_zero(domain: VtWeightDomain) -> f64 {
         VtWeightDomain::ArcticF64 => f64::NEG_INFINITY,
         VtWeightDomain::ProbabilityF64 | VtWeightDomain::CountF64 | VtWeightDomain::BooleanF64 => {
             0.0
+        }
+    }
+}
+
+/// Multiplicative identity represented by a scalar ABI weight domain.
+#[inline]
+fn scalar_one(domain: VtWeightDomain) -> f64 {
+    match domain {
+        VtWeightDomain::TropicalF64
+        | VtWeightDomain::LogF64
+        | VtWeightDomain::ArcticF64
+        | VtWeightDomain::SignedTropicalF64 => 0.0,
+        VtWeightDomain::ProbabilityF64 | VtWeightDomain::CountF64 | VtWeightDomain::BooleanF64 => {
+            1.0
         }
     }
 }
@@ -451,6 +474,14 @@ impl CapturedWfst {
     }
 
     fn state(&self, state: u64) -> Result<Arc<StateData>, BindingError> {
+        self.state_with_arc_limit(state, None)
+    }
+
+    fn state_with_arc_limit(
+        &self,
+        state: u64,
+        max_arcs: Option<usize>,
+    ) -> Result<Arc<StateData>, BindingError> {
         if let Some(cached) = self
             .states
             .read()
@@ -458,9 +489,12 @@ impl CapturedWfst {
             .get(&state)
             .cloned()
         {
+            if max_arcs.is_some_and(|limit| cached.arcs.len() > limit) {
+                return Err(BindingError::BudgetExceeded("arcs"));
+            }
             return Ok(cached);
         }
-        let expanded = unsafe { self.gate.call(|| self.expand_state(state)) }?;
+        let expanded = unsafe { self.gate.call(|| self.expand_state(state, max_arcs)) }?;
         let expanded = Arc::new(expanded);
         let mut cache = self
             .states
@@ -472,7 +506,11 @@ impl CapturedWfst {
             .clone())
     }
 
-    unsafe fn expand_state(&self, state: u64) -> Result<StateData, BindingError> {
+    unsafe fn expand_state(
+        &self,
+        state: u64,
+        max_arcs: Option<usize>,
+    ) -> Result<StateData, BindingError> {
         let table = &*self.table;
         let mut valid = 0;
         let mut is_final = 0;
@@ -501,6 +539,7 @@ impl CapturedWfst {
         let mut arcs = Vec::new();
         let mut page = vec![VtWfstArc::default(); VT_RECOMMENDED_ARC_BATCH];
         let mut offset = 0usize;
+        let mut expected_total = None;
         loop {
             let mut written = 0usize;
             let mut total = 0usize;
@@ -517,10 +556,15 @@ impl CapturedWfst {
                 || offset > total
                 || offset.saturating_add(written) > total
                 || (written == 0 && offset < total)
+                || expected_total.is_some_and(|expected| expected != total)
             {
                 return Err(BindingError::InvalidProviderOutput(
                     "invalid arc page counts",
                 ));
+            }
+            expected_total = Some(total);
+            if max_arcs.is_some_and(|limit| total > limit) {
+                return Err(BindingError::BudgetExceeded("arcs"));
             }
             for arc in page.iter().take(written) {
                 if arc.has_input > 1
@@ -1124,7 +1168,9 @@ unsafe extern "C" fn wfst_state_info(
 /// Every other expansion error stays a generic provider error.
 fn expansion_error_status(error: &BindingError) -> VtStatus {
     match error {
-        BindingError::RepresentationLimit => VtStatus::LimitExceeded,
+        BindingError::RepresentationLimit | BindingError::BudgetExceeded(_) => {
+            VtStatus::LimitExceeded
+        }
         _ => VtStatus::ProviderError,
     }
 }

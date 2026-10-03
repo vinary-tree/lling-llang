@@ -32,6 +32,75 @@ function scalar_chain(::Type{L}, ::Type{W}, label, arc_weight, final_weight;
     build!(builder)
 end
 
+@testset "snapshot-pinned bounded path traversal" begin
+    @test sizeof(LlingLlang.RawPathConfig) == 56
+    @test sizeof(LlingLlang.RawPathStep) == 48
+    @test_throws ArgumentError PathLimits(max_states=0)
+    @test_throws ArgumentError PathLimits(max_work=-1)
+    @test_throws ArgumentError PathLimits(work_per_call=true)
+
+    builder = WfstBuilder{UInt8,TropicalWeight}(size_hint=2)
+    root = add_state!(builder)
+    terminal = add_state!(builder)
+    set_start!(builder, root)
+    set_final!(builder, root, TropicalWeight(0))
+    set_final!(builder, terminal, TropicalWeight(3))
+    add_arc!(builder, root, UInt8('a'), UInt8('A'), terminal,
+        TropicalWeight(2))
+    graph = build!(builder)
+
+    iterator = paths(graph; limits=PathLimits(max_states=2, max_arcs=1,
+        max_depth=1, max_paths=3, work_per_call=1))
+    close(graph)
+    found = collect(iterator)
+    @test length(found) == 2
+    @test isempty(found[1].steps)
+    @test found[1].weight == TropicalWeight(0)
+    @test length(found[2].steps) == 1
+    @test found[2].steps[1].input == UInt8('a')
+    @test found[2].steps[1].output == UInt8('A')
+    @test found[2].weight == TropicalWeight(5)
+    @test !isopen(iterator)
+
+    graph = scalar_chain(UInt8, TropicalWeight, UInt8('b'),
+        TropicalWeight(2), TropicalWeight(3))
+    sliced = paths(graph; limits=PathLimits(max_states=2, max_arcs=1,
+        max_depth=1, max_paths=2, work_per_call=1))
+    @test poll_path!(sliced) isa PathPending
+    @test only(collect(sliced)).weight == TropicalWeight(5)
+    @test poll_path!(sliced) === nothing
+    @test only(collect(paths(graph; limits=PathLimits(max_states=2,
+        max_arcs=1, max_depth=1, max_paths=2,
+        work_per_call=1)))).weight == TropicalWeight(5)
+    @test reduce_paths((count, _) -> count + 1, 0, graph;
+        limits=PathLimits(max_states=2, max_arcs=1, max_depth=1,
+            max_paths=2, work_per_call=1)) == 1
+    @test_throws PathTruncatedError collect(paths(graph;
+        limits=PathLimits(max_states=2, max_arcs=1, max_depth=0,
+            max_paths=2)))
+    @test_throws PathTruncatedError collect(paths(graph;
+        limits=PathLimits(max_states=2, max_arcs=1, max_depth=1,
+            max_paths=1)))
+    @test_throws NativeError collect(paths(graph;
+        limits=PathLimits(max_states=1, max_arcs=1, max_depth=1,
+            max_paths=2)))
+
+    overflowing = scalar_chain(UInt8, TropicalWeight, UInt8('z'),
+        TropicalWeight(floatmax(Float64)), TropicalWeight(floatmax(Float64)))
+    @test_throws NativeError collect(paths(overflowing;
+        limits=PathLimits(max_states=2, max_arcs=1, max_depth=1,
+            max_paths=2)))
+    close(overflowing)
+
+    cancellation = CancellationV2()
+    iterator = paths(graph; cancellation)
+    request!(cancellation, LlingLlang.CANCELLATION_REQUESTED_V2)
+    @test_throws PathCancelledError collect(iterator)
+    @test !isopen(iterator)
+    close(cancellation)
+    close(graph)
+end
+
 @testset "typed ABI-v2 metadata and cancellation" begin
     @test sizeof(AbiV2Header) == 24
     @test sizeof(Id128) == 16

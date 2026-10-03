@@ -113,9 +113,75 @@ product = compose(first, second)
 try
     outgoing = VTI.arcs(product, VTI.start(product))
 finally
-    close(product)
+close(product)
 end
 ```
+
+### Traverse accepting paths with explicit bounds
+
+`paths(graph)` returns a Julia iterator backed by a native cursor over one
+captured immutable snapshot. The cursor expands only states reached by its
+iterative depth-first walk; it does not require a provider to know its state
+count. A final state is emitted before its outgoing arcs, and arcs are visited
+in their insertion order. This is **traversal order**, not shortest-path or
+score order. Each `WfstPath` owns its copied `WfstPathStep`s and includes the
+terminal state's final weight in `weight`. An empty accepting path has no
+steps. Epsilon is represented by `nothing` on the corresponding tape.
+
+```julia
+builder = WfstBuilder{UInt8,TropicalWeight}(size_hint=2)
+source = add_state!(builder)
+target = add_state!(builder)
+set_start!(builder, source)
+set_final!(builder, target, TropicalWeight(3))
+add_arc!(builder, source, UInt8('a'), UInt8('b'), target,
+    TropicalWeight(2))
+graph = build!(builder)
+
+limits = PathLimits(max_states=2, max_arcs=1, max_depth=1,
+    max_paths=2, max_work=100, work_per_call=4)
+cursor = paths(graph; limits)
+close(graph) # cursor independently owns the captured snapshot
+try
+    for path in cursor
+        @assert path.weight == TropicalWeight(5)
+        @assert only(path.steps).output == UInt8('b')
+    end
+finally
+    close(cursor) # also required when stopping iteration early
+end
+```
+
+Every bound is finite. `max_states` counts distinct expanded states;
+`max_arcs` counts the arcs cached from them; `max_depth` bounds the number of
+steps in one path; `max_paths` bounds emitted paths; `max_work` bounds traversal
+decisions over the cursor lifetime; and `work_per_call` divides traversal into
+pollable slices. Call `poll_path!(cursor)` to consume exactly one native slice:
+it returns a `WfstPath`, a `PathPending` marker, or `nothing` on exact
+exhaustion. Ordinary `for` iteration repeats pending polls internally until
+it has a path or terminal result. A state expansion itself is bounded by the
+remaining arc budget. Hitting the depth or path-count bound raises `PathTruncatedError`
+instead of making an incomplete result look exhaustive. Exhausting a state,
+arc, or work budget raises `NativeError` with `STATUS_LIMIT_EXCEEDED`.
+For this path cursor, the same status reports a computed weight outside its
+scalar carrier (for example, finite tropical path costs whose sum overflows
+`Float64`); this is never interpreted as a valid infinity-weight path. A
+positive probability product that underflows to zero is likewise reported as
+a numeric limit. This strict path-result rule does not change the existing
+scalar-composition or native semiring arithmetic conventions.
+`CancellationV2` can stop traversal cooperatively; a cancelled iteration
+raises `PathCancelledError`. The cursor owns its snapshot until `close` or
+normal exhaustion; yielded paths are independent owned Julia values.
+
+`reduce_paths(operation, initial, live_graph; limits, cancellation)` folds this
+iterator and closes its native cursor even if the reducer throws. For example,
+`reduce_paths((count, _) -> count + 1, 0, live_graph; limits)` counts accepting
+paths up to the declared bounds. The `live_graph` argument must be open when
+the reducer is constructed; a count is exact only when iteration ends
+normally. The algorithmic distinction between path enumeration, shortest
+distance, and randomized sampling is detailed in the
+[path-extraction](../../../docs/algorithms/path-extraction.md) and
+[path-sampling](../../../docs/algorithms/path-sampling.md) guides.
 
 ### Implement a lazy Julia provider
 
@@ -234,6 +300,9 @@ their concrete label/weight types and optional symbol tables, and own one
 retained immutable resource.
 `compose` captures independent snapshots of both inputs, so callers may close
 either input immediately after construction without invalidating the product.
+`paths` captures another independent snapshot and releases it when its cursor
+closes. Each yielded `WfstPath` copies only its own bounded sequence of steps
+and remains valid after cursor closure.
 Use `close` deterministically; finalizers are leak-safety fallbacks.
 
 Provider objects are rooted while any native retain exists. A provider

@@ -16,11 +16,13 @@ use vinary_tree_interop::{VtResource, VtUnitDomain, VtWeightDomain, VtWfstArc};
 
 mod lattice;
 pub use lattice::*;
+mod path;
+pub use path::*;
 
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_LLANG_API_REVISION: u32 = 7;
+pub const LLING_LLANG_API_REVISION: u32 = 8;
 
 /// Status returned by lling-llang C functions.
 #[repr(u32)]
@@ -78,10 +80,13 @@ fn set_error(message: impl Into<String>) {
 fn map_error(error: BindingError) -> LlingLlangStatus {
     set_error(error.to_string());
     match error {
+        BindingError::InvalidArgument(_) => LlingLlangStatus::InvalidArgument,
         BindingError::Provider(_) | BindingError::InvalidProviderOutput(_) => {
             LlingLlangStatus::ProviderError
         }
-        BindingError::RepresentationLimit => LlingLlangStatus::LimitExceeded,
+        BindingError::RepresentationLimit | BindingError::BudgetExceeded(_) => {
+            LlingLlangStatus::LimitExceeded
+        }
         BindingError::NullResource => LlingLlangStatus::NullPointer,
         BindingError::IncompatibleResourceAbi
         | BindingError::MissingWfstInterface

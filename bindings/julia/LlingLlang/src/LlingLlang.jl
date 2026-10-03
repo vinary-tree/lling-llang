@@ -43,6 +43,13 @@ export ABI_VERSION,
     Wfst,
     WfstArc,
     WfstState,
+    PathLimits,
+    WfstPathStep,
+    WfstPath,
+    PathIterator,
+    PathPending,
+    PathTruncatedError,
+    PathCancelledError,
     ProviderArc,
     ProviderState,
     AbstractWfstProvider,
@@ -75,6 +82,9 @@ export ABI_VERSION,
     compose,
     state,
     arcs,
+    paths,
+    poll_path!,
+    reduce_paths,
     input_symbols,
     output_symbols,
     resource,
@@ -813,6 +823,249 @@ struct WfstState{L,W<:AbstractScalarWeight}
     final::Bool
     final_weight::W
     arcs::Vector{WfstArc{L,W}}
+end
+
+"""Finite native resource and scheduling bounds for a snapshot-pinned path walk."""
+struct PathLimits
+    max_states::UInt64
+    max_arcs::UInt64
+    max_work::UInt64
+    work_per_call::UInt64
+    max_depth::UInt64
+    max_paths::UInt64
+end
+
+function path_bound(value, name::Symbol; positive::Bool=false)
+    value isa Integer && !(value isa Bool) && 0 <= value <= typemax(UInt64) ||
+        throw(ArgumentError("$name must be an unsigned 64-bit integer"))
+    positive && value == 0 && throw(ArgumentError("$name must be positive"))
+    UInt64(value)
+end
+
+function PathLimits(; max_states=10_000, max_arcs=100_000,
+    max_work=1_000_000, work_per_call=1_024, max_depth=256,
+    max_paths=1_024)
+    PathLimits(
+        path_bound(max_states, :max_states; positive=true),
+        path_bound(max_arcs, :max_arcs),
+        path_bound(max_work, :max_work; positive=true),
+        path_bound(work_per_call, :work_per_call; positive=true),
+        path_bound(max_depth, :max_depth),
+        path_bound(max_paths, :max_paths))
+end
+
+"""The native cursor encountered a depth or path-count bound before exhaustion."""
+struct PathTruncatedError <: Exception end
+Base.showerror(io::IO, ::PathTruncatedError) = print(io,
+    "path traversal was truncated by max_depth or max_paths; result is incomplete")
+
+"""The caller's cooperative cancellation stopped a native path cursor."""
+struct PathCancelledError <: Exception
+    reason::Union{Nothing,CancellationReasonV2}
+end
+Base.showerror(io::IO, error::PathCancelledError) =
+    print(io, "path traversal cancelled", isnothing(error.reason) ? "" :
+        " ($(error.reason))")
+
+"""One domain-typed scalar arc and its source state along an accepting path."""
+struct WfstPathStep{L,W<:AbstractScalarWeight}
+    from::UInt64
+    input::Union{Nothing,L}
+    output::Union{Nothing,L}
+    target::UInt64
+    weight::W
+end
+
+"""One owned accepting path whose weight includes the final-state weight."""
+struct WfstPath{L,W<:AbstractScalarWeight}
+    steps::Vector{WfstPathStep{L,W}}
+    final_state::UInt64
+    weight::W
+end
+
+"""A single bounded native poll made progress but has not yielded a path yet."""
+struct PathPending end
+const PATH_PENDING = PathPending()
+
+struct RawPathConfig
+    struct_size::UInt32
+    version::UInt32
+    max_states::UInt64
+    max_arcs::UInt64
+    max_work::UInt64
+    work_per_call::UInt64
+    max_depth::UInt64
+    max_paths::UInt64
+end
+RawPathConfig(limits::PathLimits) = RawPathConfig(UInt32(sizeof(RawPathConfig)),
+    UInt32(1), limits.max_states, limits.max_arcs, limits.max_work,
+    limits.work_per_call, limits.max_depth, limits.max_paths)
+
+struct RawPathStep
+    from_state::UInt64
+    arc::VTI.VtWfstArc
+end
+
+"""
+Lazy Julia iterator over a native, snapshot-pinned, bounded path cursor.
+
+Closing the source WFST after construction does not invalidate this cursor.
+Close the iterator when stopping early; normal exhaustion closes it automatically.
+The cursor is mutable and must not be advanced concurrently.
+"""
+mutable struct PathIterator{L,W<:AbstractScalarWeight,S1,S2}
+    handle::Ptr{Cvoid}
+    input_symbols::S1
+    output_symbols::S2
+    cancellation::Union{Nothing,CancellationV2}
+    closed::Bool
+    completion::Union{Nothing,UInt32}
+end
+
+Base.IteratorSize(::Type{<:PathIterator}) = Base.SizeUnknown()
+Base.eltype(::Type{<:PathIterator{L,W}}) where {L,W} = WfstPath{L,W}
+Base.isopen(iterator::PathIterator) = !iterator.closed
+
+function close!(iterator::PathIterator)
+    iterator.closed && return nothing
+    ccall(native(:lling_path_cursor_free), Cvoid, (Ptr{Cvoid},), iterator.handle)
+    iterator.handle = C_NULL
+    iterator.closed = true
+    nothing
+end
+Base.close(iterator::PathIterator) = close!(iterator)
+
+"""
+Create a bounded, lazy iterator of accepting paths in native arc-insertion order.
+
+The provider is snapshotted once. Repeated states and cycles are allowed up to
+`limits.max_depth`; reaching a depth or path count limit throws
+`PathTruncatedError` rather than silently reporting exact completion. The
+total work, distinct-state, and aggregate-arc limits raise `NativeError` with
+`STATUS_LIMIT_EXCEEDED`. Native work is divided into `work_per_call` slices.
+"""
+function paths(source::Wfst{L,W}; limits::PathLimits=PathLimits(),
+    cancellation::Union{Nothing,CancellationV2}=nothing) where {L,W}
+    isnothing(cancellation) || open_handle(cancellation)
+    raw = Ref(raw_resource(source))
+    config = Ref(RawPathConfig(limits))
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    GC.@preserve source begin
+        checked(ccall(native(:lling_path_cursor_open), UInt32,
+            (Ref{VTI.VtResourceRaw}, Ref{RawPathConfig}, Ref{Ptr{Cvoid}}),
+            raw, config, output), :path_cursor_open)
+    end
+    iterator = PathIterator{L,W,typeof(source.input_symbols),
+        typeof(source.output_symbols)}(output[], source.input_symbols,
+        source.output_symbols, cancellation, false, nothing)
+    finalizer(finalize_close, iterator)
+    iterator
+end
+
+function read_owned_path(::Type{L}, ::Type{W}, handle::Ptr{Cvoid}) where {L,W}
+    final_state = Ref{UInt64}(0)
+    weight = Ref{Float64}(0)
+    count = Ref{Csize_t}(0)
+    checked(ccall(native(:lling_path_info), UInt32,
+        (Ptr{Cvoid}, Ref{UInt64}, Ref{Float64}, Ref{Csize_t}),
+        handle, final_state, weight, count), :path_info)
+    count[] <= typemax(Int) || throw(OverflowError("path length exceeds Julia indexing"))
+    total = Int(count[])
+    steps = Vector{WfstPathStep{L,W}}(undef, total)
+    offset = 0
+    while offset < total
+        page = Vector{RawPathStep}(undef, min(256, total - offset))
+        written = Ref{Csize_t}(0)
+        reported = Ref{Csize_t}(0)
+        checked(ccall(native(:lling_path_steps), UInt32,
+            (Ptr{Cvoid}, Csize_t, Ptr{RawPathStep}, Csize_t,
+                Ref{Csize_t}, Ref{Csize_t}),
+            handle, Csize_t(offset), page, Csize_t(length(page)),
+            written, reported), :path_steps)
+        reported[] == count[] && 0 < written[] <= length(page) ||
+            throw(ArgumentError("native path page returned inconsistent counts"))
+        for index in 1:Int(written[])
+            raw = page[index]
+            arc = raw.arc
+            steps[offset + index] = WfstPathStep{L,W}(
+                raw.from_state,
+                arc.has_input == 0 ? nothing : decode_label(L, arc.input_label),
+                arc.has_output == 0 ? nothing : decode_label(L, arc.output_label),
+                arc.target_state, decode_weight(W, arc.weight))
+        end
+        offset += Int(written[])
+    end
+    WfstPath{L,W}(steps, final_state[], decode_weight(W, weight[]))
+end
+
+"""
+Advance one native scheduling slice of a path cursor.
+
+Return a `WfstPath`, `PathPending`, or `nothing` (exact exhaustion). This is
+the bounded-per-call primitive; normal Julia iteration repeats pending polls
+until a path or terminal result is available. Each native slice performs at
+most `limits.work_per_call` traversal decisions, although one provider state
+expansion can read up to the cursor's remaining aggregate arc budget.
+"""
+function poll_path!(iterator::PathIterator{L,W}) where {L,W}
+    iterator.completion === PATH_POLL_EXHAUSTED && return nothing
+    iterator.closed && throw(NativeError(STATUS_CLOSED, :path_cursor_next,
+        "path iterator is closed"))
+    try
+        poll = Ref{UInt32}(0)
+        output = Ref{Ptr{Cvoid}}(C_NULL)
+        cancellation = iterator.cancellation
+        cancellation_handle = isnothing(cancellation) ? C_NULL : open_handle(cancellation)
+        GC.@preserve cancellation begin
+            checked(ccall(native(:lling_path_cursor_next), UInt32,
+                (Ptr{Cvoid}, Ptr{Cvoid}, Ref{UInt32}, Ref{Ptr{Cvoid}}),
+                iterator.handle, cancellation_handle, poll, output),
+                :path_cursor_next)
+        end
+        if poll[] == PATH_POLL_PENDING
+            return PATH_PENDING
+        elseif poll[] == PATH_POLL_PATH
+            output[] == C_NULL && throw(ArgumentError("native path poll omitted the path"))
+            try
+                return read_owned_path(L, W, output[])
+            finally
+                ccall(native(:lling_path_free), Cvoid, (Ptr{Cvoid},), output[])
+            end
+        end
+        iterator.completion = poll[]
+        close!(iterator)
+        poll[] == PATH_POLL_EXHAUSTED && return nothing
+        poll[] == PATH_POLL_TRUNCATED && throw(PathTruncatedError())
+        poll[] == PATH_POLL_CANCELLED && throw(PathCancelledError(
+            isnothing(cancellation) ? nothing : cancellation_reason(cancellation)))
+        throw(ArgumentError("native path cursor returned unknown poll value $(poll[])"))
+    catch
+        close!(iterator)
+        rethrow()
+    end
+end
+
+function Base.iterate(iterator::PathIterator, ::Nothing=nothing)
+    while true
+        result = poll_path!(iterator)
+        result isa PathPending && continue
+        result === nothing && return nothing
+        return (result, nothing)
+    end
+end
+
+"""Fold accepting paths lazily, closing the native cursor on every exit path."""
+function reduce_paths(operation, initial, source::Wfst; kwargs...)
+    iterator = paths(source; kwargs...)
+    try
+        result = initial
+        for path in iterator
+            result = operation(result, path)
+        end
+        result
+    finally
+        close(iterator)
+    end
 end
 
 decode_label(::Type{UInt8}, value::UInt64) = UInt8(value)
