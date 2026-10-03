@@ -298,6 +298,58 @@ representation failures raise `STATUS_LIMIT_EXCEEDED`. None of these outcomes
 is silently replaced by a depth-truncated approximation. This native
 analysis does not change the library's existing scalar-composition arithmetic.
 
+### Enumerate best paths without eager path materialization
+
+`ranked_paths` enumerates accepting paths from a complete `GraphSnapshot` in
+best-completion order. It uses resumable native Viterbi suffix analysis and
+then a bounded best-first frontier; neither phase builds an eager path list.
+Equal costs are resolved by shorter path length and captured provider arc
+order. The result is a Julia iterator of owned `WfstPath` values. Close it
+when stopping early; `reduce_ranked_paths` closes it automatically.
+`best_path(graph)` returns one path or `nothing`; `k_best_paths(graph, k)` and
+its `n_best_paths` alias collect only the requested finite prefix and close
+their native cursors. Their `limits.max_paths` must be at least `k`.
+
+```julia
+builder = WfstBuilder{UInt8,TropicalWeight}(size_hint=2)
+start = add_state!(builder)
+finish = add_state!(builder)
+set_start!(builder, start)
+set_final!(builder, finish, TropicalWeight(3))
+add_arc!(builder, start, UInt8('a'), UInt8('a'), finish, TropicalWeight(2))
+source = build!(builder)
+graph = complete_graph(source)
+close(source)
+cursor = ranked_paths(graph; limits=RankedPathLimits(
+    max_work=100_000, work_per_call=32, max_depth=64,
+    max_paths=100, max_frontier=10_000))
+close(graph) # cursor retains its own immutable graph lease
+try
+    best = first(cursor)
+    @assert best.weight == TropicalWeight(5)
+finally
+    close(cursor)
+end
+```
+
+For probability weights, the rank cost is $`-\log p`$, so the most probable
+path is first. Tropical, signed-tropical, and log weights rank by additive
+cost; arctic weights rank by negated score. Count weights rank by increasing
+multiplicity and Boolean weights use unit cost for accepting paths. These
+projections rank individual paths, while `analyze_distances` computes semiring
+aggregates over *all* paths; they differ on non-idempotent domains.
+
+`poll_ranked_path!` performs at most `work_per_call` native work transitions
+and returns a path, `RankedPathPending`, or `nothing` on exact exhaustion.
+Ordinary iteration repeats pending polls. Reaching `max_depth` or `max_paths`
+throws `PathTruncatedError`; exhausting `max_work` or `max_frontier` throws
+`NativeError` with `STATUS_LIMIT_EXCEEDED`. Cancellation throws
+`PathCancelledError`. A reachable improving cycle returns
+`STATUS_NON_CONVERGENT` before any ranked path is emitted. The cursor never
+reports a truncated result as exhaustive. Numeric overflow/underflow is
+rejected in this new path analysis only; existing scalar composition semantics
+remain unchanged.
+
 ### Implement a lazy Julia provider
 
 ```julia

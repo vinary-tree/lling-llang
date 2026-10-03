@@ -48,7 +48,7 @@ pub struct LlingPathCursor {
 
 /// Opaque owned path; valid independently of the cursor after `next` returns.
 pub struct LlingPath {
-    path: ScalarPath,
+    pub(super) path: ScalarPath,
 }
 
 /// One path was yielded.

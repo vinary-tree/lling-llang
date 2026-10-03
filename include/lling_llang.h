@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 10u
+#define LLING_LLANG_API_REVISION 11u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -65,6 +65,7 @@ typedef struct LlingGraphCursor LlingGraphCursor;
 typedef struct LlingGraph LlingGraph;
 typedef struct LlingGraphDistanceCursor LlingGraphDistanceCursor;
 typedef struct LlingGraphDistances LlingGraphDistances;
+typedef struct LlingRankedPathCursor LlingRankedPathCursor;
 
 /* Revision 8: each path walk owns a captured snapshot and explicit bounds. */
 typedef struct LlingPathConfig {
@@ -119,6 +120,23 @@ typedef struct LlingGraphDistanceConfig {
 #define LLING_DISTANCE_POLL_PENDING 1u
 #define LLING_DISTANCE_POLL_COMPLETE 2u
 #define LLING_DISTANCE_POLL_CANCELLED 3u
+
+/* Revision 11: bounded best-first enumeration over a complete graph. */
+typedef struct LlingRankedPathConfig {
+    uint32_t struct_size;
+    uint32_t version;
+    uint64_t max_work;
+    uint64_t work_per_call;
+    uint64_t max_depth;
+    uint64_t max_paths;
+    uint64_t max_frontier;
+} LlingRankedPathConfig;
+
+#define LLING_RANKED_POLL_PATH 1u
+#define LLING_RANKED_POLL_PENDING 2u
+#define LLING_RANKED_POLL_EXHAUSTED 3u
+#define LLING_RANKED_POLL_TRUNCATED 4u
+#define LLING_RANKED_POLL_CANCELLED 5u
 
 typedef struct LlingAbiV2Header {
     uint32_t struct_size;
@@ -222,6 +240,7 @@ static_assert(sizeof(LlingPathStep) == 48, "LlingPathStep layout drift");
 static_assert(sizeof(LlingGraphConfig) == 40, "LlingGraphConfig layout drift");
 static_assert(sizeof(LlingGraphArc) == 48, "LlingGraphArc layout drift");
 static_assert(sizeof(LlingGraphDistanceConfig) == 24, "LlingGraphDistanceConfig layout drift");
+static_assert(sizeof(LlingRankedPathConfig) == 48, "LlingRankedPathConfig layout drift");
 #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 _Static_assert(sizeof(LlingAbiV2Header) == 24, "LlingAbiV2Header layout drift");
 _Static_assert(sizeof(LlingId128) == 16, "LlingId128 layout drift");
@@ -236,6 +255,7 @@ _Static_assert(sizeof(LlingPathStep) == 48, "LlingPathStep layout drift");
 _Static_assert(sizeof(LlingGraphConfig) == 40, "LlingGraphConfig layout drift");
 _Static_assert(sizeof(LlingGraphArc) == 48, "LlingGraphArc layout drift");
 _Static_assert(sizeof(LlingGraphDistanceConfig) == 24, "LlingGraphDistanceConfig layout drift");
+_Static_assert(sizeof(LlingRankedPathConfig) == 48, "LlingRankedPathConfig layout drift");
 #endif
 
 LLING_LLANG_API uint32_t lling_abi_version(void);
@@ -467,6 +487,14 @@ LLING_LLANG_API LlingLlangStatus lling_graph_posterior_arcs(
 LLING_LLANG_API LlingLlangStatus lling_graph_posterior_final(
     const LlingGraphDistances* result, size_t local_id,
     double* out_probability);
+/* The ranked cursor retains its own graph lease. Each call has bounded work. */
+LLING_LLANG_API LlingLlangStatus lling_ranked_path_cursor_open(
+    const LlingGraph* graph, const LlingRankedPathConfig* config,
+    LlingRankedPathCursor** out_cursor);
+LLING_LLANG_API LlingLlangStatus lling_ranked_path_cursor_next(
+    LlingRankedPathCursor* cursor, const LlingCancellationV2* cancellation,
+    uint32_t* out_poll, LlingPath** out_path);
+LLING_LLANG_API void lling_ranked_path_cursor_free(LlingRankedPathCursor* cursor);
 
 #ifdef __cplusplus
 }

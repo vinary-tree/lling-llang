@@ -41,12 +41,12 @@ pub const LLING_DISTANCE_POLL_COMPLETE: u32 = 2;
 /// The caller cancelled before exact analysis completed.
 pub const LLING_DISTANCE_POLL_CANCELLED: u32 = 3;
 
-fn map_analysis_error(error: GraphAnalysisError) -> LlingLlangStatus {
+pub(super) fn map_analysis_error(error: GraphAnalysisError) -> LlingLlangStatus {
     set_error(format!("graph distance analysis failed: {error:?}"));
     match error {
-        GraphAnalysisError::NumericFailure | GraphAnalysisError::WorkLimit => {
-            LlingLlangStatus::LimitExceeded
-        }
+        GraphAnalysisError::NumericFailure
+        | GraphAnalysisError::WorkLimit
+        | GraphAnalysisError::FrontierLimit => LlingLlangStatus::LimitExceeded,
         GraphAnalysisError::NonConvergent => LlingLlangStatus::NonConvergent,
         GraphAnalysisError::UnsupportedCycle | GraphAnalysisError::UnsupportedDomain => {
             LlingLlangStatus::Unsupported

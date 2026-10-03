@@ -62,6 +62,9 @@ export ABI_VERSION,
     DistanceResult,
     DistancePending,
     DistanceCancelledError,
+    RankedPathLimits,
+    RankedPathIterator,
+    RankedPathPending,
     ProviderArc,
     ProviderState,
     AbstractWfstProvider,
@@ -110,6 +113,12 @@ export ABI_VERSION,
     distance_page,
     posterior_arcs,
     posterior_final,
+    ranked_paths,
+    poll_ranked_path!,
+    reduce_ranked_paths,
+    best_path,
+    k_best_paths,
+    n_best_paths,
     input_symbols,
     output_symbols,
     resource,
@@ -1477,6 +1486,183 @@ function complete_distances(graph::GraphSnapshot; kwargs...)
         close(cursor)
     end
 end
+
+"""Explicit lifetime and per-call bounds for best-first accepting paths."""
+struct RankedPathLimits
+    max_work::UInt64
+    work_per_call::UInt64
+    max_depth::UInt64
+    max_paths::UInt64
+    max_frontier::UInt64
+end
+RankedPathLimits(; max_work=1_000_000, work_per_call=64,
+    max_depth=1024, max_paths=10_000, max_frontier=10_000) = RankedPathLimits(
+    path_bound(max_work, :max_work; positive=true),
+    path_bound(work_per_call, :work_per_call; positive=true),
+    path_bound(max_depth, :max_depth), path_bound(max_paths, :max_paths),
+    path_bound(max_frontier, :max_frontier; positive=true))
+
+struct RawRankedPathConfig
+    struct_size::UInt32
+    version::UInt32
+    max_work::UInt64
+    work_per_call::UInt64
+    max_depth::UInt64
+    max_paths::UInt64
+    max_frontier::UInt64
+end
+RawRankedPathConfig(limits::RankedPathLimits) = RawRankedPathConfig(
+    UInt32(sizeof(RawRankedPathConfig)), UInt32(1), limits.max_work,
+    limits.work_per_call, limits.max_depth, limits.max_paths, limits.max_frontier)
+
+"""One ranked-search poll consumed its bounded slice without yielding."""
+struct RankedPathPending end
+const RANKED_PATH_PENDING = RankedPathPending()
+
+"""Mutable lazy best-first iterator retaining one immutable graph lease."""
+mutable struct RankedPathIterator{L,W<:AbstractScalarWeight,S1,S2}
+    handle::Ptr{Cvoid}
+    input_symbols::S1
+    output_symbols::S2
+    cancellation::Union{Nothing,CancellationV2}
+    closed::Bool
+    completion::Union{Nothing,UInt32}
+end
+Base.IteratorSize(::Type{<:RankedPathIterator}) = Base.SizeUnknown()
+Base.eltype(::Type{<:RankedPathIterator{L,W}}) where {L,W} = WfstPath{L,W}
+Base.isopen(iterator::RankedPathIterator) = !iterator.closed
+function close!(iterator::RankedPathIterator)
+    iterator.closed && return nothing
+    ccall(native(:lling_ranked_path_cursor_free), Cvoid,
+        (Ptr{Cvoid},), iterator.handle)
+    iterator.handle = C_NULL
+    iterator.closed = true
+    nothing
+end
+Base.close(iterator::RankedPathIterator) = close!(iterator)
+
+"""
+Create a bounded, lazy best-first iterator over accepting paths.
+
+Paths are ordered by native Viterbi cost, then length, then captured provider
+arc order. Equal-cost ties are deterministic. A complete graph snapshot is
+required; the cursor retains it, so the graph may close after this call.
+`max_depth`/`max_paths` truncation and work/frontier exhaustion are explicit,
+never silently treated as exact completion. A nonconvergent improving cycle
+raises `STATUS_NON_CONVERGENT` before any path is yielded.
+"""
+function ranked_paths(graph::GraphSnapshot{L,W};
+    limits::RankedPathLimits=RankedPathLimits(),
+    cancellation::Union{Nothing,CancellationV2}=nothing) where {L,W}
+    isnothing(cancellation) || open_handle(cancellation)
+    config = Ref(RawRankedPathConfig(limits))
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    checked(ccall(native(:lling_ranked_path_cursor_open), UInt32,
+        (Ptr{Cvoid}, Ref{RawRankedPathConfig}, Ref{Ptr{Cvoid}}),
+        open_graph_handle(graph), config, output), :ranked_path_cursor_open)
+    iterator = RankedPathIterator{L,W,typeof(graph.input_symbols),
+        typeof(graph.output_symbols)}(output[], graph.input_symbols,
+        graph.output_symbols, cancellation, false, nothing)
+    finalizer(finalize_close, iterator)
+    iterator
+end
+
+"""Advance one bounded native best-first slice; return a path or pending."""
+function poll_ranked_path!(iterator::RankedPathIterator{L,W}) where {L,W}
+    iterator.completion === RANKED_POLL_EXHAUSTED && return nothing
+    iterator.closed && throw(NativeError(STATUS_CLOSED, :ranked_path_cursor_next,
+        "ranked path iterator is closed"))
+    try
+        poll = Ref{UInt32}(0)
+        output = Ref{Ptr{Cvoid}}(C_NULL)
+        cancellation = iterator.cancellation
+        cancellation_handle = isnothing(cancellation) ? C_NULL : open_handle(cancellation)
+        GC.@preserve cancellation begin
+            checked(ccall(native(:lling_ranked_path_cursor_next), UInt32,
+                (Ptr{Cvoid}, Ptr{Cvoid}, Ref{UInt32}, Ref{Ptr{Cvoid}}),
+                iterator.handle, cancellation_handle, poll, output),
+                :ranked_path_cursor_next)
+        end
+        poll[] == RANKED_POLL_PENDING && return RANKED_PATH_PENDING
+        if poll[] == RANKED_POLL_PATH
+            output[] == C_NULL && throw(ArgumentError("native ranked poll omitted path"))
+            try
+                return read_owned_path(L, W, output[])
+            finally
+                ccall(native(:lling_path_free), Cvoid, (Ptr{Cvoid},), output[])
+            end
+        end
+        iterator.completion = poll[]
+        close!(iterator)
+        poll[] == RANKED_POLL_EXHAUSTED && return nothing
+        poll[] == RANKED_POLL_TRUNCATED && throw(PathTruncatedError())
+        poll[] == RANKED_POLL_CANCELLED && throw(PathCancelledError(
+            isnothing(cancellation) ? nothing : cancellation_reason(cancellation)))
+        throw(ArgumentError("native ranked cursor returned unknown poll value $(poll[])"))
+    catch
+        close!(iterator)
+        rethrow()
+    end
+end
+
+function Base.iterate(iterator::RankedPathIterator, ::Nothing=nothing)
+    while true
+        result = poll_ranked_path!(iterator)
+        result isa RankedPathPending && continue
+        result === nothing && return nothing
+        return (result, nothing)
+    end
+end
+
+"""Fold ranked paths lazily and release the cursor on every exit path."""
+function reduce_ranked_paths(operation, initial, graph::GraphSnapshot; kwargs...)
+    iterator = ranked_paths(graph; kwargs...)
+    try
+        result = initial
+        for path in iterator
+            result = operation(result, path)
+        end
+        result
+    finally
+        close(iterator)
+    end
+end
+
+"""Return the best accepting path, or `nothing` when none exists exactly."""
+function best_path(graph::GraphSnapshot; kwargs...)
+    cursor = ranked_paths(graph; kwargs...)
+    try
+        result = iterate(cursor)
+        isnothing(result) ? nothing : first(result)
+    finally
+        close(cursor)
+    end
+end
+
+"""Return up to `k` ranked paths, explicitly bounded by `limits.max_paths`."""
+function k_best_paths(graph::GraphSnapshot{L,W}, k::Integer;
+    limits::RankedPathLimits=RankedPathLimits(),
+    cancellation::Union{Nothing,CancellationV2}=nothing) where {L,W}
+    requested = path_bound(k, :k)
+    requested <= limits.max_paths || throw(ArgumentError(
+        "k exceeds ranked path max_paths; raise that explicit bound"))
+    result = WfstPath{L,W}[]
+    requested == 0 && return result
+    cursor = ranked_paths(graph; limits, cancellation)
+    try
+        for path in cursor
+            push!(result, path)
+            length(result) == requested && break
+        end
+        result
+    finally
+        close(cursor)
+    end
+end
+
+"""Alias for `k_best_paths` with the same ordering and explicit bounds."""
+n_best_paths(graph::GraphSnapshot, n::Integer; kwargs...) =
+    k_best_paths(graph, n; kwargs...)
 
 function open_distance_handle(result::DistanceResult)
     result.closed && throw(NativeError(STATUS_CLOSED, :graph_distance,

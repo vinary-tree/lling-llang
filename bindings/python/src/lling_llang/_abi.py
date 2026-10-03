@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 10
+API_REVISION = 11
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -129,6 +129,16 @@ class DistancePoll(IntEnum):
     CANCELLED = 3
 
 
+class RankedPoll(IntEnum):
+    """Bounded best-first enumeration; truncation is not exhaustion."""
+
+    PATH = 1
+    PENDING = 2
+    EXHAUSTED = 3
+    TRUNCATED = 4
+    CANCELLED = 5
+
+
 class PathConfig(ctypes.Structure):
     """Versioned, explicit limits for a snapshot-pinned path traversal."""
 
@@ -191,6 +201,20 @@ class GraphDistanceConfig(ctypes.Structure):
         ("version", ctypes.c_uint32),
         ("max_work", ctypes.c_uint64),
         ("work_per_call", ctypes.c_uint64),
+    ]
+
+
+class RankedPathConfig(ctypes.Structure):
+    """Versioned native ranking work, depth, count, and frontier limits."""
+
+    _fields_ = [
+        ("struct_size", ctypes.c_uint32),
+        ("version", ctypes.c_uint32),
+        ("max_work", ctypes.c_uint64),
+        ("work_per_call", ctypes.c_uint64),
+        ("max_depth", ctypes.c_uint64),
+        ("max_paths", ctypes.c_uint64),
+        ("max_frontier", ctypes.c_uint64),
     ]
 
 
@@ -561,6 +585,16 @@ _bind(
     "lling_graph_posterior_final",
     [ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_double)],
 )
+_bind(
+    "lling_ranked_path_cursor_open",
+    [ctypes.c_void_p, ctypes.POINTER(RankedPathConfig), ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_ranked_path_cursor_next",
+    [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+     ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind("lling_ranked_path_cursor_free", [ctypes.c_void_p], None)
 
 _bind(
     "lling_semiring_open", [ctypes.POINTER(VtResource), ctypes.POINTER(ctypes.c_void_p)]

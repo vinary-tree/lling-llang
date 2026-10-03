@@ -1,6 +1,6 @@
 # Generated from bindings/api.json. Do not edit by hand.
 const ABI_VERSION = UInt32(1)
-const API_REVISION = UInt32(10)
+const API_REVISION = UInt32(11)
 const TYPED_ABI_VERSION = UInt32(2)
 const DESCRIPTOR_SIGNATURE_KNOWN = UInt64(1) << 0
 const DESCRIPTOR_SNAPSHOT_PRESENT = UInt64(1) << 1
@@ -20,6 +20,11 @@ const GRAPH_POLL_CANCELLED = UInt32(3)
 const DISTANCE_POLL_PENDING = UInt32(1)
 const DISTANCE_POLL_COMPLETE = UInt32(2)
 const DISTANCE_POLL_CANCELLED = UInt32(3)
+const RANKED_POLL_PATH = UInt32(1)
+const RANKED_POLL_PENDING = UInt32(2)
+const RANKED_POLL_EXHAUSTED = UInt32(3)
+const RANKED_POLL_TRUNCATED = UInt32(4)
+const RANKED_POLL_CANCELLED = UInt32(5)
 
 @enum Status::UInt32 begin
     STATUS_OK = 0

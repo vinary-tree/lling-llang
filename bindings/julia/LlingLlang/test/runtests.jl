@@ -223,6 +223,62 @@ end
     close(source)
 end
 
+@testset "bounded best-first accepting paths" begin
+    @test sizeof(LlingLlang.RawRankedPathConfig) == 48
+    @test_throws ArgumentError RankedPathLimits(max_work=0)
+    @test_throws ArgumentError RankedPathLimits(max_frontier=0)
+
+    for (Weight, first_weight, final_weight, expected) in [
+        (TropicalWeight, TropicalWeight(2), TropicalWeight(3), TropicalWeight(5)),
+        (LogWeight, LogWeight(2), LogWeight(3), LogWeight(5)),
+        (ProbabilityWeight, ProbabilityWeight(0.4), ProbabilityWeight(0.5),
+            ProbabilityWeight(0.2)),
+        (ArcticWeight, ArcticWeight(2), ArcticWeight(3), ArcticWeight(5)),
+        (SignedTropicalWeight, SignedTropicalWeight(-2), SignedTropicalWeight(3),
+            SignedTropicalWeight(1)),
+        (CountWeight, CountWeight(2), CountWeight(3), CountWeight(6)),
+        (BooleanWeight, BooleanWeight(true), BooleanWeight(true),
+            BooleanWeight(true)),
+    ]
+        source = scalar_chain(UInt8, Weight, UInt8('r'), first_weight, final_weight)
+        graph = complete_graph(source)
+        close(source)
+        iterator = ranked_paths(graph; limits=RankedPathLimits(work_per_call=1))
+        close(graph)
+        @test poll_ranked_path!(iterator) isa RankedPathPending
+        paths_found = collect(iterator)
+        @test length(paths_found) == 1
+        @test only(paths_found).weight == expected
+        @test only(paths_found).steps[1].input == UInt8('r')
+        @test !isopen(iterator)
+    end
+
+    source = scalar_chain(UInt8, TropicalWeight, UInt8('s'),
+        TropicalWeight(1), TropicalWeight(2))
+    graph = complete_graph(source)
+    @test reduce_ranked_paths((n, _) -> n + 1, 0, graph) == 1
+    @test best_path(graph).weight == TropicalWeight(3)
+    @test only(k_best_paths(graph, 1)).weight == TropicalWeight(3)
+    @test only(n_best_paths(graph, 2)).weight == TropicalWeight(3)
+    @test isempty(k_best_paths(graph, 0))
+    @test_throws ArgumentError k_best_paths(graph, 2;
+        limits=RankedPathLimits(max_paths=1))
+    @test_throws PathTruncatedError collect(ranked_paths(graph;
+        limits=RankedPathLimits(max_depth=0)))
+    @test_throws PathTruncatedError collect(ranked_paths(graph;
+        limits=RankedPathLimits(max_paths=0)))
+    @test_throws NativeError collect(ranked_paths(graph;
+        limits=RankedPathLimits(max_work=1, work_per_call=1)))
+    cancellation = CancellationV2()
+    iterator = ranked_paths(graph; cancellation)
+    request!(cancellation, LlingLlang.CANCELLATION_REQUESTED_V2)
+    @test_throws PathCancelledError collect(iterator)
+    @test !isopen(iterator)
+    close(cancellation)
+    close(graph)
+    close(source)
+end
+
 @testset "typed ABI-v2 metadata and cancellation" begin
     @test sizeof(AbiV2Header) == 24
     @test sizeof(Id128) == 16

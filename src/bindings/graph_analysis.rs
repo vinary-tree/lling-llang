@@ -26,6 +26,8 @@ pub(crate) enum GraphAnalysisError {
     InvalidGraph,
     /// The caller's declared analysis-work bound was exhausted.
     WorkLimit,
+    /// The ranked path frontier would exceed its declared allocation bound.
+    FrontierLimit,
 }
 
 /// Exact semiring sums from the start and toward any final state.
@@ -148,6 +150,12 @@ enum DistanceStage {
     Complete,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DistanceMode {
+    Semiring,
+    ViterbiSuffix,
+}
+
 #[derive(Clone, Debug)]
 enum DistanceTerminal {
     Complete,
@@ -160,6 +168,7 @@ enum DistanceTerminal {
 /// most `work_per_call` graph-edge or graph-vertex transitions.
 pub(crate) struct GraphDistanceCursor {
     graph: Arc<ScalarGraph>,
+    mode: DistanceMode,
     max_work: usize,
     work_per_call: usize,
     work: usize,
@@ -183,13 +192,36 @@ impl GraphDistanceCursor {
         max_work: usize,
         work_per_call: usize,
     ) -> Result<Self, GraphAnalysisError> {
+        Self::with_mode(graph, max_work, work_per_call, DistanceMode::Semiring)
+    }
+
+    /// Bounded preparation of best-completion costs for ranked path search.
+    pub(crate) fn viterbi_suffix(
+        graph: Arc<ScalarGraph>,
+        max_work: usize,
+        work_per_call: usize,
+    ) -> Result<Self, GraphAnalysisError> {
+        Self::with_mode(graph, max_work, work_per_call, DistanceMode::ViterbiSuffix)
+    }
+
+    fn with_mode(
+        graph: Arc<ScalarGraph>,
+        max_work: usize,
+        work_per_call: usize,
+        mode: DistanceMode,
+    ) -> Result<Self, GraphAnalysisError> {
         if max_work == 0 || work_per_call == 0 || graph.states.is_empty() {
             return Err(GraphAnalysisError::InvalidGraph);
         }
         let len = graph.states.len();
-        let zero = scalar_zero(graph.weight_domain);
+        let zero = scalar_zero(if mode == DistanceMode::ViterbiSuffix {
+            VtWeightDomain::SignedTropicalF64
+        } else {
+            graph.weight_domain
+        });
         Ok(Self {
             graph,
+            mode,
             max_work,
             work_per_call,
             work: 0,
@@ -221,10 +253,26 @@ impl GraphDistanceCursor {
             .ok_or(GraphAnalysisError::InvalidGraph)
     }
 
+    fn domain(&self) -> VtWeightDomain {
+        if self.mode == DistanceMode::ViterbiSuffix {
+            VtWeightDomain::SignedTropicalF64
+        } else {
+            self.graph.weight_domain
+        }
+    }
+
+    fn weight(&self, raw: f64) -> Result<f64, GraphAnalysisError> {
+        if self.mode == DistanceMode::ViterbiSuffix {
+            rank_cost(self.graph.weight_domain, raw)
+        } else {
+            Ok(raw)
+        }
+    }
+
     /// One bounded graph-edge or graph-vertex transition.
     fn step(&mut self) -> Result<(), GraphAnalysisError> {
         let len = self.graph.states.len();
-        let domain = self.graph.weight_domain;
+        let domain = self.domain();
         match self.stage {
             DistanceStage::Indegrees => {
                 if self.state_index == len {
@@ -270,10 +318,16 @@ impl GraphDistanceCursor {
                     self.active = Some(source);
                     self.arc_index = 0;
                 } else if self.order.len() == len {
-                    self.stage = DistanceStage::ForwardDag;
+                    self.stage = if self.mode == DistanceMode::ViterbiSuffix {
+                        DistanceStage::BackwardDag
+                    } else {
+                        DistanceStage::ForwardDag
+                    };
                     self.state_index = 0;
                     self.arc_index = 0;
-                    self.forward[self.graph.start()] = one(domain);
+                    if self.mode == DistanceMode::Semiring {
+                        self.forward[self.graph.start()] = one(domain);
+                    }
                 } else if matches!(
                     domain,
                     VtWeightDomain::TropicalF64
@@ -281,22 +335,28 @@ impl GraphDistanceCursor {
                         | VtWeightDomain::ArcticF64
                         | VtWeightDomain::BooleanF64
                 ) {
-                    self.stage = DistanceStage::ForwardCyclic;
+                    self.stage = if self.mode == DistanceMode::ViterbiSuffix {
+                        DistanceStage::BackwardCyclic
+                    } else {
+                        DistanceStage::ForwardCyclic
+                    };
                     self.state_index = 0;
                     self.arc_index = 0;
-                    self.forward[self.graph.start()] = one(domain);
+                    if self.mode == DistanceMode::Semiring {
+                        self.forward[self.graph.start()] = one(domain);
+                    }
                     self.backward = self
                         .graph
                         .states
                         .iter()
                         .map(|state| {
                             if state.is_final {
-                                state.final_weight
+                                self.weight(state.final_weight)
                             } else {
-                                scalar_zero(domain)
+                                Ok(scalar_zero(domain))
                             }
                         })
-                        .collect();
+                        .collect::<Result<Vec<_>, _>>()?;
                 } else {
                     return Err(GraphAnalysisError::UnsupportedCycle);
                 }
@@ -316,7 +376,7 @@ impl GraphDistanceCursor {
                 }
                 let target = self.target(source, self.arc_index)?;
                 let arc = &self.graph.states[source].arcs[self.arc_index];
-                let contribution = times(domain, self.forward[source], arc.weight)?;
+                let contribution = times(domain, self.forward[source], self.weight(arc.weight)?)?;
                 self.forward[target] = plus(domain, self.forward[target], contribution)?;
                 self.arc_index += 1;
             }
@@ -328,8 +388,11 @@ impl GraphDistanceCursor {
                 let source = self.order[len - 1 - self.state_index];
                 let state = &self.graph.states[source];
                 if self.arc_index == 0 && state.is_final {
-                    self.backward[source] =
-                        plus(domain, self.backward[source], state.final_weight)?;
+                    self.backward[source] = plus(
+                        domain,
+                        self.backward[source],
+                        self.weight(state.final_weight)?,
+                    )?;
                 }
                 if self.arc_index == state.arcs.len() {
                     self.state_index += 1;
@@ -339,7 +402,7 @@ impl GraphDistanceCursor {
                 let target = self.target(source, self.arc_index)?;
                 let contribution = times(
                     domain,
-                    state.arcs[self.arc_index].weight,
+                    self.weight(state.arcs[self.arc_index].weight)?,
                     self.backward[target],
                 )?;
                 self.backward[source] = plus(domain, self.backward[source], contribution)?;
@@ -372,12 +435,13 @@ impl GraphDistanceCursor {
                 }
                 let target = self.target(source, self.arc_index)?;
                 let arc = &self.graph.states[source].arcs[self.arc_index];
+                let arc_weight = self.weight(arc.weight)?;
                 let (from, to, distance) = if self.stage == DistanceStage::ForwardCyclic {
                     (source, target, &mut self.forward)
                 } else {
                     (target, source, &mut self.backward)
                 };
-                let candidate = times(domain, distance[from], arc.weight)?;
+                let candidate = times(domain, distance[from], arc_weight)?;
                 let combined = plus(domain, distance[to], candidate)?;
                 if distance[to] != combined {
                     distance[to] = combined;
@@ -444,6 +508,33 @@ impl GraphDistanceCursor {
     pub(crate) fn graph_lease(&self) -> Arc<ScalarGraph> {
         Arc::clone(&self.graph)
     }
+
+    pub(crate) fn work_done(&self) -> usize {
+        self.work
+    }
+}
+
+/// Cost projection for ordering individual paths rather than summing them.
+/// Semiring zero is an impossible branch under every declared scalar domain.
+pub(super) fn rank_cost(domain: VtWeightDomain, value: f64) -> Result<f64, GraphAnalysisError> {
+    if value == scalar_zero(domain) {
+        return Ok(f64::INFINITY);
+    }
+    let cost = match domain {
+        VtWeightDomain::TropicalF64
+        | VtWeightDomain::SignedTropicalF64
+        | VtWeightDomain::LogF64 => value,
+        VtWeightDomain::ArcticF64 => -value,
+        VtWeightDomain::ProbabilityF64 => -value.ln(),
+        VtWeightDomain::CountF64 => value.ln(),
+        VtWeightDomain::BooleanF64 => 0.0,
+    };
+    // IEEE total ordering distinguishes -0 from +0 although these are the
+    // same semiring cost. Canonicalize before provider-order tie breaking.
+    checked(
+        VtWeightDomain::SignedTropicalF64,
+        if cost == 0.0 { 0.0 } else { cost },
+    )
 }
 
 fn checked(domain: VtWeightDomain, value: f64) -> Result<f64, GraphAnalysisError> {
@@ -452,7 +543,7 @@ fn checked(domain: VtWeightDomain, value: f64) -> Result<f64, GraphAnalysisError
         .ok_or(GraphAnalysisError::NumericFailure)
 }
 
-fn one(domain: VtWeightDomain) -> f64 {
+pub(super) fn one(domain: VtWeightDomain) -> f64 {
     match domain {
         VtWeightDomain::TropicalF64
         | VtWeightDomain::LogF64
@@ -464,7 +555,7 @@ fn one(domain: VtWeightDomain) -> f64 {
     }
 }
 
-fn times(domain: VtWeightDomain, lhs: f64, rhs: f64) -> Result<f64, GraphAnalysisError> {
+pub(super) fn times(domain: VtWeightDomain, lhs: f64, rhs: f64) -> Result<f64, GraphAnalysisError> {
     let zero = scalar_zero(domain);
     if lhs == zero || rhs == zero {
         return Ok(zero);
@@ -874,6 +965,55 @@ mod tests {
             assert!((distances.arc_posterior(&graph, 0, 1).unwrap() - 0.6).abs() < 1e-12);
             assert!((distances.final_posterior(&graph, 1).unwrap() - 1.0).abs() < 1e-12);
             assert_eq!(distances.final_posterior(&graph, 0).unwrap(), 0.0);
+        }
+    }
+
+    #[test]
+    fn bounded_viterbi_suffix_is_distinct_from_semiring_path_sum() {
+        let cases = [
+            (VtWeightDomain::TropicalF64, 3.0, 5.0, 2.0, 5.0),
+            (VtWeightDomain::SignedTropicalF64, -3.0, 5.0, 2.0, -1.0),
+            (VtWeightDomain::ArcticF64, 3.0, 5.0, 2.0, -7.0),
+            (VtWeightDomain::ProbabilityF64, 0.2, 0.3, 0.5, -0.15f64.ln()),
+            (VtWeightDomain::CountF64, 2.0, 3.0, 4.0, 8.0f64.ln()),
+            (VtWeightDomain::BooleanF64, 1.0, 0.0, 1.0, 0.0),
+            (
+                VtWeightDomain::LogF64,
+                -0.2f64.ln(),
+                -0.3f64.ln(),
+                -0.5f64.ln(),
+                -0.15f64.ln(),
+            ),
+        ];
+        for (domain, left, right, terminal, expected) in cases {
+            let graph = Arc::new(diamond(domain, left, right, terminal));
+            let mut cursor = GraphDistanceCursor::viterbi_suffix(graph, 100, 1).unwrap();
+            while cursor.poll(|| false).unwrap() == DistancePoll::Pending {}
+            let cost = cursor.into_distances().unwrap().total;
+            assert!(
+                (cost - expected).abs() < 1e-12,
+                "{domain:?}: {cost} != {expected}"
+            );
+        }
+
+        let mut graph = diamond(VtWeightDomain::ProbabilityF64, 0.2, 0.3, 0.5);
+        graph.states[1].arcs.push(arc(10, 0.25));
+        let mut cursor =
+            GraphDistanceCursor::viterbi_suffix(Arc::new(graph.clone()), 100, 1).unwrap();
+        while cursor.poll(|| false).unwrap() == DistancePoll::Pending {}
+        assert!((cursor.into_distances().unwrap().total + 0.15f64.ln()).abs() < 1e-12);
+
+        graph.states[1].arcs[0].weight = 5.0;
+        let mut cursor = GraphDistanceCursor::viterbi_suffix(Arc::new(graph), 100, 1).unwrap();
+        loop {
+            match cursor.poll(|| false) {
+                Ok(DistancePoll::Pending) => continue,
+                Err(error) => {
+                    assert_eq!(error, GraphAnalysisError::NonConvergent);
+                    break;
+                }
+                outcome => panic!("unexpected outcome: {outcome:?}"),
+            }
         }
     }
 }
