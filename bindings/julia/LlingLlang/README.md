@@ -350,6 +350,37 @@ reports a truncated result as exhaustive. Numeric overflow/underflow is
 rejected in this new path analysis only; existing scalar composition semantics
 remain unchanged.
 
+### Prune by an exact complete-path cost window
+
+`cost_pruned_paths(graph; beam=1.0)` lazily keeps every accepting path whose
+native Viterbi cost is at most one cost unit worse than the best path. The
+underlying best-first ordering makes the first out-of-window path a sound
+stopping point. This is exact *complete-path* cost-window pruning, not the
+approximate partial-hypothesis beam search used by the native lattice API.
+Equal-cost ties remain in native path order. The beam must be finite and
+nonnegative; for probability weights it is measured in negative-log units.
+
+```julia
+# Use a live complete graph; close the iterator when stopping early.
+cursor = cost_pruned_paths(graph; beam=1.0,
+    limits=RankedPathLimits(max_work=100_000, work_per_call=32,
+        max_depth=64, max_paths=100, max_frontier=10_000))
+try
+    for path in cursor
+        println(path.weight)
+    end
+finally
+    close(cursor)
+end
+```
+
+`poll_cost_pruned_path!` returns a path, `RankedPathPending`, or `nothing`;
+one call performs at most one native ranked-path poll. Use
+`reduce_cost_pruned_paths(operation, initial, graph; beam=...)` for a fold
+that always closes the cursor. Native work, frontier, count, depth,
+cancellation, and numeric failures propagate unchanged; an explicit limit
+is never mistaken for exact exhaustion.
+
 ### Draw seeded accepting paths
 
 `sample_paths(graph; limits)` is a bounded lazy iterator of owned paths. Its

@@ -279,6 +279,62 @@ end
     close(source)
 end
 
+@testset "exact cost-window path pruning" begin
+    builder = WfstBuilder{UInt8,TropicalWeight}(size_hint=5)
+    start = add_state!(builder)
+    destinations = [add_state!(builder) for _ in 1:4]
+    set_start!(builder, start)
+    for (index, destination) in enumerate(destinations)
+        set_final!(builder, destination, TropicalWeight(0))
+        label = UInt8('a') + UInt8(index - 1)
+        add_arc!(builder, start, label, label, destination,
+            TropicalWeight((1, 2, 2, 4)[index]))
+    end
+    source = build!(builder)
+    graph = complete_graph(source)
+    close(source)
+    @test_throws ArgumentError cost_pruned_paths(graph; beam=-1)
+    @test_throws ArgumentError cost_pruned_paths(graph; beam=Inf)
+    @test_throws ArgumentError cost_pruned_paths(graph; beam=NaN)
+    @test [only(path.steps).input for path in collect(
+        cost_pruned_paths(graph; beam=0))] == [UInt8('a')]
+    @test reduce_cost_pruned_paths((n, _) -> n + 1, 0, graph;
+        beam=1) == 3
+    @test_throws PathTruncatedError collect(cost_pruned_paths(graph;
+        beam=10, limits=RankedPathLimits(max_paths=1)))
+    cancellation = CancellationV2()
+    cancelled = cost_pruned_paths(graph; beam=10, cancellation)
+    request!(cancellation, LlingLlang.CANCELLATION_REQUESTED_V2)
+    @test_throws PathCancelledError collect(cancelled)
+    @test !isopen(cancelled)
+    close(cancellation)
+    cursor = cost_pruned_paths(graph; beam=1,
+        limits=RankedPathLimits(work_per_call=1))
+    close(graph)
+    @test poll_cost_pruned_path!(cursor) isa RankedPathPending
+    @test [only(path.steps).input for path in collect(cursor)] ==
+        [UInt8('a'), UInt8('b'), UInt8('c')]
+    @test !isopen(cursor)
+    @test poll_cost_pruned_path!(cursor) === nothing
+
+    builder = WfstBuilder{UInt8,ProbabilityWeight}(size_hint=4)
+    start = add_state!(builder)
+    for (index, mass) in enumerate((0.5, 0.25, 0.125))
+        destination = add_state!(builder)
+        set_final!(builder, destination, ProbabilityWeight(1))
+        label = UInt8('p') + UInt8(index - 1)
+        add_arc!(builder, start, label, label, destination,
+            ProbabilityWeight(mass))
+    end
+    set_start!(builder, start)
+    source = build!(builder)
+    graph = complete_graph(source)
+    close(source)
+    @test [path.weight for path in collect(cost_pruned_paths(graph;
+        beam=0.7))] == [ProbabilityWeight(0.5), ProbabilityWeight(0.25)]
+    close(graph)
+end
+
 @testset "seeded bounded accepting-path sampling" begin
     @test sizeof(LlingLlang.RawSamplePathConfig) == 56
     @test_throws ArgumentError SamplePathLimits(max_samples=0)

@@ -65,6 +65,7 @@ export ABI_VERSION,
     RankedPathLimits,
     RankedPathIterator,
     RankedPathPending,
+    CostPrunedPathIterator,
     SamplePathLimits,
     SamplePathIterator,
     SamplePathPending,
@@ -122,6 +123,9 @@ export ABI_VERSION,
     best_path,
     k_best_paths,
     n_best_paths,
+    cost_pruned_paths,
+    poll_cost_pruned_path!,
+    reduce_cost_pruned_paths,
     sample_paths,
     poll_sample_path!,
     sample_path,
@@ -1671,6 +1675,107 @@ end
 """Alias for `k_best_paths` with the same ordering and explicit bounds."""
 n_best_paths(graph::GraphSnapshot, n::Integer; kwargs...) =
     k_best_paths(graph, n; kwargs...)
+
+path_order_cost(weight::Union{TropicalWeight,LogWeight,SignedTropicalWeight}) =
+    weight.value
+path_order_cost(weight::ArcticWeight) = -weight.value
+path_order_cost(weight::ProbabilityWeight) = -log(weight.value)
+path_order_cost(weight::CountWeight) = log(Float64(weight.value))
+path_order_cost(::BooleanWeight) = 0.0
+
+"""A lazy exact cost-window filter over native best-first accepting paths."""
+mutable struct CostPrunedPathIterator{I<:RankedPathIterator}
+    source::I
+    beam::Float64
+    best_cost::Union{Nothing,Float64}
+    closed::Bool
+    exhausted::Bool
+end
+Base.IteratorSize(::Type{<:CostPrunedPathIterator}) = Base.SizeUnknown()
+Base.eltype(::Type{CostPrunedPathIterator{I}}) where {I} = Base.eltype(I)
+Base.isopen(iterator::CostPrunedPathIterator) = !iterator.closed
+function close!(iterator::CostPrunedPathIterator)
+    iterator.closed && return nothing
+    close(iterator.source)
+    iterator.closed = true
+    nothing
+end
+Base.close(iterator::CostPrunedPathIterator) = close!(iterator)
+
+"""
+Lazily retain paths whose native Viterbi cost is within `beam` of the best.
+
+This is exact complete-path cost-window pruning, not an approximate
+partial-hypothesis beam search. Native best-first ordering makes the first
+out-of-window path a sound stopping point. Each poll does at most one ranked
+native poll, so the declared work and frontier bounds remain effective.
+"""
+function cost_pruned_paths(graph::GraphSnapshot;
+    beam::Real,
+    limits::RankedPathLimits=RankedPathLimits(),
+    cancellation::Union{Nothing,CancellationV2}=nothing)
+    width = Float64(beam)
+    isfinite(width) && width >= 0.0 || throw(ArgumentError(
+        "beam must be finite and nonnegative"))
+    source = ranked_paths(graph; limits, cancellation)
+    iterator = CostPrunedPathIterator{typeof(source)}(
+        source, width, nothing, false, false)
+    finalizer(finalize_close, iterator)
+    iterator
+end
+
+"""Advance one bounded ranked-search slice through the cost-window filter."""
+function poll_cost_pruned_path!(iterator::CostPrunedPathIterator)
+    iterator.exhausted && return nothing
+    iterator.closed && throw(NativeError(STATUS_CLOSED, :ranked_path_cursor_next,
+        "cost-pruned path iterator is closed"))
+    try
+        result = poll_ranked_path!(iterator.source)
+        result isa RankedPathPending && return result
+        if result === nothing
+            iterator.exhausted = true
+            close(iterator)
+            return nothing
+        end
+        cost = path_order_cost(result.weight)
+        isfinite(cost) || throw(ArgumentError(
+            "native ranked path has a non-finite Viterbi cost"))
+        if isnothing(iterator.best_cost)
+            iterator.best_cost = cost
+        elseif cost - iterator.best_cost > iterator.beam
+            iterator.exhausted = true
+            close(iterator)
+            return nothing
+        end
+        result
+    catch
+        close(iterator)
+        rethrow()
+    end
+end
+
+function Base.iterate(iterator::CostPrunedPathIterator, ::Nothing=nothing)
+    while true
+        result = poll_cost_pruned_path!(iterator)
+        result isa RankedPathPending && continue
+        result === nothing && return nothing
+        return (result, nothing)
+    end
+end
+
+"""Fold the exact cost-window path stream and close it on every exit path."""
+function reduce_cost_pruned_paths(operation, initial, graph::GraphSnapshot; kwargs...)
+    iterator = cost_pruned_paths(graph; kwargs...)
+    try
+        result = initial
+        for path in iterator
+            result = operation(result, path)
+        end
+        result
+    finally
+        close(iterator)
+    end
+end
 
 """Explicit work, depth, count, strategy, and seed for accepting-path draws."""
 struct SamplePathLimits
