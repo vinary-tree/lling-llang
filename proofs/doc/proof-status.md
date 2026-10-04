@@ -8,7 +8,7 @@ This document tracks the current formal verification surface for lling-llang.
 |----------|-------|---------|----------------|-------------------------|
 | Semiring Foundations | 9 | 9 | 0 | 0 |
 | WFST Definitions | 4 | 4 | 0 | 0 |
-| Algorithm Models | 4 | 4 partial-correctness/spec files | 0 | 0 |
+| Algorithm Models | 5 | 4 partial-correctness/spec files + 1 checked validation boundary | 0 | 0 |
 | Campaign Rocq Contracts | 14 | 14 | 0 | 0 |
 | TLA+ Specifications | 13 specs / 22 configs + 32 expected-failure mutants | 22 finite TLC configs | 32 expected failures | 0 |
 | SMT Dual Checks | 7 transcripts / 101 queries | 101 expected results | 13 satisfiable witnesses/countermodels | 0 |
@@ -54,6 +54,7 @@ the finite real grid modeled in `Quantization.v`.
 | `ShortestDistance.v` | Checked partial correctness | Initialization, relaxation, well-formed empty-WFST solution theorem, and `shortest_distance_solution` fixed-point spec predicate |
 | `Determinize.v` | Checked partial correctness | Weighted-subset operations aggregate duplicate target states before normalization, explicit normalization pass with soundness theorem, nonempty-step fact, quotient soundness under nonzero-divisor precondition, non-vacuous `determinize_correct` spec predicate, already-deterministic identity correctness, and functional/sequential precondition facts |
 | `Minimize.v` | Checked partial correctness | Residual right-language state equivalence, partition helpers, non-vacuous `minimize_correct` and `push_weights_spec` predicates requiring defined source/target language surfaces, identity-minimize correctness, and language-preservation sanity lemmas |
+| `MinimizeEndpointValidation.v` | Checked validation boundary | Original-input count, start, and first-invalid-arc checks; deterministic error provenance; accepted valid input and rejected malformed input before transformation. This does not prove the complete weighted minimization algorithm. |
 | `StrongBisimulation.v` | Checked production contract | Unbounded labelled semantics, guarded exact replay certificates, complete oriented modal witnesses, dense validation, canonical relation, termination, smaller-half charging, quasilinear work/evidence, linear core heap, zero whole-partition rescans, and constant native stack |
 
 ### Phase 4: TLA+ Specifications

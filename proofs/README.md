@@ -25,11 +25,12 @@ proofs/
 │   │   ├── Paths.v             # Path, PathWeight definitions
 │   │   ├── MatrixSemantics.v   # WFST adjacency matrix-closure semantics
 │   │   └── Language.v          # Weighted language L(A)
-│   └── algorithms/     # Checked algorithm specs and partial-correctness lemmas
+│   ├── algorithms/     # Checked algorithm specs and partial-correctness lemmas
 │       ├── Viterbi.v           # Finite-candidate and Bellman-update lemmas
 │       ├── ShortestDistance.v  # Initialization and relaxation lemmas
 │       ├── Determinize.v       # Weighted-subset and normalization lemmas
 │       ├── Minimize.v          # Equivalence and partition lemmas
+│       ├── MinimizeEndpointValidation.v # Fail-closed input scan
 │       └── StrongBisimulation.v # Certified labelled refinement contract
 │   ├── optimizer/      # Categorical optimizer contracts
 │   │   ├── TapeSignatures.v    # Typed input/output composition

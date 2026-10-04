@@ -227,6 +227,15 @@ where
                             crate::algorithms::MinimizeError::NoStartState => {
                                 "native minimization input has no start state"
                             }
+                            crate::algorithms::MinimizeError::InvalidStateCount { .. } => {
+                                "native minimization input state count is invalid"
+                            }
+                            crate::algorithms::MinimizeError::InvalidStartState { .. } => {
+                                "native minimization input start state is invalid"
+                            }
+                            crate::algorithms::MinimizeError::InvalidTransition { .. } => {
+                                "native minimization input transition endpoint is invalid"
+                            }
                             crate::algorithms::MinimizeError::InvalidWeightEpsilon { .. } => {
                                 "native minimization weight epsilon is invalid"
                             }

@@ -1,0 +1,33 @@
+@startuml
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam activity {
+  BackgroundColor #E7F3FF
+  BorderColor #235789
+  DiamondBackgroundColor #FFF2CC
+  DiamondBorderColor #B87900
+  ArrowColor #374151
+}
+start
+:Borrow immutable original WFST\nand capture input identity;
+:Check representable state count\nand start-state endpoint;
+if (Invalid?) then (yes)
+  #FDE8E8:Return typed start/count error;
+  stop
+endif
+:Scan every outgoing slice in\nstate and transition order;
+if (First invalid source, owner,\nor target?) then (yes)
+  #FDE8E8:Return typed transition error\nwith original identity and arc ordinal;
+  stop
+endif
+:Check weight epsilon and determinism;
+if (Valid?) then (yes)
+  :Clone input, optionally connect\nand push weights;
+  :Refine partitions and build output;
+  #E8F5E9:Return minimized WFST;
+  stop
+else (no)
+  #FDE8E8:Return corresponding typed error;
+  stop
+endif
+@enduml

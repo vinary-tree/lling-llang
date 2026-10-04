@@ -143,6 +143,37 @@ impl MinimizeConfig {
 pub enum MinimizeError {
     /// No start state defined.
     NoStartState,
+    /// The reported state count cannot be represented without using `NO_STATE`.
+    InvalidStateCount {
+        /// Original input identity, captured before transformation.
+        input_identity: MinimizeInputIdentity,
+        /// Reported number of states.
+        state_count: usize,
+    },
+    /// The input start is not a state in the immutable input.
+    InvalidStartState {
+        /// Original input identity, captured before transformation.
+        input_identity: MinimizeInputIdentity,
+        /// Number of states in that input.
+        state_count: usize,
+        /// Start identifier supplied by the input.
+        start_state: StateId,
+    },
+    /// An arc in the original input or a downstream transform has invalid endpoints.
+    InvalidTransition {
+        /// Original input identity, captured before transformation.
+        input_identity: MinimizeInputIdentity,
+        /// Number of states at the point of detection.
+        state_count: usize,
+        /// State whose outgoing slice contains this transition.
+        owner_state: StateId,
+        /// Source encoded on the transition.
+        source_state: StateId,
+        /// Target encoded on the transition.
+        target_state: StateId,
+        /// Zero-based index in the owner's outgoing slice.
+        transition_index: usize,
+    },
     /// Input WFST is not deterministic.
     NotDeterministic,
     /// Weight quantization epsilon must be finite and positive.
@@ -158,6 +189,20 @@ impl std::fmt::Display for MinimizeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MinimizeError::NoStartState => write!(f, "WFST has no start state"),
+            MinimizeError::InvalidStateCount { state_count, .. } => write!(
+                f, "WFST reports {} states, exceeding the StateId address space",
+                state_count
+            ),
+            MinimizeError::InvalidStartState { state_count, start_state, .. } => write!(
+                f, "WFST start state {} is invalid for {} states", start_state, state_count
+            ),
+            MinimizeError::InvalidTransition {
+                owner_state, source_state, target_state, transition_index, state_count, ..
+            } => write!(
+                f,
+                "WFST transition {} in state {} has endpoints {} -> {} outside/mismatched for {} states",
+                transition_index, owner_state, source_state, target_state, state_count
+            ),
             MinimizeError::NotDeterministic => {
                 write!(f, "WFST must be deterministic before minimization")
             }
@@ -173,8 +218,26 @@ impl std::fmt::Display for MinimizeError {
 
 impl std::error::Error for MinimizeError {}
 
-/// Internal checked-path failure; public `minimize` keeps its original error
-/// surface and unrestricted native shortest-distance behavior.
+/// Identity of the immutable input used for minimization diagnostics.
+///
+/// [`BorrowedWfst`](Self::BorrowedWfst) is the input object's address and is
+/// meaningful only while that object remains alive. Callers requiring durable
+/// provenance should pass a stable snapshot key via [`minimize_with_input_identity`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MinimizeInputIdentity {
+    /// Address of the borrowed input; valid only for its lifetime.
+    BorrowedWfst(usize),
+    /// Caller-supplied stable identity of an immutable input snapshot.
+    Snapshot(u64),
+}
+
+#[inline]
+fn borrowed_identity<F>(fst: &F) -> MinimizeInputIdentity {
+    MinimizeInputIdentity::BorrowedWfst(fst as *const F as usize)
+}
+
+/// The bounded FFI path distinguishes exhaustion from ordinary native errors.
+/// Keep this internal surface separate from the public minimization error type.
 pub(crate) enum CheckedMinimizeError {
     Native(MinimizeError),
     DistanceLimitExceeded,
@@ -184,6 +247,51 @@ impl From<MinimizeError> for CheckedMinimizeError {
     fn from(error: MinimizeError) -> Self {
         Self::Native(error)
     }
+}
+
+/// Validate the original input before any graph transform or estimate.
+///
+/// This is a linear, allocation-free scan in state and transition-slice order.
+/// Its first error has the same coordinates as `first_invalid` in the Rocq model.
+fn validate_input_endpoints<L, W, F>(
+    fst: &F,
+    input_identity: MinimizeInputIdentity,
+) -> Result<(), MinimizeError>
+where
+    W: Semiring,
+    F: Wfst<L, W>,
+{
+    let n = fst.num_states();
+    if n > NO_STATE as usize {
+        return Err(MinimizeError::InvalidStateCount {
+            input_identity,
+            state_count: n,
+        });
+    }
+    let start = fst.start();
+    if (n == 0 && start != NO_STATE) || (n != 0 && (start as usize) >= n) {
+        return Err(MinimizeError::InvalidStartState {
+            input_identity,
+            state_count: n,
+            start_state: start,
+        });
+    }
+    for state in 0..n {
+        let owner = state as StateId;
+        for (transition_index, trans) in fst.transitions(owner).iter().enumerate() {
+            if trans.from != owner || (trans.from as usize) >= n || (trans.to as usize) >= n {
+                return Err(MinimizeError::InvalidTransition {
+                    input_identity,
+                    state_count: n,
+                    owner_state: owner,
+                    source_state: trans.from,
+                    target_state: trans.to,
+                    transition_index,
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 /// A signature for a state, used for partition refinement.
@@ -247,7 +355,27 @@ where
     W: DivisibleSemiring + QuantizableSemiring + PartialOrd + Clone + Debug,
     F: MutableWfst<L, W> + Wfst<L, W> + Default + Clone,
 {
-    match minimize_with_distance_config(fst, config, ShortestDistanceConfig::default()) {
+    minimize_with_input_identity(fst, borrowed_identity(fst), config)
+}
+
+/// Minimize while preserving a caller-supplied immutable snapshot identity in
+/// malformed-input diagnostics.
+pub fn minimize_with_input_identity<L, W, F>(
+    fst: &F,
+    input_identity: MinimizeInputIdentity,
+    config: MinimizeConfig,
+) -> Result<F, MinimizeError>
+where
+    L: Clone + Eq + Hash + Ord + Debug,
+    W: DivisibleSemiring + QuantizableSemiring + PartialOrd + Clone + Debug,
+    F: MutableWfst<L, W> + Wfst<L, W> + Default + Clone,
+{
+    match minimize_with_input_identity_and_distance_config(
+        fst,
+        input_identity,
+        config,
+        ShortestDistanceConfig::default(),
+    ) {
         Ok(output) => Ok(output),
         Err(CheckedMinimizeError::Native(error)) => Err(error),
         Err(CheckedMinimizeError::DistanceLimitExceeded) => Err(MinimizeError::PushError(
@@ -256,8 +384,8 @@ where
     }
 }
 
-/// Checked C path: bounds weight-pushing iterations without changing the
-/// public `MinimizeConfig` layout or `MinimizeError` variants.
+/// Checked C path: cap weight-pushing iterations without changing the public
+/// configuration layout. It shares the original-input validation boundary.
 pub(crate) fn minimize_with_distance_config<L, W, F>(
     fst: &F,
     config: MinimizeConfig,
@@ -268,16 +396,30 @@ where
     W: DivisibleSemiring + QuantizableSemiring + PartialOrd + Clone + Debug,
     F: MutableWfst<L, W> + Wfst<L, W> + Default + Clone,
 {
+    minimize_with_input_identity_and_distance_config(
+        fst,
+        borrowed_identity(fst),
+        config,
+        distance_config,
+    )
+}
+
+fn minimize_with_input_identity_and_distance_config<L, W, F>(
+    fst: &F,
+    input_identity: MinimizeInputIdentity,
+    config: MinimizeConfig,
+    distance_config: ShortestDistanceConfig,
+) -> Result<F, CheckedMinimizeError>
+where
+    L: Clone + Eq + Hash + Ord + Debug,
+    W: DivisibleSemiring + QuantizableSemiring + PartialOrd + Clone + Debug,
+    F: MutableWfst<L, W> + Wfst<L, W> + Default + Clone,
+{
+    validate_input_endpoints(fst, input_identity)?;
+    validate_weight_epsilon(config.weight_epsilon)?;
     let n = fst.num_states();
     if n == 0 {
         return Ok(F::default());
-    }
-
-    validate_weight_epsilon(config.weight_epsilon)?;
-
-    let start = fst.start();
-    if start == NO_STATE {
-        return Err(MinimizeError::NoStartState.into());
     }
 
     // Check that input is deterministic
@@ -310,10 +452,10 @@ where
     }
 
     // Partition refinement to find equivalent states
-    let partitions = compute_partitions(&working, config.weight_epsilon)?;
+    let partitions = compute_partitions(&working, config.weight_epsilon, input_identity)?;
 
     // Build minimized WFST from partitions
-    build_minimized(&working, &partitions).map_err(Into::into)
+    build_minimized(&working, &partitions, input_identity).map_err(Into::into)
 }
 
 /// Compute state partitions by worklist-driven partition refinement.
@@ -327,7 +469,11 @@ where
 /// full-pass behaviour with near-linear
 /// work while producing identical minimized output. Uses
 /// `QuantizableSemiring::quantize()` for approximate weight comparison.
-fn compute_partitions<L, W, F>(fst: &F, epsilon: f64) -> Result<Vec<usize>, MinimizeError>
+fn compute_partitions<L, W, F>(
+    fst: &F,
+    epsilon: f64,
+    input_identity: MinimizeInputIdentity,
+) -> Result<Vec<usize>, MinimizeError>
 where
     L: Clone + Eq + Hash + Ord + Debug,
     W: QuantizableSemiring + Clone + Debug,
@@ -343,17 +489,23 @@ where
     // Per-state outgoing arcs in canonical (input-sorted) order, storing the
     // target STATE (whose block is read live during refinement). Deterministic,
     // input-ε-free input makes each state's inputs unique, so this order is a
-    // stable canonical key. Malformed targets (>= n) are dropped. Predecessors
-    // are recorded for change propagation.
+    // stable canonical key. Predecessors are recorded for change propagation.
     let mut arcs: Vec<Vec<(Option<L>, Option<L>, QuantizedWeight, usize)>> = Vec::with_capacity(n);
     let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); n];
     for state in 0..n {
         let state_id = state as StateId;
         let mut state_arcs: Vec<(Option<L>, Option<L>, QuantizedWeight, usize)> = Vec::new();
-        for trans in fst.transitions(state_id) {
+        for (transition_index, trans) in fst.transitions(state_id).iter().enumerate() {
             let to = trans.to as usize;
-            if to >= n {
-                continue;
+            if trans.from != state_id || to >= n {
+                return Err(MinimizeError::InvalidTransition {
+                    input_identity,
+                    state_count: n,
+                    owner_state: state_id,
+                    source_state: trans.from,
+                    target_state: trans.to,
+                    transition_index,
+                });
             }
             state_arcs.push((
                 trans.input.clone(),
@@ -477,13 +629,31 @@ where
 /// changing—simple and obviously correct, but
 /// $`\mathcal{O}(\lvert Q\rvert^2)`$ on chain-shaped inputs.
 #[cfg(test)]
-fn compute_partitions_moore<L, W, F>(fst: &F, epsilon: f64) -> Result<Vec<usize>, MinimizeError>
+fn compute_partitions_moore<L, W, F>(
+    fst: &F,
+    epsilon: f64,
+    input_identity: MinimizeInputIdentity,
+) -> Result<Vec<usize>, MinimizeError>
 where
     L: Clone + Eq + Hash + Ord + Debug,
     W: QuantizableSemiring + Clone + Debug,
     F: Wfst<L, W>,
 {
     let n = fst.num_states();
+    if n > NO_STATE as usize {
+        return Err(MinimizeError::InvalidStateCount {
+            input_identity,
+            state_count: n,
+        });
+    }
+    let start = fst.start();
+    if (n == 0 && start != NO_STATE) || (n != 0 && (start as usize) >= n) {
+        return Err(MinimizeError::InvalidStartState {
+            input_identity,
+            state_count: n,
+            start_state: start,
+        });
+    }
     if n == 0 {
         return Ok(Vec::new());
     }
@@ -496,17 +666,23 @@ where
     // distinct non-ε input labels. Sorting by input is therefore a total order
     // that is invariant across refinement passes — only the *target partition*
     // ids change between passes, never the ordering — so we sort here exactly
-    // once instead of re-sorting every state on every pass. Malformed targets
-    // (`to >= n`) are dropped, consistent with the partition lookups below.
+    // once instead of re-sorting every state on every pass.
     let mut state_arcs: Vec<Vec<(Option<L>, Option<L>, QuantizedWeight, usize)>> =
         Vec::with_capacity(n);
     for state in 0..n {
         let state_id = state as StateId;
         let mut arcs: Vec<(Option<L>, Option<L>, QuantizedWeight, usize)> = Vec::new();
-        for trans in fst.transitions(state_id) {
+        for (transition_index, trans) in fst.transitions(state_id).iter().enumerate() {
             let to = trans.to as usize;
-            if to >= n {
-                continue;
+            if trans.from != state_id || to >= n {
+                return Err(MinimizeError::InvalidTransition {
+                    input_identity,
+                    state_count: n,
+                    owner_state: state_id,
+                    source_state: trans.from,
+                    target_state: trans.to,
+                    transition_index,
+                });
             }
             arcs.push((
                 trans.input.clone(),
@@ -581,7 +757,11 @@ where
 }
 
 /// Build minimized WFST from partition assignments.
-fn build_minimized<L, W, F>(fst: &F, partitions: &[usize]) -> Result<F, MinimizeError>
+fn build_minimized<L, W, F>(
+    fst: &F,
+    partitions: &[usize],
+    input_identity: MinimizeInputIdentity,
+) -> Result<F, MinimizeError>
 where
     L: Clone + Eq + Hash + Ord + Debug,
     W: Semiring + Clone + Debug,
@@ -630,9 +810,16 @@ where
         }
 
         // Add transitions (avoiding duplicates)
-        for trans in fst.transitions(rep) {
+        for (transition_index, trans) in fst.transitions(rep).iter().enumerate() {
             let Some(&target_partition) = partitions.get(trans.to as usize) else {
-                continue;
+                return Err(MinimizeError::InvalidTransition {
+                    input_identity,
+                    state_count: n,
+                    owner_state: rep,
+                    source_state: trans.from,
+                    target_state: trans.to,
+                    transition_index,
+                });
             };
 
             let key = (
@@ -664,7 +851,7 @@ where
 ///
 /// This is a quick estimate without actually performing minimization.
 /// Uses the default weight epsilon for comparison.
-pub fn estimate_reduction<L, W, F>(fst: &F) -> usize
+pub fn estimate_reduction<L, W, F>(fst: &F) -> Result<usize, MinimizeError>
 where
     L: Clone + Eq + Hash + Ord + Debug,
     W: QuantizableSemiring + Clone + Debug,
@@ -676,23 +863,39 @@ where
 /// Count the number of states that can be removed by minimization.
 ///
 /// Uses a custom epsilon for weight comparison.
-pub fn estimate_reduction_with_epsilon<L, W, F>(fst: &F, epsilon: f64) -> usize
+pub fn estimate_reduction_with_epsilon<L, W, F>(
+    fst: &F,
+    epsilon: f64,
+) -> Result<usize, MinimizeError>
 where
     L: Clone + Eq + Hash + Ord + Debug,
     W: QuantizableSemiring + Clone + Debug,
     F: Wfst<L, W>,
 {
+    estimate_reduction_with_epsilon_and_input_identity(fst, epsilon, borrowed_identity(fst))
+}
+
+/// Estimate a reduction with explicit immutable input provenance.
+pub fn estimate_reduction_with_epsilon_and_input_identity<L, W, F>(
+    fst: &F,
+    epsilon: f64,
+    input_identity: MinimizeInputIdentity,
+) -> Result<usize, MinimizeError>
+where
+    L: Clone + Eq + Hash + Ord + Debug,
+    W: QuantizableSemiring + Clone + Debug,
+    F: Wfst<L, W>,
+{
+    validate_input_endpoints(fst, input_identity)?;
+    validate_weight_epsilon(epsilon)?;
     let n = fst.num_states();
     if n == 0 {
-        return 0;
+        return Ok(0);
     }
 
-    if let Ok(partitions) = compute_partitions(fst, epsilon) {
-        let num_new_states = partitions.iter().max().map(|&m| m + 1).unwrap_or(0);
-        n.saturating_sub(num_new_states)
-    } else {
-        0
-    }
+    let partitions = compute_partitions(fst, epsilon, input_identity)?;
+    let num_new_states = partitions.iter().max().map(|&m| m + 1).unwrap_or(0);
+    Ok(n.saturating_sub(num_new_states))
 }
 
 #[cfg(test)]
@@ -709,6 +912,20 @@ mod tests {
         use proptest::prelude::*;
 
         proptest! {
+            #![proptest_config(ProptestConfig::with_cases(128))]
+
+            /// The independent Moore oracle and worklist must agree for valid
+            /// generated deterministic WFSTs, including empty graphs.
+            #[test]
+            fn valid_worklist_partitions_match_moore(
+                fst in arb_deterministic_wfst_tropical(12, 4)
+            ) {
+                let identity = borrowed_identity(&fst);
+                let worklist = compute_partitions(&fst, MINIMIZE_EPSILON, identity).unwrap();
+                let moore = compute_partitions_moore(&fst, MINIMIZE_EPSILON, identity).unwrap();
+                prop_assert_eq!(worklist, moore);
+            }
+
             /// Minimization should never increase state count.
             ///
             /// This property was previously disabled due to a bug where weight pushing
@@ -792,7 +1009,7 @@ mod tests {
                     return Ok(());
                 }
 
-                let estimated = estimate_reduction(&fst);
+                let estimated = estimate_reduction(&fst).unwrap();
                 let original_states = fst.num_states();
 
                 // Estimate should be bounded by state count
@@ -868,6 +1085,19 @@ mod tests {
     }
 
     #[test]
+    fn empty_input_still_rejects_invalid_weight_epsilon() {
+        let fst: VectorWfst<char, TropicalWeight> = VectorWfst::new();
+        assert!(matches!(
+            minimize(&fst, MinimizeConfig::with_epsilon(f64::NAN)),
+            Err(MinimizeError::InvalidWeightEpsilon { .. })
+        ));
+        assert!(matches!(
+            estimate_reduction_with_epsilon(&fst, f64::NAN),
+            Err(MinimizeError::InvalidWeightEpsilon { .. })
+        ));
+    }
+
+    #[test]
     fn checked_minimize_caps_distance_without_changing_public_default() {
         let fst = build_minimal_fst();
         let mut distance = ShortestDistanceConfig::default();
@@ -877,6 +1107,26 @@ mod tests {
             Err(CheckedMinimizeError::DistanceLimitExceeded)
         ));
         assert!(minimize(&fst, MinimizeConfig::default()).is_ok());
+    }
+
+    #[test]
+    fn checked_minimize_rejects_original_malformed_arc_before_distance_limit() {
+        let mut fst = build_minimal_fst();
+        fst.state_mut(0).unwrap().transitions[0].to = 99;
+        let mut distance = ShortestDistanceConfig::default();
+        distance.max_iterations = Some(0);
+        assert!(matches!(
+            minimize_with_distance_config(&fst, MinimizeConfig::default(), distance),
+            Err(CheckedMinimizeError::Native(
+                MinimizeError::InvalidTransition {
+                    owner_state: 0,
+                    source_state: 0,
+                    target_state: 99,
+                    transition_index: 0,
+                    ..
+                }
+            ))
+        ));
     }
 
     #[test]
@@ -937,7 +1187,7 @@ mod tests {
     #[test]
     fn test_estimate_reduction() {
         let redundant = build_redundant_fst();
-        let reduction = estimate_reduction(&redundant);
+        let reduction = estimate_reduction(&redundant).unwrap();
 
         // Should estimate at least 1 state can be removed
         // (since states 3,4 are equivalent)
@@ -976,12 +1226,15 @@ mod tests {
                 Err(MinimizeError::InvalidWeightEpsilon { epsilon: invalid })
                     if (epsilon.is_nan() && invalid.is_nan()) || invalid == epsilon
             ));
-            assert_eq!(estimate_reduction_with_epsilon(&fst, epsilon), 0);
+            assert!(matches!(
+                estimate_reduction_with_epsilon(&fst, epsilon),
+                Err(MinimizeError::InvalidWeightEpsilon { .. })
+            ));
         }
     }
 
     #[test]
-    fn test_minimize_skips_malformed_transition_targets() {
+    fn test_minimize_rejects_malformed_transition_targets() {
         let mut fst = VectorWfst::new();
         fst.add_states(2);
         fst.set_start(0);
@@ -994,15 +1247,47 @@ mod tests {
             connect_first: false,
             ..MinimizeConfig::default()
         };
-        let minimized = minimize(&fst, config).expect("malformed targets should be skipped");
+        assert!(matches!(
+            minimize(&fst, config),
+            Err(MinimizeError::InvalidTransition {
+                owner_state: 0,
+                source_state: 0,
+                target_state: 99,
+                transition_index: 1,
+                ..
+            })
+        ));
+        assert!(matches!(
+            estimate_reduction(&fst),
+            Err(MinimizeError::InvalidTransition {
+                target_state: 99,
+                ..
+            })
+        ));
+        let input_identity = borrowed_identity(&fst);
+        assert!(matches!(
+            compute_partitions_moore(&fst, MINIMIZE_EPSILON, input_identity),
+            Err(MinimizeError::InvalidTransition {
+                target_state: 99,
+                ..
+            })
+        ));
+    }
 
-        assert!(estimate_reduction(&fst) <= fst.num_states());
-        assert!((0..minimized.num_states()).all(|state| {
-            minimized
-                .transitions(state as StateId)
-                .iter()
-                .all(|transition| (transition.to as usize) < minimized.num_states())
-        }));
+    #[test]
+    fn moore_oracle_rejects_source_owner_mismatch() {
+        let mut fst = build_minimal_fst();
+        fst.state_mut(0).unwrap().transitions[0].from = 1;
+        let identity = borrowed_identity(&fst);
+        assert!(matches!(
+            compute_partitions_moore(&fst, MINIMIZE_EPSILON, identity),
+            Err(MinimizeError::InvalidTransition {
+                owner_state: 0,
+                source_state: 1,
+                transition_index: 0,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -1051,8 +1336,11 @@ mod tests {
 
         let cases = [chain(1), chain(4), chain(9), chain(20), redundant, diamond];
         for fst in &cases {
-            let worklist = compute_partitions(fst, MINIMIZE_EPSILON).expect("worklist partitions");
-            let moore = compute_partitions_moore(fst, MINIMIZE_EPSILON).expect("moore partitions");
+            let input_identity = borrowed_identity(fst);
+            let worklist = compute_partitions(fst, MINIMIZE_EPSILON, input_identity)
+                .expect("worklist partitions");
+            let moore = compute_partitions_moore(fst, MINIMIZE_EPSILON, input_identity)
+                .expect("moore partitions");
             assert_eq!(
                 worklist, moore,
                 "worklist and Moore partitions must be byte-identical"
