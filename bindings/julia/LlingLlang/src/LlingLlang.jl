@@ -2870,9 +2870,12 @@ mutable struct SemiringSlot
 end
 
 mutable struct SemiringProviderContext
+    cookie::Ptr{Cvoid}
     references::Int
     implementation::AbstractSemiringProvider
     flags::UInt64
+    owner_thread::Int
+    call_active::Base.Threads.Atomic{Bool}
     properties::UInt64
     closure_bound::Union{Nothing,UInt}
     arena_lock::ReentrantLock
@@ -2888,17 +2891,64 @@ end
 
 const SEMIRING_PROVIDERS = Dict{Ptr{Cvoid},SemiringProviderContext}()
 const SEMIRING_PROVIDERS_LOCK = ReentrantLock()
+const PROVIDER_COOKIE_LOCK = ReentrantLock()
+const NEXT_PROVIDER_COOKIE = Ref{UInt}(1)
 const SEMIRING_RESOURCE_TABLE = Ref{VTI.VtResourceVTable}()
 const SEMIRING_CALLBACKS = Dict{Symbol,Ptr{Cvoid}}()
 
-semiring_provider_context(pointer::Ptr{Cvoid}) =
-    unsafe_pointer_to_objref(pointer)::SemiringProviderContext
+# The context word is an opaque, process-unique cookie, never an object address.
+# A released callback can therefore never address a newly allocated provider
+# after Julia moves/reuses an object. Exhaustion rejects publication rather
+# than wrapping and accepting a stale handle as a different live resource.
+function new_provider_cookie()
+    lock(PROVIDER_COOKIE_LOCK) do
+        value = NEXT_PROVIDER_COOKIE[]
+        value == typemax(UInt) && throw(OverflowError("provider resource cookie"))
+        NEXT_PROVIDER_COOKIE[] = value + UInt(1)
+        Ptr{Cvoid}(value)
+    end
+end
+
+semiring_provider_context(pointer::Ptr{Cvoid}) = lock(SEMIRING_PROVIDERS_LOCK) do
+    get(SEMIRING_PROVIDERS, pointer, nothing)
+end
 
 function record_semiring_error!(context::SemiringProviderContext, error)
-    lock(context.arena_lock) do
-        context.last_error = sprint(showerror, error)
+    # A user-defined exception can itself throw from showerror. Neither that
+    # failure nor diagnostic allocation may unwind through an @cfunction.
+    try
+        message = try
+            sprint(showerror, error)
+        catch
+            "semiring provider raised an unprintable exception"
+        end
+        lock(context.arena_lock) do
+            context.last_error = message
+        end
+    catch
     end
     nothing
+end
+
+function semiring_call_gate(operation::Function, context::SemiringProviderContext)
+    if context.flags & VTI.SEMIRING_FLAG_THREAD_BOUND != 0 &&
+        Base.Threads.threadid() != context.owner_thread
+        record_semiring_error!(context, ErrorException(
+            "thread-bound semiring provider called from another Julia thread"))
+        return Cint(VTI.STATUS_PROVIDER_ERROR)
+    end
+    context.flags & VTI.SEMIRING_FLAG_PARALLEL_REENTRANT != 0 &&
+        return operation()
+    if Base.Threads.atomic_cas!(context.call_active, false, true)
+        record_semiring_error!(context, ErrorException(
+            "semiring provider callback is concurrent or recursive"))
+        return Cint(VTI.STATUS_PROVIDER_ERROR)
+    end
+    try
+        operation()
+    finally
+        context.call_active[] = false
+    end
 end
 
 function allocate_semiring_value(context::SemiringProviderContext, value)
@@ -2945,23 +2995,42 @@ function clone_semiring_value!(context::SemiringProviderContext,
     end
 end
 
-function release_semiring_value!(context::SemiringProviderContext,
-    token::VTI.VtSemiringValue)
+function release_semiring_values!(context::SemiringProviderContext,
+    values::Ptr{VTI.VtSemiringValue}, count::Int)
     lock(context.arena_lock) do
-        index = Int(token.word0)
-        1 <= index <= length(context.slots) ||
-            throw(ArgumentError("semiring token slot is out of range"))
-        slot = context.slots[index]
-        slot.occupied && slot.generation == token.word1 ||
-            throw(ArgumentError("semiring token is stale or already released"))
-        slot.references > 0 || throw(ArgumentError("weight reference count underflow"))
-        slot.references -= 1
-        if slot.references == 0
-            slot.value = nothing
-            slot.occupied = false
-            slot.generation = slot.generation == typemax(UInt64) ? UInt64(1) :
-                slot.generation + UInt64(1)
-            push!(context.free_slots, index)
+        # Validate every borrowed token before changing a single reference.
+        # An invalid token late in a batch must not partially consume earlier
+        # owners, since the native caller may retry the whole failed batch.
+        releases = Dict{Int,Int}()
+        for offset in 1:count
+            token = unsafe_load(values, offset)
+            index = Int(token.word0)
+            1 <= index <= length(context.slots) ||
+                throw(ArgumentError("semiring token slot is out of range"))
+            slot = context.slots[index]
+            slot.occupied && slot.generation == token.word1 ||
+                throw(ArgumentError("semiring token is stale or already released"))
+            requested = get(releases, index, 0) + 1
+            requested <= slot.references ||
+                throw(ArgumentError("weight reference count underflow"))
+            releases[index] = requested
+        end
+        # Reserve before mutating owners: a free-list growth failure must not
+        # leave a prefix of a validated batch consumed.
+        sizehint!(context.free_slots,
+            Base.Checked.checked_add(length(context.free_slots), length(releases)))
+        for (index, requested) in releases
+            slot = context.slots[index]
+            slot.references -= requested
+            if slot.references == 0
+                slot.value = nothing
+                slot.occupied = false
+                # Never wrap a generation: retiring this slot prevents ABA.
+                if slot.generation != typemax(UInt64)
+                    slot.generation += UInt64(1)
+                    push!(context.free_slots, index)
+                end
+            end
         end
     end
     nothing
@@ -2970,7 +3039,11 @@ end
 function semiring_resource_retain(pointer::Ptr{Cvoid})::Cvoid
     try
         lock(SEMIRING_PROVIDERS_LOCK) do
-            semiring_provider_context(pointer).references += 1
+            context = get(SEMIRING_PROVIDERS, pointer, nothing)
+            if !isnothing(context)
+                context.references == typemax(Int) ||
+                    (context.references += 1)
+            end
         end
     catch
     end
@@ -2980,9 +3053,11 @@ end
 function semiring_resource_release(pointer::Ptr{Cvoid})::Cvoid
     try
         lock(SEMIRING_PROVIDERS_LOCK) do
-            context = semiring_provider_context(pointer)
-            context.references -= 1
-            context.references == 0 && delete!(SEMIRING_PROVIDERS, pointer)
+            context = get(SEMIRING_PROVIDERS, pointer, nothing)
+            if !isnothing(context) && context.references > 0
+                context.references -= 1
+                context.references == 0 && delete!(SEMIRING_PROVIDERS, pointer)
+            end
         end
     catch
     end
@@ -2997,6 +3072,7 @@ function semiring_resource_query(pointer::Ptr{Cvoid},
     (pointer == C_NULL || id == C_NULL || output == C_NULL) &&
         return Cint(VTI.STATUS_NULL_POINTER)
     context = semiring_provider_context(pointer)
+    isnothing(context) && return Cint(VTI.STATUS_CLOSED)
     try
         identifier = unsafe_load(id)
         table = identifier == VTI.SEMIRING_INTERFACE_ID && minimum <= VTI.SEMIRING_INTERFACE_VERSION ? context.base_table :
@@ -3016,9 +3092,12 @@ end
 function semiring_callback(operation::Function, context_pointer::Ptr{Cvoid})
     context_pointer == C_NULL && return Cint(VTI.STATUS_NULL_POINTER)
     context = semiring_provider_context(context_pointer)
+    isnothing(context) && return Cint(VTI.STATUS_CLOSED)
     try
-        operation(context)
-        Cint(VTI.STATUS_OK)
+        semiring_call_gate(context) do
+            operation(context)
+            Cint(VTI.STATUS_OK)
+        end
     catch error
         record_semiring_error!(context, error)
         Cint(VTI.STATUS_PROVIDER_ERROR)
@@ -3050,9 +3129,7 @@ function semiring_release_callback(pointer::Ptr{Cvoid},
     values::Ptr{VTI.VtSemiringValue}, count::Csize_t)::Cint
     (count != 0 && values == C_NULL) && return Cint(VTI.STATUS_NULL_POINTER)
     semiring_callback(pointer) do context
-        for index in 1:Int(count)
-            release_semiring_value!(context, unsafe_load(values, index))
-        end
+        release_semiring_values!(context, values, Int(count))
     end
 end
 
@@ -3173,13 +3250,16 @@ function semiring_partial_binary_callback(pointer::Ptr{Cvoid},
     (left == C_NULL || right == C_NULL || output == C_NULL) &&
         return Cint(VTI.STATUS_NULL_POINTER)
     context = semiring_provider_context(pointer)
+    isnothing(context) && return Cint(VTI.STATUS_CLOSED)
     try
-        result = operation(context.implementation,
-            resolve_semiring_value(context, unsafe_load(left)),
-            resolve_semiring_value(context, unsafe_load(right)))
-        isnothing(result) && return Cint(VTI.STATUS_END)
-        unsafe_store!(output, allocate_semiring_value(context, result))
-        Cint(VTI.STATUS_OK)
+        semiring_call_gate(context) do
+            result = operation(context.implementation,
+                resolve_semiring_value(context, unsafe_load(left)),
+                resolve_semiring_value(context, unsafe_load(right)))
+            isnothing(result) && return Cint(VTI.STATUS_END)
+            unsafe_store!(output, allocate_semiring_value(context, result))
+            Cint(VTI.STATUS_OK)
+        end
     catch error
         record_semiring_error!(context, error)
         Cint(VTI.STATUS_PROVIDER_ERROR)
@@ -3194,12 +3274,15 @@ function semiring_star_callback(pointer::Ptr{Cvoid}, value::Ptr{VTI.VtSemiringVa
     output::Ptr{VTI.VtSemiringValue})::Cint
     (value == C_NULL || output == C_NULL) && return Cint(VTI.STATUS_NULL_POINTER)
     context = semiring_provider_context(pointer)
+    isnothing(context) && return Cint(VTI.STATUS_CLOSED)
     try
-        result = semiring_star(context.implementation,
-            resolve_semiring_value(context, unsafe_load(value)))
-        isnothing(result) && return Cint(VTI.STATUS_END)
-        unsafe_store!(output, allocate_semiring_value(context, result))
-        Cint(VTI.STATUS_OK)
+        semiring_call_gate(context) do
+            result = semiring_star(context.implementation,
+                resolve_semiring_value(context, unsafe_load(value)))
+            isnothing(result) && return Cint(VTI.STATUS_END)
+            unsafe_store!(output, allocate_semiring_value(context, result))
+            Cint(VTI.STATUS_OK)
+        end
     catch error
         record_semiring_error!(context, error)
         Cint(VTI.STATUS_PROVIDER_ERROR)
@@ -3210,12 +3293,15 @@ function semiring_numeric_callback(pointer::Ptr{Cvoid}, value::Ptr{VTI.VtSemirin
     output::Ptr{Float64}, operation::Function)::Cint
     (value == C_NULL || output == C_NULL) && return Cint(VTI.STATUS_NULL_POINTER)
     context = semiring_provider_context(pointer)
+    isnothing(context) && return Cint(VTI.STATUS_CLOSED)
     try
-        result = operation(context.implementation,
-            resolve_semiring_value(context, unsafe_load(value)))
-        isnothing(result) && return Cint(VTI.STATUS_UNSUPPORTED)
-        unsafe_store!(output, Float64(result))
-        Cint(VTI.STATUS_OK)
+        semiring_call_gate(context) do
+            result = operation(context.implementation,
+                resolve_semiring_value(context, unsafe_load(value)))
+            isnothing(result) && return Cint(VTI.STATUS_UNSUPPORTED)
+            unsafe_store!(output, Float64(result))
+            Cint(VTI.STATUS_OK)
+        end
     catch error
         record_semiring_error!(context, error)
         Cint(VTI.STATUS_PROVIDER_ERROR)
@@ -3230,12 +3316,15 @@ function semiring_quantize_callback(pointer::Ptr{Cvoid},
     value::Ptr{VTI.VtSemiringValue}, epsilon::Float64, output::Ptr{Int64})::Cint
     (value == C_NULL || output == C_NULL) && return Cint(VTI.STATUS_NULL_POINTER)
     context = semiring_provider_context(pointer)
+    isnothing(context) && return Cint(VTI.STATUS_CLOSED)
     try
-        result = semiring_quantize(context.implementation,
-            resolve_semiring_value(context, unsafe_load(value)), epsilon)
-        isnothing(result) && return Cint(VTI.STATUS_UNSUPPORTED)
-        unsafe_store!(output, Int64(result))
-        Cint(VTI.STATUS_OK)
+        semiring_call_gate(context) do
+            result = semiring_quantize(context.implementation,
+                resolve_semiring_value(context, unsafe_load(value)), epsilon)
+            isnothing(result) && return Cint(VTI.STATUS_UNSUPPORTED)
+            unsafe_store!(output, Int64(result))
+            Cint(VTI.STATUS_OK)
+        end
     catch error
         record_semiring_error!(context, error)
         Cint(VTI.STATUS_PROVIDER_ERROR)
@@ -3329,10 +3418,12 @@ function semiring_provider(implementation::AbstractSemiringProvider;
         sizeof(VTI.VtSemiringPropertiesVTable),
         VTI.SEMIRING_PROPERTIES_INTERFACE_VERSION, 0, properties,
         SEMIRING_CALLBACKS[:closure]))
-    context = SemiringProviderContext(1, implementation, flags, properties,
-        isnothing(bound) ? nothing : UInt(bound), ReentrantLock(), SemiringSlot[],
-        Int[], "", base, division_table, star_table, numeric_table, properties_table)
-    pointer = pointer_from_objref(context)
+    context = SemiringProviderContext(new_provider_cookie(), 1, implementation, flags,
+        Base.Threads.threadid(), Base.Threads.Atomic{Bool}(false), properties,
+        isnothing(bound) ? nothing : UInt(bound), ReentrantLock(),
+        SemiringSlot[], Int[], "", base, division_table, star_table,
+        numeric_table, properties_table)
+    pointer = context.cookie
     lock(SEMIRING_PROVIDERS_LOCK) do
         SEMIRING_PROVIDERS[pointer] = context
     end
@@ -3400,11 +3491,13 @@ function wfst_state(provider::AbstractWfstProvider, state::UInt64)
 end
 
 mutable struct ProviderContext{L,W<:AbstractScalarWeight,P<:AbstractWfstProvider}
+    cookie::Ptr{Cvoid}
     references::Int
     implementation::P
     unit_domain::VTI.UnitDomain
     weight_domain::VTI.WeightDomain
     flags::UInt64
+    call_active::Base.Threads.Atomic{Bool}
     cache_lock::ReentrantLock
     states::Dict{UInt64,ProviderState{L,W}}
     last_error::String
@@ -3416,20 +3509,48 @@ const PROVIDERS_LOCK = ReentrantLock()
 const RESOURCE_TABLE = Ref{VTI.VtResourceVTable}()
 const CALLBACKS = Dict{Symbol,Ptr{Cvoid}}()
 
-provider_context(pointer::Ptr{Cvoid}) =
-    unsafe_pointer_to_objref(pointer)::ProviderContext
+provider_context(pointer::Ptr{Cvoid}) = lock(PROVIDERS_LOCK) do
+    get(PROVIDERS, pointer, nothing)
+end
 
 function record_error!(context::ProviderContext, error)
-    lock(context.cache_lock) do
-        context.last_error = sprint(showerror, error)
+    try
+        message = try
+            sprint(showerror, error)
+        catch
+            "WFST provider raised an unprintable exception"
+        end
+        lock(context.cache_lock) do
+            context.last_error = message
+        end
+    catch
     end
     nothing
+end
+
+function provider_call_gate(operation::Function, context::ProviderContext)
+    context.flags & VTI.WFST_FLAG_PARALLEL_REENTRANT != 0 &&
+        return operation()
+    if Base.Threads.atomic_cas!(context.call_active, false, true)
+        record_error!(context, ErrorException(
+            "WFST provider callback is concurrent or recursive"))
+        return Cint(VTI.STATUS_PROVIDER_ERROR)
+    end
+    try
+        operation()
+    finally
+        context.call_active[] = false
+    end
 end
 
 function provider_retain(pointer::Ptr{Cvoid})::Cvoid
     try
         lock(PROVIDERS_LOCK) do
-            provider_context(pointer).references += 1
+            context = get(PROVIDERS, pointer, nothing)
+            if !isnothing(context)
+                context.references == typemax(Int) ||
+                    (context.references += 1)
+            end
         end
     catch
     end
@@ -3439,9 +3560,11 @@ end
 function provider_release(pointer::Ptr{Cvoid})::Cvoid
     try
         lock(PROVIDERS_LOCK) do
-            context = provider_context(pointer)
-            context.references -= 1
-            context.references == 0 && delete!(PROVIDERS, pointer)
+            context = get(PROVIDERS, pointer, nothing)
+            if !isnothing(context) && context.references > 0
+                context.references -= 1
+                context.references == 0 && delete!(PROVIDERS, pointer)
+            end
         end
     catch
     end
@@ -3458,29 +3581,43 @@ function provider_query(pointer::Ptr{Cvoid}, id::Ptr{VTI.VtInterfaceId},
         minimum <= VTI.WFST_INTERFACE_VERSION ||
             return Cint(VTI.STATUS_UNSUPPORTED)
         context = provider_context(pointer)
+        isnothing(context) && return Cint(VTI.STATUS_CLOSED)
         unsafe_store!(output, Ptr{Cvoid}(Base.unsafe_convert(
             Ptr{VTI.VtWfstVTable}, context.table)))
         Cint(VTI.STATUS_OK)
     catch error
-        try record_error!(provider_context(pointer), error) catch end
+        context = provider_context(pointer)
+        isnothing(context) || record_error!(context, error)
         Cint(VTI.STATUS_PROVIDER_ERROR)
     end
 end
 
 function raw_provider(context::ProviderContext)
-    pointer = pointer_from_objref(context)
-    VTI.VtResourceRaw(pointer,
+    VTI.VtResourceRaw(context.cookie,
         Base.unsafe_convert(Ptr{VTI.VtResourceVTable}, RESOURCE_TABLE))
 end
 
 function provider_snapshot(pointer::Ptr{Cvoid}, output::Ptr{VTI.VtResourceRaw})::Cint
     (pointer == C_NULL || output == C_NULL) && return Cint(VTI.STATUS_NULL_POINTER)
     try
-        provider_retain(pointer)
-        unsafe_store!(output, raw_provider(provider_context(pointer)))
+        # Snapshot ownership must be acquired under the same registry lock as
+        # the last release. A get-then-retain sequence can publish a dead
+        # context when another thread closes the final owner in between.
+        context = lock(PROVIDERS_LOCK) do
+            value = get(PROVIDERS, pointer, nothing)
+            if !isnothing(value)
+                value.references == typemax(Int) &&
+                    throw(OverflowError("provider reference count"))
+                value.references += 1
+            end
+            value
+        end
+        isnothing(context) && return Cint(VTI.STATUS_CLOSED)
+        unsafe_store!(output, raw_provider(context))
         Cint(VTI.STATUS_OK)
     catch error
-        try record_error!(provider_context(pointer), error) catch end
+        context = provider_context(pointer)
+        isnothing(context) || record_error!(context, error)
         Cint(VTI.STATUS_PROVIDER_ERROR)
     end
 end
@@ -3488,11 +3625,14 @@ end
 function provider_start(pointer::Ptr{Cvoid}, output::Ptr{UInt64})::Cint
     (pointer == C_NULL || output == C_NULL) && return Cint(VTI.STATUS_NULL_POINTER)
     context = provider_context(pointer)
+    isnothing(context) && return Cint(VTI.STATUS_CLOSED)
     try
-        value = wfst_start(context.implementation)
-        value >= 0 || throw(ArgumentError("start state cannot be negative"))
-        unsafe_store!(output, UInt64(value))
-        Cint(VTI.STATUS_OK)
+        provider_call_gate(context) do
+            value = wfst_start(context.implementation)
+            value >= 0 || throw(ArgumentError("start state cannot be negative"))
+            unsafe_store!(output, UInt64(value))
+            Cint(VTI.STATUS_OK)
+        end
     catch error
         record_error!(context, error)
         Cint(VTI.STATUS_PROVIDER_ERROR)
@@ -3504,17 +3644,20 @@ function provider_count(pointer::Ptr{Cvoid}, output::Ptr{Csize_t},
     (pointer == C_NULL || output == C_NULL || known == C_NULL) &&
         return Cint(VTI.STATUS_NULL_POINTER)
     context = provider_context(pointer)
+    isnothing(context) && return Cint(VTI.STATUS_CLOSED)
     try
-        value = wfst_state_count(context.implementation)
-        if isnothing(value)
-            unsafe_store!(output, Csize_t(0))
-            unsafe_store!(known, UInt8(0))
-        else
-            value >= 0 || throw(ArgumentError("state count cannot be negative"))
-            unsafe_store!(output, Csize_t(value))
-            unsafe_store!(known, UInt8(1))
+        provider_call_gate(context) do
+            value = wfst_state_count(context.implementation)
+            if isnothing(value)
+                unsafe_store!(output, Csize_t(0))
+                unsafe_store!(known, UInt8(0))
+            else
+                value >= 0 || throw(ArgumentError("state count cannot be negative"))
+                unsafe_store!(output, Csize_t(value))
+                unsafe_store!(known, UInt8(1))
+            end
+            Cint(VTI.STATUS_OK)
         end
-        Cint(VTI.STATUS_OK)
     catch error
         record_error!(context, error)
         Cint(VTI.STATUS_PROVIDER_ERROR)
@@ -3546,12 +3689,15 @@ function provider_state_info(pointer::Ptr{Cvoid}, state::UInt64,
     (pointer == C_NULL || valid == C_NULL || finality == C_NULL || weight == C_NULL) &&
         return Cint(VTI.STATUS_NULL_POINTER)
     context = provider_context(pointer)
+    isnothing(context) && return Cint(VTI.STATUS_CLOSED)
     try
-        expanded = cached_state(context, state)
-        unsafe_store!(valid, UInt8(expanded.valid))
-        unsafe_store!(finality, UInt8(expanded.final))
-        unsafe_store!(weight, raw_weight(expanded.final_weight))
-        Cint(VTI.STATUS_OK)
+        provider_call_gate(context) do
+            expanded = cached_state(context, state)
+            unsafe_store!(valid, UInt8(expanded.valid))
+            unsafe_store!(finality, UInt8(expanded.final))
+            unsafe_store!(weight, raw_weight(expanded.final_weight))
+            Cint(VTI.STATUS_OK)
+        end
     catch error
         record_error!(context, error)
         Cint(VTI.STATUS_PROVIDER_ERROR)
@@ -3564,21 +3710,24 @@ function provider_state_arcs(pointer::Ptr{Cvoid}, state::UInt64, start::Csize_t,
     (pointer == C_NULL || written == C_NULL || total == C_NULL ||
         (capacity != 0 && output == C_NULL)) && return Cint(VTI.STATUS_NULL_POINTER)
     context = provider_context(pointer)
+    isnothing(context) && return Cint(VTI.STATUS_CLOSED)
     try
-        arcs = cached_state(context, state).arcs
-        offset = Int(start)
-        offset <= length(arcs) || throw(ArgumentError("arc offset exceeds total"))
-        count = min(Int(capacity), length(arcs) - offset)
-        for index in 1:count
-            arc = arcs[offset + index]
-            unsafe_store!(output, VTI.VtWfstArc(
-                something(arc.input, UInt64(0)), something(arc.output, UInt64(0)),
-                arc.target, raw_weight(arc.weight), UInt8(!isnothing(arc.input)),
-                UInt8(!isnothing(arc.output)), ntuple(_ -> UInt8(0), 6)), index)
+        provider_call_gate(context) do
+            arcs = cached_state(context, state).arcs
+            offset = Int(start)
+            offset <= length(arcs) || throw(ArgumentError("arc offset exceeds total"))
+            count = min(Int(capacity), length(arcs) - offset)
+            for index in 1:count
+                arc = arcs[offset + index]
+                unsafe_store!(output, VTI.VtWfstArc(
+                    something(arc.input, UInt64(0)), something(arc.output, UInt64(0)),
+                    arc.target, raw_weight(arc.weight), UInt8(!isnothing(arc.input)),
+                    UInt8(!isnothing(arc.output)), ntuple(_ -> UInt8(0), 6)), index)
+            end
+            unsafe_store!(written, Csize_t(count))
+            unsafe_store!(total, Csize_t(length(arcs)))
+            Cint(VTI.STATUS_OK)
         end
-        unsafe_store!(written, Csize_t(count))
-        unsafe_store!(total, Csize_t(length(arcs)))
-        Cint(VTI.STATUS_OK)
     catch error
         record_error!(context, error)
         Cint(VTI.STATUS_PROVIDER_ERROR)
@@ -3631,10 +3780,10 @@ function provider(::Type{L}, ::Type{W}, implementation::P;
         UInt32(declared_weight_domain), 0,
         flags, CALLBACKS[:snapshot], CALLBACKS[:start], CALLBACKS[:count],
         CALLBACKS[:state_info], CALLBACKS[:state_arcs]))
-    context = ProviderContext{L,W,P}(1, implementation, declared_unit_domain,
-        declared_weight_domain, flags, ReentrantLock(),
+    context = ProviderContext{L,W,P}(new_provider_cookie(), 1, implementation, declared_unit_domain,
+        declared_weight_domain, flags, Base.Threads.Atomic{Bool}(false), ReentrantLock(),
         Dict{UInt64,ProviderState{L,W}}(), "", table)
-    pointer = pointer_from_objref(context)
+    pointer = context.cookie
     lock(PROVIDERS_LOCK) do
         PROVIDERS[pointer] = context
     end
