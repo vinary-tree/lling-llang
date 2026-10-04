@@ -7,7 +7,7 @@
     "pypiPackage": "lling-llang"
   },
   "metadata": {
-    "summary": "Build and compose weighted automata for speech, text, and language processing",
+    "summary": "Weighted automata toolkit for speech, text, and language processing",
     "description": "Build, compose, optimize, and run semiring-generic weighted automata for speech recognition, text processing, and constrained generation."
   },
   "registries": {

@@ -275,7 +275,7 @@ def validate(model: dict[str, object]) -> list[str]:
             f"package coordinates must be npm={NPM_PACKAGE} and PyPI={PYPI_PACKAGE}"
         )
     expected_metadata = {
-        "summary": "Build and compose weighted automata for speech, text, and language processing",
+        "summary": "Weighted automata toolkit for speech, text, and language processing",
         "description": "Build, compose, optimize, and run semiring-generic weighted automata for speech recognition, text processing, and constrained generation.",
     }
     if metadata != expected_metadata:
