@@ -17,12 +17,13 @@
 //!   at exactly one per input, and the retain/release ledger settles to
 //!   zero — under BOTH provider gate regimes.
 //!
-//! No TSan CI leg exists in this repository yet, so these run native-only;
-//! the assertions are pure correctness (no timing dependence).
+//! Hosted CI also runs this boundary suite under AddressSanitizer and
+//! ThreadSanitizer. The assertions themselves check behavior directly;
+//! callback delays only make illegal overlap observable, not acceptable.
 //!
 //! Formal-model correspondence (invariant registry owned by the coordinator):
 //! - `// INVARIANT-HOOK: LLING-GATE-1` — serial (non-PARALLEL_REENTRANT)
-//!   providers are safely serialized by the per-captured-provider call gate
+//!   providers are safely serialized by the context-shared call gate
 //!   even under concurrent product traversal (no deadlock, identical views).
 //! - `// INVARIANT-HOOK: LLING-GATE-3..6` — registration/wakeup, recursive
 //!   rejection, unlocked customer callbacks, and waiter accounting are
@@ -45,11 +46,13 @@ use lling_llang::ffi::{
 };
 use std::collections::BTreeMap;
 use std::ptr;
+use std::sync::{Arc, Barrier};
+use std::time::Duration;
 use support::interop_wfst::{
-    canonical_of_walk, discover_scalar_wfst, walk_reachable, TestArc, TestState, TestWfst,
-    TestWfstConfig, WalkedState,
+    alias_query_calls, canonical_of_walk, discover_scalar_wfst, walk_reachable, TestArc, TestState,
+    TestWfst, TestWfstConfig, WalkedState,
 };
-use vinary_tree_interop::{VtResource, VtStatus, VtWfstArc};
+use vinary_tree_interop::{wfst_flags, VtResource, VtStatus, VtWfstArc};
 
 const THREADS: usize = 8;
 const LAYERS: usize = 6;
@@ -352,9 +355,180 @@ fn concurrent_walkers_agree_over_parallel_reentrant_inputs() {
 }
 
 // INVARIANT-HOOK: LLING-GATE-1 — serial inputs: every provider callback is
-// serialized by the per-captured-provider gate while the product layer stays
+// serialized by the context-shared gate while the product layer stays
 // gate-free; no deadlock, identical views, balanced ledger.
 #[test]
 fn concurrent_walkers_agree_over_serial_inputs() {
     run_concurrent_stress(TestWfstConfig::serial());
+}
+
+fn assert_same_context_capture_overlap(config: TestWfstConfig, expected_parallel: bool) {
+    // Four independent compositions each capture this ONE immutable context
+    // twice. The delayed callback ledger observes real in-flight overlap,
+    // not just equal gate pointers or an inferred timing bound.
+    let source = TestWfst::new(
+        vec![
+            TestState::interior(vec![TestArc::pair('a', 'a', 1, 0.0)]),
+            TestState::accepting(0.0, Vec::new()),
+        ],
+        0,
+        config.with_callback_delay(Duration::from_millis(5)),
+    );
+    let metrics = source.metrics();
+    let mut owned = Vec::new();
+    for _ in 0..4 {
+        let mut composed: *mut LlingWfst = ptr::null_mut();
+        assert_eq!(
+            lling_wfst_compose(source.as_raw(), source.as_raw(), &mut composed),
+            LlingLlangStatus::Ok
+        );
+        let mut resource = VtResource::NULL;
+        assert_eq!(
+            unsafe { lling_wfst_resource(composed, &mut resource) },
+            LlingLlangStatus::Ok
+        );
+        owned.push((composed, SharedResource(resource)));
+    }
+    assert_eq!(metrics.snapshots(), 8);
+    let ready = Arc::new(Barrier::new(4));
+    std::thread::scope(|scope| {
+        let mut workers = Vec::new();
+        for (_, resource) in &owned {
+            let resource = *resource;
+            let ready = Arc::clone(&ready);
+            workers.push(scope.spawn(move || {
+                ready.wait();
+                let (_, states) = unsafe { walk_reachable(resource.get(), 2) };
+                assert!(!states.is_empty());
+            }));
+        }
+        for worker in workers {
+            worker.join().expect("same-context walk must complete");
+        }
+    });
+    assert_eq!(metrics.callbacks_in_flight(), 0);
+    if expected_parallel {
+        assert!(
+            metrics.peak_callbacks_in_flight() >= 2,
+            "parallel fixture must exercise actual callback overlap"
+        );
+    } else {
+        assert_eq!(
+            metrics.peak_callbacks_in_flight(),
+            1,
+            "all captures of one serial context must share admission"
+        );
+    }
+    drop(source);
+    for (composed, resource) in owned {
+        lling_resource_release(resource.get());
+        unsafe { lling_wfst_free(composed) };
+    }
+    assert_eq!(metrics.balance(), 0);
+}
+
+// INVARIANT-HOOK: LLING-ALIAS-1..13 — two snapshots of one context share
+// admission, while a genuinely parallel context still overlaps callbacks.
+#[test]
+fn independent_captures_of_one_serial_context_never_overlap_callbacks() {
+    assert_same_context_capture_overlap(
+        TestWfstConfig::serial().with_snapshot_base_vtable_alias(),
+        false,
+    );
+}
+
+#[test]
+fn same_context_snapshot_may_use_a_distinct_compatible_base_vtable() {
+    let source = TestWfst::new(
+        vec![TestState::accepting(0.0, Vec::new())],
+        0,
+        TestWfstConfig::serial().with_snapshot_base_vtable_alias(),
+    );
+    let metrics = source.metrics();
+    let live = source.as_raw();
+    let alias_queries_before = alias_query_calls();
+    let mut snapshot = VtResource::NULL;
+    let table = unsafe { &*discover_scalar_wfst(live) };
+    assert_eq!(
+        unsafe { table.snapshot.unwrap()(live.context, &mut snapshot) },
+        VtStatus::Ok.to_raw()
+    );
+    assert_eq!(live.context, snapshot.context);
+    assert_ne!(live.vtable, snapshot.vtable);
+    assert!(!unsafe { discover_scalar_wfst(snapshot) }.is_null());
+    assert!(alias_query_calls() > alias_queries_before);
+    unsafe { ((*snapshot.vtable).release.unwrap())(snapshot.context) };
+    drop(source);
+    assert_eq!(metrics.balance(), 0);
+}
+
+#[test]
+fn concurrent_captures_serialize_pre_flag_interface_discovery() {
+    let source = TestWfst::new(
+        vec![TestState::accepting(0.0, Vec::new())],
+        0,
+        TestWfstConfig::serial()
+            .with_snapshot_base_vtable_alias()
+            .with_callback_delay(Duration::from_millis(5)),
+    );
+    let metrics = source.metrics();
+    let borrowed = SharedResource(source.as_raw());
+    let ready = Arc::new(Barrier::new(4));
+    std::thread::scope(|scope| {
+        let mut workers = Vec::new();
+        for _ in 0..4 {
+            let ready = Arc::clone(&ready);
+            workers.push(scope.spawn(move || {
+                ready.wait();
+                let mut composed: *mut LlingWfst = ptr::null_mut();
+                assert_eq!(
+                    lling_wfst_compose(borrowed.get(), borrowed.get(), &mut composed),
+                    LlingLlangStatus::Ok
+                );
+                unsafe { lling_wfst_free(composed) };
+            }));
+        }
+        for worker in workers {
+            worker.join().expect("concurrent capture must complete");
+        }
+    });
+    assert_eq!(metrics.snapshots(), 8);
+    assert_eq!(metrics.callbacks_in_flight(), 0);
+    assert_eq!(
+        metrics.peak_callbacks_in_flight(),
+        1,
+        "base discovery and WFST callbacks must share admission"
+    );
+    drop(source);
+    assert_eq!(metrics.balance(), 0);
+}
+
+#[test]
+fn independent_captures_of_one_parallel_context_do_overlap_callbacks() {
+    assert_same_context_capture_overlap(TestWfstConfig::default(), true);
+}
+
+#[test]
+fn contradictory_live_and_snapshot_parallel_claims_are_rejected() {
+    for (live, snapshot) in [
+        (TestWfstConfig::serial(), wfst_flags::PARALLEL_REENTRANT),
+        (TestWfstConfig::default(), 0),
+    ] {
+        let source = TestWfst::new(
+            vec![TestState::accepting(0.0, Vec::new())],
+            0,
+            live.with_snapshot_flags(snapshot)
+                .with_snapshot_base_vtable_alias(),
+        );
+        let metrics = source.metrics();
+        let mut composed: *mut LlingWfst = ptr::null_mut();
+        assert_eq!(
+            lling_wfst_compose(source.as_raw(), source.as_raw(), &mut composed),
+            LlingLlangStatus::ProviderError
+        );
+        assert!(composed.is_null(), "failed capture cannot publish a graph");
+        drop(source);
+        assert_eq!(metrics.balance(), 0, "failed capture settles all retains");
+        assert_eq!(metrics.callbacks_in_flight(), 0);
+    }
 }

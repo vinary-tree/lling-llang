@@ -24,6 +24,7 @@ participant "Caller (C)" as C #ECEFF1
 participant "lling ABI\nsrc/ffi.rs" as F #FCF3CF
 participant "CompositionResource\nsrc/bindings.rs" as CR #FCF3CF
 participant "CapturedWfst (left)" as CL #FCF3CF
+participant "Context gate registry\nweak references" as GR #C5E1A5
 box "foreign providers — untrusted input" #FFCDD2
   participant "provider A\n(first VtResource)" as PA #FFCDD2
   participant "provider B\n(second VtResource)" as PB #FFCDD2
@@ -38,13 +39,17 @@ F -> CR : OwnedWfstResource::compose(first, second)
 activate CR
 CR -> CL : CapturedWfst::capture(first)
 activate CL
-CL -> PA : query_interface("vt.scalar-wfst.1", 1)
+CL -> GR : validate base; find or publish provisional context gate
+GR --> CL : shared bootstrap gate + independent context retain
+CL -> PA : query_interface("vt.scalar-wfst.1", 1) <i>(bootstrap gated)</i>
 PA --> CL : raw u32 status + vtable*
 note right of CL : decode raw u32 via VtStatus::from_raw\n(out-of-range = provider error, never UB);\nvalidate struct_size, abi_version, required\nops, UnicodeScalar labels, TropicalF64 weights
-CL -> PA : snapshot(context)  <i>(gated unless PARALLEL_REENTRANT)</i>
+note right of GR : same context, even through another\nbase vtable, reuses one gate;\nconflicting parallel flags reject
+CL -> PA : snapshot(context)  <i>(shared gate unless PARALLEL_REENTRANT)</i>
 PA --> CL : retained immutable snapshot  <b>(exactly once per input)</b>
 CL -> PA : query_interface(snapshot) ; start(snapshot)
 PA --> CL : start state <latex>q_0^{(1)}</latex>
+CL -> GR : reuse gate if snapshot context aliases live context
 CL --> CR : captured left (snapshot + gate + empty state cache)
 deactivate CL
 CR -> PB : same discovery + snapshot + start for the second input
@@ -75,12 +80,13 @@ CR -> CR : epsilon-filter moves ; register successor product states ;\narc weigh
 CR --> C : one contiguous product-arc page + total
 deactivate CR
 
-note over CR : no resource-wide gate: concurrent callers\nexpand distinct product states in parallel;\nonly non-reentrant providers are serialized,\neach behind its own per-input gate
+note over CR : no resource-wide gate: concurrent callers\nexpand distinct product states in parallel;\nonly non-reentrant contexts are serialized,\nall aliases behind the same context gate
 
 legend right
   |<#FCF3CF> lling-llang (consumer + product engine) |
   |<#FFCDD2> foreign provider (validated, untrusted) |
   |<#FFECB3> leased page memory (caller-owned) |
   |<#ECEFF1> caller / neutral |
+  |<#C5E1A5> context-identity gate registry |
 endlegend
 @enduml

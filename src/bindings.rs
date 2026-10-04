@@ -14,7 +14,7 @@ use std::collections::{HashMap, VecDeque};
 use std::ffi::c_void;
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex, RwLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock, Weak};
 use vinary_tree_interop::{
     wfst_flags, VtInterfaceId, VtResource, VtResourceVTable, VtStatus, VtUnitDomain,
     VtWeightDomain, VtWfstArc, VtWfstVTable, VT_ABI_VERSION, VT_RECOMMENDED_ARC_BATCH,
@@ -432,9 +432,126 @@ impl ProductRegistry {
     }
 }
 
+#[cfg(test)]
 enum ProviderCallGate {
     Parallel,
     Serial(SerialProviderCallGate),
+}
+
+/// Context identity, rather than capture identity, owns callback admission.
+/// A snapshot is permitted to retain the very same opaque context; separately
+/// captured resources must then share one turnstile. The registry is touched
+/// only during capture and final gate destruction, never on a callback's
+/// uncontended path. Weak entries do not retain providers or their gates.
+struct ContextProviderCallGate {
+    context: usize,
+    parallel: OnceLock<bool>,
+    // This gate also serializes base-vtable discovery before the WFST flag
+    // has been negotiated. A parallel WFST bypasses it only for WFST calls.
+    serial: SerialProviderCallGate,
+    // Pins the opaque allocation for as long as *any* Arc upgrade exists.
+    // Without this retain, the address could be recycled between a weak
+    // upgrade and its flag check, falsely aliasing a different provider.
+    _pinned: OnceLock<PinnedContext>,
+}
+
+struct PinnedContext {
+    _resource: RawOwnedResource,
+}
+// The underlying retained resource is never dereferenced by this wrapper;
+// its retain/release callbacks obey the ABI's cross-thread ownership rule.
+unsafe impl Send for PinnedContext {}
+unsafe impl Sync for PinnedContext {}
+
+type ContextGateRegistry = Mutex<HashMap<usize, Weak<ContextProviderCallGate>>>;
+static CONTEXT_GATES: OnceLock<ContextGateRegistry> = OnceLock::new();
+
+fn context_gates() -> &'static ContextGateRegistry {
+    CONTEXT_GATES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+impl ContextProviderCallGate {
+    unsafe fn for_resource(resource: VtResource) -> Result<Arc<Self>, BindingError> {
+        validate_resource_base(resource)?;
+        let context = resource.context as usize;
+        let gate = {
+            let mut registry = context_gates()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(existing) = registry.get(&context).and_then(Weak::upgrade) {
+                existing
+            } else {
+                let gate = Arc::new(Self {
+                    context,
+                    parallel: OnceLock::new(),
+                    serial: SerialProviderCallGate::new(),
+                    _pinned: OnceLock::new(),
+                });
+                registry.insert(context, Arc::downgrade(&gate));
+                gate
+            }
+        };
+        if gate._pinned.get().is_none() {
+            // No foreign retain runs under the registry mutex. The per-context
+            // bootstrap gate serializes retain and query_interface before the
+            // provider's parallel capability has been discovered.
+            gate.base_call(|| {
+                gate._pinned.get_or_init(|| {
+                    (*resource.vtable).retain.unwrap()(resource.context);
+                    PinnedContext {
+                        _resource: RawOwnedResource(resource),
+                    }
+                });
+                Ok(())
+            })?;
+        }
+        Ok(gate)
+    }
+
+    fn configure(&self, flags: u64) -> Result<(), BindingError> {
+        let parallel = flags & wfst_flags::PARALLEL_REENTRANT != 0;
+        if self.parallel.set(parallel).is_err() && self.parallel.get() != Some(&parallel) {
+            return Err(BindingError::InvalidProviderOutput(
+                "one WFST context advertised contradictory parallel callback flags",
+            ));
+        }
+        Ok(())
+    }
+
+    fn base_call<T>(
+        &self,
+        callback: impl FnOnce() -> Result<T, BindingError>,
+    ) -> Result<T, BindingError> {
+        let _lease = self.serial.enter()?;
+        callback()
+    }
+
+    fn call<T>(
+        &self,
+        callback: impl FnOnce() -> Result<T, BindingError>,
+    ) -> Result<T, BindingError> {
+        match self.parallel.get() {
+            Some(true) => callback(),
+            Some(false) => self.base_call(callback),
+            None => Err(BindingError::InvalidProviderOutput(
+                "WFST callback gate used before capability negotiation",
+            )),
+        }
+    }
+}
+
+impl Drop for ContextProviderCallGate {
+    fn drop(&mut self) {
+        let mut registry = context_gates()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if registry
+            .get(&self.context)
+            .is_some_and(|entry| std::ptr::eq(entry.as_ptr(), self))
+        {
+            registry.remove(&self.context);
+        }
+    }
 }
 
 /// Only the admission bit is held across a foreign call. The parking mutex
@@ -442,6 +559,8 @@ enum ProviderCallGate {
 struct SerialProviderCallGate {
     active: AtomicBool,
     waiters: AtomicUsize,
+    #[cfg(test)]
+    parked: AtomicUsize,
     parking: Mutex<()>,
     wake: Condvar,
 }
@@ -487,6 +606,8 @@ impl SerialProviderCallGate {
         Self {
             active: AtomicBool::new(false),
             waiters: AtomicUsize::new(0),
+            #[cfg(test)]
+            parked: AtomicUsize::new(0),
             parking: Mutex::new(()),
             wake: Condvar::new(),
         }
@@ -527,10 +648,14 @@ impl SerialProviderCallGate {
                 {
                     break;
                 }
+                #[cfg(test)]
+                self.parked.fetch_add(1, Ordering::SeqCst);
                 parking = self
                     .wake
                     .wait(parking)
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
+                #[cfg(test)]
+                self.parked.fetch_sub(1, Ordering::SeqCst);
             }
             self.waiters.fetch_sub(1, Ordering::SeqCst);
         }
@@ -546,6 +671,7 @@ impl SerialProviderCallGate {
     }
 }
 
+#[cfg(test)]
 impl ProviderCallGate {
     fn for_flags(flags: u64) -> Self {
         if flags & wfst_flags::PARALLEL_REENTRANT != 0 {
@@ -570,12 +696,14 @@ impl ProviderCallGate {
 }
 
 struct CapturedWfst {
+    // Drop the gate before releasing its context: a reused address must never
+    // inherit an old context's admission policy or turnstile.
+    gate: Arc<ContextProviderCallGate>,
     resource: RawOwnedResource,
     table: *const VtWfstVTable,
     unit_domain: VtUnitDomain,
     weight_domain: VtWeightDomain,
     start: u64,
-    gate: ProviderCallGate,
     states: RwLock<HashMap<u64, Arc<StateData>>>,
 }
 
@@ -587,10 +715,11 @@ unsafe impl Sync for CapturedWfst {}
 
 impl CapturedWfst {
     unsafe fn capture(resource: VtResource) -> Result<Self, BindingError> {
-        let live_table = discover_wfst(resource)?;
+        let live_gate = ContextProviderCallGate::for_resource(resource)?;
+        let live_table = live_gate.base_call(|| discover_wfst(resource))?;
         let unit_domain = (*live_table).unit_domain;
         let weight_domain = (*live_table).weight_domain;
-        let live_gate = ProviderCallGate::for_flags((*live_table).flags);
+        live_gate.configure((*live_table).flags)?;
         let mut snapshot = VtResource::NULL;
         check_status(live_gate.call(|| {
             Ok((*live_table).snapshot.unwrap()(
@@ -604,7 +733,8 @@ impl CapturedWfst {
             ));
         }
         let snapshot = RawOwnedResource(snapshot);
-        let table = discover_wfst(snapshot.0)?;
+        let gate = ContextProviderCallGate::for_resource(snapshot.0)?;
+        let table = gate.base_call(|| discover_wfst(snapshot.0))?;
         if (*table).unit_domain != unit_domain {
             return Err(BindingError::InvalidProviderOutput(
                 "snapshot changed the label domain",
@@ -615,16 +745,16 @@ impl CapturedWfst {
                 "snapshot changed the weight domain",
             ));
         }
-        let gate = ProviderCallGate::for_flags((*table).flags);
+        gate.configure((*table).flags)?;
         let mut start = 0;
         check_status(gate.call(|| Ok((*table).start.unwrap()(snapshot.0.context, &mut start)))?)?;
         Ok(Self {
+            gate,
             resource: snapshot,
             table,
             unit_domain,
             weight_domain,
             start,
-            gate,
             states: RwLock::new(HashMap::new()),
         })
     }
@@ -1617,7 +1747,7 @@ impl Drop for RawOwnedResource {
     }
 }
 
-unsafe fn discover_wfst(resource: VtResource) -> Result<*const VtWfstVTable, BindingError> {
+unsafe fn validate_resource_base(resource: VtResource) -> Result<(), BindingError> {
     if resource.is_null() {
         return Err(BindingError::NullResource);
     }
@@ -1630,6 +1760,12 @@ unsafe fn discover_wfst(resource: VtResource) -> Result<*const VtWfstVTable, Bin
     {
         return Err(BindingError::IncompatibleResourceAbi);
     }
+    Ok(())
+}
+
+unsafe fn discover_wfst(resource: VtResource) -> Result<*const VtWfstVTable, BindingError> {
+    validate_resource_base(resource)?;
+    let base = &*resource.vtable;
     let mut interface: *const c_void = std::ptr::null();
     let result = base.query_interface.unwrap()(
         resource.context,
@@ -1663,8 +1799,12 @@ unsafe fn discover_wfst(resource: VtResource) -> Result<*const VtWfstVTable, Bin
 pub(crate) fn wfst_domains(
     resource: VtResource,
 ) -> Result<(VtUnitDomain, VtWeightDomain), BindingError> {
-    let table = unsafe { discover_wfst(resource)? };
-    Ok(unsafe { ((*table).unit_domain, (*table).weight_domain) })
+    unsafe {
+        let gate = ContextProviderCallGate::for_resource(resource)?;
+        let table = gate.base_call(|| discover_wfst(resource))?;
+        gate.configure((*table).flags)?;
+        Ok(((*table).unit_domain, (*table).weight_domain))
+    }
 }
 
 /// Capture and import a Unicode/tropical scalar-WFST resource.
@@ -1683,6 +1823,15 @@ mod tests {
     use super::*;
     use crate::wfst::MutableWfst;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    unsafe fn test_context_gate(
+        raw: VtResource,
+        flags: u64,
+    ) -> Result<Arc<ContextProviderCallGate>, BindingError> {
+        let gate = ContextProviderCallGate::for_resource(raw)?;
+        gate.configure(flags)?;
+        Ok(gate)
+    }
 
     #[test]
     fn serial_provider_gate_rejects_recursion_without_blocking() {
@@ -1770,6 +1919,359 @@ mod tests {
         }));
         assert!(outcome.is_err());
         assert_eq!(gate.call(|| Ok(())), Ok(()));
+    }
+
+    #[test]
+    fn context_gate_pins_opaque_allocation_until_last_upgrade_dies() {
+        let owner = OwnedWfstResource::from_wfst(VectorWfst::new());
+        let raw = owner.as_raw();
+        let gate = unsafe { test_context_gate(raw, 0) }.unwrap();
+        let upgraded = {
+            let registry = context_gates().lock().unwrap();
+            registry
+                .get(&(raw.context as usize))
+                .unwrap()
+                .upgrade()
+                .unwrap()
+        };
+        drop(owner);
+        // The original resource owner is gone. Both Arc references still
+        // pin its allocation, so a callback and interface lookup are valid.
+        assert_eq!(gate.call(|| Ok(())), Ok(()));
+        assert!(unsafe { discover_wfst(raw) }.is_ok());
+        drop(gate);
+        assert!(unsafe { discover_wfst(raw) }.is_ok());
+        drop(upgraded);
+        let registry = context_gates().lock().unwrap();
+        assert!(!registry.contains_key(&(raw.context as usize)));
+    }
+
+    #[test]
+    fn context_gate_rejects_nested_discovery_without_self_deadlock() {
+        let owner = OwnedWfstResource::from_wfst(VectorWfst::new());
+        let raw = owner.as_raw();
+        let gate = unsafe { test_context_gate(raw, 0) }.unwrap();
+        assert_eq!(
+            gate.base_call(|| gate.base_call(|| unsafe { discover_wfst(raw) })),
+            Err(BindingError::ConcurrentCall)
+        );
+        assert!(gate.base_call(|| unsafe { discover_wfst(raw) }).is_ok());
+    }
+
+    #[test]
+    fn context_gate_reuses_address_only_after_the_previous_gate_is_gone() {
+        let owner = OwnedWfstResource::from_wfst(VectorWfst::new());
+        let raw = owner.as_raw();
+        let first = unsafe { test_context_gate(raw, 0) }.unwrap();
+        let aliased = unsafe { test_context_gate(raw, 0) }.unwrap();
+        assert!(Arc::ptr_eq(&first, &aliased));
+        assert_eq!(
+            unsafe { test_context_gate(raw, wfst_flags::PARALLEL_REENTRANT) }.err(),
+            Some(BindingError::InvalidProviderOutput(
+                "one WFST context advertised contradictory parallel callback flags"
+            ))
+        );
+        drop(first);
+        drop(aliased);
+        assert!(!context_gates()
+            .lock()
+            .unwrap()
+            .contains_key(&(raw.context as usize)));
+        // Simulate allocator reuse of the same numeric address by reacquiring
+        // under a new epoch and opposite capability. No old policy survives.
+        let replacement =
+            unsafe { test_context_gate(raw, wfst_flags::PARALLEL_REENTRANT) }.unwrap();
+        assert_eq!(replacement.parallel.get(), Some(&true));
+        drop(replacement);
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::test_runner::Config::with_cases(64))]
+        // INVARIANT-HOOK: LLING-ALIAS-11..13 — generated concurrent capture
+        // schedules serialize pre-flag discovery, pin bootstrap identity,
+        // and reject recursive discovery before it can self-deadlock.
+        #[test]
+        fn context_gate_generated_bootstrap_discovery_schedules(
+            callers in 2usize..5,
+            rounds in 1usize..6,
+            parallel in proptest::bool::ANY,
+            yields in 0u8..6,
+        ) {
+            use std::sync::Barrier;
+            let owner = OwnedWfstResource::from_wfst(VectorWfst::new());
+            let barrier = Arc::new(Barrier::new(callers));
+            let inside_base = Arc::new(AtomicUsize::new(0));
+            let inside_serial = Arc::new(AtomicUsize::new(0));
+            let inside_serial_domain = Arc::new(AtomicUsize::new(0));
+            let mut workers = Vec::new();
+            for _ in 0..callers {
+                let owner = owner.clone();
+                let barrier = Arc::clone(&barrier);
+                let inside_base = Arc::clone(&inside_base);
+                let inside_serial = Arc::clone(&inside_serial);
+                let inside_serial_domain = Arc::clone(&inside_serial_domain);
+                workers.push(std::thread::spawn(move || {
+                    barrier.wait();
+                    for _ in 0..rounds {
+                        let raw = owner.as_raw();
+                        let gate = unsafe { ContextProviderCallGate::for_resource(raw) }?;
+                        assert!(gate._pinned.get().is_some());
+                        let table = gate.base_call(|| {
+                            assert_eq!(inside_base.fetch_add(1, Ordering::SeqCst), 0);
+                            if !parallel {
+                                assert_eq!(inside_serial_domain.fetch_add(1, Ordering::SeqCst), 0);
+                            }
+                            for _ in 0..yields { std::thread::yield_now(); }
+                            let table = unsafe { discover_wfst(raw) };
+                            if !parallel {
+                                assert_eq!(inside_serial_domain.fetch_sub(1, Ordering::SeqCst), 1);
+                            }
+                            assert_eq!(inside_base.fetch_sub(1, Ordering::SeqCst), 1);
+                            table
+                        })?;
+                        assert!(!table.is_null());
+                        gate.configure(if parallel {
+                            wfst_flags::PARALLEL_REENTRANT
+                        } else { 0 })?;
+                        assert_eq!(
+                            gate.base_call(|| gate.base_call(|| Ok(()))),
+                            Err(BindingError::ConcurrentCall)
+                        );
+                        gate.call(|| {
+                            let now = inside_serial.fetch_add(1, Ordering::SeqCst) + 1;
+                            if !parallel {
+                                assert_eq!(now, 1);
+                                assert_eq!(inside_serial_domain.fetch_add(1, Ordering::SeqCst), 0);
+                            }
+                            for _ in 0..yields { std::thread::yield_now(); }
+                            if !parallel {
+                                assert_eq!(inside_serial_domain.fetch_sub(1, Ordering::SeqCst), 1);
+                            }
+                            inside_serial.fetch_sub(1, Ordering::SeqCst);
+                            Ok(())
+                        })?;
+                    }
+                    Ok::<_, BindingError>(())
+                }));
+            }
+            for worker in workers {
+                proptest::prop_assert_eq!(worker.join().unwrap(), Ok(()));
+            }
+            proptest::prop_assert_eq!(inside_base.load(Ordering::SeqCst), 0);
+            proptest::prop_assert_eq!(inside_serial.load(Ordering::SeqCst), 0);
+            proptest::prop_assert_eq!(inside_serial_domain.load(Ordering::SeqCst), 0);
+        }
+
+        // INVARIANT-HOOK: LLING-ALIAS-3,10 — a temporary Weak upgrade pins
+        // the opaque allocation after the last capture owner disappears;
+        // the old address cannot be reused until that upgrade is dropped.
+        #[test]
+        fn context_gate_generated_last_owner_upgrade_race(
+            parallel in proptest::bool::ANY,
+            allocations in 1usize..9,
+            yields in 0u8..8,
+        ) {
+            use std::sync::mpsc;
+            use std::time::Duration;
+            let owner = OwnedWfstResource::from_wfst(VectorWfst::new());
+            let raw = owner.as_raw();
+            let context = raw.context as usize;
+            let flags = if parallel { wfst_flags::PARALLEL_REENTRANT } else { 0 };
+            let gate = unsafe { test_context_gate(raw, flags) }.unwrap();
+            let (upgraded_tx, upgraded_rx) = mpsc::channel();
+            let (continue_tx, continue_rx) = mpsc::channel();
+            let worker = std::thread::spawn(move || {
+                let upgraded = {
+                    let registry = context_gates().lock().unwrap();
+                    registry.get(&context).unwrap().upgrade().unwrap()
+                };
+                upgraded_tx.send(()).unwrap();
+                continue_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+                let pinned_raw = upgraded._pinned.get().unwrap()._resource.0;
+                assert!(unsafe { discover_wfst(pinned_raw) }.is_ok());
+                let same = unsafe { test_context_gate(pinned_raw, flags) }.unwrap();
+                assert!(Arc::ptr_eq(&upgraded, &same));
+                assert_eq!(same.call(|| Ok(())), Ok(()));
+                drop(same);
+                drop(upgraded);
+            });
+            upgraded_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            drop(gate);
+            drop(owner);
+            let mut replacements = Vec::new();
+            for _ in 0..allocations {
+                let replacement = OwnedWfstResource::from_wfst(VectorWfst::new());
+                proptest::prop_assert_ne!(replacement.as_raw().context as usize, context);
+                replacements.push(replacement);
+            }
+            for _ in 0..yields { std::thread::yield_now(); }
+            continue_tx.send(()).unwrap();
+            proptest::prop_assert!(worker.join().is_ok());
+            let registry = context_gates().lock().unwrap();
+            proptest::prop_assert!(!registry.contains_key(&context));
+        }
+
+        // INVARIANT-HOOK: LLING-ALIAS-1..6,8 — every generated capture/drop
+        // schedule preserves one gate and one policy per live context; a
+        // conflict gains no owner, and final release clears the weak entry.
+        #[test]
+        fn context_gate_generated_capture_lifecycle(
+            actions in proptest::collection::vec(
+                (0usize..4, 0usize..2, proptest::bool::ANY, proptest::bool::ANY),
+                1..72,
+            ),
+        ) {
+            let sources = [
+                OwnedWfstResource::from_wfst(VectorWfst::new()),
+                OwnedWfstResource::from_wfst(VectorWfst::new()),
+            ];
+            let mut held: [Option<(usize, bool, Arc<ContextProviderCallGate>)>; 4] =
+                std::array::from_fn(|_| None);
+            for (slot, context, parallel, release) in actions {
+                if release {
+                    drop(held[slot].take());
+                } else if held[slot].is_none() {
+                    let raw = sources[context].as_raw();
+                    let flags = if parallel { wfst_flags::PARALLEL_REENTRANT } else { 0 };
+                    let matching = held.iter().flatten().find(|(key, _, _)| *key == context);
+                    let result = unsafe { test_context_gate(raw, flags) };
+                    if let Some((_, existing_mode, existing_gate)) = matching {
+                        if *existing_mode != parallel {
+                            proptest::prop_assert_eq!(
+                                result.err(),
+                                Some(BindingError::InvalidProviderOutput(
+                                    "one WFST context advertised contradictory parallel callback flags"
+                                ))
+                            );
+                        } else {
+                            let gate = result.unwrap();
+                            proptest::prop_assert!(Arc::ptr_eq(existing_gate, &gate));
+                            held[slot] = Some((context, parallel, gate));
+                        }
+                    } else {
+                        let gate = result.unwrap();
+                        proptest::prop_assert_eq!(gate.parallel.get(), Some(&parallel));
+                        held[slot] = Some((context, parallel, gate));
+                    }
+                }
+                for context in 0..2 {
+                    let raw = sources[context].as_raw();
+                    let registered = {
+                        let registry = context_gates().lock().unwrap();
+                        registry.get(&(raw.context as usize)).and_then(Weak::upgrade)
+                    };
+                    let owners: Vec<_> = held.iter().flatten()
+                        .filter(|(key, _, _)| *key == context).collect();
+                    if let Some((_, mode, first)) = owners.first() {
+                        let registered = registered.expect("live context has registry gate");
+                        proptest::prop_assert!(Arc::ptr_eq(first, &registered));
+                        for (_, other_mode, other) in owners.iter().skip(1) {
+                            proptest::prop_assert_eq!(other_mode, mode);
+                            proptest::prop_assert!(Arc::ptr_eq(first, other));
+                        }
+                    } else {
+                        proptest::prop_assert!(registered.is_none());
+                    }
+                }
+                if let (Some((_, _, first)), Some((_, _, second))) = (
+                    held.iter().flatten().find(|(key, _, _)| *key == 0),
+                    held.iter().flatten().find(|(key, _, _)| *key == 1),
+                ) {
+                    proptest::prop_assert!(!Arc::ptr_eq(first, second));
+                }
+            }
+        }
+
+        // INVARIANT-HOOK: LLING-ALIAS-7 and the parallel-overlap witness.
+        #[test]
+        fn context_gate_generated_alias_callback_schedules(
+            callers in 2usize..5,
+            rounds in 1usize..7,
+            parallel in proptest::bool::ANY,
+            yields in 0u8..5,
+        ) {
+            use std::sync::Barrier;
+            let owner = OwnedWfstResource::from_wfst(VectorWfst::new());
+            let raw = owner.as_raw();
+            let flags = if parallel { wfst_flags::PARALLEL_REENTRANT } else { 0 };
+            let gates: Vec<_> = (0..callers).map(|_| unsafe {
+                test_context_gate(raw, flags).unwrap()
+            }).collect();
+            for gate in gates.iter().skip(1) {
+                proptest::prop_assert!(Arc::ptr_eq(&gates[0], gate));
+            }
+            let in_callback = Arc::new(AtomicUsize::new(0));
+            let peak = Arc::new(AtomicUsize::new(0));
+            let barrier = Arc::new(Barrier::new(callers));
+            let mut workers = Vec::new();
+            for gate in gates {
+                let in_callback = Arc::clone(&in_callback);
+                let peak = Arc::clone(&peak);
+                let barrier = Arc::clone(&barrier);
+                workers.push(std::thread::spawn(move || {
+                    for _ in 0..rounds {
+                        gate.call(|| {
+                            let now = in_callback.fetch_add(1, Ordering::SeqCst) + 1;
+                            peak.fetch_max(now, Ordering::SeqCst);
+                            if !parallel { assert_eq!(now, 1); }
+                            if parallel { barrier.wait(); }
+                            for _ in 0..yields { std::thread::yield_now(); }
+                            assert_eq!(
+                                gate.call(|| Ok(())),
+                                if parallel { Ok(()) } else { Err(BindingError::ConcurrentCall) }
+                            );
+                            in_callback.fetch_sub(1, Ordering::SeqCst);
+                            Ok(())
+                        })?;
+                    }
+                    Ok::<_, BindingError>(())
+                }));
+            }
+            for worker in workers {
+                proptest::prop_assert_eq!(worker.join().unwrap(), Ok(()));
+            }
+            proptest::prop_assert_eq!(in_callback.load(Ordering::SeqCst), 0);
+            proptest::prop_assert_eq!(peak.load(Ordering::SeqCst), if parallel { callers } else { 1 });
+        }
+
+        // INVARIANT-HOOK: LLING-ALIAS-8 — distinct context identities own
+        // distinct gates and can have serial callbacks in flight together.
+        #[test]
+        fn context_gate_generated_independent_context_progress(
+            left_yields in 0u8..8,
+            right_yields in 0u8..8,
+        ) {
+            use std::sync::mpsc;
+            use std::time::Duration;
+            let left = OwnedWfstResource::from_wfst(VectorWfst::new());
+            let right = OwnedWfstResource::from_wfst(VectorWfst::new());
+            let first = unsafe { test_context_gate(left.as_raw(), 0) }.unwrap();
+            let second = unsafe { test_context_gate(right.as_raw(), 0) }.unwrap();
+            proptest::prop_assert!(!Arc::ptr_eq(&first, &second));
+            let (entered_tx, entered_rx) = mpsc::channel();
+            let (left_release_tx, left_release_rx) = mpsc::channel();
+            let (right_release_tx, right_release_rx) = mpsc::channel();
+            let left_tx = entered_tx.clone();
+            let first_worker = std::thread::spawn(move || first.call(|| {
+                for _ in 0..left_yields { std::thread::yield_now(); }
+                left_tx.send(0).unwrap();
+                left_release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                Ok(())
+            }));
+            let second_worker = std::thread::spawn(move || second.call(|| {
+                for _ in 0..right_yields { std::thread::yield_now(); }
+                entered_tx.send(1).unwrap();
+                right_release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                Ok(())
+            }));
+            let one = entered_rx.recv_timeout(Duration::from_secs(2));
+            let two = entered_rx.recv_timeout(Duration::from_secs(2));
+            left_release_tx.send(()).unwrap();
+            right_release_tx.send(()).unwrap();
+            proptest::prop_assert_eq!(first_worker.join().unwrap(), Ok(()));
+            proptest::prop_assert_eq!(second_worker.join().unwrap(), Ok(()));
+            proptest::prop_assert_ne!(one.unwrap(), two.unwrap());
+        }
     }
 
     #[test]
@@ -1884,8 +2386,82 @@ mod tests {
         );
     }
 
+    fn run_parked_waiter_panic(waiter_count: usize, yields: u8) {
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+
+        let gate = Arc::new(ProviderCallGate::for_flags(0));
+        let ProviderCallGate::Serial(serial) = gate.as_ref() else {
+            unreachable!("fixture is serial")
+        };
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (panic_tx, panic_rx) = mpsc::channel();
+        let active_gate = Arc::clone(&gate);
+        let owner = std::thread::spawn(move || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _: Result<(), BindingError> = active_gate.call(|| {
+                    entered_tx.send(()).unwrap();
+                    panic_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+                    panic!("generated callback panic after waiters have parked")
+                });
+            }))
+        });
+        entered_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        let completed = Arc::new(AtomicUsize::new(0));
+        let mut contenders = Vec::new();
+        for _ in 0..waiter_count {
+            let gate = Arc::clone(&gate);
+            let completed = Arc::clone(&completed);
+            contenders.push(std::thread::spawn(move || {
+                gate.call(|| {
+                    completed.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                })
+            }));
+        }
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while serial.parked.load(Ordering::SeqCst) != waiter_count {
+            assert!(Instant::now() < deadline, "all waiters must park");
+            std::thread::yield_now();
+        }
+        assert_eq!(serial.waiters.load(Ordering::SeqCst), waiter_count);
+        // Every registered waiter is asleep. Hence none owns the parking
+        // mutex, even though the owner still runs customer code.
+        while serial.parking.try_lock().is_err() {
+            assert!(Instant::now() < deadline, "parking owner must release");
+            std::thread::yield_now();
+        }
+        serial.wake.notify_all();
+        for _ in 0..yields {
+            std::thread::yield_now();
+        }
+        assert_eq!(completed.load(Ordering::SeqCst), 0);
+        assert_eq!(serial.waiters.load(Ordering::SeqCst), waiter_count);
+        panic_tx.send(()).unwrap();
+        assert!(owner.join().unwrap().is_err());
+        for contender in contenders {
+            assert_eq!(contender.join().unwrap(), Ok(()));
+        }
+        assert_eq!(completed.load(Ordering::SeqCst), waiter_count);
+        assert_eq!(serial.waiters.load(Ordering::SeqCst), 0);
+        assert_eq!(serial.parked.load(Ordering::SeqCst), 0);
+        assert!(!serial.active.load(Ordering::SeqCst));
+        assert!(serial.parking.try_lock().is_ok());
+    }
+
     proptest::proptest! {
         #![proptest_config(proptest::test_runner::Config::with_cases(64))]
+        // INVARIANT-HOOK: LLING-GATE-3,5,6,10,11 — actual parked sleepers,
+        // spurious wakes, callback panic, exact registration, and free
+        // parking ownership under a still-active foreign callback.
+        #[test]
+        fn serial_provider_gate_generated_parked_waiter_panic(
+            waiter_count in 1usize..5,
+            yields in 0u8..8,
+        ) {
+            run_parked_waiter_panic(waiter_count, yields);
+        }
+
         // INVARIANT-HOOK: LLING-GATE-1 — generated overlap schedules over a
         // shared serial provider never overlap callbacks or lose a waiter.
         #[test]

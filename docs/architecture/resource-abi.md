@@ -168,20 +168,33 @@ The exported vtable reports either case as `VT_STATUS_LIMIT_EXCEEDED`.
 `CapturedWfst::capture(resource)` performs, per input, exactly this
 sequence — once, at construction:
 
-1. **Discover** `vt.scalar-wfst.1` on the *live* resource
-   (`query_interface`, minimum version 1) and validate the returned vtable:
+1. **Validate the base resource and share its bootstrap context gate.** The
+   bootstrap gate pins the opaque allocation and serializes
+   `query_interface` before the WFST parallel flag is known. It is keyed by
+   context identity, not by a base-vtable pointer; a nested same-thread
+   discovery rejects instead of waiting behind itself. Domain-only ABI
+   inspection uses this same bootstrap path, so it cannot bypass admission.
+2. **Discover** `vt.scalar-wfst.1` on the *live* resource
+   (`query_interface`, minimum version 1) through that bootstrap gate, then
+   validate the returned vtable:
    `struct_size` at least the known layout, `abi_version` equal, all five
    operations present, and both domain discriminants among the three unit and
    seven weight domains defined by the family ABI.
-2. **Snapshot** through the provider's `snapshot` callback — the single
+   Configure the gate with the validated `PARALLEL_REENTRANT` claim. Its
+   independent retain lasts while any capture or temporary weak upgrade
+   refers to it; the registry stores only a weak reference. The live and
+   snapshot views must agree on that claim if they alias one context.
+3. **Snapshot** through the provider's `snapshot` callback — the single
    point where the mutable-world revision is pinned. The returned resource
    owns one retain, held until the capture is dropped.
-3. **Re-discover** the interface on the snapshot (the snapshot is its own
+4. **Re-discover** the interface on the snapshot (the snapshot is its own
    resource and may expose a different vtable instance), require both domains
-   to remain unchanged, and read `start`.
+   to remain unchanged, share or establish its bootstrap context gate,
+   re-discover and configure the snapshot claim, then read `start`.
 
 After construction the live input is never touched again: the composition
-holds only snapshot retains, so callers may release their input retains
+holds only snapshot-context retains (the snapshot's own retain and its gate's
+independent lifetime pin), so callers may release their input retains
 immediately and in any order. During traversal **zero** further snapshots
 are taken; state expansion goes straight to the captured snapshot's
 `state_info`/`state_arcs`. The unit test
@@ -301,7 +314,7 @@ the C builder refuses to `build` without one.
 
 Holds the retained snapshot (`RawOwnedResource`, released on drop), the
 discovered vtable pointer (valid exactly as long as the retain — the family
-vtable-validity window), the start state, the per-input call gate, and an
+vtable-validity window), the start state, a context-shared call gate, and an
 `RwLock` cache of expanded states. Expansion validates **everything** a
 provider says (next section) and stores immutable `Arc<StateData>` entries,
 so every component state crosses the ABI at most once per capture.
@@ -425,13 +438,41 @@ a resource-wide sequential call gate."* Concretely:
   consumers will rely on* — wrapping the whole resource in one mutex would
   falsify it and serialize every downstream consumer of every composed
   pipeline.
-- **Gates are per captured input, and only where required.** A foreign
+- **Gates are per context identity, and only where required.** A foreign
   provider that does **not** advertise `PARALLEL_REENTRANT` gets a
-  `ProviderCallGate::Serial` for *that captured provider* only. Its uncontended
+  shared serial turnstile for *that opaque context* only. Its uncontended
   path is an atomic admission operation; unrelated concurrent walkers wait
   their turn on that provider's condition variable and then succeed. A
-  parallel/reentrant provider's gate is a no-op. Two captured inputs never
-  share a gate; the product layer adds none of its own.
+  parallel/reentrant provider passes through. Two captures, or two product
+  inputs, share a gate exactly when their live or snapshot resources expose
+  the same context pointer; distinct contexts remain independent even if
+  their vtables are identical. The product layer adds no gate of its own.
+  A context cannot change its parallel claim while its gate is live: a
+  contradictory live/snapshot claim is rejected as provider output error.
+  The gate's independent retain prevents allocator address reuse while a
+  temporary registry upgrade still holds the previous context. Final gate
+  destruction removes its weak entry before releasing that retain.
+
+  The registry protocol is short and never surrounds customer code:
+
+  ```text
+  capture(resource):
+      validate the base resource vtable
+      gate := upgrade weak entry for resource.context, if one is live
+      otherwise: publish a provisional weak entry for a new gate
+      pin context with one retain through the per-context bootstrap gate
+      discover the scalar-WFST interface through that bootstrap gate
+      configure or compare the parallel claim; reject a contradiction
+      invoke serial callbacks through the shared atomic turnstile
+      invoke parallel callbacks directly
+      on final gate release: remove weak entry; release the context pin
+  ```
+
+  [Alias-registry model](../../proofs/tla/SerialProviderAliasRegistry.tla)
+  checks one-gate-per-context, pre-flag discovery serialization, capability
+  agreement, temporary-upgrade lifetime, and address-reuse epochs. The
+  [turnstile model](../../proofs/tla/SerialProviderTurnstile.tla) separately
+  checks parked waiters, wakeup, recursion, and independent contexts.
 - **Caches are read-through `RwLock` maps with first-writer-wins
   publication.** Readers share; a miss expands *outside* the write lock and
   publishes with `entry(..).or_insert_with(..)`, so a racing duplicate

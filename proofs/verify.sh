@@ -234,6 +234,13 @@ run_tlc_expect_failure serial-provider-parked-witness \
   "$ROOT/proofs/tla/SerialProviderTurnstile.tla" \
   "$ROOT/proofs/tla/MC/SerialProviderTurnstileParkedWitness.cfg" \
   "Invariant NoParkedState is violated"
+run_tlc serial-provider-alias-registry \
+  "$ROOT/proofs/tla/SerialProviderAliasRegistry.tla" \
+  "$ROOT/proofs/tla/MC/SerialProviderAliasRegistry.cfg"
+run_tlc_expect_failure serial-provider-alias-parallel-witness \
+  "$ROOT/proofs/tla/SerialProviderAliasRegistry.tla" \
+  "$ROOT/proofs/tla/MC/SerialProviderAliasRegistryParallelWitness.cfg" \
+  "Invariant NoParallelOverlap is violated"
 
 run_tlc cascade "$ROOT/proofs/tla/CascadeOrder.tla" "$ROOT/proofs/tla/MC/CascadeOrder.cfg"
 run_tlc cascade-fair "$ROOT/proofs/tla/CascadeOrder.tla" "$ROOT/proofs/tla/MC/CascadeOrderFair.cfg"

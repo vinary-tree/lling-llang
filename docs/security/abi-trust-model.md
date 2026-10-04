@@ -177,14 +177,24 @@ direction** — is implemented here exactly as the
 
 Serialization by default, parallelism by claim (family §4): a captured
 provider that does not claim `PARALLEL_REENTRANT` is called through a
-per-input serial gate — the gate's domain is *that captured provider*, not
-the resource or the process, so independent inputs proceed concurrently. A
+context-identity serial gate — all live/snapshot aliases of one opaque
+context share admission, even if they expose distinct compatible base
+vtable pointers. Different contexts, not merely different captures, proceed
+concurrently. A
 contending ordinary caller parks and resumes successfully when the active
 callback finishes; only same-provider recursion or a nested cross-provider
 wait that could form a cycle fails immediately. The uncontended path is
 atomic-only, and the parking mutex is released before invoking foreign code.
 A finite [turnstile model](../../proofs/tla/SerialProviderTurnstile.tla)
-checks admission, wakeup, and recursion invariants.
+checks admission, wakeup, and recursion invariants. Its companion
+[alias-registry model](../../proofs/tla/SerialProviderAliasRegistry.tla)
+checks capability agreement and the retained lifetime of an upgraded gate:
+an allocator cannot recycle a context address while that gate still exists.
+The per-context bootstrap gate also serializes base `query_interface` before
+the WFST flag is known; nested same-thread discovery rejects without waiting.
+The registry lock is used only at capture and final destruction, never on
+the uncontended callback path. A live/snapshot alias that changes its
+`PARALLEL_REENTRANT` claim is rejected before the composition is published.
 
 A provider that claims the flag falsely corrupts only itself: lling-llang
 shares no mutable memory with providers, and racy garbage re-enters through
@@ -211,7 +221,11 @@ Inherited from the family model and restated so nobody relies on more:
    undefined behavior in any consumer, in any family library.
 2. Refcount balance: `lling_resource_release` must be called exactly once
    per owned retain. Underflow is a provider-side refcount corruption;
-   leaks are availability-class.
+   leaks are availability-class. The base `retain`/`release` functions must
+   maintain their ownership ledger under independent caller threads: a
+   consumer cannot serialize another owner's release. The bootstrap gate
+   serializes lling-llang's own pre-flag interface negotiation, not arbitrary
+   external owners' refcount operations.
 3. In-process isolation is a non-goal: a provider can exhaust memory or
    block a thread. Deployments needing hard bounds sandbox the provider
    out-of-process (family §8).

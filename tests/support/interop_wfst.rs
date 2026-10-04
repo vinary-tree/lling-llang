@@ -31,6 +31,7 @@
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use vinary_tree_interop::{
     dictionary_flags, wfst_flags, VtDictionaryEdge, VtDictionaryVTable, VtInterfaceId,
     VtOptionalU64, VtResource, VtResourceVTable, VtStatus, VtUnitDomain, VtValueDomain,
@@ -54,6 +55,8 @@ pub struct Metrics {
     snapshots: AtomicUsize,
     state_info_calls: AtomicUsize,
     state_arcs_calls: AtomicUsize,
+    callbacks_in_flight: AtomicUsize,
+    peak_callbacks_in_flight: AtomicUsize,
 }
 
 impl Metrics {
@@ -82,6 +85,26 @@ impl Metrics {
         self.state_arcs_calls.load(Ordering::SeqCst)
     }
 
+    /// Greatest number of simultaneous WFST callbacks on this one context.
+    pub fn peak_callbacks_in_flight(&self) -> usize {
+        self.peak_callbacks_in_flight.load(Ordering::SeqCst)
+    }
+
+    /// Current callbacks, useful for asserting quiescent teardown.
+    pub fn callbacks_in_flight(&self) -> usize {
+        self.callbacks_in_flight.load(Ordering::SeqCst)
+    }
+
+    fn enter_callback(&self, delay: Duration) -> CallbackSpan<'_> {
+        let active = self.callbacks_in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+        self.peak_callbacks_in_flight
+            .fetch_max(active, Ordering::SeqCst);
+        if !delay.is_zero() {
+            std::thread::sleep(delay);
+        }
+        CallbackSpan(self)
+    }
+
     /// Outstanding owned references: retains minus releases.
     pub fn balance(&self) -> isize {
         let retains =
@@ -89,6 +112,14 @@ impl Metrics {
         let releases =
             isize::try_from(self.releases()).expect("release count fits the signed balance");
         retains - releases
+    }
+}
+
+struct CallbackSpan<'a>(&'a Metrics);
+
+impl Drop for CallbackSpan<'_> {
+    fn drop(&mut self) {
+        self.0.callbacks_in_flight.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -235,6 +266,12 @@ pub struct TestWfstConfig {
     pub weight_domain: VtWeightDomain,
     /// Call-level misbehavior mode.
     pub misbehavior: Misbehavior,
+    /// Optional deliberate callback pause to expose illegal overlap.
+    pub callback_delay: Duration,
+    /// Deliberately contradictory flags after snapshot, for ABI rejection tests.
+    pub snapshot_flags: Option<u64>,
+    /// Snapshot uses a distinct but compatible base vtable address.
+    pub snapshot_base_vtable_alias: bool,
 }
 
 impl Default for TestWfstConfig {
@@ -244,6 +281,9 @@ impl Default for TestWfstConfig {
             unit_domain: VtUnitDomain::UnicodeScalar,
             weight_domain: VtWeightDomain::TropicalF64,
             misbehavior: Misbehavior::None,
+            callback_delay: Duration::ZERO,
+            snapshot_flags: None,
+            snapshot_base_vtable_alias: false,
         }
     }
 }
@@ -281,6 +321,24 @@ impl TestWfstConfig {
         self.flags = flags;
         self
     }
+
+    /// Pause inside each WFST callback while the in-flight ledger is active.
+    pub fn with_callback_delay(mut self, delay: Duration) -> Self {
+        self.callback_delay = delay;
+        self
+    }
+
+    /// Make the same context advertise different flags after its snapshot.
+    pub fn with_snapshot_flags(mut self, flags: u64) -> Self {
+        self.snapshot_flags = Some(flags);
+        self
+    }
+
+    /// Publish the same retained context through another base vtable pointer.
+    pub fn with_snapshot_base_vtable_alias(mut self) -> Self {
+        self.snapshot_base_vtable_alias = true;
+        self
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -291,6 +349,10 @@ struct WfstContext {
     start: u64,
     states: Vec<TestState>,
     misbehavior: Misbehavior,
+    callback_delay: Duration,
+    snapshot_vtable: Option<VtWfstVTable>,
+    snapshot_published: AtomicUsize,
+    snapshot_base_vtable_alias: bool,
     metrics: Arc<Metrics>,
     /// Monotone `state_arcs` call sequence backing `UnstableOutTotal`.
     arcs_call_sequence: AtomicUsize,
@@ -319,6 +381,22 @@ impl TestWfst {
             start,
             states,
             misbehavior: config.misbehavior,
+            callback_delay: config.callback_delay,
+            snapshot_vtable: config.snapshot_flags.map(|flags| VtWfstVTable {
+                struct_size: std::mem::size_of::<VtWfstVTable>(),
+                interface_version: VT_WFST_INTERFACE_VERSION,
+                unit_domain: config.unit_domain,
+                weight_domain: config.weight_domain,
+                reserved: 0,
+                flags,
+                snapshot: Some(wfst_snapshot),
+                start: Some(wfst_start),
+                num_states: Some(wfst_num_states),
+                state_info: Some(wfst_state_info),
+                state_arcs: Some(wfst_state_arcs),
+            }),
+            snapshot_published: AtomicUsize::new(0),
+            snapshot_base_vtable_alias: config.snapshot_base_vtable_alias,
             metrics: Arc::clone(&metrics),
             arcs_call_sequence: AtomicUsize::new(0),
             vtable: VtWfstVTable {
@@ -379,6 +457,34 @@ static WFST_RESOURCE_VTABLE: VtResourceVTable = VtResourceVTable {
     query_interface: Some(wfst_query_interface),
 };
 
+static WFST_RESOURCE_VTABLE_ALIAS: VtResourceVTable = VtResourceVTable {
+    struct_size: std::mem::size_of::<VtResourceVTable>(),
+    abi_version: VT_ABI_VERSION,
+    reserved: 0,
+    retain: Some(wfst_retain),
+    release: Some(wfst_release),
+    query_interface: Some(wfst_query_interface_alias),
+};
+
+static ALIAS_QUERY_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+/// Number of interface discoveries routed through the alternate compatible
+/// base vtable. Tests use a before/after delta because this fixture is shared
+/// by independently scheduled integration tests.
+pub fn alias_query_calls() -> usize {
+    ALIAS_QUERY_CALLS.load(Ordering::SeqCst)
+}
+
+unsafe extern "C" fn wfst_query_interface_alias(
+    context: *mut c_void,
+    interface_id: *const VtInterfaceId,
+    minimum_version: u32,
+    out_vtable: *mut *const c_void,
+) -> u32 {
+    ALIAS_QUERY_CALLS.fetch_add(1, Ordering::SeqCst);
+    wfst_query_interface(context, interface_id, minimum_version, out_vtable)
+}
+
 unsafe extern "C" fn wfst_retain(context: *mut c_void) {
     if !context.is_null() {
         let shared = context.cast::<WfstContext>();
@@ -428,7 +534,13 @@ unsafe fn wfst_query_interface_status(
         return VtStatus::Unsupported;
     }
     let shared = &*context.cast::<WfstContext>();
-    out_vtable.write(std::ptr::from_ref(&shared.vtable).cast());
+    let _callback = shared.metrics.enter_callback(shared.callback_delay);
+    let table = if shared.snapshot_published.load(Ordering::SeqCst) != 0 {
+        shared.snapshot_vtable.as_ref().unwrap_or(&shared.vtable)
+    } else {
+        &shared.vtable
+    };
+    out_vtable.write(std::ptr::from_ref(table).cast());
     VtStatus::Ok
 }
 
@@ -441,12 +553,18 @@ unsafe fn wfst_snapshot_status(context: *mut c_void, out_snapshot: *mut VtResour
         return VtStatus::NullPointer;
     }
     let shared = &*context.cast::<WfstContext>();
+    let _callback = shared.metrics.enter_callback(shared.callback_delay);
     shared.metrics.snapshots.fetch_add(1, Ordering::SeqCst);
     // The model is immutable, so the snapshot retains the same context.
     wfst_retain(context);
+    shared.snapshot_published.store(1, Ordering::SeqCst);
     out_snapshot.write(VtResource {
         context,
-        vtable: &WFST_RESOURCE_VTABLE,
+        vtable: if shared.snapshot_base_vtable_alias {
+            &WFST_RESOURCE_VTABLE_ALIAS
+        } else {
+            &WFST_RESOURCE_VTABLE
+        },
     });
     VtStatus::Ok
 }
@@ -459,7 +577,9 @@ unsafe fn wfst_start_status(context: *mut c_void, out_state: *mut u64) -> VtStat
     if context.is_null() || out_state.is_null() {
         return VtStatus::NullPointer;
     }
-    out_state.write((*context.cast::<WfstContext>()).start);
+    let shared = &*context.cast::<WfstContext>();
+    let _callback = shared.metrics.enter_callback(shared.callback_delay);
+    out_state.write(shared.start);
     VtStatus::Ok
 }
 
@@ -479,7 +599,9 @@ unsafe fn wfst_num_states_status(
     if context.is_null() || out_count.is_null() || out_known.is_null() {
         return VtStatus::NullPointer;
     }
-    out_count.write((*context.cast::<WfstContext>()).states.len());
+    let shared = &*context.cast::<WfstContext>();
+    let _callback = shared.metrics.enter_callback(shared.callback_delay);
+    out_count.write(shared.states.len());
     out_known.write(1);
     VtStatus::Ok
 }
@@ -513,6 +635,7 @@ unsafe fn wfst_state_info_status(
         return Ok(VtStatus::NullPointer);
     }
     let shared = &*context.cast::<WfstContext>();
+    let _callback = shared.metrics.enter_callback(shared.callback_delay);
     shared
         .metrics
         .state_info_calls
@@ -579,6 +702,7 @@ unsafe fn wfst_state_arcs_status(
         return Ok(VtStatus::NullPointer);
     }
     let shared = &*context.cast::<WfstContext>();
+    let _callback = shared.metrics.enter_callback(shared.callback_delay);
     shared
         .metrics
         .state_arcs_calls
