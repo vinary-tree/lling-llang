@@ -116,9 +116,9 @@ fn map_error(error: BindingError) -> LlingLlangStatus {
         BindingError::Provider(VtStatus::LimitExceeded) => LlingLlangStatus::LimitExceeded,
         BindingError::Provider(VtStatus::Closed) => LlingLlangStatus::Closed,
         BindingError::InvalidArgument(_) => LlingLlangStatus::InvalidArgument,
-        BindingError::Provider(_) | BindingError::InvalidProviderOutput(_) => {
-            LlingLlangStatus::ProviderError
-        }
+        BindingError::Provider(_)
+        | BindingError::ConcurrentCall
+        | BindingError::InvalidProviderOutput(_) => LlingLlangStatus::ProviderError,
         BindingError::RepresentationLimit | BindingError::BudgetExceeded(_) => {
             LlingLlangStatus::LimitExceeded
         }
@@ -2081,6 +2081,10 @@ mod tests {
         );
         assert_eq!(
             map_error(BindingError::Provider(VtStatus::IoError)),
+            LlingLlangStatus::ProviderError
+        );
+        assert_eq!(
+            map_error(BindingError::ConcurrentCall),
             LlingLlangStatus::ProviderError
         );
     }

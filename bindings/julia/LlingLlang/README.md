@@ -593,12 +593,25 @@ it does not make values from two provider instances interchangeable. Host
 values live in a recycling generation-checked arena. Every `SemiringWeight`
 owns one token reference, `copy` invokes the provider's clone operation, and
 `close` releases exactly once. A stale or cross-context token is rejected.
+Batch release validates every token and its multiplicity before consuming any
+reference, so a failed batch is safe to retry. A slot whose generation is
+exhausted is retired rather than reused. Resource context words are
+never-reused opaque cookies, not Julia object addresses; stale callback
+contexts return `STATUS_CLOSED` instead of aliasing a later provider.
 Use `validate_semiring_laws` with representative identities, boundaries, and
 workload values before enabling algorithms that trust declared properties.
 `semiring_plus_many` and `semiring_times_many` preserve left-fold order while
 using bounded provider batches when available. `semiring_diagnostic(algebra)`
 describes the domain, while `semiring_diagnostic(algebra, weight)` describes an
 owned weight without exposing its provider token.
+
+These are the currently versioned customer-provider seams in this package:
+the dynamic semiring capability and immutable scalar WFST capability. Julia
+can also create lattice providers through LLattice.jl and consume them here.
+CFG/grammar, symbolic constraint, decoder, and pipeline extension traits do
+not yet have corresponding negotiated native provider interfaces; a Julia
+subtype or wrapper around a scalar WFST would not implement those distinct
+contracts. They remain open binding/ABI work, not architectural exclusions.
 
 ### Send an LLattice value through lling-llang
 
@@ -647,7 +660,8 @@ Use `close` deterministically; finalizers are leak-safety fallbacks.
 Provider objects are rooted while any native retain exists. A provider
 snapshot is identity-with-retain because the facade advertises immutable
 resources. Mutating provider-visible state after `provider` therefore violates
-the snapshot contract.
+the snapshot contract. Snapshot retain and final release share one registry
+lock, preventing publication of a provider whose final owner just closed.
 
 A `SemiringContext` independently retains its provider resource, so the
 original resource may close immediately after import. Weights keep their exact
@@ -662,23 +676,37 @@ that owner; copying the native pointer would not create another owner.
 
 Native operations throw `NativeError`, which contains the stable `Status`, the
 operation, and a copied thread-local diagnostic. Provider exceptions never
-unwind through C: callbacks convert them to `STATUS_PROVIDER_ERROR`. Invalid
-labels, negative sizes, unknown domains, and weights outside their selected
-carrier are rejected before graph mutation.
+unwind through C: callbacks convert them to `STATUS_PROVIDER_ERROR`, including
+when a custom exception's `showerror` method itself fails. A rejected callback
+does not publish a successful result; callers must ignore all output bytes on
+non-OK status because a paged arc callback can have written a partial page.
+Invalid labels, negative sizes, unknown domains, and weights outside their
+selected carrier are rejected before graph mutation.
 
 ## Concurrency
 
-Providers are serialized by consumers unless `parallel=true` is explicitly
-declared. Set it only when `wfst_start`, `wfst_state_count`, and `wfst_state`
-are safe for concurrent and reentrant calls. The facade never invokes customer
-code while holding its cache lock; two racing first expansions may compute the
-same state, after which one immutable value is retained.
+The default `parallel=false` is a nonblocking, fail-fast serial contract:
+overlapping or recursive callbacks return `STATUS_PROVIDER_ERROR`; they do not
+queue behind a lock held across customer code. Set `parallel=true` only when
+every provider method and its stored state are safe for concurrent and
+reentrant calls. The facade never invokes customer code while holding its
+cache or semiring-value-arena lock. Under `parallel=true`, two racing first
+WFST expansions may compute the same state; one complete immutable copy wins
+the cache insertion. Under `parallel=false`, the second callback is rejected
+instead. Providers should not reenter their own native handle from a callback
+unless they declared and implemented true reentrancy.
 
-Semiring providers default to `thread_bound=true`, matching Julia's runtime
-attachment requirements. Their arena lock covers only token lookup,
-allocation, and publication; Julia algebra methods run outside it. Set
-`parallel=true, thread_bound=false` only when every method and stored value is
-concurrently callable and reentrant.
+Semiring providers default to `thread_bound=true`: this is an explicit
+creator-Julia-thread affinity policy enforced at callback entry, not a
+requirement to attach foreign threads to Julia. `parallel=true` requires
+`thread_bound=false`; declare it only when every method and stored value is
+concurrently callable and reentrant. For Julia 1.10 and later, the supported
+runtime automatically adopts foreign threads entering through `@cfunction`
+(introduced in [Julia 1.9](https://docs.julialang.org/en/v1.9/NEWS/)); the
+[general FFI manual](https://docs.julialang.org/en/v1/manual/calling-c-and-fortran-code/)
+also requires callbacks not to throw across the C boundary. Automatic adoption
+does not make customer objects race-free, waive the creator-thread policy, or
+turn a callback blocked on its own provider into a safe reentrant call.
 
 Dynamic lattice handles in Julia are same-thread consumers. The Rust adapter
 uses a nonblocking atomic admission gate for serial providers and holds no
@@ -714,8 +742,11 @@ their work and do not expose secrets through callbacks.
   different label or weight domains.
 - `STATUS_PROVIDER_ERROR` means a provider threw or returned malformed state
   data. Reproduce the state callback directly to obtain the Julia exception.
-- A stalled composition commonly indicates that a provider declared parallel
-  reentrancy but blocks recursively; remove `parallel=true` until corrected.
+- `STATUS_PROVIDER_ERROR` with a concurrent/recursive diagnostic means a
+  nonparallel provider was entered while another callback was active. Make
+  callers serial or implement a genuinely reentrant provider before opting in
+  to `parallel=true`; setting the flag alone does not make blocking recursion
+  safe.
 
 ## Version compatibility
 

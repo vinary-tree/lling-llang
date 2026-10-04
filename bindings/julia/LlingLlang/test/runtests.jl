@@ -830,6 +830,182 @@ LlingLlang.semiring_closure_bound(::TropicalProvider) = 1
     @test !isopen(context)
 end
 
+struct UnprintableProviderFailure <: Exception end
+Base.showerror(::IO, ::UnprintableProviderFailure) =
+    throw(ErrorException("diagnostic rendering failed"))
+
+struct ThrowingSemiringProvider <: AbstractSemiringProvider end
+LlingLlang.semiring_zero(::ThrowingSemiringProvider) =
+    throw(UnprintableProviderFailure())
+
+struct ReentrantSemiringProvider <: AbstractSemiringProvider
+    context::Base.RefValue{Ptr{Cvoid}}
+    nested_status::Base.RefValue{Cint}
+end
+function LlingLlang.semiring_zero(provider::ReentrantSemiringProvider)
+    output = Ref(VTI.VtSemiringValue(0, 0))
+    provider.nested_status[] = ccall(LlingLlang.SEMIRING_CALLBACKS[:one], Cint,
+        (Ptr{Cvoid}, Ref{VTI.VtSemiringValue}), provider.context[], output)
+    if provider.nested_status[] == Cint(VTI.STATUS_OK)
+        @assert ccall(LlingLlang.SEMIRING_CALLBACKS[:release_values], Cint,
+            (Ptr{Cvoid}, Ref{VTI.VtSemiringValue}, Csize_t),
+            provider.context[], output, 1) == Cint(VTI.STATUS_OK)
+    end
+    0
+end
+LlingLlang.semiring_one(::ReentrantSemiringProvider) = 1
+
+struct BlockingSemiringProvider <: AbstractSemiringProvider
+    entered::Channel{Bool}
+    release::Channel{Bool}
+end
+function LlingLlang.semiring_zero(provider::BlockingSemiringProvider)
+    put!(provider.entered, true)
+    take!(provider.release)
+    0
+end
+LlingLlang.semiring_one(::BlockingSemiringProvider) = 1
+
+@testset "semiring provider callback containment and atomic release" begin
+    release_batch(raw, batch) = GC.@preserve batch ccall(
+        LlingLlang.SEMIRING_CALLBACKS[:release_values], Cint,
+        (Ptr{Cvoid}, Ptr{VTI.VtSemiringValue}, Csize_t),
+        raw.context, pointer(batch), length(batch))
+
+    resource = semiring_provider(TropicalProvider();
+        domain_id=VTI.interface_id("test.atomic.rel1"))
+    raw = VTI.raw_resource(resource)
+    context = LlingLlang.semiring_provider_context(raw.context)
+    @test !isnothing(context)
+
+    valid = LlingLlang.allocate_semiring_value(context, 9.0)
+    invalid = VTI.VtSemiringValue(valid.word0, valid.word1 + UInt64(1))
+    for batch in ([valid, invalid], [valid, valid])
+        @test release_batch(raw, batch) == Cint(VTI.STATUS_PROVIDER_ERROR)
+        @test LlingLlang.resolve_semiring_value(context, valid) == 9.0
+    end
+    @test release_batch(raw, [valid]) == Cint(VTI.STATUS_OK)
+    @test_throws ArgumentError LlingLlang.resolve_semiring_value(context, valid)
+
+    # A generation that cannot advance is retired rather than wrapped.
+    last = LlingLlang.allocate_semiring_value(context, 11.0)
+    lock(context.arena_lock) do
+        context.slots[Int(last.word0)].generation = typemax(UInt64)
+    end
+    exhausted = VTI.VtSemiringValue(last.word0, typemax(UInt64))
+    @test release_batch(raw, [exhausted]) == Cint(VTI.STATUS_OK)
+    replacement = LlingLlang.allocate_semiring_value(context, 12.0)
+    @test replacement.word0 != exhausted.word0
+    @test release_batch(raw, [replacement]) == Cint(VTI.STATUS_OK)
+
+    recursive = ReentrantSemiringProvider(Ref(C_NULL), Ref(Cint(-1)))
+    serial = semiring_provider(recursive;
+        domain_id=VTI.interface_id("test.reentrant.s"))
+    serial_raw = VTI.raw_resource(serial)
+    recursive.context[] = serial_raw.context
+    result = Ref(VTI.VtSemiringValue(0, 0))
+    @test ccall(LlingLlang.SEMIRING_CALLBACKS[:zero], Cint,
+        (Ptr{Cvoid}, Ref{VTI.VtSemiringValue}),
+        serial_raw.context, result) == Cint(VTI.STATUS_OK)
+    @test recursive.nested_status[] == Cint(VTI.STATUS_PROVIDER_ERROR)
+    @test occursin("recursive", LlingLlang.semiring_provider_context(
+        serial_raw.context).last_error)
+    @test release_batch(serial_raw, [result[]]) == Cint(VTI.STATUS_OK)
+    close(serial)
+
+    parallel_implementation = ReentrantSemiringProvider(Ref(C_NULL), Ref(Cint(-1)))
+    parallel_host = semiring_provider(parallel_implementation;
+        domain_id=VTI.interface_id("test.parallel.s."),
+        thread_bound=false, parallel=true)
+    parallel_raw = VTI.raw_resource(parallel_host)
+    parallel_implementation.context[] = parallel_raw.context
+    @test ccall(LlingLlang.SEMIRING_CALLBACKS[:zero], Cint,
+        (Ptr{Cvoid}, Ref{VTI.VtSemiringValue}),
+        parallel_raw.context, result) == Cint(VTI.STATUS_OK)
+    @test parallel_implementation.nested_status[] == Cint(VTI.STATUS_OK)
+    @test release_batch(parallel_raw, [result[]]) == Cint(VTI.STATUS_OK)
+    close(parallel_host)
+
+    blocking = BlockingSemiringProvider(Channel{Bool}(1), Channel{Bool}(1))
+    shared = semiring_provider(blocking;
+        domain_id=VTI.interface_id("test.block.sem1."), thread_bound=false)
+    shared_raw = VTI.raw_resource(shared)
+    worker = Base.Threads.@spawn begin
+        output = Ref(VTI.VtSemiringValue(0, 0))
+        status = ccall(LlingLlang.SEMIRING_CALLBACKS[:zero], Cint,
+            (Ptr{Cvoid}, Ref{VTI.VtSemiringValue}), shared_raw.context, output)
+        (status, output[])
+    end
+    entered = Base.timedwait(() -> isready(blocking.entered), 5)
+    @test entered == :ok
+    if entered == :ok
+        take!(blocking.entered)
+        @test ccall(LlingLlang.SEMIRING_CALLBACKS[:one], Cint,
+            (Ptr{Cvoid}, Ref{VTI.VtSemiringValue}),
+            shared_raw.context, result) == Cint(VTI.STATUS_PROVIDER_ERROR)
+    end
+    put!(blocking.release, true)
+    status, completed = fetch(worker)
+    @test status == Cint(VTI.STATUS_OK)
+    @test release_batch(shared_raw, [completed]) == Cint(VTI.STATUS_OK)
+    close(shared)
+
+    if Base.Threads.nthreads() > 1
+        bounded = semiring_provider(TropicalProvider();
+            domain_id=VTI.interface_id("test.bound.sem1."))
+        bounded_raw = VTI.raw_resource(bounded)
+        creator = LlingLlang.semiring_provider_context(
+            bounded_raw.context).owner_thread
+        statuses = fill(Cint(-1), Base.Threads.nthreads())
+        executing_threads = fill(0, Base.Threads.nthreads())
+        Base.Threads.@threads :static for index in eachindex(statuses)
+            executing_threads[index] = Base.Threads.threadid()
+            if executing_threads[index] != creator
+                local_output = Ref(VTI.VtSemiringValue(0, 0))
+                statuses[index] = ccall(LlingLlang.SEMIRING_CALLBACKS[:zero], Cint,
+                    (Ptr{Cvoid}, Ref{VTI.VtSemiringValue}),
+                    bounded_raw.context, local_output)
+            end
+        end
+        @test any(!=(creator), executing_threads)
+        @test all(index -> executing_threads[index] == creator ?
+            statuses[index] == Cint(-1) :
+            statuses[index] == Cint(VTI.STATUS_PROVIDER_ERROR),
+            eachindex(statuses))
+        owner_output = Ref(VTI.VtSemiringValue(0, 0))
+        @test ccall(LlingLlang.SEMIRING_CALLBACKS[:zero], Cint,
+            (Ptr{Cvoid}, Ref{VTI.VtSemiringValue}),
+            bounded_raw.context, owner_output) == Cint(VTI.STATUS_OK)
+        @test release_batch(bounded_raw, [owner_output[]]) == Cint(VTI.STATUS_OK)
+        close(bounded)
+    end
+
+    close(resource)
+    output = Ref(VTI.VtSemiringValue(UInt64(77), UInt64(88)))
+    @test ccall(LlingLlang.SEMIRING_CALLBACKS[:zero], Cint,
+        (Ptr{Cvoid}, Ref{VTI.VtSemiringValue}),
+        raw.context, output) == Cint(VTI.STATUS_CLOSED)
+    @test output[].word0 == 77 && output[].word1 == 88
+
+    throwing = semiring_provider(ThrowingSemiringProvider();
+        domain_id=VTI.interface_id("test.throw.sem1."))
+    throwing_raw = VTI.raw_resource(throwing)
+    result = Ref(VTI.VtSemiringValue(0, 0))
+    @test ccall(LlingLlang.SEMIRING_CALLBACKS[:zero], Cint,
+        (Ptr{Cvoid}, Ref{VTI.VtSemiringValue}),
+        throwing_raw.context, result) == Cint(VTI.STATUS_PROVIDER_ERROR)
+    @test LlingLlang.semiring_provider_context(throwing_raw.context).last_error ==
+        "semiring provider raised an unprintable exception"
+    close(throwing)
+    @test length(unique([raw.context, serial_raw.context, throwing_raw.context])) == 3
+    GC.gc()
+    successor = semiring_provider(TropicalProvider();
+        domain_id=VTI.interface_id("test.cookie.succ"))
+    @test VTI.raw_resource(successor).context ∉
+        (raw.context, serial_raw.context, throwing_raw.context)
+    close(successor)
+end
+
 struct ExampleProvider <: AbstractWfstProvider end
 LlingLlang.wfst_start(::ExampleProvider) = 0
 LlingLlang.wfst_state_count(::ExampleProvider) = 2
@@ -837,6 +1013,113 @@ function LlingLlang.wfst_state(::ExampleProvider, state::UInt64)
     state == 0 && return ProviderState(arcs=[ProviderArc('b', 'c', 1, 0.75)])
     state == 1 && return ProviderState(final=true, final_weight=0.125)
     ProviderState(valid=false)
+end
+
+struct ThrowingWfstProvider <: AbstractWfstProvider end
+LlingLlang.wfst_start(::ThrowingWfstProvider) = 0
+LlingLlang.wfst_state(::ThrowingWfstProvider, ::UInt64) =
+    throw(UnprintableProviderFailure())
+
+struct ReentrantWfstProvider <: AbstractWfstProvider
+    context::Base.RefValue{Ptr{Cvoid}}
+    nested_status::Base.RefValue{Cint}
+end
+function LlingLlang.wfst_start(provider::ReentrantWfstProvider)
+    if provider.context[] != C_NULL
+        count = Ref{Csize_t}(0)
+        known = Ref{UInt8}(0)
+        provider.nested_status[] = ccall(LlingLlang.CALLBACKS[:count], Cint,
+            (Ptr{Cvoid}, Ref{Csize_t}, Ref{UInt8}),
+            provider.context[], count, known)
+    end
+    0
+end
+LlingLlang.wfst_state_count(::ReentrantWfstProvider) = 1
+LlingLlang.wfst_state(::ReentrantWfstProvider, ::UInt64) = ProviderState(final=true)
+
+struct BlockingWfstProvider <: AbstractWfstProvider
+    entered::Channel{Bool}
+    release::Channel{Bool}
+end
+LlingLlang.wfst_start(::BlockingWfstProvider) = 0
+LlingLlang.wfst_state_count(::BlockingWfstProvider) = 1
+function LlingLlang.wfst_state(provider::BlockingWfstProvider, ::UInt64)
+    put!(provider.entered, true)
+    take!(provider.release)
+    ProviderState(final=true)
+end
+
+@testset "WFST provider callback exceptions and closed contexts" begin
+    host = provider(ThrowingWfstProvider())
+    raw = LlingLlang.raw_resource(host)
+    valid = Ref{UInt8}(0)
+    finality = Ref{UInt8}(0)
+    weight = Ref{Float64}(0)
+    @test ccall(LlingLlang.CALLBACKS[:state_info], Cint,
+        (Ptr{Cvoid}, UInt64, Ref{UInt8}, Ref{UInt8}, Ref{Float64}),
+        raw.context, UInt64(0), valid, finality, weight) ==
+        Cint(VTI.STATUS_PROVIDER_ERROR)
+    @test LlingLlang.provider_context(raw.context).last_error ==
+        "WFST provider raised an unprintable exception"
+    close(host)
+    start = Ref{UInt64}(typemax(UInt64))
+    @test ccall(LlingLlang.CALLBACKS[:start], Cint,
+        (Ptr{Cvoid}, Ref{UInt64}), raw.context, start) ==
+        Cint(VTI.STATUS_CLOSED)
+    @test start[] == typemax(UInt64)
+
+    recursive = ReentrantWfstProvider(Ref(C_NULL), Ref(Cint(-1)))
+    serial = provider(recursive)
+    serial_raw = LlingLlang.raw_resource(serial)
+    recursive.context[] = serial_raw.context
+    @test ccall(LlingLlang.CALLBACKS[:start], Cint,
+        (Ptr{Cvoid}, Ref{UInt64}), serial_raw.context, start) ==
+        Cint(VTI.STATUS_OK)
+    @test recursive.nested_status[] == Cint(VTI.STATUS_PROVIDER_ERROR)
+    @test occursin("recursive", LlingLlang.provider_context(
+        serial_raw.context).last_error)
+    close(serial)
+
+    parallel_implementation = ReentrantWfstProvider(Ref(C_NULL), Ref(Cint(-1)))
+    parallel_host = provider(parallel_implementation; parallel=true)
+    parallel_raw = LlingLlang.raw_resource(parallel_host)
+    parallel_implementation.context[] = parallel_raw.context
+    @test ccall(LlingLlang.CALLBACKS[:start], Cint,
+        (Ptr{Cvoid}, Ref{UInt64}), parallel_raw.context, start) ==
+        Cint(VTI.STATUS_OK)
+    @test parallel_implementation.nested_status[] == Cint(VTI.STATUS_OK)
+    close(parallel_host)
+
+    blocking = BlockingWfstProvider(Channel{Bool}(1), Channel{Bool}(1))
+    shared = provider(blocking)
+    shared_raw = LlingLlang.raw_resource(shared)
+    worker = Base.Threads.@spawn begin
+        valid = Ref{UInt8}(0)
+        finality = Ref{UInt8}(0)
+        weight = Ref{Float64}(0)
+        ccall(LlingLlang.CALLBACKS[:state_info], Cint,
+            (Ptr{Cvoid}, UInt64, Ref{UInt8}, Ref{UInt8}, Ref{Float64}),
+            shared_raw.context, UInt64(0), valid, finality, weight)
+    end
+    entered = Base.timedwait(() -> isready(blocking.entered), 5)
+    @test entered == :ok
+    if entered == :ok
+        take!(blocking.entered)
+        count = Ref{Csize_t}(0)
+        known = Ref{UInt8}(0)
+        @test ccall(LlingLlang.CALLBACKS[:count], Cint,
+            (Ptr{Cvoid}, Ref{Csize_t}, Ref{UInt8}),
+            shared_raw.context, count, known) == Cint(VTI.STATUS_PROVIDER_ERROR)
+    end
+    put!(blocking.release, true)
+    @test fetch(worker) == Cint(VTI.STATUS_OK)
+    close(shared)
+    @test serial_raw.context != raw.context
+    GC.gc()
+    successor = provider(ExampleProvider())
+    @test LlingLlang.raw_resource(successor).context ∉
+        (raw.context, serial_raw.context)
+    close(successor)
 end
 
 struct GenericScalarProvider{L,W<:AbstractScalarWeight} <: AbstractWfstProvider

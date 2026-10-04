@@ -12,7 +12,8 @@ use crate::wfst::{StateId, VectorWfst, Wfst, NO_STATE};
 use std::collections::{HashMap, VecDeque};
 use std::ffi::c_void;
 use std::fmt;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
 use vinary_tree_interop::{
     wfst_flags, VtInterfaceId, VtResource, VtResourceVTable, VtStatus, VtUnitDomain,
     VtWeightDomain, VtWfstArc, VtWfstVTable, VT_ABI_VERSION, VT_RECOMMENDED_ARC_BATCH,
@@ -61,6 +62,8 @@ pub enum BindingError {
     WeightDomainMismatch(VtWeightDomain),
     /// A provider callback failed.
     Provider(VtStatus),
+    /// A non-reentrant provider is already serving one callback.
+    ConcurrentCall,
     /// A provider returned inconsistent or malformed output.
     InvalidProviderOutput(&'static str),
     /// A state, label, count, or computed weight cannot fit the native model.
@@ -90,6 +93,9 @@ impl fmt::Display for BindingError {
                 "scalar WFST weight domain is incompatible: {domain:?}"
             ),
             Self::Provider(status) => write!(formatter, "WFST provider returned {status:?}"),
+            Self::ConcurrentCall => {
+                formatter.write_str("non-reentrant WFST provider callback is already active")
+            }
             Self::InvalidProviderOutput(message) => write!(
                 formatter,
                 "WFST provider returned invalid output: {message}"
@@ -426,7 +432,15 @@ impl ProductRegistry {
 
 enum ProviderCallGate {
     Parallel,
-    Serial(Mutex<()>),
+    Serial(AtomicBool),
+}
+
+struct ProviderCallLease<'a>(&'a AtomicBool);
+
+impl Drop for ProviderCallLease<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 impl ProviderCallGate {
@@ -434,15 +448,21 @@ impl ProviderCallGate {
         if flags & wfst_flags::PARALLEL_REENTRANT != 0 {
             Self::Parallel
         } else {
-            Self::Serial(Mutex::new(()))
+            Self::Serial(AtomicBool::new(false))
         }
     }
 
-    fn call<T>(&self, callback: impl FnOnce() -> T) -> T {
+    fn call<T>(
+        &self,
+        callback: impl FnOnce() -> Result<T, BindingError>,
+    ) -> Result<T, BindingError> {
         match self {
             Self::Parallel => callback(),
-            Self::Serial(lock) => {
-                let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            Self::Serial(active) => {
+                active
+                    .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                    .map_err(|_| BindingError::ConcurrentCall)?;
+                let _guard = ProviderCallLease(active);
                 callback()
             }
         }
@@ -472,9 +492,12 @@ impl CapturedWfst {
         let weight_domain = (*live_table).weight_domain;
         let live_gate = ProviderCallGate::for_flags((*live_table).flags);
         let mut snapshot = VtResource::NULL;
-        check_status(
-            live_gate.call(|| (*live_table).snapshot.unwrap()(resource.context, &mut snapshot)),
-        )?;
+        check_status(live_gate.call(|| {
+            Ok((*live_table).snapshot.unwrap()(
+                resource.context,
+                &mut snapshot,
+            ))
+        })?)?;
         if snapshot.is_null() {
             return Err(BindingError::InvalidProviderOutput(
                 "snapshot returned null",
@@ -494,7 +517,7 @@ impl CapturedWfst {
         }
         let gate = ProviderCallGate::for_flags((*table).flags);
         let mut start = 0;
-        check_status(gate.call(|| (*table).start.unwrap()(snapshot.0.context, &mut start)))?;
+        check_status(gate.call(|| Ok((*table).start.unwrap()(snapshot.0.context, &mut start)))?)?;
         Ok(Self {
             resource: snapshot,
             table,
@@ -1560,6 +1583,41 @@ mod tests {
     use super::*;
     use crate::wfst::MutableWfst;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn serial_provider_gate_rejects_recursion_without_blocking() {
+        let gate = ProviderCallGate::for_flags(0);
+        let result = gate.call(|| gate.call(|| Ok(())));
+        assert_eq!(result, Err(BindingError::ConcurrentCall));
+        assert_eq!(gate.call(|| Ok(())), Ok(()));
+    }
+
+    #[test]
+    fn serial_provider_gate_rejects_overlap_and_recovers() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let gate = Arc::new(ProviderCallGate::for_flags(0));
+        let worker_gate = Arc::clone(&gate);
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            worker_gate.call(|| {
+                entered_tx.send(()).expect("notify active callback");
+                release_rx
+                    .recv_timeout(Duration::from_secs(2))
+                    .expect("release active callback");
+                Ok(())
+            })
+        });
+        entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("callback must enter");
+        assert_eq!(gate.call(|| Ok(())), Err(BindingError::ConcurrentCall));
+        release_tx.send(()).expect("release active callback");
+        assert_eq!(worker.join().expect("callback thread"), Ok(()));
+        assert_eq!(gate.call(|| Ok(())), Ok(()));
+    }
 
     struct FailedStateProvider(VtStatus);
 
