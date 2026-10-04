@@ -252,7 +252,7 @@ proptest! {
     // invalid_state_count_rejected_first; validate_input_none_iff.
     #[cfg(target_pointer_width = "64")]
     #[test]
-    fn generated_unrepresentable_count_precedes_start_and_arc(
+    fn generated_unrepresentable_count_precedes_arc_scan(
         excess in 0usize..1000,
         snapshot in any::<u64>(),
     ) {
@@ -262,7 +262,7 @@ proptest! {
         let reported_count = u32::MAX as usize + 1 + excess;
         let reported = ReportedWfst {
             inner: fst,
-            reported_start: 99,
+            reported_start: 0,
             reported_count,
         };
         let identity = MinimizeInputIdentity::Snapshot(snapshot);

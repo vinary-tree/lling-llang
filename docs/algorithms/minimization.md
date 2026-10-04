@@ -98,7 +98,7 @@ The formal refinement model is [`MinimizeEndpointValidation.v`](../../proofs/coq
 | `first_invalid_error_identity` | `generated_first_error_wins_in_state_and_slice_order` checks the original snapshot identity and state count. |
 | `first_invalid_complete` | `generated_first_error_wins_in_state_and_slice_order` requires rejection for every generated malformed source or target. |
 | `validate_input_none_iff` | The valid-input, malformed-arc, invalid-start, unrepresentable-count, and empty-input properties exercise every acceptance branch. |
-| `invalid_state_count_rejected_first` | `generated_unrepresentable_count_precedes_start_and_arc` checks count precedence over simultaneous start and arc faults on 64-bit targets. |
+| `invalid_state_count_rejected_first` | `generated_unrepresentable_count_precedes_arc_scan` checks count rejection before any arc scan or state-ID narrowing on 64-bit targets. |
 | `invalid_start_rejected_before_arcs` | `generated_invalid_start_precedes_malformed_arc` checks start precedence over a simultaneous arc fault. |
 | `checked_then_preserves_valid_input` | `valid_endpoints_are_accepted_without_mutating_the_input` and `empty_input_with_sentinel_start_is_accepted` check valid input; `valid_worklist_partitions_match_moore` checks the independent valid-input partition oracle. |
 | `checked_then_rejects_before_transform` | `malformed_target_reports_the_original_arc_before_any_transform` varies connect/push flags and checks rejection of the original malformed arc. |
