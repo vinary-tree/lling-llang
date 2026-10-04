@@ -154,6 +154,7 @@ enum DistanceStage {
 enum DistanceMode {
     Semiring,
     ViterbiSuffix,
+    UniformCount,
 }
 
 #[derive(Clone, Debug)]
@@ -204,6 +205,15 @@ impl GraphDistanceCursor {
         Self::with_mode(graph, max_work, work_per_call, DistanceMode::ViterbiSuffix)
     }
 
+    /// Exact accepting-path counts on finite DAGs, ignoring scalar weights.
+    pub(crate) fn uniform_path_counts(
+        graph: Arc<ScalarGraph>,
+        max_work: usize,
+        work_per_call: usize,
+    ) -> Result<Self, GraphAnalysisError> {
+        Self::with_mode(graph, max_work, work_per_call, DistanceMode::UniformCount)
+    }
+
     fn with_mode(
         graph: Arc<ScalarGraph>,
         max_work: usize,
@@ -214,10 +224,10 @@ impl GraphDistanceCursor {
             return Err(GraphAnalysisError::InvalidGraph);
         }
         let len = graph.states.len();
-        let zero = scalar_zero(if mode == DistanceMode::ViterbiSuffix {
-            VtWeightDomain::SignedTropicalF64
-        } else {
-            graph.weight_domain
+        let zero = scalar_zero(match mode {
+            DistanceMode::ViterbiSuffix => VtWeightDomain::SignedTropicalF64,
+            DistanceMode::UniformCount => VtWeightDomain::CountF64,
+            DistanceMode::Semiring => graph.weight_domain,
         });
         Ok(Self {
             graph,
@@ -254,18 +264,18 @@ impl GraphDistanceCursor {
     }
 
     fn domain(&self) -> VtWeightDomain {
-        if self.mode == DistanceMode::ViterbiSuffix {
-            VtWeightDomain::SignedTropicalF64
-        } else {
-            self.graph.weight_domain
+        match self.mode {
+            DistanceMode::ViterbiSuffix => VtWeightDomain::SignedTropicalF64,
+            DistanceMode::UniformCount => VtWeightDomain::CountF64,
+            DistanceMode::Semiring => self.graph.weight_domain,
         }
     }
 
     fn weight(&self, raw: f64) -> Result<f64, GraphAnalysisError> {
-        if self.mode == DistanceMode::ViterbiSuffix {
-            rank_cost(self.graph.weight_domain, raw)
-        } else {
-            Ok(raw)
+        match self.mode {
+            DistanceMode::ViterbiSuffix => rank_cost(self.graph.weight_domain, raw),
+            DistanceMode::UniformCount => Ok(1.0),
+            DistanceMode::Semiring => Ok(raw),
         }
     }
 
@@ -318,7 +328,7 @@ impl GraphDistanceCursor {
                     self.active = Some(source);
                     self.arc_index = 0;
                 } else if self.order.len() == len {
-                    self.stage = if self.mode == DistanceMode::ViterbiSuffix {
+                    self.stage = if self.mode != DistanceMode::Semiring {
                         DistanceStage::BackwardDag
                     } else {
                         DistanceStage::ForwardDag
@@ -328,14 +338,16 @@ impl GraphDistanceCursor {
                     if self.mode == DistanceMode::Semiring {
                         self.forward[self.graph.start()] = one(domain);
                     }
-                } else if matches!(
-                    domain,
-                    VtWeightDomain::TropicalF64
-                        | VtWeightDomain::SignedTropicalF64
-                        | VtWeightDomain::ArcticF64
-                        | VtWeightDomain::BooleanF64
-                ) {
-                    self.stage = if self.mode == DistanceMode::ViterbiSuffix {
+                } else if self.mode != DistanceMode::UniformCount
+                    && matches!(
+                        domain,
+                        VtWeightDomain::TropicalF64
+                            | VtWeightDomain::SignedTropicalF64
+                            | VtWeightDomain::ArcticF64
+                            | VtWeightDomain::BooleanF64
+                    )
+                {
+                    self.stage = if self.mode != DistanceMode::Semiring {
                         DistanceStage::BackwardCyclic
                     } else {
                         DistanceStage::ForwardCyclic

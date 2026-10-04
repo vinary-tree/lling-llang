@@ -174,7 +174,7 @@
   },
   "packageVersion": "4.0.0-rc.6",
   "abiVersion": 1,
-  "apiRevision": 11,
+  "apiRevision": 12,
   "cPrefix": "lling_",
   "headers": {
     "c": "include/lling_llang.h",
@@ -3567,6 +3567,35 @@
       "return": {"cType": "void", "rakuType": null, "ownership": "none", "nullability": "not-applicable"},
       "parameters": [
         {"name": "cursor", "cType": "LlingRankedPathCursor*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "inout", "ownership": "consumed-when-non-null", "nullability": "nullable"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_sample_path_cursor_open", "rustModule": "ffi", "rakuName": "lling-sample-path-cursor-open",
+      "sinceApiRevision": 12, "threading": "caller-coordinates-immutable-handle-lifetime", "capability": "bounded-seeded-scalar-path-sampling",
+      "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "graph", "cType": "const LlingGraph*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-retain-graph", "nullability": "non-null"},
+        {"name": "config", "cType": "const LlingSamplePathConfig*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"},
+        {"name": "out_cursor", "cType": "LlingSamplePathCursor**", "rakuType": "Pointer", "rakuPassing": "rw", "direction": "out", "ownership": "owned-output-on-success", "nullability": "non-null"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_sample_path_cursor_next", "rustModule": "ffi", "rakuName": "lling-sample-path-cursor-next",
+      "sinceApiRevision": 12, "threading": "caller-synchronized-mutable-handle", "capability": "bounded-seeded-scalar-path-sampling",
+      "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "cursor", "cType": "LlingSamplePathCursor*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "inout", "ownership": "borrowed-for-call", "nullability": "non-null"},
+        {"name": "cancellation", "cType": "const LlingCancellationV2*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "nullable"},
+        {"name": "out_poll", "cType": "uint32_t*", "rakuType": "uint32", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"},
+        {"name": "out_path", "cType": "LlingPath**", "rakuType": "Pointer", "rakuPassing": "rw", "direction": "out", "ownership": "owned-output-on-path", "nullability": "non-null"}
+      ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_sample_path_cursor_free", "rustModule": "ffi", "rakuName": "lling-sample-path-cursor-free",
+      "sinceApiRevision": 12, "threading": "exclusive-owner-close", "capability": "bounded-seeded-scalar-path-sampling",
+      "return": {"cType": "void", "rakuType": null, "ownership": "none", "nullability": "not-applicable"},
+      "parameters": [
+        {"name": "cursor", "cType": "LlingSamplePathCursor*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "inout", "ownership": "consumed-when-non-null", "nullability": "nullable"}
       ], "raku": {"bind": true}
     }
   ],

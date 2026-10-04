@@ -350,6 +350,62 @@ reports a truncated result as exhaustive. Numeric overflow/underflow is
 rejected in this new path analysis only; existing scalar composition semantics
 remain unchanged.
 
+### Draw seeded accepting paths
+
+`sample_paths(graph; limits)` is a bounded lazy iterator of owned paths. Its
+native sampler first computes exact backward masses for the complete graph,
+then chooses between stopping and each outgoing arc according to conditional
+accepting-path mass. Unlike a local random walk, it never chooses a branch
+that cannot reach a final state. `:uniform` gives each finite accepting path
+equal probability and ignores scalar weights. `:proportional` weights paths by
+their probability, log-probability, or count-semiring mass; other weight domains
+fail with `STATUS_UNSUPPORTED`. Uniform and proportional draws on cyclic
+graphs currently fail explicitly, because this solver's exact path-count or
+mass analysis requires an acyclic graph. An unsupported graph is never
+silently approximated by a depth cutoff.
+
+```julia
+builder = WfstBuilder{UInt8,ProbabilityWeight}(size_hint=3)
+start = add_state!(builder)
+left = add_state!(builder)
+right = add_state!(builder)
+set_start!(builder, start)
+set_final!(builder, left, ProbabilityWeight(1))
+set_final!(builder, right, ProbabilityWeight(1))
+add_arc!(builder, start, UInt8('a'), UInt8('a'), left,
+    ProbabilityWeight(0.25))
+add_arc!(builder, start, UInt8('b'), UInt8('b'), right,
+    ProbabilityWeight(0.75))
+source = build!(builder)
+graph = complete_graph(source)
+close(source)
+limits = SamplePathLimits(strategy=:proportional, seed=42,
+    max_samples=100, max_depth=64, max_work=100_000, work_per_call=32)
+try
+    draws = sample_n_paths(graph, 10; limits)
+    @assert length(draws) == 10
+finally
+    close(graph)
+end
+```
+
+For a state $`q`$ with exact backward mass $`B(q)`$, an outgoing arc
+$`q \xrightarrow{w} r`$ is selected with conditional probability
+$`w B(r) / B(q)`$ in the probability/count domains; a final choice is
+$`\rho(q) / B(q)`$. The log domain computes the equivalent values in log
+space. `:uniform` substitutes path counts for weights. Each option is
+examined in provider order, one per bounded native work step. The public
+seed-to-draw mapping uses SplitMix64 and is independent of `work_per_call`.
+
+`poll_sample_path!` returns a path, `SamplePathPending`, or `nothing` when
+there is provably no accepting path. `sample_path` returns one draw;
+`sample_n_paths` and `reduce_sampled_paths` consume only the requested finite
+prefix and close the cursor. Directly collecting the iterator through its
+`max_samples` bound raises `PathTruncatedError` because the distribution
+continues to admit paths. `max_depth` truncation, work exhaustion, numeric
+failure, and cancellation are likewise explicit. The sampler retains its
+complete graph lease, so the source graph may close after construction.
+
 ### Implement a lazy Julia provider
 
 ```julia

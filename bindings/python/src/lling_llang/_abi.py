@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 11
+API_REVISION = 12
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -139,6 +139,23 @@ class RankedPoll(IntEnum):
     CANCELLED = 5
 
 
+class SamplePoll(IntEnum):
+    """Seeded native sampling outcomes; count/depth caps are not exhaustion."""
+
+    PATH = 1
+    PENDING = 2
+    EXHAUSTED = 3
+    TRUNCATED = 4
+    CANCELLED = 5
+
+
+class SampleStrategy(IntEnum):
+    """Uniform accepting paths or semiring-mass-proportional paths."""
+
+    UNIFORM = 1
+    PROPORTIONAL = 2
+
+
 class PathConfig(ctypes.Structure):
     """Versioned, explicit limits for a snapshot-pinned path traversal."""
 
@@ -215,6 +232,22 @@ class RankedPathConfig(ctypes.Structure):
         ("max_depth", ctypes.c_uint64),
         ("max_paths", ctypes.c_uint64),
         ("max_frontier", ctypes.c_uint64),
+    ]
+
+
+class SamplePathConfig(ctypes.Structure):
+    """Versioned exact-distribution sampler limits and stable seed."""
+
+    _fields_ = [
+        ("struct_size", ctypes.c_uint32),
+        ("version", ctypes.c_uint32),
+        ("max_work", ctypes.c_uint64),
+        ("work_per_call", ctypes.c_uint64),
+        ("max_depth", ctypes.c_uint64),
+        ("max_samples", ctypes.c_uint64),
+        ("strategy", ctypes.c_uint32),
+        ("reserved", ctypes.c_uint32),
+        ("seed", ctypes.c_uint64),
     ]
 
 
@@ -595,6 +628,16 @@ _bind(
      ctypes.POINTER(ctypes.c_void_p)],
 )
 _bind("lling_ranked_path_cursor_free", [ctypes.c_void_p], None)
+_bind(
+    "lling_sample_path_cursor_open",
+    [ctypes.c_void_p, ctypes.POINTER(SamplePathConfig), ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_sample_path_cursor_next",
+    [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+     ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind("lling_sample_path_cursor_free", [ctypes.c_void_p], None)
 
 _bind(
     "lling_semiring_open", [ctypes.POINTER(VtResource), ctypes.POINTER(ctypes.c_void_p)]

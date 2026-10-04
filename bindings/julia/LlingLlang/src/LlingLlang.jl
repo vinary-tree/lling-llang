@@ -65,6 +65,9 @@ export ABI_VERSION,
     RankedPathLimits,
     RankedPathIterator,
     RankedPathPending,
+    SamplePathLimits,
+    SamplePathIterator,
+    SamplePathPending,
     ProviderArc,
     ProviderState,
     AbstractWfstProvider,
@@ -119,6 +122,11 @@ export ABI_VERSION,
     best_path,
     k_best_paths,
     n_best_paths,
+    sample_paths,
+    poll_sample_path!,
+    sample_path,
+    sample_n_paths,
+    reduce_sampled_paths,
     input_symbols,
     output_symbols,
     resource,
@@ -1663,6 +1671,194 @@ end
 """Alias for `k_best_paths` with the same ordering and explicit bounds."""
 n_best_paths(graph::GraphSnapshot, n::Integer; kwargs...) =
     k_best_paths(graph, n; kwargs...)
+
+"""Explicit work, depth, count, strategy, and seed for accepting-path draws."""
+struct SamplePathLimits
+    max_work::UInt64
+    work_per_call::UInt64
+    max_depth::UInt64
+    max_samples::UInt64
+    strategy::UInt32
+    seed::UInt64
+end
+function SamplePathLimits(; max_work=1_000_000, work_per_call=64,
+    max_depth=1024, max_samples=10_000, strategy=:uniform, seed=0)
+    strategy_code = strategy === :uniform ? SAMPLE_UNIFORM :
+        strategy === :proportional ? SAMPLE_PROPORTIONAL :
+        throw(ArgumentError("strategy must be :uniform or :proportional"))
+    SamplePathLimits(path_bound(max_work, :max_work; positive=true),
+        path_bound(work_per_call, :work_per_call; positive=true),
+        path_bound(max_depth, :max_depth),
+        path_bound(max_samples, :max_samples; positive=true),
+        strategy_code, path_bound(seed, :seed))
+end
+
+struct RawSamplePathConfig
+    struct_size::UInt32
+    version::UInt32
+    max_work::UInt64
+    work_per_call::UInt64
+    max_depth::UInt64
+    max_samples::UInt64
+    strategy::UInt32
+    reserved::UInt32
+    seed::UInt64
+end
+RawSamplePathConfig(limits::SamplePathLimits) = RawSamplePathConfig(
+    UInt32(sizeof(RawSamplePathConfig)), UInt32(1), limits.max_work,
+    limits.work_per_call, limits.max_depth, limits.max_samples,
+    limits.strategy, UInt32(0), limits.seed)
+
+"""One sampling poll used its bounded work slice without yielding a path."""
+struct SamplePathPending end
+const SAMPLE_PATH_PENDING = SamplePathPending()
+
+"""Mutable seed-stable iterator retaining a complete native graph lease."""
+mutable struct SamplePathIterator{L,W<:AbstractScalarWeight,S1,S2}
+    handle::Ptr{Cvoid}
+    input_symbols::S1
+    output_symbols::S2
+    cancellation::Union{Nothing,CancellationV2}
+    closed::Bool
+    completion::Union{Nothing,UInt32}
+end
+Base.IteratorSize(::Type{<:SamplePathIterator}) = Base.SizeUnknown()
+Base.eltype(::Type{<:SamplePathIterator{L,W}}) where {L,W} = WfstPath{L,W}
+Base.isopen(iterator::SamplePathIterator) = !iterator.closed
+function close!(iterator::SamplePathIterator)
+    iterator.closed && return nothing
+    ccall(native(:lling_sample_path_cursor_free), Cvoid,
+        (Ptr{Cvoid},), iterator.handle)
+    iterator.handle = C_NULL
+    iterator.closed = true
+    nothing
+end
+Base.close(iterator::SamplePathIterator) = close!(iterator)
+
+"""
+Draw accepting paths lazily from one complete graph with a stable seed.
+
+`:uniform` draws every finite accepting path equally, ignoring scalar weights;
+`:proportional` uses exact backward masses for probability, log, or count
+weights. Unsupported cycles or domains fail explicitly. Close early when no
+longer needed. A sample-count cap raises `PathTruncatedError`, not exhaustion.
+"""
+function sample_paths(graph::GraphSnapshot{L,W};
+    limits::SamplePathLimits=SamplePathLimits(),
+    cancellation::Union{Nothing,CancellationV2}=nothing) where {L,W}
+    isnothing(cancellation) || open_handle(cancellation)
+    config = Ref(RawSamplePathConfig(limits))
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    checked(ccall(native(:lling_sample_path_cursor_open), UInt32,
+        (Ptr{Cvoid}, Ref{RawSamplePathConfig}, Ref{Ptr{Cvoid}}),
+        open_graph_handle(graph), config, output), :sample_path_cursor_open)
+    iterator = SamplePathIterator{L,W,typeof(graph.input_symbols),
+        typeof(graph.output_symbols)}(output[], graph.input_symbols,
+        graph.output_symbols, cancellation, false, nothing)
+    finalizer(finalize_close, iterator)
+    iterator
+end
+
+"""Advance one bounded native sampling slice; return a path or pending."""
+function poll_sample_path!(iterator::SamplePathIterator{L,W}) where {L,W}
+    iterator.completion === SAMPLE_POLL_EXHAUSTED && return nothing
+    iterator.closed && throw(NativeError(STATUS_CLOSED, :sample_path_cursor_next,
+        "sample path iterator is closed"))
+    try
+        poll = Ref{UInt32}(0)
+        output = Ref{Ptr{Cvoid}}(C_NULL)
+        cancellation = iterator.cancellation
+        cancellation_handle = isnothing(cancellation) ? C_NULL : open_handle(cancellation)
+        GC.@preserve cancellation begin
+            checked(ccall(native(:lling_sample_path_cursor_next), UInt32,
+                (Ptr{Cvoid}, Ptr{Cvoid}, Ref{UInt32}, Ref{Ptr{Cvoid}}),
+                iterator.handle, cancellation_handle, poll, output),
+                :sample_path_cursor_next)
+        end
+        poll[] == SAMPLE_POLL_PENDING && return SAMPLE_PATH_PENDING
+        if poll[] == SAMPLE_POLL_PATH
+            output[] == C_NULL && throw(ArgumentError("native sample poll omitted path"))
+            try
+                return read_owned_path(L, W, output[])
+            finally
+                ccall(native(:lling_path_free), Cvoid, (Ptr{Cvoid},), output[])
+            end
+        end
+        iterator.completion = poll[]
+        close!(iterator)
+        poll[] == SAMPLE_POLL_EXHAUSTED && return nothing
+        poll[] == SAMPLE_POLL_TRUNCATED && throw(PathTruncatedError())
+        poll[] == SAMPLE_POLL_CANCELLED && throw(PathCancelledError(
+            isnothing(cancellation) ? nothing : cancellation_reason(cancellation)))
+        throw(ArgumentError("native sample cursor returned unknown poll value $(poll[])"))
+    catch
+        close!(iterator)
+        rethrow()
+    end
+end
+
+function Base.iterate(iterator::SamplePathIterator, ::Nothing=nothing)
+    while true
+        result = poll_sample_path!(iterator)
+        result isa SamplePathPending && continue
+        result === nothing && return nothing
+        return (result, nothing)
+    end
+end
+
+"""Draw one accepting path, or `nothing` when no accepting path exists."""
+function sample_path(graph::GraphSnapshot; kwargs...)
+    cursor = sample_paths(graph; kwargs...)
+    try
+        result = iterate(cursor)
+        isnothing(result) ? nothing : first(result)
+    finally
+        close(cursor)
+    end
+end
+
+"""Collect exactly `n` seeded draws or fewer when no accepting path exists."""
+function sample_n_paths(graph::GraphSnapshot{L,W}, n::Integer;
+    limits::SamplePathLimits=SamplePathLimits(),
+    cancellation::Union{Nothing,CancellationV2}=nothing) where {L,W}
+    requested = path_bound(n, :n)
+    requested <= limits.max_samples || throw(ArgumentError(
+        "n exceeds max_samples; raise that explicit bound"))
+    result = WfstPath{L,W}[]
+    requested == 0 && return result
+    cursor = sample_paths(graph; limits, cancellation)
+    try
+        for path in cursor
+            push!(result, path)
+            length(result) == requested && break
+        end
+        result
+    finally
+        close(cursor)
+    end
+end
+
+"""Reduce a finite prefix of seeded draws and close on every exit path."""
+function reduce_sampled_paths(operation, initial, graph::GraphSnapshot, n::Integer;
+    limits::SamplePathLimits=SamplePathLimits(),
+    cancellation::Union{Nothing,CancellationV2}=nothing)
+    requested = path_bound(n, :n)
+    requested <= limits.max_samples || throw(ArgumentError(
+        "n exceeds max_samples; raise that explicit bound"))
+    requested == 0 && return initial
+    cursor = sample_paths(graph; limits, cancellation)
+    try
+        result = initial
+        for path in cursor
+            result = operation(result, path)
+            requested -= 1
+            requested == 0 && break
+        end
+        result
+    finally
+        close(cursor)
+    end
+end
 
 function open_distance_handle(result::DistanceResult)
     result.closed && throw(NativeError(STATUS_CLOSED, :graph_distance,

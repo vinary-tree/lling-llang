@@ -279,6 +279,80 @@ end
     close(source)
 end
 
+@testset "seeded bounded accepting-path sampling" begin
+    @test sizeof(LlingLlang.RawSamplePathConfig) == 56
+    @test_throws ArgumentError SamplePathLimits(max_samples=0)
+    @test_throws ArgumentError SamplePathLimits(strategy=:unknown)
+    @test_throws ArgumentError SamplePathLimits(seed=-1)
+
+    for (Weight, arc_weight, final_weight, expected) in [
+        (TropicalWeight, TropicalWeight(2), TropicalWeight(3), TropicalWeight(5)),
+        (LogWeight, LogWeight(2), LogWeight(3), LogWeight(5)),
+        (ProbabilityWeight, ProbabilityWeight(0.4), ProbabilityWeight(0.5),
+            ProbabilityWeight(0.2)),
+        (ArcticWeight, ArcticWeight(2), ArcticWeight(3), ArcticWeight(5)),
+        (SignedTropicalWeight, SignedTropicalWeight(-2), SignedTropicalWeight(3),
+            SignedTropicalWeight(1)),
+        (CountWeight, CountWeight(2), CountWeight(3), CountWeight(6)),
+        (BooleanWeight, BooleanWeight(true), BooleanWeight(true), BooleanWeight(true)),
+    ]
+        source = scalar_chain(UInt8, Weight, UInt8('m'), arc_weight, final_weight)
+        graph = complete_graph(source)
+        close(source)
+        iterator = sample_paths(graph; limits=SamplePathLimits(
+            max_samples=1, work_per_call=1, seed=42))
+        close(graph)
+        @test poll_sample_path!(iterator) isa SamplePathPending
+        sampled = nothing
+        while isnothing(sampled)
+            result = poll_sample_path!(iterator)
+            result isa SamplePathPending || (sampled = result)
+        end
+        @test sampled.steps[1].input == UInt8('m')
+        @test sampled.weight == expected
+        @test_throws PathTruncatedError poll_sample_path!(iterator)
+        @test !isopen(iterator)
+    end
+
+    builder = WfstBuilder{UInt8,ProbabilityWeight}(size_hint=3)
+    start = add_state!(builder)
+    left = add_state!(builder)
+    right = add_state!(builder)
+    set_start!(builder, start)
+    set_final!(builder, left, ProbabilityWeight(1))
+    set_final!(builder, right, ProbabilityWeight(1))
+    add_arc!(builder, start, UInt8('a'), UInt8('a'), left,
+        ProbabilityWeight(0.25))
+    add_arc!(builder, start, UInt8('b'), UInt8('b'), right,
+        ProbabilityWeight(0.75))
+    source = build!(builder)
+    graph = complete_graph(source)
+    close(source)
+    limits = SamplePathLimits(max_samples=40, strategy=:proportional, seed=123,
+        work_per_call=1)
+    a = sample_n_paths(graph, 40; limits)
+    b = sample_n_paths(graph, 40; limits)
+    @test [only(path.steps).input for path in a] ==
+        [only(path.steps).input for path in b]
+    @test count(path -> only(path.steps).input == UInt8('b'), a) > 20
+    @test sample_path(graph; limits).steps[1].input == a[1].steps[1].input
+    @test reduce_sampled_paths((n, _) -> n + 1, 0, graph, 5; limits) == 5
+    @test isempty(sample_n_paths(graph, 0; limits))
+    @test reduce_sampled_paths((n, _) -> n + 1, 0, graph, 0; limits) == 0
+    @test_throws ArgumentError sample_n_paths(graph, 41; limits)
+    @test_throws NativeError sample_n_paths(graph, 1;
+        limits=SamplePathLimits(max_work=1, work_per_call=1))
+    @test_throws PathTruncatedError sample_n_paths(graph, 1;
+        limits=SamplePathLimits(max_depth=0))
+    cancellation = CancellationV2()
+    cursor = sample_paths(graph; cancellation)
+    request!(cancellation, LlingLlang.CANCELLATION_REQUESTED_V2)
+    @test_throws PathCancelledError poll_sample_path!(cursor)
+    @test !isopen(cursor)
+    close(cancellation)
+    close(graph)
+end
+
 @testset "typed ABI-v2 metadata and cancellation" begin
     @test sizeof(AbiV2Header) == 24
     @test sizeof(Id128) == 16

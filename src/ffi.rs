@@ -22,13 +22,15 @@ pub use distance::*;
 pub use graph::*;
 mod path;
 mod ranked_path;
+mod sample_path;
 pub use path::*;
 pub use ranked_path::*;
+pub use sample_path::*;
 
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_LLANG_API_REVISION: u32 = 11;
+pub const LLING_LLANG_API_REVISION: u32 = 12;
 
 fn bounded_usize(value: u64, name: &'static str) -> Result<usize, LlingLlangStatus> {
     usize::try_from(value).map_err(|_| {

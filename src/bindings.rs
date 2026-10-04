@@ -23,6 +23,7 @@ mod graph;
 mod graph_analysis;
 mod path;
 mod ranked_path;
+mod sample_path;
 #[cfg(test)]
 pub(crate) use graph::ScalarGraphState;
 pub(crate) use graph::{CapturedGraphCursor, GraphPoll, ScalarGraph, ScalarGraphConfig};
@@ -31,6 +32,7 @@ pub(crate) use graph_analysis::{
 };
 pub(crate) use path::{PathPoll, ScalarPath, ScalarPathConfig, ScalarPathCursor};
 pub(crate) use ranked_path::{RankedPathConfig, RankedPathCursor, RankedPoll};
+pub(crate) use sample_path::{SamplePathConfig, SamplePathCursor, SamplePoll, SampleStrategy};
 
 /// Binding failures raised while validating or traversing a foreign WFST.
 #[derive(Clone, Debug, PartialEq)]
