@@ -169,6 +169,126 @@ proptest! {
         fst.state_mut(owner as u32).unwrap().transitions[0].from = owner as u32;
         prop_assert!(minimize(&fst, no_transforms()).is_ok());
     }
+
+    // first_invalid_first_error; first_invalid_error_identity; first_invalid_complete.
+    #[test]
+    fn generated_first_error_wins_in_state_and_slice_order(
+        states in 1usize..20,
+        owner_seed in any::<usize>(),
+        ordinal in 0usize..3,
+        malformed_source in any::<bool>(),
+        excess in 0u32..1000,
+        snapshot in any::<u64>(),
+    ) {
+        let owner = owner_seed % states;
+        let mut fst = base_wfst(states);
+        for state in 0..states {
+            for arc_index in 0..3 {
+                let label = char::from_u32(0x1000 + (state * 3 + arc_index) as u32).unwrap();
+                fst.add_arc(state as u32, Some(label), Some(label), state as u32,
+                    TropicalWeight::new(1.0));
+            }
+        }
+        let bad_endpoint = states as u32 + excess;
+        let first = &mut fst.state_mut(owner as u32).unwrap().transitions[ordinal];
+        if malformed_source {
+            first.from = bad_endpoint;
+        } else {
+            first.to = bad_endpoint;
+        }
+        if (owner, ordinal) != (states - 1, 2) {
+            fst.state_mut((states - 1) as u32).unwrap().transitions[2].to = states as u32;
+        }
+        let before = format!("{fst:?}");
+        let identity = MinimizeInputIdentity::Snapshot(snapshot);
+        let expected_source = if malformed_source { bad_endpoint } else { owner as u32 };
+        let expected_target = if malformed_source { owner as u32 } else { bad_endpoint };
+        let rejected = matches!(minimize_with_input_identity(&fst, identity, no_transforms()),
+            Err(MinimizeError::InvalidTransition {
+                input_identity, state_count, owner_state, source_state,
+                target_state, transition_index,
+            }) if input_identity == identity && state_count == states &&
+                owner_state == owner as u32 &&
+                source_state == expected_source &&
+                target_state == expected_target &&
+                transition_index == ordinal);
+        prop_assert!(rejected);
+        let estimate_rejected_first = matches!(
+            estimate_reduction_with_epsilon_and_input_identity(&fst, 1e-10, identity),
+            Err(MinimizeError::InvalidTransition {
+                owner_state, transition_index, ..
+            }) if owner_state == owner as u32 && transition_index == ordinal
+        );
+        prop_assert!(estimate_rejected_first);
+        prop_assert_eq!(format!("{fst:?}"), before);
+    }
+
+    // invalid_start_rejected_before_arcs; validate_input_none_iff.
+    #[test]
+    fn generated_invalid_start_precedes_malformed_arc(
+        states in 1usize..20,
+        excess in 0u32..1000,
+        snapshot in any::<u64>(),
+    ) {
+        let mut fst = base_wfst(states);
+        fst.add_arc(0, Some('x'), Some('x'), states as u32,
+            TropicalWeight::new(1.0));
+        let bad_start = states as u32 + excess;
+        let reported = ReportedWfst {
+            inner: fst,
+            reported_start: bad_start,
+            reported_count: states,
+        };
+        let identity = MinimizeInputIdentity::Snapshot(snapshot);
+        let rejected_start_first = matches!(
+            estimate_reduction_with_epsilon_and_input_identity(&reported, 1e-10, identity),
+            Err(MinimizeError::InvalidStartState {
+                input_identity, state_count, start_state,
+            }) if input_identity == identity && state_count == states && start_state == bad_start
+        );
+        prop_assert!(rejected_start_first);
+    }
+
+    // invalid_state_count_rejected_first; validate_input_none_iff.
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn generated_unrepresentable_count_precedes_start_and_arc(
+        excess in 0usize..1000,
+        snapshot in any::<u64>(),
+    ) {
+        let mut fst = base_wfst(1);
+        fst.add_arc(0, Some('x'), Some('x'), 99,
+            TropicalWeight::new(1.0));
+        let reported_count = u32::MAX as usize + 1 + excess;
+        let reported = ReportedWfst {
+            inner: fst,
+            reported_start: 99,
+            reported_count,
+        };
+        let identity = MinimizeInputIdentity::Snapshot(snapshot);
+        let rejected_count_first = matches!(
+            estimate_reduction_with_epsilon_and_input_identity(&reported, 1e-10, identity),
+            Err(MinimizeError::InvalidStateCount {
+                input_identity, state_count,
+            }) if input_identity == identity && state_count == reported_count
+        );
+        prop_assert!(rejected_count_first);
+    }
+
+    // valid_startb's empty-input branch; checked_then_preserves_valid_input.
+    #[test]
+    fn empty_input_with_sentinel_start_is_accepted(snapshot in any::<u64>()) {
+        let fst = base_wfst(0);
+        let identity = MinimizeInputIdentity::Snapshot(snapshot);
+        prop_assert_eq!(
+            minimize_with_input_identity(&fst, identity, no_transforms()).unwrap().num_states(),
+            0,
+        );
+        prop_assert_eq!(
+            estimate_reduction_with_epsilon_and_input_identity(&fst, 1e-10, identity).unwrap(),
+            0,
+        );
+    }
 }
 
 #[derive(Clone)]
