@@ -9,11 +9,12 @@
 use crate::composition::{EpsilonFilter, FilterState};
 use crate::semiring::TropicalWeight;
 use crate::wfst::{StateId, VectorWfst, Wfst, NO_STATE};
+use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::ffi::c_void;
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex, RwLock};
 use vinary_tree_interop::{
     wfst_flags, VtInterfaceId, VtResource, VtResourceVTable, VtStatus, VtUnitDomain,
     VtWeightDomain, VtWfstArc, VtWfstVTable, VT_ABI_VERSION, VT_RECOMMENDED_ARC_BATCH,
@@ -62,7 +63,8 @@ pub enum BindingError {
     WeightDomainMismatch(VtWeightDomain),
     /// A provider callback failed.
     Provider(VtStatus),
-    /// A non-reentrant provider is already serving one callback.
+    /// A serial provider callback re-entered itself, or a nested call would
+    /// wait on another serial provider and could form a callback cycle.
     ConcurrentCall,
     /// A provider returned inconsistent or malformed output.
     InvalidProviderOutput(&'static str),
@@ -94,7 +96,7 @@ impl fmt::Display for BindingError {
             ),
             Self::Provider(status) => write!(formatter, "WFST provider returned {status:?}"),
             Self::ConcurrentCall => {
-                formatter.write_str("non-reentrant WFST provider callback is already active")
+                formatter.write_str("recursive or cyclic serial WFST provider callback")
             }
             Self::InvalidProviderOutput(message) => write!(
                 formatter,
@@ -432,14 +434,115 @@ impl ProductRegistry {
 
 enum ProviderCallGate {
     Parallel,
-    Serial(AtomicBool),
+    Serial(SerialProviderCallGate),
 }
 
-struct ProviderCallLease<'a>(&'a AtomicBool);
+/// Only the admission bit is held across a foreign call. The parking mutex
+/// protects the check-to-sleep handoff, never customer code.
+struct SerialProviderCallGate {
+    active: AtomicBool,
+    waiters: AtomicUsize,
+    parking: Mutex<()>,
+    wake: Condvar,
+}
+
+thread_local! {
+    /// Tracks nested callbacks on this thread so recursion cannot park behind
+    /// itself and cross-provider callback cycles cannot wait on each other.
+    static ACTIVE_SERIAL_GATES: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+}
+
+struct ProviderCallLease<'a> {
+    gate: &'a SerialProviderCallGate,
+    identity: usize,
+    registered: bool,
+}
 
 impl Drop for ProviderCallLease<'_> {
     fn drop(&mut self) {
-        self.0.store(false, Ordering::Release);
+        if self.registered {
+            ACTIVE_SERIAL_GATES.with(|active| {
+                let popped = active.borrow_mut().pop();
+                debug_assert_eq!(popped, Some(self.identity));
+            });
+        }
+        self.gate.active.store(false, Ordering::SeqCst);
+        if self.gate.waiters.load(Ordering::SeqCst) != 0 {
+            // A waiter rechecks `active` while holding `parking` before it
+            // sleeps. Taking that same mutex before notification closes the
+            // release/check-to-sleep lost-wakeup window. It is never held
+            // while invoking the foreign provider.
+            let _parking = self
+                .gate
+                .parking
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            self.gate.wake.notify_one();
+        }
+    }
+}
+
+impl SerialProviderCallGate {
+    fn new() -> Self {
+        Self {
+            active: AtomicBool::new(false),
+            waiters: AtomicUsize::new(0),
+            parking: Mutex::new(()),
+            wake: Condvar::new(),
+        }
+    }
+
+    fn enter(&self) -> Result<ProviderCallLease<'_>, BindingError> {
+        let identity = self as *const Self as usize;
+        let nested = ACTIVE_SERIAL_GATES.with(|active| {
+            let active = active.borrow();
+            if active.contains(&identity) {
+                Err(BindingError::ConcurrentCall)
+            } else {
+                Ok(!active.is_empty())
+            }
+        })?;
+
+        if self
+            .active
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            // A callback may safely enter another idle provider, but cannot
+            // wait for a busy one: two foreign callbacks could otherwise
+            // form an A -> B -> A cross-thread cycle.
+            if nested {
+                return Err(BindingError::ConcurrentCall);
+            }
+            self.waiters.fetch_add(1, Ordering::SeqCst);
+            let mut parking = self
+                .parking
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            loop {
+                if self
+                    .active
+                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_ok()
+                {
+                    break;
+                }
+                parking = self
+                    .wake
+                    .wait(parking)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+            }
+            self.waiters.fetch_sub(1, Ordering::SeqCst);
+        }
+
+        let mut lease = ProviderCallLease {
+            gate: self,
+            identity,
+            registered: false,
+        };
+        ACTIVE_SERIAL_GATES.with(|active| active.borrow_mut().push(identity));
+        lease.registered = true;
+        Ok(lease)
     }
 }
 
@@ -448,7 +551,7 @@ impl ProviderCallGate {
         if flags & wfst_flags::PARALLEL_REENTRANT != 0 {
             Self::Parallel
         } else {
-            Self::Serial(AtomicBool::new(false))
+            Self::Serial(SerialProviderCallGate::new())
         }
     }
 
@@ -458,11 +561,8 @@ impl ProviderCallGate {
     ) -> Result<T, BindingError> {
         match self {
             Self::Parallel => callback(),
-            Self::Serial(active) => {
-                active
-                    .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-                    .map_err(|_| BindingError::ConcurrentCall)?;
-                let _guard = ProviderCallLease(active);
+            Self::Serial(serial) => {
+                let _lease = serial.enter()?;
                 callback()
             }
         }
@@ -1593,7 +1693,7 @@ mod tests {
     }
 
     #[test]
-    fn serial_provider_gate_rejects_overlap_and_recovers() {
+    fn serial_provider_gate_parks_overlap_and_recovers() {
         use std::sync::mpsc;
         use std::time::Duration;
 
@@ -1605,18 +1705,308 @@ mod tests {
             worker_gate.call(|| {
                 entered_tx.send(()).expect("notify active callback");
                 release_rx
-                    .recv_timeout(Duration::from_secs(2))
+                    .recv_timeout(Duration::from_secs(10))
                     .expect("release active callback");
                 Ok(())
             })
         });
         entered_rx
-            .recv_timeout(Duration::from_secs(2))
+            .recv_timeout(Duration::from_secs(10))
             .expect("callback must enter");
-        assert_eq!(gate.call(|| Ok(())), Err(BindingError::ConcurrentCall));
+        let contender_gate = Arc::clone(&gate);
+        let (completed_tx, completed_rx) = mpsc::channel();
+        let contender = std::thread::spawn(move || {
+            completed_tx
+                .send(contender_gate.call(|| Ok(())))
+                .expect("report contender result");
+        });
+        let serial = match gate.as_ref() {
+            ProviderCallGate::Serial(serial) => serial,
+            ProviderCallGate::Parallel => unreachable!("fixture is serial"),
+        };
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while serial.waiters.load(Ordering::SeqCst) == 0 {
+            assert!(std::time::Instant::now() < deadline, "contender must park");
+            std::thread::yield_now();
+        }
+        assert!(completed_rx.try_recv().is_err(), "contender cannot overlap");
+        // Spurious notifications do not admit a waiter while the callback
+        // still owns the atomic bit; it must recheck and sleep again.
+        serial.wake.notify_all();
+        assert!(
+            completed_rx.try_recv().is_err(),
+            "spurious wake cannot admit"
+        );
         release_tx.send(()).expect("release active callback");
         assert_eq!(worker.join().expect("callback thread"), Ok(()));
+        assert_eq!(
+            completed_rx.recv_timeout(Duration::from_secs(10)),
+            Ok(Ok(()))
+        );
+        contender.join().expect("contender thread");
         assert_eq!(gate.call(|| Ok(())), Ok(()));
+    }
+
+    #[test]
+    fn serial_provider_gate_holds_no_parking_mutex_during_callbacks() {
+        let gate = ProviderCallGate::for_flags(0);
+        assert_eq!(
+            gate.call(|| {
+                let ProviderCallGate::Serial(serial) = &gate else {
+                    unreachable!("fixture is serial")
+                };
+                assert!(serial.parking.try_lock().is_ok());
+                Ok(())
+            }),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn serial_provider_gate_recovers_after_callback_panic() {
+        let gate = ProviderCallGate::for_flags(0);
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _: Result<(), BindingError> = gate.call(|| panic!("synthetic provider panic"));
+        }));
+        assert!(outcome.is_err());
+        assert_eq!(gate.call(|| Ok(())), Ok(()));
+    }
+
+    #[test]
+    fn independent_serial_providers_can_run_callbacks_concurrently() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let first = Arc::new(ProviderCallGate::for_flags(0));
+        let second = Arc::new(ProviderCallGate::for_flags(0));
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            first.call(|| {
+                entered_tx.send(()).expect("first provider entered");
+                release_rx
+                    .recv_timeout(Duration::from_secs(10))
+                    .expect("release first provider");
+                Ok(())
+            })
+        });
+        entered_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("first callback must enter");
+        assert_eq!(second.call(|| Ok(())), Ok(()));
+        release_tx.send(()).expect("release first callback");
+        assert_eq!(worker.join().expect("first provider thread"), Ok(()));
+    }
+
+    fn run_cross_provider_cycle(yields: [u8; 2]) -> [Result<(), BindingError>; 2] {
+        use std::sync::{mpsc, Barrier};
+        use std::time::Duration;
+
+        let first = Arc::new(ProviderCallGate::for_flags(0));
+        let second = Arc::new(ProviderCallGate::for_flags(0));
+        let both_entered = Arc::new(Barrier::new(2));
+        let both_attempted = Arc::new(Barrier::new(2));
+        let (done_tx, done_rx) = mpsc::channel();
+        let first_thread = {
+            let first = Arc::clone(&first);
+            let second = Arc::clone(&second);
+            let both_entered = Arc::clone(&both_entered);
+            let both_attempted = Arc::clone(&both_attempted);
+            let done_tx = done_tx.clone();
+            std::thread::spawn(move || {
+                let result = first.call(|| {
+                    both_entered.wait();
+                    // Both independent providers are active simultaneously;
+                    // neither callback is holding the other's parking lock.
+                    let ProviderCallGate::Serial(other) = second.as_ref() else {
+                        unreachable!("fixture is serial")
+                    };
+                    assert!(other.active.load(Ordering::SeqCst));
+                    assert!(other.parking.try_lock().is_ok());
+                    for _ in 0..yields[0] {
+                        std::thread::yield_now();
+                    }
+                    let result = second.call(|| Ok(()));
+                    both_attempted.wait();
+                    result
+                });
+                done_tx.send((0, result)).expect("report first result");
+            })
+        };
+        let second_thread = {
+            let first = Arc::clone(&first);
+            let second = Arc::clone(&second);
+            std::thread::spawn(move || {
+                let result = second.call(|| {
+                    both_entered.wait();
+                    let ProviderCallGate::Serial(other) = first.as_ref() else {
+                        unreachable!("fixture is serial")
+                    };
+                    assert!(other.active.load(Ordering::SeqCst));
+                    assert!(other.parking.try_lock().is_ok());
+                    for _ in 0..yields[1] {
+                        std::thread::yield_now();
+                    }
+                    let result = first.call(|| Ok(()));
+                    both_attempted.wait();
+                    result
+                });
+                done_tx.send((1, result)).expect("report second result");
+            })
+        };
+        let mut results = [None, None];
+        for _ in 0..2 {
+            let (index, result) = done_rx
+                .recv_timeout(Duration::from_secs(10))
+                .expect("nested calls must complete without deadlock");
+            results[index] = Some(result);
+        }
+        first_thread.join().expect("first callback thread");
+        second_thread.join().expect("second callback thread");
+        for gate in [&first, &second] {
+            let ProviderCallGate::Serial(serial) = gate.as_ref() else {
+                unreachable!("fixture is serial")
+            };
+            assert!(!serial.active.load(Ordering::SeqCst));
+            assert_eq!(serial.waiters.load(Ordering::SeqCst), 0);
+        }
+        [results[0].take().unwrap(), results[1].take().unwrap()]
+    }
+
+    #[test]
+    fn nested_cross_provider_cycle_rejects_without_deadlock() {
+        assert_eq!(
+            run_cross_provider_cycle([0, 0]),
+            [
+                Err(BindingError::ConcurrentCall),
+                Err(BindingError::ConcurrentCall),
+            ]
+        );
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::test_runner::Config::with_cases(64))]
+        // INVARIANT-HOOK: LLING-GATE-1 — generated overlap schedules over a
+        // shared serial provider never overlap callbacks or lose a waiter.
+        #[test]
+        fn serial_provider_gate_generated_contention(
+            callers in 2usize..7,
+            rounds in 1usize..12,
+            yield_seed in proptest::collection::vec(0u8..8, 2..7),
+        ) {
+            use std::sync::{mpsc, Barrier};
+            use std::time::Duration;
+
+            let gate = Arc::new(ProviderCallGate::for_flags(0));
+            let start = Arc::new(Barrier::new(callers));
+            let in_callback = Arc::new(AtomicUsize::new(0));
+            let completed = Arc::new(AtomicUsize::new(0));
+            let mut workers = Vec::with_capacity(callers);
+            let (done_tx, done_rx) = mpsc::channel();
+            for caller in 0..callers {
+                let gate = Arc::clone(&gate);
+                let start = Arc::clone(&start);
+                let in_callback = Arc::clone(&in_callback);
+                let completed = Arc::clone(&completed);
+                let done_tx = done_tx.clone();
+                let yields = yield_seed[caller % yield_seed.len()];
+                workers.push(std::thread::spawn(move || {
+                    start.wait();
+                    let result = (|| {
+                        for _ in 0..rounds {
+                            gate.call(|| {
+                                let ProviderCallGate::Serial(serial) = gate.as_ref() else {
+                                    unreachable!("fixture is serial")
+                                };
+                                // ActiveOwnsAdmission and
+                                // RecursionNeverParks hold on every generated
+                                // callback schedule. Another contender may
+                                // briefly own `parking`, so this callback
+                                // must not assert that try_lock succeeds.
+                                assert!(serial.active.load(Ordering::SeqCst));
+                                assert_eq!(gate.call(|| Ok(())), Err(BindingError::ConcurrentCall));
+                                assert_eq!(in_callback.fetch_add(1, Ordering::SeqCst), 0);
+                                if yields % 2 == 1 {
+                                    serial.wake.notify_all();
+                                }
+                                for _ in 0..yields {
+                                    std::thread::yield_now();
+                                }
+                                completed.fetch_add(1, Ordering::SeqCst);
+                                assert_eq!(in_callback.fetch_sub(1, Ordering::SeqCst), 1);
+                                Ok(())
+                            })?;
+                        }
+                        Ok::<_, BindingError>(())
+                    })();
+                    done_tx.send(result).expect("report generated caller");
+                }));
+            }
+            drop(done_tx);
+            for _ in 0..callers {
+                proptest::prop_assert_eq!(
+                    done_rx.recv_timeout(Duration::from_secs(10)),
+                    Ok(Ok(()))
+                );
+            }
+            for worker in workers {
+                proptest::prop_assert!(worker.join().is_ok());
+            }
+            proptest::prop_assert_eq!(in_callback.load(Ordering::SeqCst), 0);
+            proptest::prop_assert_eq!(completed.load(Ordering::SeqCst), callers * rounds);
+            let ProviderCallGate::Serial(serial) = gate.as_ref() else {
+                unreachable!("fixture is serial")
+            };
+            proptest::prop_assert_eq!(serial.waiters.load(Ordering::SeqCst), 0);
+            proptest::prop_assert!(!serial.active.load(Ordering::SeqCst));
+            proptest::prop_assert!(serial.parking.try_lock().is_ok());
+        }
+
+        // The callback's own thread never holds the parking mutex. Running
+        // without other contenders makes ownership observable via try_lock;
+        // under contention a *different* waiter may legitimately hold it.
+        #[test]
+        fn serial_provider_gate_generated_uncontended_callbacks(
+            rounds in 1usize..30,
+            yields in 0u8..8,
+        ) {
+            let gate = ProviderCallGate::for_flags(0);
+            let ProviderCallGate::Serial(serial) = &gate else {
+                unreachable!("fixture is serial")
+            };
+            for _ in 0..rounds {
+                proptest::prop_assert_eq!(
+                    gate.call(|| {
+                        assert!(serial.active.load(Ordering::SeqCst));
+                        assert!(serial.parking.try_lock().is_ok());
+                        assert_eq!(gate.call(|| Ok(())), Err(BindingError::ConcurrentCall));
+                        for _ in 0..yields {
+                            std::thread::yield_now();
+                        }
+                        Ok(())
+                    }),
+                    Ok(())
+                );
+            }
+            proptest::prop_assert!(!serial.active.load(Ordering::SeqCst));
+            proptest::prop_assert_eq!(serial.waiters.load(Ordering::SeqCst), 0);
+        }
+
+        // INVARIANT-HOOK: LLING-GATE-7..8 — generated schedules witness
+        // independent overlap and nested-cycle rejection before parking.
+        #[test]
+        fn serial_provider_gate_generated_two_provider_protocol(
+            left_yields in 0u8..8,
+            right_yields in 0u8..8,
+        ) {
+            proptest::prop_assert_eq!(
+                run_cross_provider_cycle([left_yields, right_yields]),
+                [
+                    Err(BindingError::ConcurrentCall),
+                    Err(BindingError::ConcurrentCall),
+                ]
+            );
+        }
     }
 
     struct FailedStateProvider(VtStatus);

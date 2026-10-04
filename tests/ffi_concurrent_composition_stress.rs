@@ -24,6 +24,13 @@
 //! - `// INVARIANT-HOOK: LLING-GATE-1` — serial (non-PARALLEL_REENTRANT)
 //!   providers are safely serialized by the per-captured-provider call gate
 //!   even under concurrent product traversal (no deadlock, identical views).
+//! - `// INVARIANT-HOOK: LLING-GATE-3..6` — registration/wakeup, recursive
+//!   rejection, unlocked customer callbacks, and waiter accounting are
+//!   checked by the turnstile model and the generated gate-state tests.
+//! - `// INVARIANT-HOOK: LLING-GATE-7..8` — nested callback cycles reject
+//!   without parking while independent captured providers may overlap.
+//! - `// INVARIANT-HOOK: LLING-GATE-9..11` — generated schedules check the
+//!   admission state domain, active ownership, and parking ownership.
 //! - `// INVARIANT-HOOK: LLING-GATE-2` — PARALLEL_REENTRANT providers run
 //!   gate-free with genuinely concurrent callbacks and identical results.
 //! - `// INVARIANT-HOOK: LLING-COMP-1` — the concurrently traversed product
