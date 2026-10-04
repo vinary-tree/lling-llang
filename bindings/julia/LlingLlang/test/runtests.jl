@@ -32,6 +32,383 @@ function scalar_chain(::Type{L}, ::Type{W}, label, arc_weight, final_weight;
     build!(builder)
 end
 
+@testset "snapshot-pinned bounded path traversal" begin
+    @test sizeof(LlingLlang.RawPathConfig) == 56
+    @test sizeof(LlingLlang.RawPathStep) == 48
+    @test_throws ArgumentError PathLimits(max_states=0)
+    @test_throws ArgumentError PathLimits(max_work=-1)
+    @test_throws ArgumentError PathLimits(work_per_call=true)
+
+    builder = WfstBuilder{UInt8,TropicalWeight}(size_hint=2)
+    root = add_state!(builder)
+    terminal = add_state!(builder)
+    set_start!(builder, root)
+    set_final!(builder, root, TropicalWeight(0))
+    set_final!(builder, terminal, TropicalWeight(3))
+    add_arc!(builder, root, UInt8('a'), UInt8('A'), terminal,
+        TropicalWeight(2))
+    graph = build!(builder)
+
+    iterator = paths(graph; limits=PathLimits(max_states=2, max_arcs=1,
+        max_depth=1, max_paths=3, work_per_call=1))
+    close(graph)
+    found = collect(iterator)
+    @test length(found) == 2
+    @test isempty(found[1].steps)
+    @test found[1].weight == TropicalWeight(0)
+    @test length(found[2].steps) == 1
+    @test found[2].steps[1].input == UInt8('a')
+    @test found[2].steps[1].output == UInt8('A')
+    @test found[2].weight == TropicalWeight(5)
+    @test !isopen(iterator)
+
+    graph = scalar_chain(UInt8, TropicalWeight, UInt8('b'),
+        TropicalWeight(2), TropicalWeight(3))
+    sliced = paths(graph; limits=PathLimits(max_states=2, max_arcs=1,
+        max_depth=1, max_paths=2, work_per_call=1))
+    @test poll_path!(sliced) isa PathPending
+    @test only(collect(sliced)).weight == TropicalWeight(5)
+    @test poll_path!(sliced) === nothing
+    @test only(collect(paths(graph; limits=PathLimits(max_states=2,
+        max_arcs=1, max_depth=1, max_paths=2,
+        work_per_call=1)))).weight == TropicalWeight(5)
+    @test reduce_paths((count, _) -> count + 1, 0, graph;
+        limits=PathLimits(max_states=2, max_arcs=1, max_depth=1,
+            max_paths=2, work_per_call=1)) == 1
+    @test_throws PathTruncatedError collect(paths(graph;
+        limits=PathLimits(max_states=2, max_arcs=1, max_depth=0,
+            max_paths=2)))
+    @test_throws PathTruncatedError collect(paths(graph;
+        limits=PathLimits(max_states=2, max_arcs=1, max_depth=1,
+            max_paths=1)))
+    @test_throws NativeError collect(paths(graph;
+        limits=PathLimits(max_states=1, max_arcs=1, max_depth=1,
+            max_paths=2)))
+
+    overflowing = scalar_chain(UInt8, TropicalWeight, UInt8('z'),
+        TropicalWeight(floatmax(Float64)), TropicalWeight(floatmax(Float64)))
+    @test_throws NativeError collect(paths(overflowing;
+        limits=PathLimits(max_states=2, max_arcs=1, max_depth=1,
+            max_paths=2)))
+    close(overflowing)
+
+    cancellation = CancellationV2()
+    iterator = paths(graph; cancellation)
+    request!(cancellation, LlingLlang.CANCELLATION_REQUESTED_V2)
+    @test_throws PathCancelledError collect(iterator)
+    @test !isopen(iterator)
+    close(cancellation)
+    close(graph)
+end
+
+@testset "bounded resumable reachable-graph capture" begin
+    @test sizeof(LlingLlang.RawGraphConfig) == 40
+    @test sizeof(LlingLlang.RawGraphArc) == 48
+    @test_throws ArgumentError GraphLimits(max_states=0)
+    @test_throws ArgumentError GraphLimits(work_per_call=false)
+
+    graph = scalar_chain(UInt8, TropicalWeight, UInt8('a'),
+        TropicalWeight(2), TropicalWeight(3))
+    cursor = capture_graph(graph; limits=GraphLimits(max_states=2,
+        max_arcs=1, max_work=4, work_per_call=1))
+    close(graph)
+    @test poll_graph!(cursor) isa GraphPending
+    snapshot = nothing
+    while isnothing(snapshot)
+        result = poll_graph!(cursor)
+        if !(result isa GraphPending)
+            snapshot = result
+        end
+    end
+    @test snapshot isa GraphSnapshot
+    @test !isopen(cursor)
+    @test graph_info(snapshot) == (start_raw=UInt64(0),
+        states=Csize_t(2), arcs=Csize_t(1))
+    first = graph_state(snapshot, 0)
+    second = graph_state(snapshot, 1)
+    @test first.raw_id == 0
+    @test !first.final
+    @test length(first.arcs) == 1
+    @test first.arcs[1].input == UInt8('a')
+    @test first.arcs[1].target_local == 1
+    @test first.arcs[1].target_raw == 1
+    @test isempty(second.arcs)
+    @test second.final_weight == TropicalWeight(3)
+    close(snapshot)
+    @test !isopen(snapshot)
+
+    graph = scalar_chain(UInt8, TropicalWeight, UInt8('b'),
+        TropicalWeight(1), TropicalWeight(2))
+    full = complete_graph(graph; limits=GraphLimits(max_states=2,
+        max_arcs=1, max_work=4, work_per_call=1))
+    @test graph_info(full).states == 2
+    close(full)
+    @test_throws NativeError complete_graph(graph;
+        limits=GraphLimits(max_states=2, max_arcs=0,
+            max_work=4, work_per_call=1))
+    cancellation = CancellationV2()
+    cursor = capture_graph(graph; cancellation)
+    request!(cancellation, LlingLlang.CANCELLATION_REQUESTED_V2)
+    @test_throws GraphCancelledError poll_graph!(cursor)
+    @test !isopen(cursor)
+    close(cancellation)
+    close(graph)
+end
+
+@testset "bounded exact native graph distances" begin
+    @test sizeof(LlingLlang.RawDistanceConfig) == 24
+    @test_throws ArgumentError DistanceLimits(max_work=0)
+    @test_throws ArgumentError DistanceLimits(work_per_call=false)
+
+    for (Weight, first_weight, final_weight, expected) in [
+        (TropicalWeight, TropicalWeight(2), TropicalWeight(3), TropicalWeight(5)),
+        (LogWeight, LogWeight(2), LogWeight(3), LogWeight(5)),
+        (ProbabilityWeight, ProbabilityWeight(0.4), ProbabilityWeight(0.5),
+            ProbabilityWeight(0.2)),
+        (ArcticWeight, ArcticWeight(2), ArcticWeight(3), ArcticWeight(5)),
+        (SignedTropicalWeight, SignedTropicalWeight(-2), SignedTropicalWeight(3),
+            SignedTropicalWeight(1)),
+        (CountWeight, CountWeight(2), CountWeight(3), CountWeight(6)),
+        (BooleanWeight, BooleanWeight(true), BooleanWeight(true), BooleanWeight(true)),
+    ]
+        source = scalar_chain(UInt8, Weight, UInt8('d'), first_weight, final_weight)
+        graph = complete_graph(source; limits=GraphLimits(max_states=2,
+            max_arcs=1, max_work=4, work_per_call=1))
+        close(source)
+        cursor = analyze_distances(graph; limits=DistanceLimits(
+            max_work=30, work_per_call=1))
+        close(graph)
+        @test poll_distance!(cursor) isa DistancePending
+        result = nothing
+        while isnothing(result)
+            polled = poll_distance!(cursor)
+            if !(polled isa DistancePending)
+                result = polled
+            end
+        end
+        @test result isa DistanceResult
+        @test !isopen(cursor)
+        @test distance_info(result) == (total=expected, states=Csize_t(2))
+        page = distance_page(result, 0; capacity=1)
+        @test page.total == 2
+        @test length(page.forward) == 1
+        @test page.forward[1] == one(Weight)
+        @test length(page.backward) == 1
+        @test page.backward[1] == expected
+        @test distance_page(result, 1).backward == [final_weight]
+        if Weight in (LogWeight, ProbabilityWeight, CountWeight)
+            @test isapprox(only(posterior_arcs(result, 0).probabilities), 1.0;
+                atol=1e-12)
+            @test isapprox(posterior_final(result, 1), 1.0; atol=1e-12)
+            @test posterior_final(result, 0) == 0.0
+        else
+            @test_throws NativeError posterior_arcs(result, 0)
+        end
+        close(result)
+        @test !isopen(result)
+    end
+
+    source = scalar_chain(UInt8, TropicalWeight, UInt8('w'),
+        TropicalWeight(1), TropicalWeight(1))
+    graph = complete_graph(source)
+    @test_throws NativeError complete_distances(graph;
+        limits=DistanceLimits(max_work=1, work_per_call=1))
+    cancellation = CancellationV2()
+    cursor = analyze_distances(graph; cancellation)
+    request!(cancellation, LlingLlang.CANCELLATION_REQUESTED_V2)
+    @test_throws DistanceCancelledError poll_distance!(cursor)
+    @test !isopen(cursor)
+    close(cancellation)
+    close(graph)
+    close(source)
+end
+
+@testset "bounded best-first accepting paths" begin
+    @test sizeof(LlingLlang.RawRankedPathConfig) == 48
+    @test_throws ArgumentError RankedPathLimits(max_work=0)
+    @test_throws ArgumentError RankedPathLimits(max_frontier=0)
+
+    for (Weight, first_weight, final_weight, expected) in [
+        (TropicalWeight, TropicalWeight(2), TropicalWeight(3), TropicalWeight(5)),
+        (LogWeight, LogWeight(2), LogWeight(3), LogWeight(5)),
+        (ProbabilityWeight, ProbabilityWeight(0.4), ProbabilityWeight(0.5),
+            ProbabilityWeight(0.2)),
+        (ArcticWeight, ArcticWeight(2), ArcticWeight(3), ArcticWeight(5)),
+        (SignedTropicalWeight, SignedTropicalWeight(-2), SignedTropicalWeight(3),
+            SignedTropicalWeight(1)),
+        (CountWeight, CountWeight(2), CountWeight(3), CountWeight(6)),
+        (BooleanWeight, BooleanWeight(true), BooleanWeight(true),
+            BooleanWeight(true)),
+    ]
+        source = scalar_chain(UInt8, Weight, UInt8('r'), first_weight, final_weight)
+        graph = complete_graph(source)
+        close(source)
+        iterator = ranked_paths(graph; limits=RankedPathLimits(work_per_call=1))
+        close(graph)
+        @test poll_ranked_path!(iterator) isa RankedPathPending
+        paths_found = collect(iterator)
+        @test length(paths_found) == 1
+        @test only(paths_found).weight == expected
+        @test only(paths_found).steps[1].input == UInt8('r')
+        @test !isopen(iterator)
+    end
+
+    source = scalar_chain(UInt8, TropicalWeight, UInt8('s'),
+        TropicalWeight(1), TropicalWeight(2))
+    graph = complete_graph(source)
+    @test reduce_ranked_paths((n, _) -> n + 1, 0, graph) == 1
+    @test best_path(graph).weight == TropicalWeight(3)
+    @test only(k_best_paths(graph, 1)).weight == TropicalWeight(3)
+    @test only(n_best_paths(graph, 2)).weight == TropicalWeight(3)
+    @test isempty(k_best_paths(graph, 0))
+    @test_throws ArgumentError k_best_paths(graph, 2;
+        limits=RankedPathLimits(max_paths=1))
+    @test_throws PathTruncatedError collect(ranked_paths(graph;
+        limits=RankedPathLimits(max_depth=0)))
+    @test_throws PathTruncatedError collect(ranked_paths(graph;
+        limits=RankedPathLimits(max_paths=0)))
+    @test_throws NativeError collect(ranked_paths(graph;
+        limits=RankedPathLimits(max_work=1, work_per_call=1)))
+    cancellation = CancellationV2()
+    iterator = ranked_paths(graph; cancellation)
+    request!(cancellation, LlingLlang.CANCELLATION_REQUESTED_V2)
+    @test_throws PathCancelledError collect(iterator)
+    @test !isopen(iterator)
+    close(cancellation)
+    close(graph)
+    close(source)
+end
+
+@testset "exact cost-window path pruning" begin
+    builder = WfstBuilder{UInt8,TropicalWeight}(size_hint=5)
+    start = add_state!(builder)
+    destinations = [add_state!(builder) for _ in 1:4]
+    set_start!(builder, start)
+    for (index, destination) in enumerate(destinations)
+        set_final!(builder, destination, TropicalWeight(0))
+        label = UInt8('a') + UInt8(index - 1)
+        add_arc!(builder, start, label, label, destination,
+            TropicalWeight((1, 2, 2, 4)[index]))
+    end
+    source = build!(builder)
+    graph = complete_graph(source)
+    close(source)
+    @test_throws ArgumentError cost_pruned_paths(graph; beam=-1)
+    @test_throws ArgumentError cost_pruned_paths(graph; beam=Inf)
+    @test_throws ArgumentError cost_pruned_paths(graph; beam=NaN)
+    @test [only(path.steps).input for path in collect(
+        cost_pruned_paths(graph; beam=0))] == [UInt8('a')]
+    @test reduce_cost_pruned_paths((n, _) -> n + 1, 0, graph;
+        beam=1) == 3
+    @test_throws PathTruncatedError collect(cost_pruned_paths(graph;
+        beam=10, limits=RankedPathLimits(max_paths=1)))
+    cancellation = CancellationV2()
+    cancelled = cost_pruned_paths(graph; beam=10, cancellation)
+    request!(cancellation, LlingLlang.CANCELLATION_REQUESTED_V2)
+    @test_throws PathCancelledError collect(cancelled)
+    @test !isopen(cancelled)
+    close(cancellation)
+    cursor = cost_pruned_paths(graph; beam=1,
+        limits=RankedPathLimits(work_per_call=1))
+    close(graph)
+    @test poll_cost_pruned_path!(cursor) isa RankedPathPending
+    @test [only(path.steps).input for path in collect(cursor)] ==
+        [UInt8('a'), UInt8('b'), UInt8('c')]
+    @test !isopen(cursor)
+    @test poll_cost_pruned_path!(cursor) === nothing
+
+    builder = WfstBuilder{UInt8,ProbabilityWeight}(size_hint=4)
+    start = add_state!(builder)
+    for (index, mass) in enumerate((0.5, 0.25, 0.125))
+        destination = add_state!(builder)
+        set_final!(builder, destination, ProbabilityWeight(1))
+        label = UInt8('p') + UInt8(index - 1)
+        add_arc!(builder, start, label, label, destination,
+            ProbabilityWeight(mass))
+    end
+    set_start!(builder, start)
+    source = build!(builder)
+    graph = complete_graph(source)
+    close(source)
+    @test [path.weight for path in collect(cost_pruned_paths(graph;
+        beam=0.7))] == [ProbabilityWeight(0.5), ProbabilityWeight(0.25)]
+    close(graph)
+end
+
+@testset "seeded bounded accepting-path sampling" begin
+    @test sizeof(LlingLlang.RawSamplePathConfig) == 56
+    @test_throws ArgumentError SamplePathLimits(max_samples=0)
+    @test_throws ArgumentError SamplePathLimits(strategy=:unknown)
+    @test_throws ArgumentError SamplePathLimits(seed=-1)
+
+    for (Weight, arc_weight, final_weight, expected) in [
+        (TropicalWeight, TropicalWeight(2), TropicalWeight(3), TropicalWeight(5)),
+        (LogWeight, LogWeight(2), LogWeight(3), LogWeight(5)),
+        (ProbabilityWeight, ProbabilityWeight(0.4), ProbabilityWeight(0.5),
+            ProbabilityWeight(0.2)),
+        (ArcticWeight, ArcticWeight(2), ArcticWeight(3), ArcticWeight(5)),
+        (SignedTropicalWeight, SignedTropicalWeight(-2), SignedTropicalWeight(3),
+            SignedTropicalWeight(1)),
+        (CountWeight, CountWeight(2), CountWeight(3), CountWeight(6)),
+        (BooleanWeight, BooleanWeight(true), BooleanWeight(true), BooleanWeight(true)),
+    ]
+        source = scalar_chain(UInt8, Weight, UInt8('m'), arc_weight, final_weight)
+        graph = complete_graph(source)
+        close(source)
+        iterator = sample_paths(graph; limits=SamplePathLimits(
+            max_samples=1, work_per_call=1, seed=42))
+        close(graph)
+        @test poll_sample_path!(iterator) isa SamplePathPending
+        sampled = nothing
+        while isnothing(sampled)
+            result = poll_sample_path!(iterator)
+            result isa SamplePathPending || (sampled = result)
+        end
+        @test sampled.steps[1].input == UInt8('m')
+        @test sampled.weight == expected
+        @test_throws PathTruncatedError poll_sample_path!(iterator)
+        @test !isopen(iterator)
+    end
+
+    builder = WfstBuilder{UInt8,ProbabilityWeight}(size_hint=3)
+    start = add_state!(builder)
+    left = add_state!(builder)
+    right = add_state!(builder)
+    set_start!(builder, start)
+    set_final!(builder, left, ProbabilityWeight(1))
+    set_final!(builder, right, ProbabilityWeight(1))
+    add_arc!(builder, start, UInt8('a'), UInt8('a'), left,
+        ProbabilityWeight(0.25))
+    add_arc!(builder, start, UInt8('b'), UInt8('b'), right,
+        ProbabilityWeight(0.75))
+    source = build!(builder)
+    graph = complete_graph(source)
+    close(source)
+    limits = SamplePathLimits(max_samples=40, strategy=:proportional, seed=123,
+        work_per_call=1)
+    a = sample_n_paths(graph, 40; limits)
+    b = sample_n_paths(graph, 40; limits)
+    @test [only(path.steps).input for path in a] ==
+        [only(path.steps).input for path in b]
+    @test count(path -> only(path.steps).input == UInt8('b'), a) > 20
+    @test sample_path(graph; limits).steps[1].input == a[1].steps[1].input
+    @test reduce_sampled_paths((n, _) -> n + 1, 0, graph, 5; limits) == 5
+    @test isempty(sample_n_paths(graph, 0; limits))
+    @test reduce_sampled_paths((n, _) -> n + 1, 0, graph, 0; limits) == 0
+    @test_throws ArgumentError sample_n_paths(graph, 41; limits)
+    @test_throws NativeError sample_n_paths(graph, 1;
+        limits=SamplePathLimits(max_work=1, work_per_call=1))
+    @test_throws PathTruncatedError sample_n_paths(graph, 1;
+        limits=SamplePathLimits(max_depth=0))
+    cancellation = CancellationV2()
+    cursor = sample_paths(graph; cancellation)
+    request!(cancellation, LlingLlang.CANCELLATION_REQUESTED_V2)
+    @test_throws PathCancelledError poll_sample_path!(cursor)
+    @test !isopen(cursor)
+    close(cancellation)
+    close(graph)
+end
+
 @testset "typed ABI-v2 metadata and cancellation" begin
     @test sizeof(AbiV2Header) == 24
     @test sizeof(Id128) == 16

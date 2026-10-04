@@ -79,6 +79,63 @@ universal lattice laws. Julia handles are same-thread consumers; the Rust
 adapter uses fail-fast atomic admission and does not hold a mutex while host
 code executes.
 
+## Bounded accepting-path traversal
+
+`paths(graph; limits=PathLimits(...))` creates a lazy Julia iterator backed by
+one native cursor and one captured immutable WFST snapshot. It works for
+providers whose state count is unknown and visits arcs in insertion order by
+an iterative depth-first walk. `WfstPath` and `WfstPathStep` retain concrete
+label and weight types; a yielded path remains valid after the cursor closes.
+
+The limits bound distinct expanded states, aggregate arcs, depth, emitted
+paths, total work, and work per call. Normal exhaustion is exact. Reaching the
+depth or path-count bound raises `PathTruncatedError`; cancellation raises
+`PathCancelledError`; other resource-budget exhaustion raises `NativeError`
+with `STATUS_LIMIT_EXCEEDED`. In this path cursor, a computed finite weight
+that overflows or a positive probability that underflows to zero also fails
+explicitly; the existing scalar-composition and native semiring conventions
+are unchanged. `poll_path!` advances one native work slice and returns
+a path, `PathPending`, or `nothing` for exact exhaustion. Ordinary Julia
+iteration repeats pending polls internally; one provider state expansion may
+still read up to the cursor's remaining aggregate arc budget. Close a cursor
+when stopping early, or use
+`reduce_paths` for a fold that closes it on every exit path. The
+[package guide](https://github.com/vinary-tree/lling-llang/tree/master/bindings/julia/LlingLlang#traverse-accepting-paths-with-explicit-bounds)
+contains a runnable example and the ownership rules. This traversal is not
+weight-ranked n-best search or random sampling.
+
+## Bounded reachable-graph capture
+
+`capture_graph` snapshots a scalar WFST once and incrementally discovers its
+reachable graph without calling `num_states`. Each `poll_graph!` consumes at
+most `GraphLimits.work_per_call` provider callbacks, with at most 256 arcs in
+one page. `GraphPending` means more work remains; only a complete poll yields
+an independently owned `GraphSnapshot`. Use `graph_info`, `graph_state`, and
+`graph_arcs` to inspect its stable breadth-first local IDs and original
+provider IDs. Cancellation and exhausted budgets fail explicitly without
+returning a partial graph as exact. `complete_graph` is the convenience loop;
+close its result when finished. See the [package guide](https://github.com/vinary-tree/lling-llang/tree/master/bindings/julia/LlingLlang#capture-a-complete-reachable-graph-under-explicit-limits)
+for a runnable example and ownership details. A complete capture is a
+foundation for global path analysis, not itself a shortest-path algorithm.
+
+## Exact forward/backward distance analysis
+
+`analyze_distances` retains a complete `GraphSnapshot` independently and
+advances the native semiring-distance machine by at most
+`DistanceLimits.work_per_call` vertex/edge transitions per `poll_distance!`.
+Only a complete poll yields a `DistanceResult`; inspect its total with
+`distance_info` and its state vectors in pages with `distance_page`. Acyclic
+graphs support all seven scalar domains. Cyclic tropical, signed-tropical,
+arctic, and Boolean distances are exact when they converge; improving cycles
+report `STATUS_NON_CONVERGENT`. Cyclic probability/log/count sums report
+`STATUS_UNSUPPORTED` until a proven convergent solver is available. Work,
+numeric, cancellation, and unsupported failures never return a partial answer
+as exact. Close the result when finished. See the [package guide](https://github.com/vinary-tree/lling-llang/tree/master/bindings/julia/LlingLlang#compute-exact-forward-and-backward-distances)
+for a runnable example and explicit ownership sequence.
+For probability/log/count graphs with nonzero accepting-path mass,
+`posterior_arcs` and `posterior_final` expose paged arc and final-state
+posterior probabilities from that same exact graph/result pair.
+
 ## Public API
 
 ```@autodocs

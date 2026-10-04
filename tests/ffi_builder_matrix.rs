@@ -137,9 +137,9 @@ unsafe fn state_info(resource: VtResource, state: u64) -> (u8, u8, f64) {
 #[test]
 fn abi_version_and_api_revision_are_pinned() {
     assert_eq!(lling_abi_version(), 1);
-    assert_eq!(lling_llang_api_revision(), 11);
+    assert_eq!(lling_llang_api_revision(), 12);
     assert_eq!(LLING_ABI_VERSION, 1);
-    assert_eq!(LLING_LLANG_API_REVISION, 11);
+    assert_eq!(LLING_LLANG_API_REVISION, 12);
 }
 
 #[test]
@@ -156,6 +156,8 @@ fn status_discriminants_are_pinned() {
             LlingLlangStatus::ProviderError => 5,
             LlingLlangStatus::LimitExceeded => 6,
             LlingLlangStatus::Closed => 7,
+            LlingLlangStatus::NonConvergent => 8,
+            LlingLlangStatus::Unsupported => 9,
         }
     }
     for status in [
@@ -167,6 +169,8 @@ fn status_discriminants_are_pinned() {
         LlingLlangStatus::ProviderError,
         LlingLlangStatus::LimitExceeded,
         LlingLlangStatus::Closed,
+        LlingLlangStatus::NonConvergent,
+        LlingLlangStatus::Unsupported,
     ] {
         assert_eq!(pinned(status), status as u32);
     }

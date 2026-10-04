@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 11u
+#define LLING_LLANG_API_REVISION 12u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -48,7 +48,9 @@ typedef enum LlingLlangStatus {
     LLING_STATUS_INCOMPATIBLE_RESOURCE = 4,
     LLING_STATUS_PROVIDER_ERROR = 5,
     LLING_STATUS_LIMIT_EXCEEDED = 6,
-    LLING_STATUS_CLOSED = 7
+    LLING_STATUS_CLOSED = 7,
+    LLING_STATUS_NON_CONVERGENT = 8,
+    LLING_STATUS_UNSUPPORTED = 9
 } LlingLlangStatus;
 
 typedef struct LlingWfstBuilder LlingWfstBuilder;
@@ -57,6 +59,106 @@ typedef struct LlingSemiring LlingSemiring;
 typedef struct LlingSemiringWeight LlingSemiringWeight;
 typedef struct LlingLatticeValue LlingLatticeValue;
 typedef struct LlingCancellationV2 LlingCancellationV2;
+typedef struct LlingPathCursor LlingPathCursor;
+typedef struct LlingPath LlingPath;
+typedef struct LlingGraphCursor LlingGraphCursor;
+typedef struct LlingGraph LlingGraph;
+typedef struct LlingGraphDistanceCursor LlingGraphDistanceCursor;
+typedef struct LlingGraphDistances LlingGraphDistances;
+typedef struct LlingRankedPathCursor LlingRankedPathCursor;
+typedef struct LlingSamplePathCursor LlingSamplePathCursor;
+
+/* Revision 8: each path walk owns a captured snapshot and explicit bounds. */
+typedef struct LlingPathConfig {
+    uint32_t struct_size;
+    uint32_t version;
+    uint64_t max_states;
+    uint64_t max_arcs;
+    uint64_t max_work;
+    uint64_t work_per_call;
+    uint64_t max_depth;
+    uint64_t max_paths;
+} LlingPathConfig;
+
+typedef struct LlingPathStep {
+    uint64_t from_state;
+    VtWfstArc arc;
+} LlingPathStep;
+
+#define LLING_PATH_POLL_PATH 1u
+#define LLING_PATH_POLL_PENDING 2u
+#define LLING_PATH_POLL_EXHAUSTED 3u
+#define LLING_PATH_POLL_TRUNCATED 4u
+#define LLING_PATH_POLL_CANCELLED 5u
+
+/* Revision 9: resumable capture of all reachable states, without num_states. */
+typedef struct LlingGraphConfig {
+    uint32_t struct_size;
+    uint32_t version;
+    uint64_t max_states;
+    uint64_t max_arcs;
+    uint64_t max_work;
+    uint64_t work_per_call;
+} LlingGraphConfig;
+
+typedef struct LlingGraphArc {
+    uint64_t target_local;
+    VtWfstArc arc;
+} LlingGraphArc;
+
+#define LLING_GRAPH_POLL_PENDING 1u
+#define LLING_GRAPH_POLL_COMPLETE 2u
+#define LLING_GRAPH_POLL_CANCELLED 3u
+
+/* Revision 10: exact, bounded and resumable graph-distance analysis. */
+typedef struct LlingGraphDistanceConfig {
+    uint32_t struct_size;
+    uint32_t version;
+    uint64_t max_work;
+    uint64_t work_per_call;
+} LlingGraphDistanceConfig;
+
+#define LLING_DISTANCE_POLL_PENDING 1u
+#define LLING_DISTANCE_POLL_COMPLETE 2u
+#define LLING_DISTANCE_POLL_CANCELLED 3u
+
+/* Revision 11: bounded best-first enumeration over a complete graph. */
+typedef struct LlingRankedPathConfig {
+    uint32_t struct_size;
+    uint32_t version;
+    uint64_t max_work;
+    uint64_t work_per_call;
+    uint64_t max_depth;
+    uint64_t max_paths;
+    uint64_t max_frontier;
+} LlingRankedPathConfig;
+
+#define LLING_RANKED_POLL_PATH 1u
+#define LLING_RANKED_POLL_PENDING 2u
+#define LLING_RANKED_POLL_EXHAUSTED 3u
+#define LLING_RANKED_POLL_TRUNCATED 4u
+#define LLING_RANKED_POLL_CANCELLED 5u
+
+/* Revision 12: seeded, bounded accepting-path draws. */
+typedef struct LlingSamplePathConfig {
+    uint32_t struct_size;
+    uint32_t version;
+    uint64_t max_work;
+    uint64_t work_per_call;
+    uint64_t max_depth;
+    uint64_t max_samples;
+    uint32_t strategy;
+    uint32_t reserved;
+    uint64_t seed;
+} LlingSamplePathConfig;
+
+#define LLING_SAMPLE_UNIFORM 1u
+#define LLING_SAMPLE_PROPORTIONAL 2u
+#define LLING_SAMPLE_POLL_PATH 1u
+#define LLING_SAMPLE_POLL_PENDING 2u
+#define LLING_SAMPLE_POLL_EXHAUSTED 3u
+#define LLING_SAMPLE_POLL_TRUNCATED 4u
+#define LLING_SAMPLE_POLL_CANCELLED 5u
 
 typedef struct LlingAbiV2Header {
     uint32_t struct_size;
@@ -155,6 +257,13 @@ static_assert(alignof(LlingDigest256) == 1, "LlingDigest256 alignment drift");
 static_assert(sizeof(LlingWfstDescriptorV2) == 120, "LlingWfstDescriptorV2 layout drift");
 static_assert(sizeof(LlingBudgetV2) == 72, "LlingBudgetV2 layout drift");
 static_assert(sizeof(LlingOutcomeV2) == 96, "LlingOutcomeV2 layout drift");
+static_assert(sizeof(LlingPathConfig) == 56, "LlingPathConfig layout drift");
+static_assert(sizeof(LlingPathStep) == 48, "LlingPathStep layout drift");
+static_assert(sizeof(LlingGraphConfig) == 40, "LlingGraphConfig layout drift");
+static_assert(sizeof(LlingGraphArc) == 48, "LlingGraphArc layout drift");
+static_assert(sizeof(LlingGraphDistanceConfig) == 24, "LlingGraphDistanceConfig layout drift");
+static_assert(sizeof(LlingRankedPathConfig) == 48, "LlingRankedPathConfig layout drift");
+static_assert(sizeof(LlingSamplePathConfig) == 56, "LlingSamplePathConfig layout drift");
 #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 _Static_assert(sizeof(LlingAbiV2Header) == 24, "LlingAbiV2Header layout drift");
 _Static_assert(sizeof(LlingId128) == 16, "LlingId128 layout drift");
@@ -164,6 +273,13 @@ _Static_assert(_Alignof(LlingDigest256) == 1, "LlingDigest256 alignment drift");
 _Static_assert(sizeof(LlingWfstDescriptorV2) == 120, "LlingWfstDescriptorV2 layout drift");
 _Static_assert(sizeof(LlingBudgetV2) == 72, "LlingBudgetV2 layout drift");
 _Static_assert(sizeof(LlingOutcomeV2) == 96, "LlingOutcomeV2 layout drift");
+_Static_assert(sizeof(LlingPathConfig) == 56, "LlingPathConfig layout drift");
+_Static_assert(sizeof(LlingPathStep) == 48, "LlingPathStep layout drift");
+_Static_assert(sizeof(LlingGraphConfig) == 40, "LlingGraphConfig layout drift");
+_Static_assert(sizeof(LlingGraphArc) == 48, "LlingGraphArc layout drift");
+_Static_assert(sizeof(LlingGraphDistanceConfig) == 24, "LlingGraphDistanceConfig layout drift");
+_Static_assert(sizeof(LlingRankedPathConfig) == 48, "LlingRankedPathConfig layout drift");
+_Static_assert(sizeof(LlingSamplePathConfig) == 56, "LlingSamplePathConfig layout drift");
 #endif
 
 LLING_LLANG_API uint32_t lling_abi_version(void);
@@ -416,6 +532,85 @@ LLING_LLANG_API LlingLlangStatus lling_cancellation_v2_reason(
     const LlingCancellationV2* cancellation, uint32_t* out_reason);
 LLING_LLANG_API LlingLlangStatus lling_cancellation_v2_free(
     LlingCancellationV2** cancellation);
+/* Revision 8 path traversal. Every cursor owns an immutable snapshot. */
+LLING_LLANG_API LlingLlangStatus lling_path_cursor_open(
+    const VtResource* resource, const LlingPathConfig* config,
+    LlingPathCursor** out_cursor);
+LLING_LLANG_API LlingLlangStatus lling_path_cursor_next(
+    LlingPathCursor* cursor, const LlingCancellationV2* cancellation,
+    uint32_t* out_poll, LlingPath** out_path);
+LLING_LLANG_API void lling_path_cursor_free(LlingPathCursor* cursor);
+LLING_LLANG_API LlingLlangStatus lling_path_info(
+    const LlingPath* path, uint64_t* out_final_state, double* out_weight,
+    size_t* out_step_count);
+LLING_LLANG_API LlingLlangStatus lling_path_steps(
+    const LlingPath* path, size_t offset, LlingPathStep* out_steps,
+    size_t capacity, size_t* out_written, size_t* out_total);
+LLING_LLANG_API void lling_path_free(LlingPath* path);
+/* Revision 9 graph capture. A complete graph is independent of its snapshot. */
+LLING_LLANG_API LlingLlangStatus lling_graph_cursor_open(
+    const VtResource* resource, const LlingGraphConfig* config,
+    LlingGraphCursor** out_cursor);
+LLING_LLANG_API LlingLlangStatus lling_graph_cursor_next(
+    LlingGraphCursor* cursor, const LlingCancellationV2* cancellation,
+    uint32_t* out_poll);
+LLING_LLANG_API LlingLlangStatus lling_graph_cursor_take(
+    LlingGraphCursor* cursor, LlingGraph** out_graph);
+LLING_LLANG_API void lling_graph_cursor_free(LlingGraphCursor* cursor);
+LLING_LLANG_API LlingLlangStatus lling_graph_info(
+    const LlingGraph* graph, uint32_t* out_unit_domain,
+    uint32_t* out_weight_domain, uint64_t* out_start_raw,
+    size_t* out_state_count, size_t* out_arc_count);
+LLING_LLANG_API LlingLlangStatus lling_graph_state(
+    const LlingGraph* graph, size_t local_id, uint64_t* out_raw_id,
+    uint8_t* out_is_final, double* out_final_weight,
+    size_t* out_arc_count);
+LLING_LLANG_API LlingLlangStatus lling_graph_arcs(
+    const LlingGraph* graph, size_t local_id, size_t offset,
+    LlingGraphArc* out_arcs, size_t capacity,
+    size_t* out_written, size_t* out_total);
+LLING_LLANG_API void lling_graph_free(LlingGraph* graph);
+/* A distance cursor retains the complete graph independently of its handle. */
+LLING_LLANG_API LlingLlangStatus lling_graph_distance_open(
+    const LlingGraph* graph, const LlingGraphDistanceConfig* config,
+    LlingGraphDistanceCursor** out_cursor);
+LLING_LLANG_API LlingLlangStatus lling_graph_distance_next(
+    LlingGraphDistanceCursor* cursor, const LlingCancellationV2* cancellation,
+    uint32_t* out_poll);
+LLING_LLANG_API LlingLlangStatus lling_graph_distance_take(
+    LlingGraphDistanceCursor* cursor, LlingGraphDistances** out_result);
+LLING_LLANG_API void lling_graph_distance_cursor_free(LlingGraphDistanceCursor* cursor);
+LLING_LLANG_API LlingLlangStatus lling_graph_distance_info(
+    const LlingGraphDistances* result, double* out_total_weight,
+    size_t* out_state_count);
+LLING_LLANG_API LlingLlangStatus lling_graph_distance_page(
+    const LlingGraphDistances* result, size_t offset,
+    double* out_forward, double* out_backward, size_t capacity,
+    size_t* out_written, size_t* out_total);
+LLING_LLANG_API void lling_graph_distance_free(LlingGraphDistances* result);
+LLING_LLANG_API LlingLlangStatus lling_graph_posterior_arcs(
+    const LlingGraphDistances* result, size_t local_id, size_t offset,
+    double* out_probabilities, size_t capacity,
+    size_t* out_written, size_t* out_total);
+LLING_LLANG_API LlingLlangStatus lling_graph_posterior_final(
+    const LlingGraphDistances* result, size_t local_id,
+    double* out_probability);
+/* The ranked cursor retains its own graph lease. Each call has bounded work. */
+LLING_LLANG_API LlingLlangStatus lling_ranked_path_cursor_open(
+    const LlingGraph* graph, const LlingRankedPathConfig* config,
+    LlingRankedPathCursor** out_cursor);
+LLING_LLANG_API LlingLlangStatus lling_ranked_path_cursor_next(
+    LlingRankedPathCursor* cursor, const LlingCancellationV2* cancellation,
+    uint32_t* out_poll, LlingPath** out_path);
+LLING_LLANG_API void lling_ranked_path_cursor_free(LlingRankedPathCursor* cursor);
+/* Conditional draws use exact backward masses from the complete graph. */
+LLING_LLANG_API LlingLlangStatus lling_sample_path_cursor_open(
+    const LlingGraph* graph, const LlingSamplePathConfig* config,
+    LlingSamplePathCursor** out_cursor);
+LLING_LLANG_API LlingLlangStatus lling_sample_path_cursor_next(
+    LlingSamplePathCursor* cursor, const LlingCancellationV2* cancellation,
+    uint32_t* out_poll, LlingPath** out_path);
+LLING_LLANG_API void lling_sample_path_cursor_free(LlingSamplePathCursor* cursor);
 
 #ifdef __cplusplus
 }

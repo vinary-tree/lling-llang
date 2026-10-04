@@ -28,11 +28,30 @@ use vinary_tree_interop::{VtResource, VtStatus, VtUnitDomain, VtWeightDomain, Vt
 
 mod lattice;
 pub use lattice::*;
+mod distance;
+mod graph;
+pub use distance::*;
+pub use graph::*;
+mod path;
+mod ranked_path;
+mod sample_path;
+pub use path::*;
+pub use ranked_path::*;
+pub use sample_path::*;
 
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_LLANG_API_REVISION: u32 = 11;
+pub const LLING_LLANG_API_REVISION: u32 = 12;
+
+fn bounded_usize(value: u64, name: &'static str) -> Result<usize, LlingLlangStatus> {
+    usize::try_from(value).map_err(|_| {
+        set_error(format!(
+            "{name} exceeds this platform's usize representation"
+        ));
+        LlingLlangStatus::LimitExceeded
+    })
+}
 
 /// Status returned by lling-llang C functions.
 #[repr(u32)]
@@ -54,6 +73,10 @@ pub enum LlingLlangStatus {
     LimitExceeded = 6,
     /// The builder was already consumed.
     Closed = 7,
+    /// A graph cycle makes the requested exact analysis divergent.
+    NonConvergent = 8,
+    /// The requested domain/cycle combination has no supported exact solver.
+    Unsupported = 9,
 }
 
 /// Opaque mutable WFST builder.
@@ -92,6 +115,7 @@ fn map_error(error: BindingError) -> LlingLlangStatus {
     match error {
         BindingError::Provider(VtStatus::LimitExceeded) => LlingLlangStatus::LimitExceeded,
         BindingError::Provider(VtStatus::Closed) => LlingLlangStatus::Closed,
+        BindingError::InvalidArgument(_) => LlingLlangStatus::InvalidArgument,
         BindingError::Provider(_) | BindingError::InvalidProviderOutput(_) => {
             LlingLlangStatus::ProviderError
         }

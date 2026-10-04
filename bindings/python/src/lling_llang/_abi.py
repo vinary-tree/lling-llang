@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 11
+API_REVISION = 12
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -29,6 +29,8 @@ class Status(IntEnum):
     PROVIDER_ERROR = 5
     LIMIT_EXCEEDED = 6
     CLOSED = 7
+    NON_CONVERGENT = 8
+    UNSUPPORTED = 9
 
 
 class DescriptorFlag(IntFlag):
@@ -99,6 +101,154 @@ class CancellationReason(IntEnum):
     DEADLINE = 2
     BUDGET = 3
     SOURCE = 4
+
+
+class PathPoll(IntEnum):
+    """Bounded path-cursor result; truncation never means exact completion."""
+
+    PATH = 1
+    PENDING = 2
+    EXHAUSTED = 3
+    TRUNCATED = 4
+    CANCELLED = 5
+
+
+class GraphPoll(IntEnum):
+    """Incremental graph capture distinguishes exact completion from cancellation."""
+
+    PENDING = 1
+    COMPLETE = 2
+    CANCELLED = 3
+
+
+class DistancePoll(IntEnum):
+    """Bounded native distance-analysis outcomes."""
+
+    PENDING = 1
+    COMPLETE = 2
+    CANCELLED = 3
+
+
+class RankedPoll(IntEnum):
+    """Bounded best-first enumeration; truncation is not exhaustion."""
+
+    PATH = 1
+    PENDING = 2
+    EXHAUSTED = 3
+    TRUNCATED = 4
+    CANCELLED = 5
+
+
+class SamplePoll(IntEnum):
+    """Seeded native sampling outcomes; count/depth caps are not exhaustion."""
+
+    PATH = 1
+    PENDING = 2
+    EXHAUSTED = 3
+    TRUNCATED = 4
+    CANCELLED = 5
+
+
+class SampleStrategy(IntEnum):
+    """Uniform accepting paths or semiring-mass-proportional paths."""
+
+    UNIFORM = 1
+    PROPORTIONAL = 2
+
+
+class PathConfig(ctypes.Structure):
+    """Versioned, explicit limits for a snapshot-pinned path traversal."""
+
+    _fields_ = [
+        ("struct_size", ctypes.c_uint32),
+        ("version", ctypes.c_uint32),
+        ("max_states", ctypes.c_uint64),
+        ("max_arcs", ctypes.c_uint64),
+        ("max_work", ctypes.c_uint64),
+        ("work_per_call", ctypes.c_uint64),
+        ("max_depth", ctypes.c_uint64),
+        ("max_paths", ctypes.c_uint64),
+    ]
+
+
+class PathArc(ctypes.Structure):
+    """Exact imported ``VtWfstArc`` C layout carried by one path step."""
+
+    _fields_ = [
+        ("input_label", ctypes.c_uint64),
+        ("output_label", ctypes.c_uint64),
+        ("target_state", ctypes.c_uint64),
+        ("weight", ctypes.c_double),
+        ("has_input", ctypes.c_uint8),
+        ("has_output", ctypes.c_uint8),
+        ("reserved", ctypes.c_uint8 * 6),
+    ]
+
+
+class PathStep(ctypes.Structure):
+    """Source state and original scalar arc of one accepting path."""
+
+    _fields_ = [("from_state", ctypes.c_uint64), ("arc", PathArc)]
+
+
+class GraphConfig(ctypes.Structure):
+    """Versioned reachable-graph capture limits."""
+
+    _fields_ = [
+        ("struct_size", ctypes.c_uint32),
+        ("version", ctypes.c_uint32),
+        ("max_states", ctypes.c_uint64),
+        ("max_arcs", ctypes.c_uint64),
+        ("max_work", ctypes.c_uint64),
+        ("work_per_call", ctypes.c_uint64),
+    ]
+
+
+class GraphArc(ctypes.Structure):
+    """Original scalar arc and deterministic local target state ID."""
+
+    _fields_ = [("target_local", ctypes.c_uint64), ("arc", PathArc)]
+
+
+class GraphDistanceConfig(ctypes.Structure):
+    """Versioned native graph-analysis work limits."""
+
+    _fields_ = [
+        ("struct_size", ctypes.c_uint32),
+        ("version", ctypes.c_uint32),
+        ("max_work", ctypes.c_uint64),
+        ("work_per_call", ctypes.c_uint64),
+    ]
+
+
+class RankedPathConfig(ctypes.Structure):
+    """Versioned native ranking work, depth, count, and frontier limits."""
+
+    _fields_ = [
+        ("struct_size", ctypes.c_uint32),
+        ("version", ctypes.c_uint32),
+        ("max_work", ctypes.c_uint64),
+        ("work_per_call", ctypes.c_uint64),
+        ("max_depth", ctypes.c_uint64),
+        ("max_paths", ctypes.c_uint64),
+        ("max_frontier", ctypes.c_uint64),
+    ]
+
+
+class SamplePathConfig(ctypes.Structure):
+    """Versioned exact-distribution sampler limits and stable seed."""
+
+    _fields_ = [
+        ("struct_size", ctypes.c_uint32),
+        ("version", ctypes.c_uint32),
+        ("max_work", ctypes.c_uint64),
+        ("work_per_call", ctypes.c_uint64),
+        ("max_depth", ctypes.c_uint64),
+        ("max_samples", ctypes.c_uint64),
+        ("strategy", ctypes.c_uint32),
+        ("reserved", ctypes.c_uint32),
+        ("seed", ctypes.c_uint64),
+    ]
 
 
 class AbiV2Header(ctypes.Structure):
@@ -525,6 +675,116 @@ _bind(
 )
 _bind("lling_wfst_resource", [ctypes.c_void_p, ctypes.POINTER(VtResource)])
 _bind("lling_resource_release", [VtResource], None)
+_bind(
+    "lling_path_cursor_open",
+    [ctypes.POINTER(VtResource), ctypes.POINTER(PathConfig), ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_path_cursor_next",
+    [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+     ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind("lling_path_cursor_free", [ctypes.c_void_p], None)
+_bind(
+    "lling_path_info",
+    [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint64),
+     ctypes.POINTER(ctypes.c_double), ctypes.POINTER(ctypes.c_size_t)],
+)
+_bind(
+    "lling_path_steps",
+    [ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(PathStep),
+     ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)],
+)
+_bind("lling_path_free", [ctypes.c_void_p], None)
+_bind(
+    "lling_graph_cursor_open",
+    [ctypes.POINTER(VtResource), ctypes.POINTER(GraphConfig),
+     ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_graph_cursor_next",
+    [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)],
+)
+_bind(
+    "lling_graph_cursor_take",
+    [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind("lling_graph_cursor_free", [ctypes.c_void_p], None)
+_bind(
+    "lling_graph_info",
+    [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+     ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint64),
+     ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)],
+)
+_bind(
+    "lling_graph_state",
+    [ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint64),
+     ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_double),
+     ctypes.POINTER(ctypes.c_size_t)],
+)
+_bind(
+    "lling_graph_arcs",
+    [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t,
+     ctypes.POINTER(GraphArc), ctypes.c_size_t,
+     ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)],
+)
+_bind("lling_graph_free", [ctypes.c_void_p], None)
+_bind(
+    "lling_graph_distance_open",
+    [ctypes.c_void_p, ctypes.POINTER(GraphDistanceConfig),
+     ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_graph_distance_next",
+    [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)],
+)
+_bind(
+    "lling_graph_distance_take",
+    [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind("lling_graph_distance_cursor_free", [ctypes.c_void_p], None)
+_bind(
+    "lling_graph_distance_info",
+    [ctypes.c_void_p, ctypes.POINTER(ctypes.c_double),
+     ctypes.POINTER(ctypes.c_size_t)],
+)
+_bind(
+    "lling_graph_distance_page",
+    [ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_double),
+     ctypes.POINTER(ctypes.c_double), ctypes.c_size_t,
+     ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)],
+)
+_bind("lling_graph_distance_free", [ctypes.c_void_p], None)
+_bind(
+    "lling_graph_posterior_arcs",
+    [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t,
+     ctypes.POINTER(ctypes.c_double), ctypes.c_size_t,
+     ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)],
+)
+_bind(
+    "lling_graph_posterior_final",
+    [ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_double)],
+)
+_bind(
+    "lling_ranked_path_cursor_open",
+    [ctypes.c_void_p, ctypes.POINTER(RankedPathConfig), ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_ranked_path_cursor_next",
+    [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+     ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind("lling_ranked_path_cursor_free", [ctypes.c_void_p], None)
+_bind(
+    "lling_sample_path_cursor_open",
+    [ctypes.c_void_p, ctypes.POINTER(SamplePathConfig), ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_sample_path_cursor_next",
+    [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+     ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind("lling_sample_path_cursor_free", [ctypes.c_void_p], None)
 
 _bind(
     "lling_semiring_open", [ctypes.POINTER(VtResource), ctypes.POINTER(ctypes.c_void_p)]

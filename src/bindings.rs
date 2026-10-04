@@ -27,9 +27,26 @@ pub use algorithm_bridge::{
 };
 pub(crate) use algorithm_bridge::{import_native_wfst_with_budget_and_stats, GraphBudget};
 
+mod graph;
+mod graph_analysis;
+mod path;
+mod ranked_path;
+mod sample_path;
+#[cfg(test)]
+pub(crate) use graph::ScalarGraphState;
+pub(crate) use graph::{CapturedGraphCursor, GraphPoll, ScalarGraph, ScalarGraphConfig};
+pub(crate) use graph_analysis::{
+    DistancePoll, GraphAnalysisError, GraphDistanceCursor, GraphDistances,
+};
+pub(crate) use path::{PathPoll, ScalarPath, ScalarPathConfig, ScalarPathCursor};
+pub(crate) use ranked_path::{RankedPathConfig, RankedPathCursor, RankedPoll};
+pub(crate) use sample_path::{SamplePathConfig, SamplePathCursor, SamplePoll, SampleStrategy};
+
 /// Binding failures raised while validating or traversing a foreign WFST.
 #[derive(Clone, Debug, PartialEq)]
 pub enum BindingError {
+    /// A caller supplied an invalid configuration or bound.
+    InvalidArgument(&'static str),
     /// One or both resource words were null.
     NullResource,
     /// The base resource contract is incomplete or incompatible.
@@ -46,15 +63,16 @@ pub enum BindingError {
     Provider(VtStatus),
     /// A provider returned inconsistent or malformed output.
     InvalidProviderOutput(&'static str),
-    /// A state, label, or state count cannot fit lling-llang's native model.
+    /// A state, label, count, or computed weight cannot fit the native model.
     RepresentationLimit,
-    /// A caller-selected native operation budget was exhausted.
+    /// A bounded operation exhausted one of its declared resources.
     BudgetExceeded(&'static str),
 }
 
 impl fmt::Display for BindingError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidArgument(message) => write!(formatter, "invalid argument: {message}"),
             Self::NullResource => formatter.write_str("resource context or vtable is null"),
             Self::IncompatibleResourceAbi => formatter.write_str("incompatible resource ABI"),
             Self::MissingWfstInterface => {
@@ -76,10 +94,10 @@ impl fmt::Display for BindingError {
                 formatter,
                 "WFST provider returned invalid output: {message}"
             ),
-            Self::RepresentationLimit => {
-                formatter.write_str("WFST exceeds the native state or label representation")
-            }
-            Self::BudgetExceeded(axis) => write!(formatter, "WFST {axis} budget exceeded"),
+            Self::RepresentationLimit => formatter.write_str(
+                "WFST state, label, count, or computed weight exceeds the native representation",
+            ),
+            Self::BudgetExceeded(name) => write!(formatter, "{name} budget exceeded"),
         }
     }
 }
@@ -108,6 +126,13 @@ struct StateData {
     is_final: bool,
     final_weight: f64,
     arcs: Arc<[VtWfstArc]>,
+}
+
+#[derive(Clone, Copy)]
+struct StateHeader {
+    valid: bool,
+    is_final: bool,
+    final_weight: f64,
 }
 
 const MAX_EXACT_F64_INTEGER: f64 = 9_007_199_254_740_992.0;
@@ -151,6 +176,20 @@ pub(crate) fn scalar_zero(domain: VtWeightDomain) -> f64 {
         VtWeightDomain::ArcticF64 => f64::NEG_INFINITY,
         VtWeightDomain::ProbabilityF64 | VtWeightDomain::CountF64 | VtWeightDomain::BooleanF64 => {
             0.0
+        }
+    }
+}
+
+/// Multiplicative identity represented by a scalar ABI weight domain.
+#[inline]
+fn scalar_one(domain: VtWeightDomain) -> f64 {
+    match domain {
+        VtWeightDomain::TropicalF64
+        | VtWeightDomain::LogF64
+        | VtWeightDomain::ArcticF64
+        | VtWeightDomain::SignedTropicalF64 => 0.0,
+        VtWeightDomain::ProbabilityF64 | VtWeightDomain::CountF64 | VtWeightDomain::BooleanF64 => {
+            1.0
         }
     }
 }
@@ -468,6 +507,14 @@ impl CapturedWfst {
     }
 
     fn state(&self, state: u64) -> Result<Arc<StateData>, BindingError> {
+        self.state_with_arc_limit(state, None)
+    }
+
+    fn state_with_arc_limit(
+        &self,
+        state: u64,
+        max_arcs: Option<usize>,
+    ) -> Result<Arc<StateData>, BindingError> {
         if let Some(cached) = self
             .states
             .read()
@@ -475,18 +522,25 @@ impl CapturedWfst {
             .get(&state)
             .cloned()
         {
+            if max_arcs.is_some_and(|limit| cached.arcs.len() > limit) {
+                return Err(BindingError::BudgetExceeded("arcs"));
+            }
             return Ok(cached);
         }
-        let expanded = unsafe { self.gate.call(|| self.expand_state_limited(state, None)) }?;
+        let expanded = unsafe { self.gate.call(|| self.expand_state(state, max_arcs)) }?;
         let expanded = Arc::new(expanded);
         let mut cache = self
             .states
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        Ok(cache
+        let result = cache
             .entry(state)
             .or_insert_with(|| Arc::clone(&expanded))
-            .clone())
+            .clone();
+        if max_arcs.is_some_and(|limit| result.arcs.len() > limit) {
+            return Err(BindingError::BudgetExceeded("arcs"));
+        }
+        Ok(result)
     }
 
     fn state_uncached_with_arc_limit(
@@ -494,17 +548,14 @@ impl CapturedWfst {
         state: u64,
         max_arcs: usize,
     ) -> Result<StateData, BindingError> {
-        unsafe {
-            self.gate
-                .call(|| self.expand_state_limited(state, Some(max_arcs)))
-        }
+        unsafe { self.gate.call(|| self.expand_state(state, Some(max_arcs))) }
     }
 
-    unsafe fn expand_state_limited(
-        &self,
-        state: u64,
-        max_arcs: Option<usize>,
-    ) -> Result<StateData, BindingError> {
+    fn state_header(&self, state: u64) -> Result<StateHeader, BindingError> {
+        unsafe { self.gate.call(|| self.state_header_unlocked(state)) }
+    }
+
+    unsafe fn state_header_unlocked(&self, state: u64) -> Result<StateHeader, BindingError> {
         let table = &*self.table;
         let mut valid = 0;
         let mut is_final = 0;
@@ -521,7 +572,78 @@ impl CapturedWfst {
                 "invalid state_info fields",
             ));
         }
-        if valid == 0 {
+        Ok(StateHeader {
+            valid: valid == 1,
+            is_final: is_final == 1,
+            final_weight,
+        })
+    }
+
+    fn arc_page(
+        &self,
+        state: u64,
+        offset: usize,
+        page: &mut [VtWfstArc],
+    ) -> Result<(usize, usize), BindingError> {
+        unsafe {
+            self.gate
+                .call(|| self.arc_page_unlocked(state, offset, page))
+        }
+    }
+
+    unsafe fn arc_page_unlocked(
+        &self,
+        state: u64,
+        offset: usize,
+        page: &mut [VtWfstArc],
+    ) -> Result<(usize, usize), BindingError> {
+        let table = &*self.table;
+        let mut written = 0usize;
+        let mut total = 0usize;
+        check_status(table.state_arcs.unwrap()(
+            self.resource.0.context,
+            state,
+            offset,
+            page.as_mut_ptr(),
+            page.len(),
+            &mut written,
+            &mut total,
+        ))?;
+        if written > page.len()
+            || offset > total
+            || offset.saturating_add(written) > total
+            || (written == 0 && offset < total)
+        {
+            return Err(BindingError::InvalidProviderOutput(
+                "invalid arc page counts",
+            ));
+        }
+        for arc in page.iter().take(written) {
+            if arc.has_input > 1
+                || arc.has_output > 1
+                || arc.reserved != [0; 6]
+                || !valid_scalar_weight(self.weight_domain, arc.weight)
+            {
+                return Err(BindingError::InvalidProviderOutput("invalid arc fields"));
+            }
+            if (arc.has_input == 1 && !valid_scalar_label(self.unit_domain, arc.input_label))
+                || (arc.has_output == 1 && !valid_scalar_label(self.unit_domain, arc.output_label))
+            {
+                return Err(BindingError::InvalidProviderOutput(
+                    "label does not belong to the declared domain",
+                ));
+            }
+        }
+        Ok((written, total))
+    }
+
+    unsafe fn expand_state(
+        &self,
+        state: u64,
+        max_arcs: Option<usize>,
+    ) -> Result<StateData, BindingError> {
+        let header = self.state_header_unlocked(state)?;
+        if !header.valid {
             return Ok(StateData {
                 valid: false,
                 is_final: false,
@@ -537,48 +659,19 @@ impl CapturedWfst {
             .max(1);
         let mut page = vec![VtWfstArc::default(); page_capacity];
         let mut offset = 0usize;
+        let mut expected_total = None;
         loop {
-            let mut written = 0usize;
-            let mut total = 0usize;
-            check_status(table.state_arcs.unwrap()(
-                self.resource.0.context,
-                state,
-                offset,
-                page.as_mut_ptr(),
-                page.len(),
-                &mut written,
-                &mut total,
-            ))?;
-            if written > page.len()
-                || offset > total
-                || offset.saturating_add(written) > total
-                || (written == 0 && offset < total)
-            {
+            let (written, total) = self.arc_page_unlocked(state, offset, &mut page)?;
+            if expected_total.is_some_and(|expected| expected != total) {
                 return Err(BindingError::InvalidProviderOutput(
                     "invalid arc page counts",
                 ));
             }
+            expected_total = Some(total);
             if max_arcs.is_some_and(|limit| total > limit) {
                 return Err(BindingError::BudgetExceeded("arcs"));
             }
-            for arc in page.iter().take(written) {
-                if arc.has_input > 1
-                    || arc.has_output > 1
-                    || arc.reserved != [0; 6]
-                    || !valid_scalar_weight(self.weight_domain, arc.weight)
-                {
-                    return Err(BindingError::InvalidProviderOutput("invalid arc fields"));
-                }
-                if (arc.has_input == 1 && !valid_scalar_label(self.unit_domain, arc.input_label))
-                    || (arc.has_output == 1
-                        && !valid_scalar_label(self.unit_domain, arc.output_label))
-                {
-                    return Err(BindingError::InvalidProviderOutput(
-                        "label does not belong to the declared domain",
-                    ));
-                }
-                arcs.push(*arc);
-            }
+            arcs.extend_from_slice(&page[..written]);
             offset = offset
                 .checked_add(written)
                 .ok_or(BindingError::RepresentationLimit)?;
@@ -588,8 +681,8 @@ impl CapturedWfst {
         }
         Ok(StateData {
             valid: true,
-            is_final: is_final == 1,
-            final_weight,
+            is_final: header.is_final,
+            final_weight: header.final_weight,
             arcs: arcs.into(),
         })
     }
@@ -1207,7 +1300,9 @@ unsafe extern "C" fn wfst_state_info(
 /// provider supplies a specific non-success interop status, which is preserved.
 fn expansion_error_status(error: &BindingError) -> VtStatus {
     match error {
-        BindingError::RepresentationLimit => VtStatus::LimitExceeded,
+        BindingError::RepresentationLimit | BindingError::BudgetExceeded(_) => {
+            VtStatus::LimitExceeded
+        }
         BindingError::Provider(status) if !status.is_ok() => *status,
         _ => VtStatus::ProviderError,
     }
@@ -1534,6 +1629,29 @@ mod tests {
         graph.set_final(b, TropicalWeight::new(0.0));
         graph.add_arc(a, Some('a'), Some('x'), b, TropicalWeight::new(1.0));
         graph
+    }
+
+    #[test]
+    fn captured_state_arc_limit_applies_before_and_after_cache_population() {
+        let owner = OwnedWfstResource::from_wfst(left());
+        let captured = unsafe { CapturedWfst::capture(owner.as_raw()) }.unwrap();
+        assert!(matches!(
+            captured.state_with_arc_limit(0, Some(0)),
+            Err(BindingError::BudgetExceeded("arcs"))
+        ));
+        assert_eq!(captured.state(0).unwrap().arcs.len(), 1);
+        assert!(matches!(
+            captured.state_with_arc_limit(0, Some(0)),
+            Err(BindingError::BudgetExceeded("arcs"))
+        ));
+        assert_eq!(
+            captured
+                .state_with_arc_limit(0, Some(1))
+                .unwrap()
+                .arcs
+                .len(),
+            1
+        );
     }
 
     #[test]

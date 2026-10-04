@@ -116,7 +116,7 @@ product = compose(first, second)
 try
     outgoing = VTI.arcs(product, VTI.start(product))
 finally
-    close(product)
+close(product)
 end
 ```
 
@@ -199,6 +199,326 @@ import checked input snapshots before returning independently owned, lazy
 results. Binary operations require matching label/weight domains and matching
 Julia symbol tables on both tapes. Kleene-plus accepts an empty path if its
 input already does, because a required repetition may itself be empty.
+
+### Traverse accepting paths with explicit bounds
+
+`paths(graph)` returns a Julia iterator backed by a native cursor over one
+captured immutable snapshot. The cursor expands only states reached by its
+iterative depth-first walk; it does not require a provider to know its state
+count. A final state is emitted before its outgoing arcs, and arcs are visited
+in their insertion order. This is **traversal order**, not shortest-path or
+score order. Each `WfstPath` owns its copied `WfstPathStep`s and includes the
+terminal state's final weight in `weight`. An empty accepting path has no
+steps. Epsilon is represented by `nothing` on the corresponding tape.
+
+```julia
+builder = WfstBuilder{UInt8,TropicalWeight}(size_hint=2)
+source = add_state!(builder)
+target = add_state!(builder)
+set_start!(builder, source)
+set_final!(builder, target, TropicalWeight(3))
+add_arc!(builder, source, UInt8('a'), UInt8('b'), target,
+    TropicalWeight(2))
+graph = build!(builder)
+
+limits = PathLimits(max_states=2, max_arcs=1, max_depth=1,
+    max_paths=2, max_work=100, work_per_call=4)
+cursor = paths(graph; limits)
+close(graph) # cursor independently owns the captured snapshot
+try
+    for path in cursor
+        @assert path.weight == TropicalWeight(5)
+        @assert only(path.steps).output == UInt8('b')
+    end
+finally
+    close(cursor) # also required when stopping iteration early
+end
+```
+
+Every bound is finite. `max_states` counts distinct expanded states;
+`max_arcs` counts the arcs cached from them; `max_depth` bounds the number of
+steps in one path; `max_paths` bounds emitted paths; `max_work` bounds traversal
+decisions over the cursor lifetime; and `work_per_call` divides traversal into
+pollable slices. Call `poll_path!(cursor)` to consume exactly one native slice:
+it returns a `WfstPath`, a `PathPending` marker, or `nothing` on exact
+exhaustion. Ordinary `for` iteration repeats pending polls internally until
+it has a path or terminal result. A state expansion itself is bounded by the
+remaining arc budget. Hitting the depth or path-count bound raises `PathTruncatedError`
+instead of making an incomplete result look exhaustive. Exhausting a state,
+arc, or work budget raises `NativeError` with `STATUS_LIMIT_EXCEEDED`.
+For this path cursor, the same status reports a computed weight outside its
+scalar carrier (for example, finite tropical path costs whose sum overflows
+`Float64`); this is never interpreted as a valid infinity-weight path. A
+positive probability product that underflows to zero is likewise reported as
+a numeric limit. This strict path-result rule does not change the existing
+scalar-composition or native semiring arithmetic conventions.
+`CancellationV2` can stop traversal cooperatively; a cancelled iteration
+raises `PathCancelledError`. The cursor owns its snapshot until `close` or
+normal exhaustion; yielded paths are independent owned Julia values.
+
+`reduce_paths(operation, initial, live_graph; limits, cancellation)` folds this
+iterator and closes its native cursor even if the reducer throws. For example,
+`reduce_paths((count, _) -> count + 1, 0, live_graph; limits)` counts accepting
+paths up to the declared bounds. The `live_graph` argument must be open when
+the reducer is constructed; a count is exact only when iteration ends
+normally. The algorithmic distinction between path enumeration, shortest
+distance, and randomized sampling is detailed in the
+[path-extraction](../../../docs/algorithms/path-extraction.md) and
+[path-sampling](../../../docs/algorithms/path-sampling.md) guides.
+
+### Capture a complete reachable graph under explicit limits
+
+`capture_graph(graph)` starts a second, breadth-first native cursor over one
+immutable snapshot. Unlike accepting-path traversal, it visits every reachable
+state once and pages each state's arcs in batches of at most 256. It does not
+ask a lazy provider for a known state count. A complete graph is suitable for
+global analyses; an interrupted or budget-limited capture is never presented
+as exact.
+
+```julia
+cursor = capture_graph(graph; limits=GraphLimits(
+    max_states=10_000, max_arcs=100_000,
+    max_work=100_000, work_per_call=16))
+try
+    while true
+        result = poll_graph!(cursor) # one bounded provider-work slice
+        result isa GraphPending && continue
+        snapshot = result::GraphSnapshot
+        try
+            info = graph_info(snapshot)
+            first = graph_state(snapshot, 0) # local IDs start at zero
+            @assert first.raw_id == info.start_raw
+        finally
+            close(snapshot)
+        end
+        break
+    end
+finally
+    close(cursor)
+end
+```
+
+`complete_graph(graph; limits=...)` performs the same polling loop and returns
+the complete `GraphSnapshot`. The caller must close it. Its local state IDs are
+assigned in breadth-first discovery order, with arcs in provider order, and
+`GraphArc` retains both the compact target ID and original provider target ID.
+`GraphLimits.max_work` and `work_per_call` count provider callbacks, not
+traversal decisions; each callback can have provider-defined latency.
+`GraphCancelledError` reports cancellation, while `NativeError` with
+`STATUS_LIMIT_EXCEEDED` reports a finite resource bound. Neither outcome
+returns a partial graph as a complete result. The source may close after
+`capture_graph` opens because the cursor owns its snapshot; a complete graph
+is independent of that snapshot and remains live until closed.
+
+### Compute exact forward and backward distances
+
+Once a graph is completely captured, `analyze_distances` runs native semiring
+analysis in resumable slices. Forward distance at local state $`q`$ combines
+weights of all start-to-$`q`$ paths with semiring addition; backward distance
+combines all $`q`$-to-final paths, including the state's final weight. The
+reported total is the backward distance at the start. For an acyclic graph,
+the native kernel visits states in a deterministic topological order and
+supports all seven built-in scalar weight domains.
+
+```julia
+builder = WfstBuilder{UInt8,TropicalWeight}(size_hint=2)
+start = add_state!(builder)
+finish = add_state!(builder)
+set_start!(builder, start)
+set_final!(builder, finish, TropicalWeight(3))
+add_arc!(builder, start, UInt8('a'), UInt8('a'), finish, TropicalWeight(2))
+source = build!(builder)
+graph = complete_graph(source)
+close(source) # the complete graph no longer needs the provider snapshot
+
+cursor = analyze_distances(graph; limits=DistanceLimits(
+    max_work=100_000, work_per_call=64))
+close(graph) # the analysis cursor retains its own graph lease
+try
+    while true
+        result = poll_distance!(cursor)
+        result isa DistancePending && continue
+        distances = result::DistanceResult
+        try
+            @assert distance_info(distances).total == TropicalWeight(5)
+            page = distance_page(distances, 0; capacity=2)
+            @assert page.forward == [TropicalWeight(0), TropicalWeight(2)]
+            @assert page.backward == [TropicalWeight(5), TropicalWeight(3)]
+        finally
+            close(distances)
+        end
+        break
+    end
+finally
+    close(cursor)
+end
+```
+
+For probability, log, or count weights with nonzero accepting-path mass,
+`posterior_arcs(distances, local_id; offset=0, capacity=256)` returns a page
+of arc-use probabilities in provider order, and
+`posterior_final(distances, local_id)` returns the probability of terminating
+at that state. Parallel arcs remain distinct. Posterior probabilities use the
+exact forward/backward result bound to the same native graph; no caller-supplied
+graph can accidentally be mixed with another result. Other weight domains and
+zero accepting-path mass fail explicitly. A probability too small to represent
+as a nonzero `Float64` also fails explicitly rather than silently becoming
+zero.
+
+`complete_distances(graph; limits=...)` runs the same bounded polling loop and
+returns an owned result. One `poll_distance!` performs no more than
+`work_per_call` graph-vertex or graph-edge transitions; `max_work` bounds the
+whole analysis. A pending poll is never an exact answer. The caller can
+cancel between transitions. Results remain valid after both the cursor and
+graph close, until the result itself is closed.
+
+For cyclic graphs, the exact native solver handles the idempotent tropical,
+signed-tropical, arctic, and Boolean semirings. A strictly improving cycle
+raises `NativeError` with `STATUS_NON_CONVERGENT`; cyclic probability, log,
+and count sums currently raise `STATUS_UNSUPPORTED` because summing all walks
+requires a separate convergence proof. Count overflow and other scalar
+representation failures raise `STATUS_LIMIT_EXCEEDED`. None of these outcomes
+is silently replaced by a depth-truncated approximation. This native
+analysis does not change the library's existing scalar-composition arithmetic.
+
+### Enumerate best paths without eager path materialization
+
+`ranked_paths` enumerates accepting paths from a complete `GraphSnapshot` in
+best-completion order. It uses resumable native Viterbi suffix analysis and
+then a bounded best-first frontier; neither phase builds an eager path list.
+Equal costs are resolved by shorter path length and captured provider arc
+order. The result is a Julia iterator of owned `WfstPath` values. Close it
+when stopping early; `reduce_ranked_paths` closes it automatically.
+`best_path(graph)` returns one path or `nothing`; `k_best_paths(graph, k)` and
+its `n_best_paths` alias collect only the requested finite prefix and close
+their native cursors. Their `limits.max_paths` must be at least `k`.
+
+```julia
+builder = WfstBuilder{UInt8,TropicalWeight}(size_hint=2)
+start = add_state!(builder)
+finish = add_state!(builder)
+set_start!(builder, start)
+set_final!(builder, finish, TropicalWeight(3))
+add_arc!(builder, start, UInt8('a'), UInt8('a'), finish, TropicalWeight(2))
+source = build!(builder)
+graph = complete_graph(source)
+close(source)
+cursor = ranked_paths(graph; limits=RankedPathLimits(
+    max_work=100_000, work_per_call=32, max_depth=64,
+    max_paths=100, max_frontier=10_000))
+close(graph) # cursor retains its own immutable graph lease
+try
+    best = first(cursor)
+    @assert best.weight == TropicalWeight(5)
+finally
+    close(cursor)
+end
+```
+
+For probability weights, the rank cost is $`-\log p`$, so the most probable
+path is first. Tropical, signed-tropical, and log weights rank by additive
+cost; arctic weights rank by negated score. Count weights rank by increasing
+multiplicity and Boolean weights use unit cost for accepting paths. These
+projections rank individual paths, while `analyze_distances` computes semiring
+aggregates over *all* paths; they differ on non-idempotent domains.
+
+`poll_ranked_path!` performs at most `work_per_call` native work transitions
+and returns a path, `RankedPathPending`, or `nothing` on exact exhaustion.
+Ordinary iteration repeats pending polls. Reaching `max_depth` or `max_paths`
+throws `PathTruncatedError`; exhausting `max_work` or `max_frontier` throws
+`NativeError` with `STATUS_LIMIT_EXCEEDED`. Cancellation throws
+`PathCancelledError`. A reachable improving cycle returns
+`STATUS_NON_CONVERGENT` before any ranked path is emitted. The cursor never
+reports a truncated result as exhaustive. Numeric overflow/underflow is
+rejected in this new path analysis only; existing scalar composition semantics
+remain unchanged.
+
+### Prune by an exact complete-path cost window
+
+`cost_pruned_paths(graph; beam=1.0)` lazily keeps every accepting path whose
+native Viterbi cost is at most one cost unit worse than the best path. The
+underlying best-first ordering makes the first out-of-window path a sound
+stopping point. This is exact *complete-path* cost-window pruning, not the
+approximate partial-hypothesis beam search used by the native lattice API.
+Equal-cost ties remain in native path order. The beam must be finite and
+nonnegative; for probability weights it is measured in negative-log units.
+
+```julia
+# Use a live complete graph; close the iterator when stopping early.
+cursor = cost_pruned_paths(graph; beam=1.0,
+    limits=RankedPathLimits(max_work=100_000, work_per_call=32,
+        max_depth=64, max_paths=100, max_frontier=10_000))
+try
+    for path in cursor
+        println(path.weight)
+    end
+finally
+    close(cursor)
+end
+```
+
+`poll_cost_pruned_path!` returns a path, `RankedPathPending`, or `nothing`;
+one call performs at most one native ranked-path poll. Use
+`reduce_cost_pruned_paths(operation, initial, graph; beam=...)` for a fold
+that always closes the cursor. Native work, frontier, count, depth,
+cancellation, and numeric failures propagate unchanged; an explicit limit
+is never mistaken for exact exhaustion.
+
+### Draw seeded accepting paths
+
+`sample_paths(graph; limits)` is a bounded lazy iterator of owned paths. Its
+native sampler first computes exact backward masses for the complete graph,
+then chooses between stopping and each outgoing arc according to conditional
+accepting-path mass. Unlike a local random walk, it never chooses a branch
+that cannot reach a final state. `:uniform` gives each finite accepting path
+equal probability and ignores scalar weights. `:proportional` weights paths by
+their probability, log-probability, or count-semiring mass; other weight domains
+fail with `STATUS_UNSUPPORTED`. Uniform and proportional draws on cyclic
+graphs currently fail explicitly, because this solver's exact path-count or
+mass analysis requires an acyclic graph. An unsupported graph is never
+silently approximated by a depth cutoff.
+
+```julia
+builder = WfstBuilder{UInt8,ProbabilityWeight}(size_hint=3)
+start = add_state!(builder)
+left = add_state!(builder)
+right = add_state!(builder)
+set_start!(builder, start)
+set_final!(builder, left, ProbabilityWeight(1))
+set_final!(builder, right, ProbabilityWeight(1))
+add_arc!(builder, start, UInt8('a'), UInt8('a'), left,
+    ProbabilityWeight(0.25))
+add_arc!(builder, start, UInt8('b'), UInt8('b'), right,
+    ProbabilityWeight(0.75))
+source = build!(builder)
+graph = complete_graph(source)
+close(source)
+limits = SamplePathLimits(strategy=:proportional, seed=42,
+    max_samples=100, max_depth=64, max_work=100_000, work_per_call=32)
+try
+    draws = sample_n_paths(graph, 10; limits)
+    @assert length(draws) == 10
+finally
+    close(graph)
+end
+```
+
+For a state $`q`$ with exact backward mass $`B(q)`$, an outgoing arc
+$`q \xrightarrow{w} r`$ is selected with conditional probability
+$`w B(r) / B(q)`$ in the probability/count domains; a final choice is
+$`\rho(q) / B(q)`$. The log domain computes the equivalent values in log
+space. `:uniform` substitutes path counts for weights. Each option is
+examined in provider order, one per bounded native work step. The public
+seed-to-draw mapping uses SplitMix64 and is independent of `work_per_call`.
+
+`poll_sample_path!` returns a path, `SamplePathPending`, or `nothing` when
+there is provably no accepting path. `sample_path` returns one draw;
+`sample_n_paths` and `reduce_sampled_paths` consume only the requested finite
+prefix and close the cursor. Directly collecting the iterator through its
+`max_samples` bound raises `PathTruncatedError` because the distribution
+continues to admit paths. `max_depth` truncation, work exhaustion, numeric
+failure, and cancellation are likewise explicit. The sampler retains its
+complete graph lease, so the source graph may close after construction.
 
 ### Implement a lazy Julia provider
 
@@ -319,6 +639,9 @@ retained immutable resource.
 either input immediately after construction without invalidating the product.
 Unary transforms borrow the input for the call and return independently owned
 results.
+`paths` captures another independent snapshot and releases it when its cursor
+closes. Each yielded `WfstPath` copies only its own bounded sequence of steps
+and remains valid after cursor closure.
 Use `close` deterministically; finalizers are leak-safety fallbacks.
 
 Provider objects are rooted while any native retain exists. A provider
