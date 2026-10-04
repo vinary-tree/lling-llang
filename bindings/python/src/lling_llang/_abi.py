@@ -677,29 +677,50 @@ _bind("lling_wfst_resource", [ctypes.c_void_p, ctypes.POINTER(VtResource)])
 _bind("lling_resource_release", [VtResource], None)
 _bind(
     "lling_path_cursor_open",
-    [ctypes.POINTER(VtResource), ctypes.POINTER(PathConfig), ctypes.POINTER(ctypes.c_void_p)],
+    [
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(PathConfig),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
 )
 _bind(
     "lling_path_cursor_next",
-    [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
-     ctypes.POINTER(ctypes.c_void_p)],
+    [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
 )
 _bind("lling_path_cursor_free", [ctypes.c_void_p], None)
 _bind(
     "lling_path_info",
-    [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint64),
-     ctypes.POINTER(ctypes.c_double), ctypes.POINTER(ctypes.c_size_t)],
+    [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint64),
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.POINTER(ctypes.c_size_t),
+    ],
 )
 _bind(
     "lling_path_steps",
-    [ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(PathStep),
-     ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)],
+    [
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.POINTER(PathStep),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_size_t),
+    ],
 )
 _bind("lling_path_free", [ctypes.c_void_p], None)
 _bind(
     "lling_graph_cursor_open",
-    [ctypes.POINTER(VtResource), ctypes.POINTER(GraphConfig),
-     ctypes.POINTER(ctypes.c_void_p)],
+    [
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(GraphConfig),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
 )
 _bind(
     "lling_graph_cursor_next",
@@ -712,27 +733,46 @@ _bind(
 _bind("lling_graph_cursor_free", [ctypes.c_void_p], None)
 _bind(
     "lling_graph_info",
-    [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
-     ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint64),
-     ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)],
+    [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.POINTER(ctypes.c_uint64),
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_size_t),
+    ],
 )
 _bind(
     "lling_graph_state",
-    [ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint64),
-     ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_double),
-     ctypes.POINTER(ctypes.c_size_t)],
+    [
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_uint64),
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.POINTER(ctypes.c_size_t),
+    ],
 )
 _bind(
     "lling_graph_arcs",
-    [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t,
-     ctypes.POINTER(GraphArc), ctypes.c_size_t,
-     ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)],
+    [
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.c_size_t,
+        ctypes.POINTER(GraphArc),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_size_t),
+    ],
 )
 _bind("lling_graph_free", [ctypes.c_void_p], None)
 _bind(
     "lling_graph_distance_open",
-    [ctypes.c_void_p, ctypes.POINTER(GraphDistanceConfig),
-     ctypes.POINTER(ctypes.c_void_p)],
+    [
+        ctypes.c_void_p,
+        ctypes.POINTER(GraphDistanceConfig),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
 )
 _bind(
     "lling_graph_distance_next",
@@ -745,21 +785,32 @@ _bind(
 _bind("lling_graph_distance_cursor_free", [ctypes.c_void_p], None)
 _bind(
     "lling_graph_distance_info",
-    [ctypes.c_void_p, ctypes.POINTER(ctypes.c_double),
-     ctypes.POINTER(ctypes.c_size_t)],
+    [ctypes.c_void_p, ctypes.POINTER(ctypes.c_double), ctypes.POINTER(ctypes.c_size_t)],
 )
 _bind(
     "lling_graph_distance_page",
-    [ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_double),
-     ctypes.POINTER(ctypes.c_double), ctypes.c_size_t,
-     ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)],
+    [
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_size_t),
+    ],
 )
 _bind("lling_graph_distance_free", [ctypes.c_void_p], None)
 _bind(
     "lling_graph_posterior_arcs",
-    [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t,
-     ctypes.POINTER(ctypes.c_double), ctypes.c_size_t,
-     ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)],
+    [
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_size_t),
+    ],
 )
 _bind(
     "lling_graph_posterior_final",
@@ -767,22 +818,38 @@ _bind(
 )
 _bind(
     "lling_ranked_path_cursor_open",
-    [ctypes.c_void_p, ctypes.POINTER(RankedPathConfig), ctypes.POINTER(ctypes.c_void_p)],
+    [
+        ctypes.c_void_p,
+        ctypes.POINTER(RankedPathConfig),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
 )
 _bind(
     "lling_ranked_path_cursor_next",
-    [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
-     ctypes.POINTER(ctypes.c_void_p)],
+    [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
 )
 _bind("lling_ranked_path_cursor_free", [ctypes.c_void_p], None)
 _bind(
     "lling_sample_path_cursor_open",
-    [ctypes.c_void_p, ctypes.POINTER(SamplePathConfig), ctypes.POINTER(ctypes.c_void_p)],
+    [
+        ctypes.c_void_p,
+        ctypes.POINTER(SamplePathConfig),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
 )
 _bind(
     "lling_sample_path_cursor_next",
-    [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
-     ctypes.POINTER(ctypes.c_void_p)],
+    [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
 )
 _bind("lling_sample_path_cursor_free", [ctypes.c_void_p], None)
 

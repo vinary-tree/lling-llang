@@ -237,9 +237,8 @@ impl ScalarPathCursor {
                     let path_weight = self.frames[top].weight;
                     let final_weight = self.frames[top].expanded.final_weight;
                     let weight = path_times(self.captured.weight_domain, path_weight, final_weight)
-                        .map_err(|error| {
+                        .inspect_err(|error| {
                             self.terminal = Some(TerminalOutcome::Failed(error.clone()));
-                            error
                         })?;
                     self.yielded += 1;
                     return Ok(PathPoll::Path(ScalarPath {
@@ -270,9 +269,8 @@ impl ScalarPathCursor {
                     self.frames[top].weight,
                     arc.weight,
                 )
-                .map_err(|error| {
+                .inspect_err(|error| {
                     self.terminal = Some(TerminalOutcome::Failed(error.clone()));
-                    error
                 })?;
                 self.steps.push(ScalarPathStep { from, arc });
                 if let Err(error) = self.push_state(arc.target_state, weight) {
