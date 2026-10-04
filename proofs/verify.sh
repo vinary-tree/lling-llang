@@ -220,6 +220,20 @@ run_tlc lazy-cacheall "$ROOT/proofs/tla/LazyComposition.tla" "$ROOT/proofs/tla/M
 run_tlc abi-composition \
   "$ROOT/proofs/tla/AbiCompositionProtocol.tla" \
   "$ROOT/proofs/tla/MC/AbiCompositionProtocol.cfg"
+run_tlc serial-provider-turnstile \
+  "$ROOT/proofs/tla/SerialProviderTurnstile.tla" \
+  "$ROOT/proofs/tla/MC/SerialProviderTurnstile.cfg"
+run_tlc serial-provider-turnstile-two-providers \
+  "$ROOT/proofs/tla/SerialProviderTurnstile.tla" \
+  "$ROOT/proofs/tla/MC/SerialProviderTurnstileTwoProviders.cfg"
+run_tlc_expect_failure serial-provider-independent-overlap-witness \
+  "$ROOT/proofs/tla/SerialProviderTurnstile.tla" \
+  "$ROOT/proofs/tla/MC/SerialProviderTurnstileIndependentWitness.cfg" \
+  "Invariant IndependentOverlapAbsent is violated"
+run_tlc_expect_failure serial-provider-parked-witness \
+  "$ROOT/proofs/tla/SerialProviderTurnstile.tla" \
+  "$ROOT/proofs/tla/MC/SerialProviderTurnstileParkedWitness.cfg" \
+  "Invariant NoParkedState is violated"
 
 run_tlc cascade "$ROOT/proofs/tla/CascadeOrder.tla" "$ROOT/proofs/tla/MC/CascadeOrder.cfg"
 run_tlc cascade-fair "$ROOT/proofs/tla/CascadeOrder.tla" "$ROOT/proofs/tla/MC/CascadeOrderFair.cfg"

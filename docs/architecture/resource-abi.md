@@ -427,10 +427,11 @@ a resource-wide sequential call gate."* Concretely:
   pipeline.
 - **Gates are per captured input, and only where required.** A foreign
   provider that does **not** advertise `PARALLEL_REENTRANT` gets a
-  `ProviderCallGate::Serial` — a mutex around *that provider's* callbacks
-  only, created per captured input. A parallel/reentrant provider's gate is
-  a no-op. Two captured inputs never share a gate; the product layer adds
-  none of its own.
+  `ProviderCallGate::Serial` for *that captured provider* only. Its uncontended
+  path is an atomic admission operation; unrelated concurrent walkers wait
+  their turn on that provider's condition variable and then succeed. A
+  parallel/reentrant provider's gate is a no-op. Two captured inputs never
+  share a gate; the product layer adds none of its own.
 - **Caches are read-through `RwLock` maps with first-writer-wins
   publication.** Readers share; a miss expands *outside* the write lock and
   publishes with `entry(..).or_insert_with(..)`, so a racing duplicate
@@ -448,6 +449,49 @@ a resource-wide sequential call gate."* Concretely:
   (already converted to a status at the ABI boundary) must not wedge
   subsequent callers — the protected data is either the pre-insertion state
   or a completed insertion, both valid.
+
+The serial turnstile's parking mutex is never held during a foreign callback.
+The following pseudocode is a direct summary of
+`SerialProviderCallGate::enter` and `ProviderCallLease::drop`; `active` is the
+atomic admission bit and `waiters` counts registered contenders:
+
+```text
+enter(provider):
+    if this thread already calls provider: reject recursion
+    if not atomic_compare_exchange(active, false, true):
+        if this thread is inside another serial callback: reject a possible cycle
+        atomically increment waiters
+        lock provider.parking
+        while not atomic_compare_exchange(active, false, true):
+            wait(provider.wake, provider.parking)  # unlock, sleep, relock
+        atomically decrement waiters
+        unlock provider.parking
+    record this provider in the thread-local active stack
+    run callback, always invoking leave on return or unwind
+
+leave(provider):
+    remove this provider from the thread-local active stack
+    atomically clear active
+    if waiters is nonzero:
+        lock provider.parking
+        notify one waiter
+        unlock provider.parking
+```
+
+All admission-bit and waiter-count operations in this handoff use sequentially
+consistent ordering. If release precedes a contender's check under `parking`,
+the contender sees a free admission bit and does not sleep. If that check sees
+the provider still busy, its condition-variable wait atomically unlocks
+`parking` and sleeps before release can acquire the same mutex to notify.
+This prevents a missed notification; spurious wakeups simply repeat the
+predicate check. A same-provider recursive callback must fail immediately
+instead of waiting on itself. A callback already inside one serial provider
+may enter a second *idle* provider, but fails immediately rather than wait on
+a busy second provider, preventing a cross-provider callback cycle. This
+exception applies to nested provider callbacks, not ordinary concurrent
+walkers. The finite handoff model and its checked configurations are
+[`SerialProviderTurnstile.tla`](../../proofs/tla/SerialProviderTurnstile.tla)
+and the corresponding `proofs/tla/MC/SerialProviderTurnstile*.cfg` files.
 
 The trade-off is explicitly *space for parallelism*: caches may transiently
 hold a few identical `Arc<StateData>` allocations built by racing threads

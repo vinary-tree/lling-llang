@@ -179,7 +179,14 @@ Serialization by default, parallelism by claim (family §4): a captured
 provider that does not claim `PARALLEL_REENTRANT` is called through a
 per-input serial gate — the gate's domain is *that captured provider*, not
 the resource or the process, so independent inputs proceed concurrently. A
-provider that claims the flag falsely corrupts only itself: lling-llang
+contending ordinary caller parks and resumes successfully when the active
+callback finishes; only same-provider recursion or a nested cross-provider
+wait that could form a cycle fails immediately. The uncontended path is
+atomic-only, and the parking mutex is released before invoking foreign code.
+A finite [turnstile model](../../proofs/tla/SerialProviderTurnstile.tla)
+checks admission, wakeup, and recursion invariants.
+
+A provider that claims the flag falsely corrupts only itself: lling-llang
 shares no mutable memory with providers, and racy garbage re-enters through
 the same validation as any other hostile output — wrong results, never
 wrong memory. lling-llang's own exported claim of `PARALLEL_REENTRANT` is
