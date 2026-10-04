@@ -582,7 +582,7 @@ fn test_estimate_reduction() {
     use lling_llang::algorithms::estimate_reduction;
 
     let simple = build_simple_fst();
-    let estimate = estimate_reduction(&simple);
+    let estimate = estimate_reduction(&simple).expect("valid WFST reduction estimate");
 
     // Estimate should be <= number of states (estimated reduction count)
     assert!(

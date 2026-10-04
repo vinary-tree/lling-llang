@@ -88,7 +88,11 @@ pub use determinize::{
     determinize, is_deterministic, non_determinism_degree, DeterminizeConfig, DeterminizeError,
 };
 
-pub use minimize::{estimate_reduction, minimize, MinimizeConfig, MinimizeError};
+pub use minimize::{
+    estimate_reduction, estimate_reduction_with_epsilon,
+    estimate_reduction_with_epsilon_and_input_identity, minimize, minimize_with_input_identity,
+    MinimizeConfig, MinimizeError, MinimizeInputIdentity,
+};
 pub(crate) use minimize::{minimize_with_distance_config, CheckedMinimizeError};
 
 pub use sample::{

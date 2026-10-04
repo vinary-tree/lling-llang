@@ -49,54 +49,70 @@ States 1 and 2 are also equivalent → merge them
 
 ### The Minimization Pipeline
 
-Minimization combines two steps:
+Minimization first validates the immutable input, then performs three transformation steps:
 
-```text
-┌─────────────────┐    ┌─────────────────────┐    ┌─────────────────┐
-│  Weight Push    │ ─► │ Partition Refinement│ ─► │  Build Minimal  │
-│ (normalize)     │    │   (find equiv.)     │    │     WFST        │
-└─────────────────┘    └─────────────────────┘    └─────────────────┘
+1. **Endpoint validation**: Reject an unrepresentable state count, an invalid start, or any invalid transition in the original input. This happens before trimming, pushing, partitioning, estimating, or constructing output.
+2. **Weight pushing**: Normalize weight distribution to canonical form when enabled.
+3. **Partition refinement**: Find equivalence classes of states.
+4. **Build minimal WFST**: Create one state per equivalence class.
+
+### Fail-closed input boundary
+
+The input WFST is an immutable borrowed graph. An **owner state** is the state whose outgoing transition slice contains an arc; the arc also encodes a **source state** and **target state**. A **transition index** is its zero-based position in that outgoing slice. A **snapshot identity** is a caller-supplied key for an immutable graph version. Without one, diagnostics use the borrowed object's address, which is meaningful only during that object's lifetime and is not a content hash.
+
+![Validation flow: original WFST is checked before any transform; the first invalid endpoint returns a typed error with provenance](../diagrams/algorithms/minimize-validation.svg)
+
+For $`n`$ states, an arc in the slice of state $`q`$ is valid exactly when its encoded source equals $`q`$ and both endpoints are less than $`n`$. The state count must fit the `StateId` address space without using the reserved `NO_STATE` sentinel. An empty WFST has `NO_STATE` as start; a nonempty WFST starts at a state less than $`n`$.
+
+```math
+\mathrm{validArc}(q,a,n)
+  \iff a.\mathrm{from}=q \land a.\mathrm{from}<n \land a.\mathrm{to}<n.
 ```
 
-1. **Weight pushing**: Normalize weight distribution to canonical form
-2. **Partition refinement**: Find equivalence classes of states
-3. **Build minimal WFST**: One state per equivalence class
+The validator is a single, allocation-free, iterative scan in state order, then outgoing-slice order. It reports the first malformed transition, making the diagnostic deterministic for a fixed input. Its cost is $`O(\lvert Q\rvert+\lvert E\rvert)`$ time and $`O(1)`$ auxiliary space. No arc is deleted, clamped, synthesized, or redirected as a repair. A malformed input cannot reach `connect`, weight pushing, partition refinement, reduction estimation, or output construction.
+
+```text
+⟨ validate original input ⟩ ≡
+    reject if state count exceeds the representable range
+    reject if start is invalid for that count
+    for each state q in ascending order:
+        for each outgoing arc a in slice order:
+            reject with (input identity, q, a.from, a.to, arc index)
+                if not validArc(q, a, state count)
+    return success
+
+⟨ minimize ⟩ ≡
+    ⟨ validate original input ⟩
+    check epsilon and determinism
+    optionally connect and push weights
+    refine partitions; construct output
+```
+
+The formal refinement model is [`MinimizeEndpointValidation.v`](../../proofs/coq/algorithms/MinimizeEndpointValidation.v). Its kernel-checked invariants map to executable checks as follows:
+
+| Formal invariant | Rust acceptance check |
+|---|---|
+| `valid_arcb_exact`, `first_invalid_none_iff` | Valid generated graphs succeed; malformed source/target graphs fail. |
+| `first_invalid_first_error`, `first_invalid_error_identity` | The earliest bad arc yields its owner, source, target, ordinal, and original input identity. |
+| `validate_input_none_iff` | Count and start validation precede arc scanning; no invalid graph is accepted. |
+| `checked_then_preserves_valid_input` | Valid-input minimization and worklist/Moore differential behavior remain unchanged. |
+| `checked_then_rejects_before_transform` | All connect/push flag combinations reject malformed input before either transform. |
+
+The proof establishes the validation boundary and provenance properties; it does **not** prove the complete weighted minimization algorithm. Property tests in [`minimize_endpoint_properties.rs`](../../tests/minimize_endpoint_properties.rs) exercise those invariants, causal one-endpoint mutants, an explicit snapshot ID, and a 50,000-state scan on a 64-KiB thread stack. The independent Moore reference also rejects malformed endpoints and is compared with worklist refinement on valid generated WFSTs.
+
+Run `sh scripts/verify-minimize-endpoints.sh` from the repository root to rebuild the Rocq proof, check its kernel dependencies, and run the Rust target and documentation tests under bounded user scopes. Its logs and temporary files stay under `target/` on persistent storage.
 
 ## Core API
 
 ### Types
 
-```rust
-/// Configuration for minimization
-pub struct MinimizeConfig {
-    /// Push weights before minimizing (recommended)
-    pub push_weights: bool,
-    /// Direction for weight pushing
-    pub push_direction: PushDirection,
-    /// Whether to connect (trim) before minimization
-    pub connect_first: bool,
-}
+`MinimizeConfig` controls `push_weights`, `push_direction`, `connect_first`, and the positive finite `weight_epsilon`. `MinimizeInputIdentity::Snapshot(u64)` is supplied by callers needing durable provenance; otherwise the API reports `BorrowedWfst(address)`.
 
-/// Errors during minimization
-pub enum MinimizeError {
-    NoStartState,
-    NotDeterministic,
-    PushError(String),
-}
-```
+`MinimizeError` distinguishes `InvalidStateCount`, `InvalidStartState`, `InvalidTransition`, `NotDeterministic`, `InvalidWeightEpsilon`, and `PushError`. `InvalidTransition` carries input identity, state count, owner state, encoded source and target, and transition index. `NoStartState` remains in the enum for compatibility but input validation now reports `InvalidStartState` with provenance.
 
 ### Functions
 
-```rust
-/// Minimize a deterministic WFST
-pub fn minimize<L, W, F>(
-    fst: &F,
-    config: MinimizeConfig,
-) -> Result<F, MinimizeError>;
-
-/// Estimate how many states can be removed
-pub fn estimate_reduction<L, W, F>(fst: &F) -> usize;
-```
+`minimize(&fst, config)` returns `Result<F, MinimizeError>`. `minimize_with_input_identity(&fst, identity, config)` uses a caller-supplied snapshot key. `estimate_reduction(&fst)` and `estimate_reduction_with_epsilon(&fst, epsilon)` now return `Result<usize, MinimizeError>`; `estimate_reduction_with_epsilon_and_input_identity` combines custom epsilon with a snapshot key. Estimates no longer collapse malformed-input or epsilon errors to zero.
 
 ## Examples
 
@@ -160,7 +176,7 @@ println!("Minimized: {} states", min.num_states());
 use lling_llang::algorithms::estimate_reduction;
 
 // Before expensive minimization, check if it's worthwhile
-let reduction = estimate_reduction(&fst);
+let reduction = estimate_reduction(&fst)?;
 
 if reduction > 0 {
     println!("Can remove {} states via minimization", reduction);
@@ -365,7 +381,7 @@ let equivalent = are_isomorphic(&min1, &min2);
 For large WFSTs, check if minimization is worthwhile:
 
 ```rust
-let reduction = estimate_reduction(&fst);
+let reduction = estimate_reduction(&fst)?;
 let ratio = reduction as f64 / fst.num_states() as f64;
 
 if ratio > 0.1 {  // >10% reduction
@@ -429,13 +445,20 @@ Iteration 2: Stable (no change)
 ```rust
 use lling_llang::algorithms::MinimizeError;
 
-match minimize(&fst, config) {
+match minimize(&fst, config.clone()) {
     Ok(min) => {
         println!("Minimized: {} -> {} states",
                  fst.num_states(), min.num_states());
     }
-    Err(MinimizeError::NoStartState) => {
-        // WFST has no start state
+    Err(MinimizeError::InvalidTransition { owner_state, transition_index, .. }) => {
+        // Repair the original input arc at this exact position; no arc was dropped.
+        println!("Malformed arc {} in state {}", transition_index, owner_state);
+    }
+    Err(MinimizeError::InvalidStartState { start_state, .. }) => {
+        println!("Invalid start state: {}", start_state);
+    }
+    Err(MinimizeError::InvalidStateCount { state_count, .. }) => {
+        println!("Unrepresentable state count: {}", state_count);
     }
     Err(MinimizeError::NotDeterministic) => {
         // Must determinize first
@@ -445,6 +468,12 @@ match minimize(&fst, config) {
     Err(MinimizeError::PushError(msg)) => {
         // Weight pushing failed (e.g., no path to final)
         println!("Push failed: {}", msg);
+    }
+    Err(MinimizeError::InvalidWeightEpsilon { epsilon }) => {
+        println!("Invalid epsilon: {}", epsilon);
+    }
+    Err(MinimizeError::NoStartState) => {
+        // Compatibility variant; current input validation uses InvalidStartState.
     }
 }
 ```
