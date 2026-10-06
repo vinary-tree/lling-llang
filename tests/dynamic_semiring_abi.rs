@@ -16,6 +16,7 @@ use lling_llang::ffi::{
     lling_semiring_weight_free, lling_semiring_zero, LlingLlangStatus, LlingSemiring,
     LlingSemiringWeight,
 };
+use proptest::prelude::*;
 use vinary_tree_interop::{
     semiring_flags, semiring_order, semiring_properties, VtInterfaceId, VtResource,
     VtResourceVTable, VtSemiringDivisionVTable, VtSemiringNumericVTable,
@@ -134,6 +135,10 @@ unsafe extern "C" fn mock_query(
     }
     if state(context).hostile.load(Ordering::Relaxed) == 5 {
         return 42;
+    }
+    if state(context).hostile.load(Ordering::Relaxed) == 7 {
+        *output = (&SERIAL_SEMIRING_VTABLE as *const VtSemiringVTable).cast();
+        return VtStatus::Unsupported.to_raw();
     }
     let id = *interface_id;
     let table =
@@ -625,6 +630,104 @@ fn ownership_algebra_refinements_and_bounded_batches_are_exact() {
     ));
     assert_eq!(resource.state().live_tokens.load(Ordering::Relaxed), 0);
     assert_eq!(resource.state().references.load(Ordering::Relaxed), 1);
+}
+
+// INVARIANT-HOOK: LLING-HOST-1..3 — generated commands exercise the real
+// VtResource negotiation and the safe lling-llang semiring consumer.
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+    #[test]
+    fn host_provider_generated_semiring_lifecycle(
+        commands in proptest::collection::vec(any::<u8>(), 1..64)
+    ) {
+        let resource = TestResource::new(false);
+        let context = unsafe { DynamicSemiringContext::borrow_raw(resource.raw) }.unwrap();
+        prop_assert_eq!(resource.state().references.load(Ordering::SeqCst), 2);
+        prop_assert_eq!(context.domain_id(), DOMAIN);
+        let mut values = Vec::new();
+        let mut expected = Vec::<f64>::new();
+
+        for command in commands {
+            match command % 6 {
+                0 => {
+                    values.push(context.zero().unwrap());
+                    expected.push(0.0);
+                }
+                1 => {
+                    values.push(context.one().unwrap());
+                    expected.push(1.0);
+                }
+                2 if !values.is_empty() => {
+                    let index = usize::from(command) % values.len();
+                    values.push(values[index].try_clone().unwrap());
+                    expected.push(expected[index]);
+                }
+                3 if !values.is_empty() => {
+                    let index = usize::from(command) % values.len();
+                    let one = context.one().unwrap();
+                    values.push(context.plus(&values[index], &one).unwrap());
+                    expected.push(expected[index] + 1.0);
+                }
+                4 if !values.is_empty() => {
+                    let index = usize::from(command) % values.len();
+                    values.remove(index).close().unwrap();
+                    expected.remove(index);
+                }
+                5 if !values.is_empty() => {
+                    let count = values.len().min(3);
+                    values.push(context.plus_many(&values[..count]).unwrap());
+                    expected.push(expected[..count].iter().sum());
+                }
+                _ => {}
+            }
+            prop_assert_eq!(values.len(), expected.len());
+            prop_assert_eq!(
+                resource.state().live_tokens.load(Ordering::SeqCst),
+                values.len()
+            );
+            prop_assert_eq!(resource.state().references.load(Ordering::SeqCst), 2);
+            if let (Some(value), Some(want)) = (values.last(), expected.last()) {
+                prop_assert_eq!(context.numerical_value(value).unwrap(), *want);
+            }
+        }
+
+        drop(values);
+        prop_assert_eq!(resource.state().live_tokens.load(Ordering::SeqCst), 0);
+        drop(context);
+        prop_assert_eq!(resource.state().references.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn host_provider_generated_version_and_error_publication(
+        excess_version in 1u32..64,
+        wrong_interface in any::<bool>(),
+    ) {
+        let resource = TestResource::new(false);
+        let requested = if wrong_interface {
+            VT_SEMIRING_STAR_INTERFACE_ID
+        } else {
+            VT_SEMIRING_INTERFACE_ID
+        };
+        let minimum = VT_SEMIRING_INTERFACE_VERSION + excess_version;
+        let sentinel = (&RESOURCE_VTABLE as *const VtResourceVTable).cast();
+        let mut output = sentinel;
+        let status = unsafe {
+            mock_query(resource.raw.context, &requested, minimum, &mut output)
+        };
+        prop_assert_eq!(status, VtStatus::Unsupported.to_raw());
+        prop_assert_eq!(output, sentinel);
+
+        // The faulty provider writes a plausible pointer despite reporting
+        // Unsupported. The real consumer must reject that negative control.
+        resource.state().hostile.store(7, Ordering::SeqCst);
+        let result = unsafe { DynamicSemiringContext::borrow_raw(resource.raw) };
+        let rejected = matches!(
+            result,
+            Err(DynamicSemiringError::InvalidProviderOutput { .. })
+        );
+        prop_assert!(rejected, "mutant must be rejected");
+        prop_assert_eq!(resource.state().references.load(Ordering::SeqCst), 1);
+    }
 }
 
 #[test]
