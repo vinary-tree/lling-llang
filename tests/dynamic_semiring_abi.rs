@@ -2,7 +2,7 @@
 
 use std::ffi::c_void;
 use std::mem::size_of;
-use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU8, AtomicUsize, Ordering};
 
 use lling_llang::dynamic_semiring::{
     DynamicSemiringContext, DynamicSemiringError, NaturalOrder, ParallelDynamicSemiringContext,
@@ -39,6 +39,7 @@ struct MockState {
     batch_calls: AtomicUsize,
     parallel: bool,
     hostile: AtomicU8,
+    unknown_status: AtomicU32,
 }
 
 impl MockState {
@@ -49,6 +50,7 @@ impl MockState {
             batch_calls: AtomicUsize::new(0),
             parallel,
             hostile: AtomicU8::new(0),
+            unknown_status: AtomicU32::new(42),
         }
     }
 }
@@ -137,7 +139,7 @@ unsafe extern "C" fn mock_query(
         return VtStatus::NullPointer.to_raw();
     }
     if state(context).hostile.load(Ordering::Relaxed) == 5 {
-        return 42;
+        return state(context).unknown_status.load(Ordering::Relaxed);
     }
     if state(context).hostile.load(Ordering::Relaxed) == 7 {
         *output = (&SERIAL_SEMIRING_VTABLE as *const VtSemiringVTable).cast();
@@ -914,6 +916,22 @@ fn unknown_status_during_discovery_releases_the_borrowed_retain() {
         Err(DynamicSemiringError::InvalidProviderOutput { .. })
     ));
     assert_eq!(resource.state().references.load(Ordering::Relaxed), 1);
+}
+
+// INVARIANT-HOOK: LLING-HOST-11 — arbitrary out-of-domain wire statuses
+// cannot become a typed success or leave an extra consumer retain.
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+    #[test]
+    fn host_provider_generated_raw_status_domain(raw in 10u32..u32::MAX) {
+        let resource = TestResource::new(false);
+        resource.state().unknown_status.store(raw, Ordering::SeqCst);
+        resource.state().hostile.store(5, Ordering::SeqCst);
+        let result = unsafe { DynamicSemiringContext::borrow_raw(resource.raw) };
+        let rejected = matches!(result, Err(DynamicSemiringError::InvalidProviderOutput { .. }));
+        prop_assert!(rejected, "out-of-domain status must be rejected");
+        prop_assert_eq!(resource.state().references.load(Ordering::SeqCst), 1);
+    }
 }
 
 #[test]

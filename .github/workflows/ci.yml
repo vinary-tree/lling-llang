@@ -364,6 +364,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/checkout-dev-siblings
       - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: "21" }
       - name: Install the checksum-pinned stable TLA+ tools

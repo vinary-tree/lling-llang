@@ -307,9 +307,20 @@ Page(c, capacity) ==
        interfaceOutput, output, errorOutput, generation, slotLive,
        tokenOwner, tokenGeneration, tokenUseCount, callOwner, callDepth, cancelled>>
 
+(* A second page or close attempt cannot consume an outstanding batch lease. *)
+RejectWhileLeased(c) ==
+  /\ cursor[c] = "Leased" /\ status[c] # "BatchInUse"
+  /\ status' = [status EXCEPT ![c] = "BatchInUse"]
+  /\ errorOutput' = [errorOutput EXCEPT ![c] = output[c]]
+  /\ UNCHANGED <<baseOwned, snapshotOwned, retains, context,
+       snapshotContext, snapshotId, requestedVersion, negotiated,
+       interfaceOutput, output, generation, slotLive, tokenOwner,
+       tokenGeneration, tokenUseCount, callOwner, callDepth, cursor, cancelled,
+       pageIndex, pageWritten, pageCapacity, leaseGeneration>>
+
 ReleaseBatch(c) ==
   /\ cursor[c] = "Leased"
-  /\ cursor' = [cursor EXCEPT ![c] = "Open"]
+  /\ cursor' = [cursor EXCEPT ![c] = IF cancelled[c] THEN "Ended" ELSE "Open"]
   /\ pageWritten' = [pageWritten EXCEPT ![c] = 0]
   /\ pageCapacity' = [pageCapacity EXCEPT ![c] = 0]
   /\ status' = [status EXCEPT ![c] = "Ok"]
@@ -331,13 +342,10 @@ EndCursor(c) ==
        pageWritten, pageCapacity, leaseGeneration>>
 
 Cancel(c) ==
-  /\ cursor[c] \in {"Open", "Leased"}
-  /\ IF cursor[c] = "Leased"
-       THEN /\ UNCHANGED <<cursor, cancelled>>
-            /\ status' = [status EXCEPT ![c] = "BatchInUse"]
-       ELSE /\ cursor' = [cursor EXCEPT ![c] = "Ended"]
-            /\ cancelled' = [cancelled EXCEPT ![c] = TRUE]
-            /\ status' = [status EXCEPT ![c] = "Ok"]
+  /\ cursor[c] \in {"Open", "Leased", "Ended"}
+  /\ cursor' = [cursor EXCEPT ![c] = IF @ = "Open" THEN "Ended" ELSE @]
+  /\ cancelled' = [cancelled EXCEPT ![c] = TRUE]
+  /\ status' = [status EXCEPT ![c] = "Ok"]
   /\ errorOutput' = [errorOutput EXCEPT ![c] = output[c]]
   /\ UNCHANGED <<baseOwned, snapshotOwned, retains, context,
        snapshotContext, snapshotId, requestedVersion, negotiated,
@@ -355,6 +363,16 @@ CloseCursor(c) ==
        tokenOwner, tokenGeneration, tokenUseCount, callOwner, callDepth, cancelled,
        pageIndex, pageWritten, pageCapacity, leaseGeneration>>
 
+RejectAfterClose(c) ==
+  /\ cursor[c] = "Closed" /\ status[c] # "Closed"
+  /\ status' = [status EXCEPT ![c] = "Closed"]
+  /\ errorOutput' = [errorOutput EXCEPT ![c] = output[c]]
+  /\ UNCHANGED <<baseOwned, snapshotOwned, retains, context,
+       snapshotContext, snapshotId, requestedVersion, negotiated,
+       interfaceOutput, output, generation, slotLive, tokenOwner,
+       tokenGeneration, tokenUseCount, callOwner, callDepth, cursor, cancelled,
+       pageIndex, pageWritten, pageCapacity, leaseGeneration>>
+
 Next ==
   \/ \E c \in Clients : Acquire(c) \/ ReleaseBase(c)
        \/ ReleaseSnapshot(c) \/ Finalizer(c) \/ Capture(c)
@@ -367,6 +385,7 @@ Next ==
             \/ \E succeeded \in BOOLEAN : FinishCall(c, t, succeeded)
   \/ \E source, target \in Clients : CloneBase(source, target)
   \/ \E c \in Clients : \E capacity \in 1..MaxPage : Page(c, capacity)
+  \/ \E c \in Clients : RejectWhileLeased(c) \/ RejectAfterClose(c)
 
 Spec == Init /\ [][Next]_vars
 
@@ -414,7 +433,7 @@ PageBounded ==
     pageWritten[c] <= pageCapacity[c] /\
     (cursor[c] = "Leased" => pageWritten[c] > 0)
 CancelledNeverOpen ==
-  \A c \in Clients : cancelled[c] => cursor[c] \in {"Ended", "Closed"}
+  \A c \in Clients : cancelled[c] => cursor[c] \in {"Leased", "Ended", "Closed"}
 ErrorDoesNotPublish ==
   \A c \in Clients : status[c] \in
     {"End", "InvalidArgument", "Unsupported", "ProviderError",

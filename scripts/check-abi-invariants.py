@@ -20,6 +20,9 @@ the artifacts it points at:
      INVARIANT-HOOK comment under tests/ resolves to a registry row, and every
      TEST-BACKED registry row (test_path != "-") is hooked by at least one test
      (formal-only rows are exempt -- their evidence is the proof itself).
+     Shared host-provider rows may point to the checked-out sibling
+     libdictenstein ABI suite; their exact path and test function are checked
+     here, while libdictenstein owns its own test hook registry.
 
 Adapted from the sibling liblevenshtein-rust scripts/check-abi-invariants.py;
 the one intentional difference is rule 6's formal-only exemption, since several
@@ -157,7 +160,13 @@ def main() -> int:
                     f"{row_id}: formal-only rows must set test_name to '-'"
                 )
         else:
-            test_backed_ids.add(row_id)
+            sibling_test = row["test_path"].startswith("../libdictenstein/tests/")
+            if row["test_path"].startswith("../") and not (
+                sibling_test and row_id.startswith("LLING-HOST-")
+            ):
+                failures.add(f"{row_id}: unsupported cross-repository test path")
+            if not sibling_test:
+                test_backed_ids.add(row_id)
             test_path = ROOT / row["test_path"]
             if not test_path.is_file():
                 failures.add(f"{row_id}: test_path missing: {row['test_path']}")

@@ -363,14 +363,15 @@ fn concurrent_walkers_agree_over_serial_inputs() {
     run_concurrent_stress(TestWfstConfig::serial());
 }
 
-fn assert_same_context_capture_overlap(
+fn assert_capture_overlap(
     config: TestWfstConfig,
     expected_parallel: bool,
     callers: usize,
+    distinct_snapshot: bool,
 ) {
-    // Independent compositions each capture this ONE immutable context
-    // twice. The delayed callback ledger observes real in-flight overlap,
-    // not just equal gate pointers or an inferred timing bound.
+    // Independent compositions capture the immutable source twice. Each
+    // snapshot may retain that context or use its own allocation. The delayed
+    // callback ledger observes real overlap, not just equal gate pointers.
     let source = TestWfst::new(
         vec![
             TestState::interior(vec![TestArc::pair('a', 'a', 1, 0.0)]),
@@ -387,7 +388,7 @@ fn assert_same_context_capture_overlap(
         unsafe { table.snapshot.unwrap()(live.context, &mut snapshot) },
         VtStatus::Ok.to_raw()
     );
-    assert_eq!(snapshot.context, live.context);
+    assert_eq!(snapshot.context == live.context, !distinct_snapshot);
     unsafe { ((*snapshot.vtable).release.unwrap())(snapshot.context) };
     let mut owned = Vec::new();
     for _ in 0..callers {
@@ -404,6 +405,10 @@ fn assert_same_context_capture_overlap(
         owned.push((composed, SharedResource(resource)));
     }
     assert_eq!(metrics.snapshots(), 1 + 2 * callers);
+    // From here only captured snapshot retains may keep provider contexts
+    // alive; every callback below must execute before those owners release.
+    drop(source);
+    assert!(metrics.balance() > 0);
     let ready = Arc::new(Barrier::new(callers));
     std::thread::scope(|scope| {
         let mut workers = Vec::new();
@@ -421,10 +426,10 @@ fn assert_same_context_capture_overlap(
         }
     });
     assert_eq!(metrics.callbacks_in_flight(), 0);
-    if expected_parallel {
+    if expected_parallel || distinct_snapshot {
         assert!(
             metrics.peak_callbacks_in_flight() >= 2,
-            "parallel fixture must exercise actual callback overlap"
+            "independent or parallel snapshot contexts must exercise callback overlap"
         );
     } else {
         assert_eq!(
@@ -433,7 +438,6 @@ fn assert_same_context_capture_overlap(
             "all captures of one serial context must share admission"
         );
     }
-    drop(source);
     for (composed, resource) in owned {
         lling_resource_release(resource.get());
         unsafe { lling_wfst_free(composed) };
@@ -445,10 +449,11 @@ fn assert_same_context_capture_overlap(
 // admission, while a genuinely parallel context still overlaps callbacks.
 #[test]
 fn independent_captures_of_one_serial_context_never_overlap_callbacks() {
-    assert_same_context_capture_overlap(
+    assert_capture_overlap(
         TestWfstConfig::serial().with_snapshot_base_vtable_alias(),
         false,
         4,
+        false,
     );
 }
 
@@ -520,11 +525,62 @@ fn concurrent_captures_serialize_pre_flag_interface_discovery() {
 
 #[test]
 fn independent_captures_of_one_parallel_context_do_overlap_callbacks() {
-    assert_same_context_capture_overlap(TestWfstConfig::default(), true, 4);
+    assert_capture_overlap(TestWfstConfig::default(), true, 4, false);
+}
+
+#[test]
+#[should_panic(expected = "serial callback bypassed admission")]
+fn host_provider_serial_gate_bypass_mutant_is_detected() {
+    let source = TestWfst::new(
+        vec![TestState::accepting(0.0, Vec::new())],
+        0,
+        TestWfstConfig::serial(),
+    );
+    let metrics = source.metrics();
+    let resource = SharedResource(source.as_raw());
+    let table_address = unsafe { discover_scalar_wfst(resource.get()) } as usize;
+    metrics.set_callback_barrier(Some(Arc::new(Barrier::new(2))));
+    std::thread::scope(|scope| {
+        let jobs: Vec<_> = (0..2)
+            .map(|_| {
+                scope.spawn(move || {
+                    let table = table_address as *const vinary_tree_interop::VtWfstVTable;
+                    let mut valid = 0;
+                    let mut finality = 0;
+                    let mut weight = 0.0;
+                    let raw = unsafe {
+                        ((*table).state_info.unwrap())(
+                            resource.get().context,
+                            0,
+                            &mut valid,
+                            &mut finality,
+                            &mut weight,
+                        )
+                    };
+                    assert_eq!(raw, VtStatus::Ok.to_raw());
+                })
+            })
+            .collect();
+        for job in jobs {
+            job.join().unwrap();
+        }
+    });
+    metrics.set_callback_barrier(None);
+    assert_eq!(metrics.callbacks_in_flight(), 0);
+    let peak = metrics.peak_callbacks_in_flight();
+    drop(source);
+    assert_eq!(metrics.balance(), 0);
+    assert_eq!(peak, 1, "serial callback bypassed admission");
 }
 
 // INVARIANT-HOOK: LLING-HOST-7..8 — actual FFI captures share one context
 // gate, pin snapshot ownership, and admit overlap only for a parallel claim.
+// INVARIANT-HOOK: LLING-HOST-12 — release the base owner before traversal;
+// captured snapshot retains must keep every provider callback live.
+// INVARIANT-HOOK: LLING-HOST-16 — the generated context-gate schedule in
+// src/bindings.rs tracks each callback's owner through admission and release.
+// INVARIANT-HOOK: LLING-HOST-17 — the parallel fixture reaches overlapping
+// callbacks, while the serial gate-bypass mutant exposes the missing gate.
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(12))]
     #[test]
@@ -532,6 +588,7 @@ proptest! {
         callers in 2usize..5,
         parallel in any::<bool>(),
         alias_base_vtable in any::<bool>(),
+        distinct_snapshot in any::<bool>(),
     ) {
         let mut config = if parallel {
             TestWfstConfig::default()
@@ -541,13 +598,17 @@ proptest! {
         if alias_base_vtable {
             config = config.with_snapshot_base_vtable_alias();
         }
-        assert_same_context_capture_overlap(config, parallel, callers);
+        if distinct_snapshot {
+            config = config.with_snapshot_distinct_context();
+        }
+        assert_capture_overlap(config, parallel, callers, distinct_snapshot);
     }
 
     #[test]
     fn host_provider_generated_conflicting_claim_rejection(
         live_parallel in any::<bool>(),
         alias_base_vtable in any::<bool>(),
+        distinct_snapshot in any::<bool>(),
     ) {
         let mut config = if live_parallel {
             TestWfstConfig::default()
@@ -559,6 +620,9 @@ proptest! {
         if alias_base_vtable {
             config = config.with_snapshot_base_vtable_alias();
         }
+        if distinct_snapshot {
+            config = config.with_snapshot_distinct_context();
+        }
         let source = TestWfst::new(
             vec![TestState::accepting(0.0, Vec::new())],
             0,
@@ -566,11 +630,15 @@ proptest! {
         );
         let metrics = source.metrics();
         let mut composed: *mut LlingWfst = ptr::null_mut();
-        prop_assert_eq!(
-            lling_wfst_compose(source.as_raw(), source.as_raw(), &mut composed),
-            LlingLlangStatus::ProviderError
-        );
-        prop_assert!(composed.is_null());
+        let status = lling_wfst_compose(source.as_raw(), source.as_raw(), &mut composed);
+        if distinct_snapshot {
+            prop_assert_eq!(status, LlingLlangStatus::Ok);
+            prop_assert!(!composed.is_null());
+            unsafe { lling_wfst_free(composed) };
+        } else {
+            prop_assert_eq!(status, LlingLlangStatus::ProviderError);
+            prop_assert!(composed.is_null());
+        }
         drop(source);
         prop_assert_eq!(metrics.balance(), 0);
         prop_assert_eq!(metrics.callbacks_in_flight(), 0);

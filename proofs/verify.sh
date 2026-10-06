@@ -176,6 +176,8 @@ fi
 # formal-only, a live regression test.
 python3 "$ROOT/scripts/check-abi-invariants.py" \
   2>&1 | tee "$LOG_DIR/abi-invariant-registry.log"
+python3 "$ROOT/scripts/check-host-provider-invariants.py" \
+  2>&1 | tee "$LOG_DIR/host-provider-invariant-registry.log"
 python3 "$ROOT/scripts/check-lazy-expansion-invariants.py" \
   2>&1 | tee "$LOG_DIR/lazy-expansion-invariant-registry.log"
 python3 "$ROOT/scripts/check-domain-integration-invariants.py" \
@@ -257,13 +259,14 @@ python3 "$ROOT/scripts/generate-host-provider-mutants.py" \
   2>&1 | tee "$LOG_DIR/host-provider-mutant-generation.log"
 for mutant in missing-snapshot-retain unsafe-serial-admission \
               page-capacity-lie error-publishes-output \
-              accepts-stale-token; do
+              accepts-stale-token cancelled-lease-reopens; do
   case "$mutant" in
     missing-snapshot-retain) expected="Invariant RetainsEqualOwners is violated" ;;
     unsafe-serial-admission) expected="Invariant SerialAdmission is violated" ;;
     page-capacity-lie) expected="Invariant PageBounded is violated" ;;
     error-publishes-output) expected="Invariant ErrorDoesNotPublish is violated" ;;
     accepts-stale-token) expected="Action property TokenUseStatusLaw is violated" ;;
+    cancelled-lease-reopens) expected="Invariant CancelledNeverOpen is violated" ;;
   esac
   cp "$ROOT/proofs/tla/MC/HostProviderLifecycleSerial.cfg" \
     "$MUTANT_DIR/host-provider/$mutant/HostProviderLifecycleSerial.cfg"

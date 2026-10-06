@@ -30,7 +30,7 @@
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 use vinary_tree_interop::{
     dictionary_flags, wfst_flags, VtDictionaryEdge, VtDictionaryVTable, VtInterfaceId,
@@ -57,6 +57,7 @@ pub struct Metrics {
     state_arcs_calls: AtomicUsize,
     callbacks_in_flight: AtomicUsize,
     peak_callbacks_in_flight: AtomicUsize,
+    callback_barrier: Mutex<Option<Arc<Barrier>>>,
 }
 
 impl Metrics {
@@ -95,10 +96,20 @@ impl Metrics {
         self.callbacks_in_flight.load(Ordering::SeqCst)
     }
 
+    /// Synchronize raw callback entries for a deterministic gate-bypass
+    /// negative control. Ordinary provider fixtures leave this unset.
+    pub fn set_callback_barrier(&self, barrier: Option<Arc<Barrier>>) {
+        *self.callback_barrier.lock().unwrap() = barrier;
+    }
+
     fn enter_callback(&self, delay: Duration) -> CallbackSpan<'_> {
         let active = self.callbacks_in_flight.fetch_add(1, Ordering::SeqCst) + 1;
         self.peak_callbacks_in_flight
             .fetch_max(active, Ordering::SeqCst);
+        let barrier = self.callback_barrier.lock().unwrap().clone();
+        if let Some(barrier) = barrier {
+            barrier.wait();
+        }
         if !delay.is_zero() {
             std::thread::sleep(delay);
         }
@@ -272,6 +283,8 @@ pub struct TestWfstConfig {
     pub snapshot_flags: Option<u64>,
     /// Snapshot uses a distinct but compatible base vtable address.
     pub snapshot_base_vtable_alias: bool,
+    /// Snapshot owns a distinct immutable context allocation.
+    pub snapshot_distinct_context: bool,
 }
 
 impl Default for TestWfstConfig {
@@ -284,6 +297,7 @@ impl Default for TestWfstConfig {
             callback_delay: Duration::ZERO,
             snapshot_flags: None,
             snapshot_base_vtable_alias: false,
+            snapshot_distinct_context: false,
         }
     }
 }
@@ -339,6 +353,12 @@ impl TestWfstConfig {
         self.snapshot_base_vtable_alias = true;
         self
     }
+
+    /// Give each captured revision its own context identity and retain.
+    pub fn with_snapshot_distinct_context(mut self) -> Self {
+        self.snapshot_distinct_context = true;
+        self
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -353,6 +373,7 @@ struct WfstContext {
     snapshot_vtable: Option<VtWfstVTable>,
     snapshot_published: AtomicUsize,
     snapshot_base_vtable_alias: bool,
+    snapshot_distinct_context: bool,
     metrics: Arc<Metrics>,
     /// Monotone `state_arcs` call sequence backing `UnstableOutTotal`.
     arcs_call_sequence: AtomicUsize,
@@ -360,6 +381,22 @@ struct WfstContext {
     /// by this context so the pointer handed out by `query_interface` stays
     /// valid exactly as long as the resource is retained.
     vtable: VtWfstVTable,
+}
+
+fn copy_wfst_vtable(table: &VtWfstVTable) -> VtWfstVTable {
+    VtWfstVTable {
+        struct_size: table.struct_size,
+        interface_version: table.interface_version,
+        unit_domain: table.unit_domain,
+        weight_domain: table.weight_domain,
+        reserved: table.reserved,
+        flags: table.flags,
+        snapshot: table.snapshot,
+        start: table.start,
+        num_states: table.num_states,
+        state_info: table.state_info,
+        state_arcs: table.state_arcs,
+    }
 }
 
 /// One owned retain of a hand-rolled `vt.scalar-wfst.1` test resource.
@@ -397,6 +434,7 @@ impl TestWfst {
             }),
             snapshot_published: AtomicUsize::new(0),
             snapshot_base_vtable_alias: config.snapshot_base_vtable_alias,
+            snapshot_distinct_context: config.snapshot_distinct_context,
             metrics: Arc::clone(&metrics),
             arcs_call_sequence: AtomicUsize::new(0),
             vtable: VtWfstVTable {
@@ -555,11 +593,31 @@ unsafe fn wfst_snapshot_status(context: *mut c_void, out_snapshot: *mut VtResour
     let shared = &*context.cast::<WfstContext>();
     let _callback = shared.metrics.enter_callback(shared.callback_delay);
     shared.metrics.snapshots.fetch_add(1, Ordering::SeqCst);
-    // The model is immutable, so the snapshot retains the same context.
-    wfst_retain(context);
     shared.snapshot_published.store(1, Ordering::SeqCst);
+    let snapshot_context = if shared.snapshot_distinct_context {
+        let snapshot = Arc::new(WfstContext {
+            start: shared.start,
+            states: shared.states.clone(),
+            misbehavior: shared.misbehavior,
+            callback_delay: shared.callback_delay,
+            snapshot_vtable: shared.snapshot_vtable.as_ref().map(copy_wfst_vtable),
+            snapshot_published: AtomicUsize::new(1),
+            snapshot_base_vtable_alias: shared.snapshot_base_vtable_alias,
+            snapshot_distinct_context: false,
+            metrics: Arc::clone(&shared.metrics),
+            arcs_call_sequence: AtomicUsize::new(0),
+            vtable: copy_wfst_vtable(&shared.vtable),
+        });
+        shared.metrics.retains.fetch_add(1, Ordering::SeqCst);
+        Arc::into_raw(snapshot).cast_mut().cast()
+    } else {
+        // The original immutable context can safely be retained as its own
+        // snapshot when a distinct revision allocation is unnecessary.
+        wfst_retain(context);
+        context
+    };
     out_snapshot.write(VtResource {
-        context,
+        context: snapshot_context,
         vtable: if shared.snapshot_base_vtable_alias {
             &WFST_RESOURCE_VTABLE_ALIAS
         } else {

@@ -37,6 +37,10 @@ MUTATIONS = {
         "  /\\ IF slotLive /\\ tokenOwner = c /\\ snapshotOwned[c]\n"
         '       THEN status\' = [status EXCEPT ![c] = "Ok"]',
     ),
+    "cancelled-lease-reopens": (
+        'cursor\' = [cursor EXCEPT ![c] = IF cancelled[c] THEN "Ended" ELSE "Open"]',
+        'cursor\' = [cursor EXCEPT ![c] = "Open"]',
+    ),
 }
 
 

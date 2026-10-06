@@ -2182,7 +2182,8 @@ mod tests {
             }
         }
 
-        // INVARIANT-HOOK: LLING-ALIAS-7 and the parallel-overlap witness.
+        // INVARIANT-HOOK: LLING-ALIAS-7 and LLING-HOST-16 — callback ownership
+        // exists for the exact admitted interval, including nested calls.
         #[test]
         fn context_gate_generated_alias_callback_schedules(
             callers in 2usize..5,
@@ -2202,27 +2203,50 @@ mod tests {
             }
             let in_callback = Arc::new(AtomicUsize::new(0));
             let peak = Arc::new(AtomicUsize::new(0));
+            let owners = Arc::new(Mutex::new(HashMap::<std::thread::ThreadId, usize>::new()));
             let barrier = Arc::new(Barrier::new(callers));
             let mut workers = Vec::new();
             for gate in gates {
                 let in_callback = Arc::clone(&in_callback);
                 let peak = Arc::clone(&peak);
+                let owners = Arc::clone(&owners);
                 let barrier = Arc::clone(&barrier);
                 workers.push(std::thread::spawn(move || {
                     for _ in 0..rounds {
                         gate.call(|| {
+                            let thread = std::thread::current().id();
+                            assert_eq!(owners.lock().unwrap().insert(thread, 1), None);
+                            if parallel {
+                                assert!(!gate.serial.active.load(Ordering::SeqCst));
+                            } else {
+                                assert!(gate.serial.active.load(Ordering::SeqCst));
+                                let identity = &gate.serial as *const SerialProviderCallGate as usize;
+                                ACTIVE_SERIAL_GATES.with(|active| {
+                                    assert_eq!(active.borrow().last(), Some(&identity));
+                                });
+                            }
                             let now = in_callback.fetch_add(1, Ordering::SeqCst) + 1;
                             peak.fetch_max(now, Ordering::SeqCst);
                             if !parallel { assert_eq!(now, 1); }
                             if parallel { barrier.wait(); }
                             for _ in 0..yields { std::thread::yield_now(); }
                             assert_eq!(
-                                gate.call(|| Ok(())),
+                                gate.call(|| {
+                                    let mut owners = owners.lock().unwrap();
+                                    assert_eq!(owners.insert(thread, 2), Some(1));
+                                    assert_eq!(owners.insert(thread, 1), Some(2));
+                                    Ok(())
+                                }),
                                 if parallel { Ok(()) } else { Err(BindingError::ConcurrentCall) }
                             );
                             in_callback.fetch_sub(1, Ordering::SeqCst);
+                            assert_eq!(owners.lock().unwrap().remove(&thread), Some(1));
                             Ok(())
                         })?;
+                        let identity = &gate.serial as *const SerialProviderCallGate as usize;
+                        ACTIVE_SERIAL_GATES.with(|active| {
+                            assert!(!active.borrow().contains(&identity));
+                        });
                     }
                     Ok::<_, BindingError>(())
                 }));
@@ -2231,6 +2255,7 @@ mod tests {
                 proptest::prop_assert_eq!(worker.join().unwrap(), Ok(()));
             }
             proptest::prop_assert_eq!(in_callback.load(Ordering::SeqCst), 0);
+            proptest::prop_assert!(owners.lock().unwrap().is_empty());
             proptest::prop_assert_eq!(peak.load(Ordering::SeqCst), if parallel { callers } else { 1 });
         }
 
