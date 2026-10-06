@@ -113,6 +113,9 @@ unsafe fn write_owned(context: *mut c_void, output: *mut VtSemiringValue, value:
 }
 
 unsafe extern "C" fn mock_retain(context: *mut c_void) {
+    if state(context).hostile.load(Ordering::Relaxed) == 9 {
+        return;
+    }
     state(context).references.fetch_add(1, Ordering::Relaxed);
 }
 
@@ -911,6 +914,22 @@ fn unknown_status_during_discovery_releases_the_borrowed_retain() {
         Err(DynamicSemiringError::InvalidProviderOutput { .. })
     ));
     assert_eq!(resource.state().references.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+#[should_panic(expected = "missing resource retain")]
+fn host_provider_missing_retain_mutant_is_detected() {
+    let resource = TestResource::new(false);
+    // One spare retain keeps the allocation live when the mutant skips the
+    // consumer's acquire; its eventual release consumes this spare retain.
+    unsafe { mock_retain(resource.raw.context) };
+    resource.state().hostile.store(9, Ordering::SeqCst);
+    let _context = unsafe { DynamicSemiringContext::borrow_raw(resource.raw) }.unwrap();
+    assert_eq!(
+        resource.state().references.load(Ordering::SeqCst),
+        3,
+        "missing resource retain"
+    );
 }
 
 #[test]
