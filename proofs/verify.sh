@@ -242,6 +242,37 @@ run_tlc_expect_failure serial-provider-alias-parallel-witness \
   "$ROOT/proofs/tla/MC/SerialProviderAliasRegistryParallelWitness.cfg" \
   "Invariant NoParallelOverlap is violated"
 
+for mode in Serial Parallel ThreadBound Owners Fair; do
+  run_tlc "host-provider-lifecycle-$mode" \
+    "$ROOT/proofs/tla/HostProviderLifecycle.tla" \
+    "$ROOT/proofs/tla/MC/HostProviderLifecycle$mode.cfg"
+done
+run_tlc_expect_failure host-provider-parallel-overlap-witness \
+  "$ROOT/proofs/tla/HostProviderLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/HostProviderLifecycleParallelWitness.cfg" \
+  "Invariant NoParallelOverlap is violated"
+python3 "$ROOT/scripts/generate-host-provider-mutants.py" \
+  "$ROOT/proofs/tla/HostProviderLifecycle.tla" \
+  "$MUTANT_DIR/host-provider" \
+  2>&1 | tee "$LOG_DIR/host-provider-mutant-generation.log"
+for mutant in missing-snapshot-retain unsafe-serial-admission \
+              page-capacity-lie error-publishes-output \
+              accepts-stale-token; do
+  case "$mutant" in
+    missing-snapshot-retain) expected="Invariant RetainsEqualOwners is violated" ;;
+    unsafe-serial-admission) expected="Invariant SerialAdmission is violated" ;;
+    page-capacity-lie) expected="Invariant PageBounded is violated" ;;
+    error-publishes-output) expected="Invariant ErrorDoesNotPublish is violated" ;;
+    accepts-stale-token) expected="Action property TokenUseStatusLaw is violated" ;;
+  esac
+  cp "$ROOT/proofs/tla/MC/HostProviderLifecycleSerial.cfg" \
+    "$MUTANT_DIR/host-provider/$mutant/HostProviderLifecycleSerial.cfg"
+  run_tlc_expect_failure "host-provider-$mutant" \
+    "$MUTANT_DIR/host-provider/$mutant/HostProviderLifecycle.tla" \
+    "$MUTANT_DIR/host-provider/$mutant/HostProviderLifecycleSerial.cfg" \
+    "$expected"
+done
+
 run_tlc cascade "$ROOT/proofs/tla/CascadeOrder.tla" "$ROOT/proofs/tla/MC/CascadeOrder.cfg"
 run_tlc cascade-fair "$ROOT/proofs/tla/CascadeOrder.tla" "$ROOT/proofs/tla/MC/CascadeOrderFair.cfg"
 run_tlc cascade-overlap "$ROOT/proofs/tla/CascadeOrder.tla" "$ROOT/proofs/tla/MC/CascadeOrderOverlappingAlphabets.cfg"
