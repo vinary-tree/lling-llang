@@ -742,6 +742,47 @@ proptest! {
 }
 
 #[test]
+#[should_panic(expected = "unsupported semiring version accepted")]
+fn host_provider_version_downgrade_mutant_is_detected() {
+    let resource = TestResource::new(false);
+    let requested_minimum = VT_SEMIRING_INTERFACE_VERSION + 1;
+    let mutant_minimum = requested_minimum - 1;
+    let mut output = std::ptr::null();
+    let status = unsafe {
+        mock_query(
+            resource.raw.context,
+            &VT_SEMIRING_INTERFACE_ID,
+            mutant_minimum,
+            &mut output,
+        )
+    };
+    assert_eq!(
+        status,
+        VtStatus::Unsupported.to_raw(),
+        "unsupported semiring version accepted"
+    );
+}
+
+#[test]
+#[should_panic(expected = "error published an interface")]
+fn host_provider_error_publication_mutant_is_detected() {
+    let resource = TestResource::new(false);
+    resource.state().hostile.store(7, Ordering::SeqCst);
+    let mut output = std::ptr::null();
+    let status = unsafe {
+        mock_query(
+            resource.raw.context,
+            &VT_SEMIRING_INTERFACE_ID,
+            VT_SEMIRING_INTERFACE_VERSION,
+            &mut output,
+        )
+    };
+    assert_eq!(status, VtStatus::Unsupported.to_raw());
+    // The mutant consumer admits a non-null output without checking status.
+    assert!(output.is_null(), "error published an interface");
+}
+
+#[test]
 fn context_identity_and_hostile_outputs_are_rejected_before_safe_use() {
     let first = TestResource::new(false);
     let second = TestResource::new(false);
@@ -923,7 +964,7 @@ fn unknown_status_during_discovery_releases_the_borrowed_retain() {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
     #[test]
-    fn host_provider_generated_raw_status_domain(raw in 10u32..u32::MAX) {
+fn host_provider_generated_raw_status_domain(raw in 10u32..u32::MAX) {
         let resource = TestResource::new(false);
         resource.state().unknown_status.store(raw, Ordering::SeqCst);
         resource.state().hostile.store(5, Ordering::SeqCst);
@@ -931,7 +972,26 @@ proptest! {
         let rejected = matches!(result, Err(DynamicSemiringError::InvalidProviderOutput { .. }));
         prop_assert!(rejected, "out-of-domain status must be rejected");
         prop_assert_eq!(resource.state().references.load(Ordering::SeqCst), 1);
-    }
+}
+}
+
+#[test]
+#[should_panic(expected = "out-of-domain status accepted")]
+fn host_provider_unknown_status_defaults_ok_mutant_is_detected() {
+    let resource = TestResource::new(false);
+    resource.state().hostile.store(5, Ordering::SeqCst);
+    resource.state().unknown_status.store(42, Ordering::SeqCst);
+    let mut output = std::ptr::null();
+    let raw = unsafe {
+        mock_query(
+            resource.raw.context,
+            &VT_SEMIRING_INTERFACE_ID,
+            VT_SEMIRING_INTERFACE_VERSION,
+            &mut output,
+        )
+    };
+    let mutant_status = VtStatus::from_raw(raw).unwrap_or(VtStatus::Ok);
+    assert_ne!(mutant_status, VtStatus::Ok, "out-of-domain status accepted");
 }
 
 #[test]

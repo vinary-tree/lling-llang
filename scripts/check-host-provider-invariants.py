@@ -148,16 +148,13 @@ def main() -> int:
         kind = row["negative_kind"]
         if kind == "panic-mutant":
             marker = f'#[should_panic(expected = "{row["negative_reason"]}")]'
-            if not re.search(
+            if not row["negative_test"].endswith("_mutant_is_detected") or not re.search(
                 rf"{re.escape(marker)}\s*fn\s+{re.escape(row['negative_test'])}\s*\(",
                 negative,
             ):
                 failures.append(f"{row_id}: expected-reason panic mutant missing")
-        elif kind == "adversarial-property":
-            if row["negative_reason"] != "-" or "proptest!" not in negative:
-                failures.append(f"{row_id}: adversarial property is malformed")
         else:
-            failures.append(f"{row_id}: unknown negative-control kind {kind!r}")
+            failures.append(f"{row_id}: negative control must be a failing mutant")
 
     if seen_symbols != expected:
         failures.append(
@@ -175,7 +172,7 @@ def main() -> int:
         for failure in failures:
             print(f"  FAIL {failure}")
         return 1
-    print(f"check-host-provider-invariants: {len(rows)} formal laws/witnesses mapped to generated actual-path properties and negative controls")
+    print(f"check-host-provider-invariants: {len(rows)} formal laws/witnesses mapped to generated actual-path properties and intended-failure mutants")
     return 0
 
 
