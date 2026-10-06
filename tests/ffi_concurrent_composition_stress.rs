@@ -529,6 +529,36 @@ fn independent_captures_of_one_parallel_context_do_overlap_callbacks() {
 }
 
 #[test]
+#[should_panic(expected = "snapshot alias split provider identity")]
+fn host_provider_snapshot_vtable_identity_mutant_is_detected() {
+    let source = TestWfst::new(
+        vec![TestState::accepting(0.0, Vec::new())],
+        0,
+        TestWfstConfig::serial().with_snapshot_base_vtable_alias(),
+    );
+    let metrics = source.metrics();
+    let live = source.as_raw();
+    let table = unsafe { &*discover_scalar_wfst(live) };
+    let mut snapshot = VtResource::NULL;
+    assert_eq!(
+        unsafe { table.snapshot.unwrap()(live.context, &mut snapshot) },
+        VtStatus::Ok.to_raw()
+    );
+    assert_eq!(snapshot.context, live.context);
+    assert_ne!(snapshot.vtable, live.vtable);
+    // Mutant: key the admission registry by vtable pointer rather than the
+    // retained context identity, splitting one provider into two gates.
+    let mutant_same_identity = snapshot.vtable == live.vtable;
+    unsafe { ((*snapshot.vtable).release.unwrap())(snapshot.context) };
+    drop(source);
+    assert_eq!(metrics.balance(), 0);
+    assert!(
+        mutant_same_identity,
+        "snapshot alias split provider identity"
+    );
+}
+
+#[test]
 #[should_panic(expected = "serial callback bypassed admission")]
 fn host_provider_serial_gate_bypass_mutant_is_detected() {
     let source = TestWfst::new(
