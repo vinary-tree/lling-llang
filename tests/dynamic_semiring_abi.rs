@@ -145,6 +145,8 @@ unsafe extern "C" fn mock_query(
         if id == VT_SEMIRING_INTERFACE_ID && minimum_version <= VT_SEMIRING_INTERFACE_VERSION {
             if state(context).hostile.load(Ordering::Relaxed) == 6 {
                 (&UNSTABLE_SEMIRING_VTABLE as *const VtSemiringVTable).cast()
+            } else if state(context).hostile.load(Ordering::Relaxed) == 8 {
+                (&THREAD_BOUND_SEMIRING_VTABLE as *const VtSemiringVTable).cast()
             } else if state(context).parallel {
                 (&PARALLEL_SEMIRING_VTABLE as *const VtSemiringVTable).cast()
             } else {
@@ -532,6 +534,10 @@ static PARALLEL_SEMIRING_VTABLE: VtSemiringVTable = semiring_vtable!(
     BASE_FLAGS | semiring_flags::PARALLEL_REENTRANT,
     Some(stable_bytes)
 );
+static THREAD_BOUND_SEMIRING_VTABLE: VtSemiringVTable = semiring_vtable!(
+    BASE_FLAGS | semiring_flags::THREAD_BOUND,
+    Some(stable_bytes)
+);
 static UNSTABLE_SEMIRING_VTABLE: VtSemiringVTable = semiring_vtable!(semiring_flags::BATCH, None);
 
 static DIVISION_VTABLE: VtSemiringDivisionVTable = VtSemiringDivisionVTable {
@@ -824,6 +830,75 @@ fn only_parallel_reentrant_contexts_cross_threads() {
             .live_tokens
             .load(Ordering::Relaxed),
         0
+    );
+}
+
+#[cfg(feature = "ffi")]
+fn call_semiring_one_from_other_thread(semiring: usize) -> (LlingLlangStatus, bool) {
+    let mut weight: *mut LlingSemiringWeight = std::ptr::null_mut();
+    let status = lling_semiring_one(semiring as *const LlingSemiring, &mut weight);
+    let empty = weight.is_null();
+    if !empty {
+        unsafe { lling_semiring_weight_free(weight) };
+    }
+    (status, empty)
+}
+
+// INVARIANT-HOOK: LLING-HOST-9..10 — the actual C boundary gates every
+// thread-bound callback on its owning thread, even for copied raw handles.
+#[cfg(feature = "ffi")]
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(32))]
+    #[test]
+    fn host_provider_generated_thread_affinity(workers in 1usize..7) {
+        let resource = TestResource::new(false);
+        resource.state().hostile.store(8, Ordering::SeqCst);
+        let mut semiring: *mut LlingSemiring = std::ptr::null_mut();
+        prop_assert_eq!(
+            unsafe { lling_semiring_open(&resource.raw, &mut semiring) },
+            LlingLlangStatus::Ok
+        );
+        let address = semiring as usize;
+        let outcomes = std::thread::scope(|scope| {
+            let jobs: Vec<_> = (0..workers)
+                .map(|_| scope.spawn(move || call_semiring_one_from_other_thread(address)))
+                .collect();
+            jobs.into_iter().map(|job| job.join().unwrap()).collect::<Vec<_>>()
+        });
+        for (status, empty) in outcomes {
+            prop_assert_eq!(status, LlingLlangStatus::ProviderError);
+            prop_assert!(empty);
+        }
+        prop_assert_eq!(resource.state().live_tokens.load(Ordering::SeqCst), 0);
+        let mut owned: *mut LlingSemiringWeight = std::ptr::null_mut();
+        prop_assert_eq!(lling_semiring_one(semiring, &mut owned), LlingLlangStatus::Ok);
+        prop_assert!(!owned.is_null());
+        unsafe { lling_semiring_weight_free(owned) };
+        unsafe { lling_semiring_free(semiring) };
+        prop_assert_eq!(resource.state().references.load(Ordering::SeqCst), 1);
+        prop_assert_eq!(resource.state().live_tokens.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[cfg(feature = "ffi")]
+#[test]
+#[should_panic(expected = "wrong-thread callback was admitted")]
+fn host_provider_parallel_flag_mutant_is_detected() {
+    let resource = TestResource::new(true);
+    let mut semiring: *mut LlingSemiring = std::ptr::null_mut();
+    assert_eq!(
+        unsafe { lling_semiring_open(&resource.raw, &mut semiring) },
+        LlingLlangStatus::Ok
+    );
+    let address = semiring as usize;
+    let outcome = std::thread::spawn(move || call_semiring_one_from_other_thread(address))
+        .join()
+        .unwrap();
+    unsafe { lling_semiring_free(semiring) };
+    assert_eq!(
+        outcome.0,
+        LlingLlangStatus::ProviderError,
+        "wrong-thread callback was admitted"
     );
 }
 
