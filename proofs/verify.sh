@@ -178,6 +178,10 @@ python3 "$ROOT/scripts/check-abi-invariants.py" \
   2>&1 | tee "$LOG_DIR/abi-invariant-registry.log"
 python3 "$ROOT/scripts/check-host-provider-invariants.py" \
   2>&1 | tee "$LOG_DIR/host-provider-invariant-registry.log"
+python3 "$ROOT/scripts/generate-julia-path-properties.py" --check \
+  2>&1 | tee "$LOG_DIR/julia-path-property-registry.log"
+python3 "$ROOT/scripts/verify-julia-path-formal.py" \
+  2>&1 | tee "$LOG_DIR/julia-path-formal.log"
 python3 "$ROOT/scripts/check-lazy-expansion-invariants.py" \
   2>&1 | tee "$LOG_DIR/lazy-expansion-invariant-registry.log"
 python3 "$ROOT/scripts/check-domain-integration-invariants.py" \

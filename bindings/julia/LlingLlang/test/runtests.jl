@@ -1185,3 +1185,5 @@ end
     close(left)
     close(host)
 end
+
+include("path_contract_properties.jl")

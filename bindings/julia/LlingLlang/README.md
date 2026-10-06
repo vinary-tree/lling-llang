@@ -519,6 +519,9 @@ prefix and close the cursor. Directly collecting the iterator through its
 continues to admit paths. `max_depth` truncation, work exhaustion, numeric
 failure, and cancellation are likewise explicit. The sampler retains its
 complete graph lease, so the source graph may close after construction.
+The [finite Julia path cursor contract](../../../docs/algorithms/julia-path-formal-contract.md)
+maps resource, order, limit, seed, and terminal laws to executable model and
+facade properties.
 
 ### Implement a lazy Julia provider
 

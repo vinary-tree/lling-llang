@@ -1,0 +1,17 @@
+{
+  "model": "proofs/tla/JuliaPathSearchLifecycle.tla",
+  "seed_count": 16,
+  "invariants": [
+    {"name": "TypeOK", "property": "type_ok", "mutation": "bad_initial_index", "case": "Ranked"},
+    {"name": "GraphPinned", "property": "graph_pinned", "mutation": "drop_graph_retain", "case": "Ranked"},
+    {"name": "WorkBounded", "property": "work_bounded", "mutation": "overrun_work_limit", "case": "Ranked"},
+    {"name": "OutputBounded", "property": "output_bounded", "mutation": "overproduce_paths", "case": "Ranked"},
+    {"name": "RankedOrder", "property": "ranked_order", "mutation": "skip_ranked_path", "case": "Ranked"},
+    {"name": "PruneSound", "property": "prune_sound", "mutation": "admit_out_of_window", "case": "Pruned"},
+    {"name": "SeedStable", "property": "seed_stable", "mutation": "ignore_draw_index", "case": "Sample"},
+    {"name": "TerminalDistinct", "property": "terminal_distinct", "mutation": "mislabel_sample_cap", "case": "Sample"},
+    {"name": "CancelSticky", "property": "cancel_sticky", "mutation": "count_after_cancel", "case": "Ranked"},
+    {"name": "NumericFailureNoOutput", "property": "numeric_failure_no_output", "mutation": "publish_numeric_failure", "case": "Numeric"},
+    {"name": "ReducerSettles", "property": "reducer_settles", "mutation": "retain_after_reduce", "case": "Ranked"}
+  ]
+}

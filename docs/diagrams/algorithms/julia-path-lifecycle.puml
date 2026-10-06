@@ -1,0 +1,34 @@
+@startuml
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam state {
+  BorderColor #205678
+  FontColor #173247
+  ArrowColor #205678
+}
+title Julia path cursor: captured graph and bounded results
+
+state "Live source" as Source #D9F1FF
+state "Complete captured graph" as Graph #E6F6E7
+state "Open cursor with graph retain" as Open #D9F1FF
+state "Pending slice" as Pending #FFF0C5
+state "Owned path yielded" as Yielded #E6F6E7
+state "Exact exhaustion" as Exhausted #E8EDF3
+state "Explicit limit or error" as Failure #FBDCDC
+state "Closed cursor" as Closed #E8EDF3
+
+[*] --> Source : create WFST
+Source --> Graph : bounded complete capture
+Graph --> Open : ranked / pruned / sampled cursor
+Open --> Open : source and caller graph handles may close
+Open --> Pending : poll uses at most one slice
+Pending --> Open : resume polling
+Open --> Yielded : publish one complete owned path
+Yielded --> Open : request another path
+Open --> Exhausted : all ranked paths or exact window consumed
+Open --> Failure : cap, work limit, cancellation, numeric error
+Open --> Closed : early close or reducer exit
+Exhausted --> Closed : release graph retain
+Failure --> Closed : release graph retain
+Closed --> [*]
+@enduml
