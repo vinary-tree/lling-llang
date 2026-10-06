@@ -44,6 +44,7 @@ use lling_llang::ffi::{
     lling_resource_release, lling_wfst_compose, lling_wfst_free, lling_wfst_resource,
     LlingLlangStatus, LlingWfst,
 };
+use proptest::prelude::*;
 use std::collections::BTreeMap;
 use std::ptr;
 use std::sync::{Arc, Barrier};
@@ -362,8 +363,12 @@ fn concurrent_walkers_agree_over_serial_inputs() {
     run_concurrent_stress(TestWfstConfig::serial());
 }
 
-fn assert_same_context_capture_overlap(config: TestWfstConfig, expected_parallel: bool) {
-    // Four independent compositions each capture this ONE immutable context
+fn assert_same_context_capture_overlap(
+    config: TestWfstConfig,
+    expected_parallel: bool,
+    callers: usize,
+) {
+    // Independent compositions each capture this ONE immutable context
     // twice. The delayed callback ledger observes real in-flight overlap,
     // not just equal gate pointers or an inferred timing bound.
     let source = TestWfst::new(
@@ -375,8 +380,17 @@ fn assert_same_context_capture_overlap(config: TestWfstConfig, expected_parallel
         config.with_callback_delay(Duration::from_millis(5)),
     );
     let metrics = source.metrics();
+    let live = source.as_raw();
+    let table = unsafe { &*discover_scalar_wfst(live) };
+    let mut snapshot = VtResource::NULL;
+    assert_eq!(
+        unsafe { table.snapshot.unwrap()(live.context, &mut snapshot) },
+        VtStatus::Ok.to_raw()
+    );
+    assert_eq!(snapshot.context, live.context);
+    unsafe { ((*snapshot.vtable).release.unwrap())(snapshot.context) };
     let mut owned = Vec::new();
-    for _ in 0..4 {
+    for _ in 0..callers {
         let mut composed: *mut LlingWfst = ptr::null_mut();
         assert_eq!(
             lling_wfst_compose(source.as_raw(), source.as_raw(), &mut composed),
@@ -389,8 +403,8 @@ fn assert_same_context_capture_overlap(config: TestWfstConfig, expected_parallel
         );
         owned.push((composed, SharedResource(resource)));
     }
-    assert_eq!(metrics.snapshots(), 8);
-    let ready = Arc::new(Barrier::new(4));
+    assert_eq!(metrics.snapshots(), 1 + 2 * callers);
+    let ready = Arc::new(Barrier::new(callers));
     std::thread::scope(|scope| {
         let mut workers = Vec::new();
         for (_, resource) in &owned {
@@ -434,6 +448,7 @@ fn independent_captures_of_one_serial_context_never_overlap_callbacks() {
     assert_same_context_capture_overlap(
         TestWfstConfig::serial().with_snapshot_base_vtable_alias(),
         false,
+        4,
     );
 }
 
@@ -505,7 +520,61 @@ fn concurrent_captures_serialize_pre_flag_interface_discovery() {
 
 #[test]
 fn independent_captures_of_one_parallel_context_do_overlap_callbacks() {
-    assert_same_context_capture_overlap(TestWfstConfig::default(), true);
+    assert_same_context_capture_overlap(TestWfstConfig::default(), true, 4);
+}
+
+// INVARIANT-HOOK: LLING-HOST-7..8 — actual FFI captures share one context
+// gate, pin snapshot ownership, and admit overlap only for a parallel claim.
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(12))]
+    #[test]
+    fn host_provider_generated_wfst_snapshot_and_admission(
+        callers in 2usize..5,
+        parallel in any::<bool>(),
+        alias_base_vtable in any::<bool>(),
+    ) {
+        let mut config = if parallel {
+            TestWfstConfig::default()
+        } else {
+            TestWfstConfig::serial()
+        };
+        if alias_base_vtable {
+            config = config.with_snapshot_base_vtable_alias();
+        }
+        assert_same_context_capture_overlap(config, parallel, callers);
+    }
+
+    #[test]
+    fn host_provider_generated_conflicting_claim_rejection(
+        live_parallel in any::<bool>(),
+        alias_base_vtable in any::<bool>(),
+    ) {
+        let mut config = if live_parallel {
+            TestWfstConfig::default()
+        } else {
+            TestWfstConfig::serial()
+        };
+        let snapshot_flags = if live_parallel { 0 } else { wfst_flags::PARALLEL_REENTRANT };
+        config = config.with_snapshot_flags(snapshot_flags);
+        if alias_base_vtable {
+            config = config.with_snapshot_base_vtable_alias();
+        }
+        let source = TestWfst::new(
+            vec![TestState::accepting(0.0, Vec::new())],
+            0,
+            config,
+        );
+        let metrics = source.metrics();
+        let mut composed: *mut LlingWfst = ptr::null_mut();
+        prop_assert_eq!(
+            lling_wfst_compose(source.as_raw(), source.as_raw(), &mut composed),
+            LlingLlangStatus::ProviderError
+        );
+        prop_assert!(composed.is_null());
+        drop(source);
+        prop_assert_eq!(metrics.balance(), 0);
+        prop_assert_eq!(metrics.callbacks_in_flight(), 0);
+    }
 }
 
 #[test]
