@@ -59,6 +59,7 @@ Core concepts and design of the framework:
 | [Lazy WFST Lifecycle](architecture/lazy-wfst-lifecycle.md) | Exact expansion, retry, cancellation, snapshot, concurrency, and stack-safety semantics |
 | [Backends](architecture/backends.md) | Storage abstraction and implementations |
 | [Resource ABI](architecture/resource-abi.md) | The scalar-WFST binding layer: providers, capture-once snapshots, the lazy composition product, the registry, and the raw-u32 status wire |
+| [Host-provider lifecycle](architecture/host-provider-lifecycle.md) | Shared resource negotiation, ownership, snapshots, callback admission, tokens, cursors, and finite-state checks |
 | [Shared state cache](architecture/shared-state-cache.md) | One exporter cache owner, exact LRU, generation-safe clear, immutable payloads, native controls and performance evidence |
 | [Stack-safe execution](architecture/stack-safety.md) | Formal-first typed heap machines, SCC-wide recursion elimination, lifecycle safety, work/allocation bounds, concurrency, and evidence traceability |
 | [Foreign-language bindings](bindings/README.md) | C, C++, JavaScript, TypeScript, and ClojureScript package guides, executable evidence, ownership laws, and documentation governance |

@@ -1,0 +1,72 @@
+@startuml host-provider-lifecycle
+' Abstract lifecycle of the stable VtResource boundary. Sources:
+' vinary-tree-interop/include/vinary_tree_interop.h and
+' proofs/tla/HostProviderLifecycle.tla.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultTextAlignment left
+skinparam sequence {
+  ArrowColor #455A64
+  LifeLineBorderColor #455A64
+  GroupBorderColor #455A64
+  GroupBackgroundColor #ECEFF1
+}
+skinparam note {
+  BackgroundColor #E3F2FD
+  BorderColor #1565C0
+}
+
+title <b>Host-provider resource lifecycle</b>\n<size:11><i>one owned base resource, one retained snapshot, optional token or cursor</i></size>
+
+participant "Caller" as Caller #ECEFF1
+participant "Consumer\nvalidation and admission" as Consumer #FCF3CF
+participant "Context gate\nby opaque identity" as Gate #C5E1A5
+box "Foreign provider — trust boundary" #FFCDD2
+  participant "VtResource\nbase vtable" as Base #FFCDD2
+  participant "Optional interface\nWFST / algebra / entries" as Interface #FFCDD2
+end box
+
+Caller -> Consumer : pass owned VtResource
+Consumer -> Base : validate size, ABI version, required callbacks
+Consumer -> Base : retain(context)
+note right of Consumer : A retained owner keeps context live;\nfinalizer and explicit close use the same release law.
+Consumer -> Gate : acquire context-identity bootstrap gate
+Gate -> Base : query_interface(id, minimum_version, &out)
+Base --> Gate : raw status and optional interface pointer
+Gate --> Consumer : validated capability or Unsupported
+note right of Gate : A failed negotiation publishes no output.\nBootstrap discovery is serialized before flags are known.
+
+alt supported snapshot capability
+  Consumer -> Interface : snapshot(context, &snapshot)
+  Interface --> Consumer : one owned immutable snapshot
+  Consumer -> Gate : share gate if context aliases base
+  Consumer -> Base : release(base context)
+  note right of Consumer : Snapshot retains its own identity;\nbase may close without invalidating it.
+  alt scalar-WFST callbacks
+    Caller -> Consumer : request state or bounded arc page
+    Consumer -> Gate : enter serial gate, or validate parallel claim
+    Gate -> Interface : callback(snapshot context)
+    Interface --> Gate : raw status, written count, total count
+    Gate --> Consumer : release admission on return or unwind
+    Consumer --> Caller : validated page or explicit error status
+  else dynamic algebra token
+    Consumer -> Interface : create token in retained context
+    Interface --> Consumer : slot and generation
+    Consumer -> Interface : use / clone / release owned token
+    Interface --> Consumer : reject stale generation or wrong context
+  else dictionary entry cursor
+    Consumer -> Interface : open(snapshot), next_batch(capacity)
+    Interface --> Consumer : one generation-tagged batch lease
+    Consumer -> Interface : release_batch(generation)
+    Consumer -> Interface : cancel or close cursor
+  end
+  Consumer -> Base : release(snapshot context) after all users settle
+end
+
+legend right
+  |<#FCF3CF> Consumer validation and callback policy |
+  |<#C5E1A5> Context gate for admission |
+  |<#FFCDD2> Foreign provider, whose replies require validation |
+  |<#ECEFF1> Calling application |
+endlegend
+@enduml
