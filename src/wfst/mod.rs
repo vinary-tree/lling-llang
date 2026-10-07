@@ -17,6 +17,7 @@
 //! states upfront, lazy WFSTs compute states on-demand during traversal.
 
 mod lazy;
+pub mod operation;
 pub mod rational;
 mod shared_cache;
 mod state;
