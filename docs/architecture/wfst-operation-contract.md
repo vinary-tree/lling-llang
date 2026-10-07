@@ -76,3 +76,35 @@ their own caches. Caps and cancellation produce `Incomplete`, never an
 approximation. The tests compare shallow branched output with a hand oracle
 and the legacy materializer, and check limit/cancel atomicity, source drift,
 stale checkpoint rejection, exact resume and partial-cache exclusion.
+
+## Bounded determinization adapter
+
+`algorithms::BoundedDeterminization` runs a weighted powerset construction
+without invoking the legacy recursive epsilon-removal prepass or unbounded
+post-trimming. It accepts an immutable WFST with reachable input-epsilon-free
+paths, a caller-computed content binding, shared limits and cancellation.
+The caller must include all source states, arcs, labels, weights and their
+ordering in that binding and recompute it before every run. A reachable input
+epsilon, conflicting output labels for one input, or undefined weight
+division is a typed error, never a purported complete transducer.
+
+The machine's worklist contains pairs of output-state ID and normalized
+weighted subset. For each subset it visits source states in state-ID order,
+groups arcs by input label in sorted label order, combines weights for equal
+targets, factors out the minimum weight and uses the residual-weight vector
+as its deduplication key. It computes the entire outgoing batch before
+charging or mutating the result. A rejected batch leaves its output state
+untouched and returns `Incomplete`; a completed batch appends states and arcs
+in deterministic order. The exact subset map, worklist and partial result
+remain inside the in-memory continuation. Its checkpoint alone cannot
+reconstruct them, and a dynamic result cannot enter the generic complete-only
+cache. The abstract work charge includes source arcs, output arcs, and newly
+stored residuals; logical heap charging includes structural entries plus
+caller-metered label and weight payloads. It is not a hard RSS cap.
+
+This adapter deliberately returns an untrimmed deterministic WFST. Trimming
+can be a separate bounded operation; applying the existing unbounded `connect`
+inside this adapter would invalidate its limits. The shallow hand oracle
+checks weighted language cost and sorted branches, while cap/cancel/resume
+and unsupported-input tests check that incomplete or erroneous attempts are
+never silently classified as complete.

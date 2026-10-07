@@ -48,6 +48,7 @@
 //! - Mohri, M. (2009). "Weighted Automata Algorithms"
 //! - Mohri, M., Pereira, F., & Riley, M. (2002). "WFSTs in Speech Recognition"
 
+mod bounded_determinize;
 mod connect;
 mod determinize;
 mod epsilon_removal;
@@ -84,6 +85,7 @@ pub use shortest_distance::{
     ShortestDistanceConfig,
 };
 
+pub use bounded_determinize::{BoundedDeterminization, BoundedDeterminizeError};
 pub use determinize::{
     determinize, is_deterministic, non_determinism_degree, DeterminizeConfig, DeterminizeError,
 };
