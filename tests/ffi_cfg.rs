@@ -351,3 +351,79 @@ fn ffi_token_analysis_matches_native_earley_for_ambiguity_epsilon_and_rejection(
     }
     unsafe { lling_cfg_grammar_free(compiled) };
 }
+
+#[test]
+fn deep_cfg_prediction_completion_and_owned_lifecycle_use_constant_native_stack() {
+    const DEPTH: usize = 1024;
+    let rhs: Vec<_> = (0..DEPTH)
+        .map(|index| {
+            [LlingCfgSymbol {
+                kind: if index + 1 == DEPTH {
+                    LLING_CFG_TERMINAL
+                } else {
+                    LLING_CFG_NONTERMINAL
+                },
+                value: if index + 1 == DEPTH {
+                    7
+                } else {
+                    (index + 1) as u32
+                },
+            }]
+        })
+        .collect();
+    let rules: Vec<_> = rhs
+        .iter()
+        .enumerate()
+        .map(|(index, symbols)| LlingCfgRule {
+            lhs: index as u32,
+            rhs: symbols.as_ptr(),
+            rhs_len: 1,
+            log_prob: 0.0,
+        })
+        .collect();
+    let mut grammar = ptr::null_mut();
+    assert_eq!(
+        unsafe {
+            lling_cfg_grammar_compile(
+                0,
+                DEPTH as u32,
+                rules.as_ptr(),
+                rules.len(),
+                DEPTH,
+                DEPTH,
+                &mut grammar,
+            )
+        },
+        LlingLlangStatus::Ok
+    );
+    let config = LlingCfgParseLimits {
+        struct_size: std::mem::size_of::<LlingCfgParseLimits>() as u32,
+        version: 1,
+        max_tokens: 1,
+        max_chart_items: 4096,
+        max_forest_nodes: 4096,
+        max_work: 100_000,
+    };
+    let mut analysis = ptr::null_mut();
+    assert_eq!(
+        unsafe { lling_cfg_parse_tokens(grammar, [7u32].as_ptr(), 1, &config, &mut analysis) },
+        LlingLlangStatus::Ok
+    );
+    unsafe { lling_cfg_grammar_free(grammar) };
+    let mut info = LlingCfgAnalysisInfo {
+        accepted: 0,
+        reserved: [0; 7],
+        chart_items: 0,
+        forest_nodes: 0,
+        roots: 0,
+        edges: 0,
+        work: 0,
+    };
+    assert_eq!(
+        unsafe { lling_cfg_analysis_info(analysis, &mut info) },
+        LlingLlangStatus::Ok
+    );
+    assert_eq!((info.accepted, info.roots), (1, 1));
+    assert!(info.forest_nodes >= DEPTH as u64);
+    unsafe { lling_cfg_analysis_free(analysis) };
+}
