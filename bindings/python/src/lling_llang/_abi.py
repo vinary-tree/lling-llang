@@ -854,32 +854,88 @@ _bind(
 _bind("lling_sample_path_cursor_free", [ctypes.c_void_p], None)
 
 # Revision 13 raw CFG ABI; the high-level language facades own typed models.
-_bind("lling_cfg_grammar_compile", [ctypes.c_uint32, ctypes.c_uint32,
-    ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t,
-    ctypes.POINTER(ctypes.c_void_p)])
+_bind(
+    "lling_cfg_grammar_compile",
+    [
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.c_size_t,
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
 _bind("lling_cfg_grammar_free", [ctypes.c_void_p], None)
-_bind("lling_cfg_parse_tokens", [ctypes.c_void_p,
-    ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t, ctypes.c_void_p,
-    ctypes.POINTER(ctypes.c_void_p)])
-_bind("lling_cfg_parse_wfst_resource", [ctypes.c_void_p, ctypes.c_void_p,
-    ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)])
+_bind(
+    "lling_cfg_parse_tokens",
+    [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.c_size_t,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_cfg_parse_wfst_resource",
+    [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
 _bind("lling_cfg_analysis_free", [ctypes.c_void_p], None)
 _bind("lling_cfg_analysis_info", [ctypes.c_void_p, ctypes.c_void_p])
-_bind("lling_cfg_analysis_chart_page", [ctypes.c_void_p, ctypes.c_size_t,
-    ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)])
-_bind("lling_cfg_analysis_root_page", [ctypes.c_void_p, ctypes.c_size_t,
-    ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t,
-    ctypes.POINTER(ctypes.c_size_t)])
-_bind("lling_cfg_analysis_edge_page", [ctypes.c_void_p, ctypes.c_size_t,
-    ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t,
-    ctypes.POINTER(ctypes.c_size_t)])
-_bind("lling_cfg_analysis_forest_node", [ctypes.c_void_p, ctypes.c_uint32,
-    ctypes.c_void_p])
-_bind("lling_cfg_analysis_forest_child", [ctypes.c_void_p, ctypes.c_uint32,
-    ctypes.c_size_t, ctypes.c_void_p])
-_bind("lling_cfg_analysis_derivation_member", [ctypes.c_void_p,
-    ctypes.c_uint32, ctypes.c_size_t, ctypes.c_size_t,
-    ctypes.POINTER(ctypes.c_uint32)])
+_bind(
+    "lling_cfg_analysis_chart_page",
+    [
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
+    ],
+)
+_bind(
+    "lling_cfg_analysis_root_page",
+    [
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
+    ],
+)
+_bind(
+    "lling_cfg_analysis_edge_page",
+    [
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
+    ],
+)
+_bind(
+    "lling_cfg_analysis_forest_node",
+    [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p],
+)
+_bind(
+    "lling_cfg_analysis_forest_child",
+    [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_size_t, ctypes.c_void_p],
+)
+_bind(
+    "lling_cfg_analysis_derivation_member",
+    [
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.c_size_t,
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_uint32),
+    ],
+)
 
 _bind(
     "lling_semiring_open", [ctypes.POINTER(VtResource), ctypes.POINTER(ctypes.c_void_p)]
