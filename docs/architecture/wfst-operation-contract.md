@@ -108,3 +108,24 @@ inside this adapter would invalidate its limits. The shallow hand oracle
 checks weighted language cost and sorted branches, while cap/cancel/resume
 and unsupported-input tests check that incomplete or erroneous attempts are
 never silently classified as complete.
+
+## Bounded acceptor intersection adapter
+
+`composition::BoundedIntersection` first checks **every** arc of both finite
+operands, including unreachable arcs, for equal input and output labels.
+Epsilon arcs have neither label. A non-acceptor operand is rejected with its
+operand, state and arc index before an intersection result exists. This full
+input-admission scan is separate from the bounded product traversal; callers
+must independently bound input acquisition. The algorithm then delegates to
+the explicit FIFO product-state worklist of `BoundedComposition`, using the
+sequencing epsilon filter. Thus matching labels advance both acceptors, and
+epsilon arcs advance one side in canonical order. Matched arc weights use the
+semiring product, so no particular numeric weight type is assumed.
+
+The content binding must digest both validated operand graphs in order and
+the default epsilon-filter semantics. The same state/arc/work/logical-heap/
+time limits, cancellation, typed quality outcome and exact in-memory resume
+rules as bounded composition apply. A partial intersection is never a complete
+acceptor. Tests use hand-computed branch labels and weights, an independent
+epsilon-path cost oracle, and invalid-operand, cap, cancellation, source-drift
+and resume cases.
