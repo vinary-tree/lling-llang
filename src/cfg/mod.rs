@@ -38,7 +38,7 @@ mod grammar;
 mod types;
 
 pub use builder::GrammarBuilder;
-pub use earley::{EarleyChart, EarleyParser, EarleyState, ParseError};
-pub use forest::{ForestNode, ForestNodeId, ParseForest, ParseTree};
+pub use earley::{EarleyChart, EarleyParser, EarleyState, ParseAnalysis, ParseError, ParseLimits};
+pub use forest::{ForestChild, ForestNode, ForestNodeId, ParseForest, ParseTree};
 pub use grammar::{Grammar, GrammarError, Production};
 pub use types::{NonTerminal, RuleId, Symbol, SymbolKind, Terminal};

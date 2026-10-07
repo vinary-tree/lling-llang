@@ -58,6 +58,62 @@ graph = build!(builder)
 close(graph)
 ```
 
+## Bounded context-free parsing
+
+`compile_cfg` accepts explicitly typed rules. An empty right-hand side is an
+epsilon production. `parse_cfg` accepts terminal names or `UInt32` vocabulary
+IDs and returns an owned `CfgAnalysis`, including for rejected input. The
+analysis exposes acceptance, a deterministic Earley chart, complete parse
+roots, and packed forest nodes and children. `close` the grammar and analysis
+when finished; the analysis retains its own snapshot and survives closing the
+grammar.
+
+```julia
+S = CfgNonterminal("S")
+word = CfgTerminal("word")
+grammar = compile_cfg(S, [CfgRule(S, [word])])
+analysis = parse_cfg(grammar, ["word"];
+    limits=CfgLimits(max_tokens=8, max_chart_items=128,
+        max_forest_nodes=128, max_work=1024))
+@assert cfg_info(analysis).accepted
+@assert length(cfg_roots(analysis)) == 1
+@assert length(collect(cfg_chart(analysis; batch_size=16))) ==
+    cfg_info(analysis).chart_items
+close(analysis)
+close(grammar)
+```
+
+The same grammar can parse a scalar WFST lattice. Put grammar terminal IDs on
+the selected tape; `cfg_terminal_id(grammar, word)` returns the ID assigned
+when the grammar was compiled. `parse_cfg(grammar, graph; tape=:input,
+limits=CfgWfstLimits(...))` captures the reachable graph once and parses all
+reachable final states together. It accepts any built-in scalar label and
+weight domain when the selected labels fit `UInt32`. `cfg_edge_labels` returns
+the captured labels in forest edge-ID order. Input and output tapes can be
+selected independently. The selected tape must have no epsilon arcs, and the
+reachable graph must be acyclic; these cases raise `NativeError` with an
+explicit status. All graph and parser limits are mandatory. The parser uses
+arc labels for recognition and retains the arc weights only in its native
+lattice; it does not currently rank parses by arc or production weight.
+
+```julia
+S = CfgNonterminal("S")
+word = CfgTerminal("word")
+grammar = compile_cfg(S, [CfgRule(S, [word])])
+token_id = UInt64(cfg_terminal_id(grammar, word))
+builder = WfstBuilder{UInt64,TropicalWeight}(size_hint=2)
+source = add_state!(builder); target = add_state!(builder)
+set_start!(builder, source); set_final!(builder, target, TropicalWeight(0))
+add_arc!(builder, source, token_id, token_id, target, TropicalWeight(0))
+graph = build!(builder)
+analysis = parse_cfg(grammar, graph;
+    limits=CfgWfstLimits(max_states=2, max_arcs=1, max_bytes=4096,
+        max_import_work=16, max_chart_items=128,
+        max_forest_nodes=128, max_parse_work=1024))
+@assert cfg_info(analysis).accepted
+close(analysis); close(graph); close(grammar)
+```
+
 ### Choose label and weight domains
 
 The default `WfstBuilder()` remains `WfstBuilder{Char,TropicalWeight}()`.

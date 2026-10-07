@@ -753,7 +753,9 @@ def main() -> int:
             match = re.search(rf"const\s+{constant}\s*=\s*UInt32\((\d+)\)", julia_abi)
             if match is None or int(match.group(1)) != model[key]:
                 failures.append(f"Julia {constant} does not match api.json {key}")
-        julia_source = read(JULIA_ROOT / "src" / "LlingLlang.jl")
+        julia_source = "\n".join(
+            read(path) for path in sorted((JULIA_ROOT / "src").glob("*.jl"))
+        )
         julia_symbols = set(re.findall(r"native\(:(lling_[a-z0-9_]+)\)", julia_source))
 
         raku_meta = json.loads(read(RAKU_ROOT / "META6.json"))

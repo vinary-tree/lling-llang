@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 12u
+#define LLING_LLANG_API_REVISION 13u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -67,6 +67,83 @@ typedef struct LlingGraphDistanceCursor LlingGraphDistanceCursor;
 typedef struct LlingGraphDistances LlingGraphDistances;
 typedef struct LlingRankedPathCursor LlingRankedPathCursor;
 typedef struct LlingSamplePathCursor LlingSamplePathCursor;
+typedef struct LlingCfgGrammar LlingCfgGrammar;
+typedef struct LlingCfgAnalysis LlingCfgAnalysis;
+
+/* Revision 13: owned, bounded CFG compilation and Earley analysis. */
+#define LLING_CFG_NONTERMINAL 1u
+#define LLING_CFG_TERMINAL 2u
+#define LLING_CFG_EPSILON 3u
+#define LLING_CFG_CHILD_TERMINAL 1u
+#define LLING_CFG_CHILD_DERIVATION 2u
+
+typedef struct LlingCfgSymbol {
+    uint32_t kind;
+    uint32_t value;
+} LlingCfgSymbol;
+
+typedef struct LlingCfgRule {
+    uint32_t lhs;
+    const LlingCfgSymbol* rhs;
+    size_t rhs_len;
+    float log_prob;
+} LlingCfgRule;
+
+typedef struct LlingCfgParseLimits {
+    uint32_t struct_size;
+    uint32_t version;
+    uint64_t max_tokens;
+    uint64_t max_chart_items;
+    uint64_t max_forest_nodes;
+    uint64_t max_work;
+} LlingCfgParseLimits;
+
+/* Tape 1 selects input labels; tape 2 selects output labels. */
+typedef struct LlingCfgWfstLimits {
+    uint32_t struct_size;
+    uint32_t version;
+    uint32_t tape;
+    uint32_t reserved;
+    uint64_t max_states;
+    uint64_t max_arcs;
+    uint64_t max_bytes;
+    uint64_t max_import_work;
+    uint64_t max_chart_items;
+    uint64_t max_forest_nodes;
+    uint64_t max_parse_work;
+} LlingCfgWfstLimits;
+
+typedef struct LlingCfgChartItem {
+    uint32_t position;
+    uint32_t rule;
+    uint32_t dot;
+    uint32_t start;
+} LlingCfgChartItem;
+
+typedef struct LlingCfgAnalysisInfo {
+    uint8_t accepted;
+    uint8_t reserved[7];
+    uint64_t chart_items;
+    uint64_t forest_nodes;
+    uint64_t roots;
+    uint64_t edges;
+    uint64_t work;
+} LlingCfgAnalysisInfo;
+
+typedef struct LlingCfgForestNodeInfo {
+    uint32_t rule;
+    uint32_t start;
+    uint32_t end;
+    uint8_t is_root;
+    uint8_t reserved[3];
+    uint64_t children;
+} LlingCfgForestNodeInfo;
+
+typedef struct LlingCfgForestChildInfo {
+    uint32_t kind;
+    uint32_t edge_id;
+    uint64_t members;
+} LlingCfgForestChildInfo;
 
 /* Revision 8: each path walk owns a captured snapshot and explicit bounds. */
 typedef struct LlingPathConfig {
@@ -611,6 +688,46 @@ LLING_LLANG_API LlingLlangStatus lling_sample_path_cursor_next(
     LlingSamplePathCursor* cursor, const LlingCancellationV2* cancellation,
     uint32_t* out_poll, LlingPath** out_path);
 LLING_LLANG_API void lling_sample_path_cursor_free(LlingSamplePathCursor* cursor);
+
+/* All input arrays are copied or consumed during the call. Output handles
+ * own their snapshots and survive freeing the grammar. Bounds are mandatory.
+ * Rejected input returns an analysis with accepted=0, not an error status. */
+LLING_LLANG_API LlingLlangStatus lling_cfg_grammar_compile(
+    uint32_t start, uint32_t nonterminal_count,
+    const LlingCfgRule* rules, size_t rule_count,
+    size_t max_rules, size_t max_rhs_symbols,
+    LlingCfgGrammar** out_grammar);
+LLING_LLANG_API void lling_cfg_grammar_free(LlingCfgGrammar* grammar);
+LLING_LLANG_API LlingLlangStatus lling_cfg_parse_tokens(
+    const LlingCfgGrammar* grammar, const uint32_t* tokens,
+    size_t token_count, const LlingCfgParseLimits* limits,
+    LlingCfgAnalysis** out_analysis);
+/* The selected WFST tape must be epsilon-free and acyclic. All reachable
+ * final states participate in one bounded chart and packed forest. */
+LLING_LLANG_API LlingLlangStatus lling_cfg_parse_wfst_resource(
+    const LlingCfgGrammar* grammar, const VtResource* resource,
+    const LlingCfgWfstLimits* limits, LlingCfgAnalysis** out_analysis);
+LLING_LLANG_API void lling_cfg_analysis_free(LlingCfgAnalysis* analysis);
+LLING_LLANG_API LlingLlangStatus lling_cfg_analysis_info(
+    const LlingCfgAnalysis* analysis, LlingCfgAnalysisInfo* out_info);
+LLING_LLANG_API LlingLlangStatus lling_cfg_analysis_chart_page(
+    const LlingCfgAnalysis* analysis, size_t start,
+    LlingCfgChartItem* out_items, size_t capacity, size_t* out_written);
+LLING_LLANG_API LlingLlangStatus lling_cfg_analysis_root_page(
+    const LlingCfgAnalysis* analysis, size_t start,
+    uint32_t* out_items, size_t capacity, size_t* out_written);
+LLING_LLANG_API LlingLlangStatus lling_cfg_analysis_edge_page(
+    const LlingCfgAnalysis* analysis, size_t start,
+    uint32_t* out_items, size_t capacity, size_t* out_written);
+LLING_LLANG_API LlingLlangStatus lling_cfg_analysis_forest_node(
+    const LlingCfgAnalysis* analysis, uint32_t node_id,
+    LlingCfgForestNodeInfo* out_node);
+LLING_LLANG_API LlingLlangStatus lling_cfg_analysis_forest_child(
+    const LlingCfgAnalysis* analysis, uint32_t node_id,
+    size_t child_index, LlingCfgForestChildInfo* out_child);
+LLING_LLANG_API LlingLlangStatus lling_cfg_analysis_derivation_member(
+    const LlingCfgAnalysis* analysis, uint32_t node_id,
+    size_t child_index, size_t member_index, uint32_t* out_member);
 
 #ifdef __cplusplus
 }

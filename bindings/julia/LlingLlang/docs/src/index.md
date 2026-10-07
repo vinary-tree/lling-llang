@@ -7,6 +7,12 @@ host-defined lattice values published by LLattice.jl. Start with the package
 [README](https://github.com/vinary-tree/lling-llang/tree/master/bindings/julia/LlingLlang#readme)
 for ownership, concurrency, security, and complete examples.
 
+The package also exposes bounded native context-free grammar parsing through
+`compile_cfg`, `parse_cfg`, `cfg_chart`, `cfg_roots`, and packed forest access.
+The [CFG example in the package README](https://github.com/vinary-tree/lling-llang/tree/master/bindings/julia/LlingLlang#bounded-context-free-parsing)
+shows token and scalar-WFST input, explicit graph and parser bounds, and
+ownership.
+
 ## Build a typed scalar WFST
 
 `WfstBuilder{Label,Weight}` accepts the three family label carriers (`UInt8`,

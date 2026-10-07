@@ -181,6 +181,26 @@ export ABI_VERSION,
     wfst_start,
     wfst_state_count,
     wfst_state,
+    CfgNonterminal,
+    CfgTerminal,
+    CfgRule,
+    CfgGrammar,
+    CfgLimits,
+    CfgWfstLimits,
+    CfgAnalysis,
+    CfgChartItem,
+    CfgForestNode,
+    CfgTerminalChild,
+    CfgDerivationChild,
+    compile_cfg,
+    cfg_terminal_id,
+    parse_cfg,
+    cfg_info,
+    cfg_chart,
+    cfg_roots,
+    cfg_edge_labels,
+    cfg_forest_node,
+    cfg_forest_children,
     close!
 
 """A copied native error with its stable status and thread-local diagnostic."""
@@ -3795,6 +3815,8 @@ end
 
 provider(implementation::AbstractWfstProvider; kwargs...) =
     provider(Char, TropicalWeight, implementation; kwargs...)
+
+include("Cfg.jl")
 
 function __init__()
     initialize_callbacks!()

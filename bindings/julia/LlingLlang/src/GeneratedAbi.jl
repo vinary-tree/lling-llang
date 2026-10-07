@@ -1,6 +1,11 @@
 # Generated from bindings/api.json. Do not edit by hand.
 const ABI_VERSION = UInt32(1)
-const API_REVISION = UInt32(12)
+const API_REVISION = UInt32(13)
+const CFG_NONTERMINAL = UInt32(1)
+const CFG_TERMINAL = UInt32(2)
+const CFG_EPSILON = UInt32(3)
+const CFG_CHILD_TERMINAL = UInt32(1)
+const CFG_CHILD_DERIVATION = UInt32(2)
 const TYPED_ABI_VERSION = UInt32(2)
 const DESCRIPTOR_SIGNATURE_KNOWN = UInt64(1) << 0
 const DESCRIPTOR_SNAPSHOT_PRESENT = UInt64(1) << 1

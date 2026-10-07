@@ -21,6 +21,47 @@ const WEIGHT_CASES = [
     (BooleanWeight, BooleanWeight(true), BooleanWeight(false)),
 ]
 
+@testset "bounded CFG construction and native Earley analysis" begin
+    start = CfgNonterminal("S")
+    left = CfgNonterminal("A")
+    right = CfgNonterminal("B")
+    token = CfgTerminal("token")
+    grammar = compile_cfg(start, [
+        CfgRule(start, [left]), CfgRule(start, [right]),
+        CfgRule(left, [token]), CfgRule(right, [token]),
+    ])
+    accepted = parse_cfg(grammar, ["token"])
+    @test cfg_info(accepted).accepted
+    @test length(cfg_roots(accepted)) == 2
+    @test length(collect(cfg_chart(accepted; batch_size=1))) ==
+        cfg_info(accepted).chart_items
+    @test all(cfg_forest_node(accepted, root).is_root
+        for root in cfg_roots(accepted))
+    close(grammar)
+    @test isopen(accepted)
+    @test !isempty(cfg_forest_children(accepted, first(cfg_roots(accepted))))
+    close(accepted)
+    @test !isopen(accepted)
+
+    grammar = compile_cfg(start, [CfgRule(start, [token])])
+    rejected = parse_cfg(grammar, ["missing"])
+    @test !cfg_info(rejected).accepted
+    @test isempty(cfg_roots(rejected))
+    close(rejected)
+    @test_throws NativeError parse_cfg(grammar, ["token"];
+        limits=CfgLimits(max_work=1))
+    @test_throws ArgumentError compile_cfg(start, [CfgRule(start, [token])];
+        max_rhs_symbols=0)
+    close(grammar)
+
+    epsilon = compile_cfg(start, [CfgRule(start, [start]), CfgRule(start, [])])
+    empty_analysis = parse_cfg(epsilon, String[])
+    @test cfg_info(empty_analysis).accepted
+    @test cfg_info(empty_analysis).work <= CfgLimits().max_work
+    close(empty_analysis)
+    close(epsilon)
+end
+
 function scalar_chain(::Type{L}, ::Type{W}, label, arc_weight, final_weight;
     input_symbols=nothing, output_symbols=nothing) where {L,W<:AbstractScalarWeight}
     builder = WfstBuilder{L,W}(size_hint=2; input_symbols, output_symbols)
@@ -30,6 +71,75 @@ function scalar_chain(::Type{L}, ::Type{W}, label, arc_weight, final_weight;
     set_final!(builder, second, final_weight)
     add_arc!(builder, first, label, label, second, arc_weight)
     build!(builder)
+end
+
+@testset "bounded CFG analysis over a scalar WFST lattice" begin
+    start = CfgNonterminal("S")
+    a, b = CfgTerminal("a"), CfgTerminal("b")
+    grammar = compile_cfg(start, [CfgRule(start, [a]), CfgRule(start, [b])])
+    @test (cfg_terminal_id(grammar, a), cfg_terminal_id(grammar, b)) ==
+        (UInt32(0), UInt32(1))
+    builder = WfstBuilder{UInt64,TropicalWeight}(size_hint=3)
+    root, first_final, second_final = (add_state!(builder) for _ in 1:3)
+    set_start!(builder, root)
+    set_final!(builder, first_final, TropicalWeight(0))
+    set_final!(builder, second_final, TropicalWeight(0))
+    add_arc!(builder, root, UInt64(cfg_terminal_id(grammar, a)), UInt64(1),
+        first_final, TropicalWeight(0))
+    add_arc!(builder, root, UInt64(cfg_terminal_id(grammar, b)), UInt64(1),
+        second_final, TropicalWeight(0))
+    graph = build!(builder)
+    parsed = parse_cfg(grammar, graph)
+    @test cfg_info(parsed).accepted
+    @test cfg_info(parsed).roots == 2
+    @test cfg_info(parsed).edges == 2
+    @test cfg_edge_labels(parsed) == UInt32[0, 1]
+    @test length(cfg_roots(parsed)) == 2
+    @test_throws NativeError parse_cfg(grammar, graph;
+        limits=CfgWfstLimits(max_arcs=1))
+    close(parsed)
+    close(graph)
+    close(grammar)
+
+    grammar = compile_cfg(start, [CfgRule(start, [a])])
+    builder = WfstBuilder{UInt64,TropicalWeight}(size_hint=2)
+    root, finish = add_state!(builder), add_state!(builder)
+    set_start!(builder, root)
+    set_final!(builder, finish, TropicalWeight(0))
+    add_arc!(builder, root, UInt64(0), UInt64(1), finish,
+        TropicalWeight(0))
+    graph = build!(builder)
+    input_analysis = parse_cfg(grammar, graph; tape=:input)
+    output_analysis = parse_cfg(grammar, graph; tape=:output)
+    @test cfg_info(input_analysis).accepted
+    @test !cfg_info(output_analysis).accepted
+    close(input_analysis)
+    close(output_analysis)
+    @test_throws ArgumentError parse_cfg(grammar, graph; tape=:invalid)
+    close(graph)
+
+    builder = WfstBuilder{UInt64,TropicalWeight}(size_hint=2)
+    root, finish = add_state!(builder), add_state!(builder)
+    set_start!(builder, root)
+    set_final!(builder, finish, TropicalWeight(0))
+    add_arc!(builder, root, nothing, UInt64(0), finish,
+        TropicalWeight(0))
+    epsilon_graph = build!(builder)
+    @test_throws NativeError parse_cfg(grammar, epsilon_graph)
+    close(epsilon_graph)
+
+    builder = WfstBuilder{UInt64,TropicalWeight}(size_hint=2)
+    root, finish = add_state!(builder), add_state!(builder)
+    set_start!(builder, root)
+    set_final!(builder, finish, TropicalWeight(0))
+    add_arc!(builder, root, UInt64(0), UInt64(0), finish,
+        TropicalWeight(0))
+    add_arc!(builder, finish, UInt64(0), UInt64(0), root,
+        TropicalWeight(0))
+    cyclic_graph = build!(builder)
+    @test_throws NativeError parse_cfg(grammar, cyclic_graph)
+    close(cyclic_graph)
+    close(grammar)
 end
 
 @testset "snapshot-pinned bounded path traversal" begin
