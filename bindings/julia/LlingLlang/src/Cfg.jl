@@ -70,12 +70,14 @@ end
 """
 Compile typed productions with explicit native rule and RHS storage bounds.
 
-The terminal vocabulary is assigned stable IDs by first appearance in `rules`.
+The terminal vocabulary is assigned stable IDs by first appearance in `rules`,
+or from a complete `terminal_ids` map to align an existing WFST label domain.
 Unknown query tokens use an out-of-vocabulary ID and yield a rejected analysis.
 """
 function compile_cfg(start::CfgNonterminal, rules::AbstractVector{CfgRule};
     max_rules::Integer=length(rules),
-    max_rhs_symbols::Integer=sum(length(rule.rhs) for rule in rules))
+    max_rhs_symbols::Integer=sum(length(rule.rhs) for rule in rules),
+    terminal_ids::AbstractDict=Dict{String,UInt32}())
     max_rules >= 0 || throw(ArgumentError("max_rules must be nonnegative"))
     max_rhs_symbols >= 0 || throw(ArgumentError(
         "max_rhs_symbols must be nonnegative"))
@@ -83,6 +85,15 @@ function compile_cfg(start::CfgNonterminal, rules::AbstractVector{CfgRule};
     sum(length(rule.rhs) for rule in rules) <= max_rhs_symbols || throw(
         ArgumentError("CFG RHS bound exceeded"))
 
+    provided = Dict{String,UInt32}()
+    for (name, id) in terminal_ids
+        name isa AbstractString && id isa Integer &&
+            0 <= id <= typemax(UInt32) || throw(ArgumentError(
+            "terminal_ids must map terminal names to UInt32 IDs"))
+        provided[String(name)] = UInt32(id)
+    end
+    length(Set(values(provided))) == length(provided) || throw(
+        ArgumentError("terminal_ids must be unique"))
     nonterminals = Dict{String,UInt32}()
     terminals = Dict{String,UInt32}()
     function nonterminal_id(name::String)
@@ -96,7 +107,14 @@ function compile_cfg(start::CfgNonterminal, rules::AbstractVector{CfgRule};
         get!(terminals, name) do
             length(terminals) < typemax(UInt32) || throw(ArgumentError(
                 "CFG terminal count exceeds native domain"))
-            UInt32(length(terminals))
+            if isempty(provided)
+                UInt32(length(terminals))
+            else
+                get(provided, name) do
+                    throw(ArgumentError(
+                        "terminal_ids must include every CFG terminal"))
+                end
+            end
         end
     end
     start_id = nonterminal_id(start.name)

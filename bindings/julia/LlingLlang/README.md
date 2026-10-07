@@ -63,7 +63,10 @@ close(graph)
 `compile_cfg` accepts explicitly typed rules. An empty right-hand side is an
 epsilon production. `parse_cfg` accepts terminal names or `UInt32` vocabulary
 IDs and returns an owned `CfgAnalysis`, including for rejected input. The
-analysis exposes acceptance, a deterministic Earley chart, complete parse
+optional `terminal_ids` map pins terminal IDs to an existing byte, Unicode,
+or integer WFST vocabulary. It must cover every terminal in the rules and
+assign distinct `UInt32` IDs. The analysis exposes acceptance, a deterministic
+Earley chart, complete parse
 roots, and packed forest nodes and children. `close` the grammar and analysis
 when finished; the analysis retains its own snapshot and survives closing the
 grammar.
@@ -95,6 +98,8 @@ reachable graph must be acyclic; these cases raise `NativeError` with an
 explicit status. All graph and parser limits are mandatory. The parser uses
 arc labels for recognition and retains the arc weights only in its native
 lattice; it does not currently rank parses by arc or production weight.
+For a `Char` graph, assign Unicode code points explicitly, for example
+`terminal_ids=Dict("word" => Int('w'))` and put `'w'` on the selected tape.
 
 ```julia
 S = CfgNonterminal("S")

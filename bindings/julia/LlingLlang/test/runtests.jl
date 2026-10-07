@@ -140,6 +140,20 @@ end
     @test_throws NativeError parse_cfg(grammar, cyclic_graph)
     close(cyclic_graph)
     close(grammar)
+
+    grammar = compile_cfg(start, [CfgRule(start, [a])];
+        terminal_ids=Dict("a" => Int('a')))
+    @test cfg_terminal_id(grammar, a) == UInt32('a')
+    graph = scalar_chain(Char, TropicalWeight, 'a',
+        TropicalWeight(0), TropicalWeight(0))
+    analysis = parse_cfg(grammar, graph)
+    @test cfg_info(analysis).accepted
+    @test cfg_edge_labels(analysis) == UInt32[UInt32('a')]
+    close(analysis)
+    close(graph)
+    close(grammar)
+    @test_throws ArgumentError compile_cfg(start, [CfgRule(start, [a])];
+        terminal_ids=Dict("other" => Int('a')))
 end
 
 @testset "snapshot-pinned bounded path traversal" begin
