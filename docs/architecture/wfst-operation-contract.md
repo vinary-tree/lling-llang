@@ -129,3 +129,27 @@ rules as bounded composition apply. A partial intersection is never a complete
 acceptor. Tests use hand-computed branch labels and weights, an independent
 epsilon-path cost oracle, and invalid-operand, cap, cancellation, source-drift
 and resume cases.
+
+## Bounded reachable projection adapters
+
+`wfst::BoundedInputProjection` and `BoundedOutputProjection` materialize the
+existing `ProjectSource` lazily, but only from the source start state. Each
+keeps a FIFO queue of source states and a first-discovery map to output state
+IDs. The input variant copies source input labels to both sides of each
+output arc; the output variant does the same for source output labels. Neither
+changes arc or final weights. An unreachable source state is not expanded or
+emitted. The direction has its own versioned operation ID, so its checkpoint
+cannot resume the opposite projection even over identical source contents.
+
+Before expanding a state, the adapter preflights its visit. It then obtains a
+complete state from the existing lazy lifecycle, validates reachable targets,
+and charges state/arc/work/logical-heap cost before mutating the output graph.
+A rejected newly expanded state is removed from the lazy cache. The caller
+must meter generic label/weight payload storage and recompute the source
+content binding at each run boundary. The checkpoint is paired with the live
+frontier and partial graph; bytes alone are not a persistent projection.
+Limits or cancellation return `Incomplete` and cannot enter a complete-only
+cache. Tests cover both projection directions, source-order and weight
+preservation, exclusion of unreachable states, caps, cancellation, source
+drift, cross-direction checkpoint rejection, exact resume, and malformed
+reachable targets.
