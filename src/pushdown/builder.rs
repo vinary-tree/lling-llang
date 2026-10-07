@@ -21,8 +21,8 @@ pub enum BuildError {
     /// A transition's target — or the start state — is a state index that was
     /// never allocated.
     UnknownState(StateId),
-    /// A transition's matched top, or a pushed/replaced symbol, is a stack
-    /// symbol id that was never allocated.
+    /// The initial stack, a transition's matched top, or a pushed/replaced
+    /// symbol is a stack symbol id that was never allocated.
     UnknownStackSymbol(u32),
     /// A transition pops while matching the bottom-of-stack marker $`Z_0`$, which
     /// would underflow the stack.
@@ -336,6 +336,11 @@ impl<L: Clone + Eq + Hash, W: Semiring + Clone> PdaBuilder<L, W> {
         let start = self.pda.get_start();
         if (start as usize) >= num_states {
             return Err(BuildError::UnknownState(start));
+        }
+
+        let initial_stack = self.pda.get_initial_stack();
+        if initial_stack.id() >= self.next_stack_symbol {
+            return Err(BuildError::UnknownStackSymbol(initial_stack.id()));
         }
 
         for state in 0..num_states as StateId {
@@ -958,6 +963,19 @@ mod tests {
             s1,
             TropicalWeight::one(),
         );
+
+        assert_eq!(
+            builder.try_build().unwrap_err(),
+            BuildError::UnknownStackSymbol(99)
+        );
+    }
+
+    #[test]
+    fn try_build_rejects_unknown_initial_stack_symbol() {
+        let mut builder: PdaBuilder<char, TropicalWeight> = PdaBuilder::new();
+        let state = builder.add_final_state(TropicalWeight::one());
+        builder.set_start(state);
+        builder.set_initial_stack(StackSymbol::new(99));
 
         assert_eq!(
             builder.try_build().unwrap_err(),

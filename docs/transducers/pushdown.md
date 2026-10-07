@@ -430,6 +430,45 @@ accepting ID (input $`\varepsilon`$, stack $`Z_0`$, state $`q_2`$).*
 See the [transducer-family overview](README.md) to place pushdown automata among
 the multi-tape, tree, subsequential, and neural transducer families.
 
+### Versioned Julia and C boundary
+
+The project-owned C API revision 14 exposes the native `PdaBuilder` and
+`PdaDecoder` as three opaque resources: a mutable builder, an immutable
+compiled PDA, and an incremental session. A session retains the compiled PDA,
+so releasing the PDA handle does not invalidate that session. The
+[`LlingLlang.jl` guide](../../bindings/julia/LlingLlang/README.md#incremental-weighted-pushdown-decoding)
+shows an end-to-end example. Its `PdaBuilder{Label,Weight}` preserves the
+declared scalar label and semiring domains across the C boundary.
+
+The decoder first explores epsilon-reachable `(state, stack)` configurations.
+For a weighted frontier, it multiplies weights along each epsilon path and the
+next terminal transition, then adds the contributions for each terminal. The
+worklist carries *new path contributions* rather than accumulated state totals;
+this counts each path once when branches join. A non-idempotent epsilon cycle
+may have infinitely many contributions, so a positive work cap is required.
+Exhausting it reports a limit error without publishing a partial result.
+Likewise, exceeding the explicit stack-depth cap reports an error instead of
+silently omitting a reachable configuration. The native `advance` operation
+selects the first matching transition in decoder traversal order and holds one
+configuration; the frontier's aggregate weights describe legal next terminals
+from the whole epsilon closure.
+
+The finite [PDA lifecycle model](../../proofs/tla/JuliaPdaLifecycle.tla) checks
+the resource and query protocol. Its invariants have direct executable
+counterparts:
+
+| Model invariant | Boundary behavior | Executable check |
+|---|---|---|
+| `SessionRetainsCompiledPda` | A session remains usable after its PDA handle closes. | `count_diamond_is_exact_across_resource_and_session_boundaries`; Julia domain and lifecycle test. |
+| `NoPartialFrontier` | A failed work-limited query publishes zero choices. | C ABI count-diamond limit case; Julia divergent epsilon test. |
+| `PagingBounded` | Pages advance only within the captured frontier. | C ABI page exhaustion; Julia one-item paging and partial collection. |
+| `ResourcesBounded` | Work and stack caps prevent unbounded decode steps. | Native bounded-stack and divergent-cycle tests; Julia 1,025-symbol iterative stack test. |
+| `ClosedSessionHasNoBorrow` | Closing a session releases its retained owner. | C ABI and Julia lifecycle tests. |
+
+The model proves these invariants for its stated finite configuration; the
+native and Julia tests check their implementation mapping, including a stack
+deeper than ordinary call-stack recursion would safely support.
+
 ---
 
 ## References

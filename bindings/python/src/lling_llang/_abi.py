@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 13
+API_REVISION = 14
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -936,6 +936,46 @@ _bind(
         ctypes.POINTER(ctypes.c_uint32),
     ],
 )
+
+# Revision 14 raw native PDA ABI. Typed PDA usage is owned by the Julia facade.
+_bind(
+    "lling_pda_builder_open",
+    [ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32,
+     ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind("lling_pda_builder_free", [ctypes.c_void_p], None)
+_bind("lling_pda_builder_add_state", [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)])
+_bind("lling_pda_builder_set_start", [ctypes.c_void_p, ctypes.c_uint32])
+_bind("lling_pda_builder_add_stack_symbol", [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)])
+_bind("lling_pda_builder_set_initial_stack", [ctypes.c_void_p, ctypes.c_uint32])
+_bind("lling_pda_builder_set_final", [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_double])
+_bind(
+    "lling_pda_builder_add_transition",
+    [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint64, ctypes.c_uint8,
+     ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32,
+     ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t, ctypes.c_double],
+)
+_bind("lling_pda_builder_build", [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)])
+_bind("lling_pda_free", [ctypes.c_void_p], None)
+_bind("lling_pda_domains", [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+                            ctypes.POINTER(ctypes.c_uint32)])
+_bind("lling_pda_session_open", [ctypes.c_void_p, ctypes.c_size_t,
+                                 ctypes.POINTER(ctypes.c_void_p)])
+_bind("lling_pda_session_free", [ctypes.c_void_p], None)
+_bind("lling_pda_session_frontier_open", [ctypes.c_void_p, ctypes.c_size_t,
+                                          ctypes.POINTER(ctypes.c_size_t)])
+_bind("lling_pda_session_frontier_next", [ctypes.c_void_p, ctypes.c_void_p,
+                                          ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)])
+_bind("lling_pda_session_advance", [ctypes.c_void_p, ctypes.c_uint64,
+                                    ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint8)])
+_bind("lling_pda_session_acceptance", [ctypes.c_void_p, ctypes.c_size_t,
+                                       ctypes.POINTER(ctypes.c_uint8),
+                                       ctypes.POINTER(ctypes.c_double)])
+_bind("lling_pda_session_info", [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+                                 ctypes.POINTER(ctypes.c_size_t)])
+_bind("lling_pda_session_stack_page", [ctypes.c_void_p, ctypes.c_size_t,
+                                       ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t,
+                                       ctypes.POINTER(ctypes.c_size_t)])
 
 _bind(
     "lling_semiring_open", [ctypes.POINTER(VtResource), ctypes.POINTER(ctypes.c_void_p)]

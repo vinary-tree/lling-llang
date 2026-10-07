@@ -30,6 +30,8 @@ mod lattice;
 pub use lattice::*;
 mod cfg;
 pub use cfg::*;
+mod pda;
+pub use pda::*;
 mod distance;
 mod graph;
 pub use distance::*;
@@ -44,7 +46,7 @@ pub use sample_path::*;
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_LLANG_API_REVISION: u32 = 13;
+pub const LLING_LLANG_API_REVISION: u32 = 14;
 
 fn bounded_usize(value: u64, name: &'static str) -> Result<usize, LlingLlangStatus> {
     usize::try_from(value).map_err(|_| {

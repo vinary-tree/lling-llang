@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 13u
+#define LLING_LLANG_API_REVISION 14u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -69,6 +69,20 @@ typedef struct LlingRankedPathCursor LlingRankedPathCursor;
 typedef struct LlingSamplePathCursor LlingSamplePathCursor;
 typedef struct LlingCfgGrammar LlingCfgGrammar;
 typedef struct LlingCfgAnalysis LlingCfgAnalysis;
+typedef struct LlingPdaBuilder LlingPdaBuilder;
+typedef struct LlingPda LlingPda;
+typedef struct LlingPdaSession LlingPdaSession;
+
+/* Revision 14: native weighted PDA construction and bounded decode. */
+#define LLING_PDA_POP 0u
+#define LLING_PDA_PUSH 1u
+#define LLING_PDA_REPLACE 2u
+#define LLING_PDA_NOOP 3u
+
+typedef struct LlingPdaChoice {
+    uint64_t label;
+    double weight;
+} LlingPdaChoice;
 
 /* Revision 13: owned, bounded CFG compilation and Earley analysis. */
 #define LLING_CFG_NONTERMINAL 1u
@@ -728,6 +742,60 @@ LLING_LLANG_API LlingLlangStatus lling_cfg_analysis_forest_child(
 LLING_LLANG_API LlingLlangStatus lling_cfg_analysis_derivation_member(
     const LlingCfgAnalysis* analysis, uint32_t node_id,
     size_t child_index, size_t member_index, uint32_t* out_member);
+
+/* The builder copies every action word. Build validates states, stack symbols,
+ * bottom-marker safety, and final-state acceptance before consuming it. A
+ * session owns its compiled PDA snapshot and survives freeing LlingPda. */
+LLING_LLANG_API LlingLlangStatus lling_pda_builder_open(
+    uint32_t unit_domain, uint32_t weight_domain, uint32_t acceptance_mode,
+    LlingPdaBuilder** out_builder);
+LLING_LLANG_API void lling_pda_builder_free(LlingPdaBuilder* builder);
+LLING_LLANG_API LlingLlangStatus lling_pda_builder_add_state(
+    LlingPdaBuilder* builder, uint32_t* out_state);
+LLING_LLANG_API LlingLlangStatus lling_pda_builder_set_start(
+    LlingPdaBuilder* builder, uint32_t state);
+LLING_LLANG_API LlingLlangStatus lling_pda_builder_add_stack_symbol(
+    LlingPdaBuilder* builder, uint32_t* out_symbol);
+LLING_LLANG_API LlingLlangStatus lling_pda_builder_set_initial_stack(
+    LlingPdaBuilder* builder, uint32_t symbol);
+LLING_LLANG_API LlingLlangStatus lling_pda_builder_set_final(
+    LlingPdaBuilder* builder, uint32_t state, double weight);
+LLING_LLANG_API LlingLlangStatus lling_pda_builder_add_transition(
+    LlingPdaBuilder* builder, uint32_t from, uint64_t input,
+    uint8_t has_input, uint32_t stack_top, uint32_t to,
+    uint32_t action_kind, const uint32_t* action_symbols,
+    size_t action_len, double weight);
+LLING_LLANG_API LlingLlangStatus lling_pda_builder_build(
+    LlingPdaBuilder* builder, LlingPda** out_pda);
+LLING_LLANG_API void lling_pda_free(LlingPda* pda);
+LLING_LLANG_API LlingLlangStatus lling_pda_domains(
+    const LlingPda* pda, uint32_t* out_unit_domain,
+    uint32_t* out_weight_domain);
+LLING_LLANG_API LlingLlangStatus lling_pda_session_open(
+    const LlingPda* pda, size_t max_stack_depth,
+    LlingPdaSession** out_session);
+LLING_LLANG_API void lling_pda_session_free(LlingPdaSession* session);
+/* Frontier open computes one complete bounded result or returns LIMIT_EXCEEDED
+ * without a partial result. Frontier next then copies pages in native order.
+ * Acceptance and frontier weights must fit their declared scalar carrier;
+ * count weights above 2^53 are rejected instead of rounded through double. */
+LLING_LLANG_API LlingLlangStatus lling_pda_session_frontier_open(
+    LlingPdaSession* session, size_t max_work, size_t* out_count);
+LLING_LLANG_API LlingLlangStatus lling_pda_session_frontier_next(
+    LlingPdaSession* session, LlingPdaChoice* out_choices,
+    size_t capacity, size_t* out_written);
+LLING_LLANG_API LlingLlangStatus lling_pda_session_advance(
+    LlingPdaSession* session, uint64_t label,
+    size_t max_work, uint8_t* out_advanced);
+LLING_LLANG_API LlingLlangStatus lling_pda_session_acceptance(
+    const LlingPdaSession* session, size_t max_work,
+    uint8_t* out_accepted, double* out_weight);
+LLING_LLANG_API LlingLlangStatus lling_pda_session_info(
+    const LlingPdaSession* session, uint32_t* out_state,
+    size_t* out_stack_depth);
+LLING_LLANG_API LlingLlangStatus lling_pda_session_stack_page(
+    const LlingPdaSession* session, size_t offset,
+    uint32_t* out_symbols, size_t capacity, size_t* out_written);
 
 #ifdef __cplusplus
 }

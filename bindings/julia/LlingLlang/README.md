@@ -58,6 +58,65 @@ graph = build!(builder)
 close(graph)
 ```
 
+## Incremental weighted pushdown decoding
+
+A **pushdown automaton** (PDA) recognizes nested structures by keeping a stack
+alongside its finite control state. `PdaBuilder{Label,Weight}` uses the same
+three scalar label domains and seven built-in weight domains as `WfstBuilder`.
+Transitions may read a terminal or `nothing` for an epsilon step. A transition
+checks the stack top, then pops it, replaces it with a sequence, or leaves it
+in place. In `push_stack` and `replace_stack`, the last supplied symbol becomes
+the new top; stack symbol `0` is the initial bottom marker.
+
+The following machine recognizes one opening and one closing parenthesis. Its
+session is incremental: the application asks for legal next labels, consumes
+one, and checks whether the resulting configuration is accepting.
+
+```julia
+using LlingLlang
+
+builder = PdaBuilder{Char,TropicalWeight}()
+start = add_state!(builder)
+inside = add_state!(builder)
+done = add_state!(builder)
+set_start!(builder, start)
+set_final!(builder, done)
+marker = add_stack_symbol!(builder)
+add_transition!(builder, start, '(', 0, inside,
+    push_stack([0, marker]))
+add_transition!(builder, inside, ')', marker, done, pop_stack())
+pda = build!(builder)
+session = pda_session(pda; max_stack_depth=32)
+@assert only(pda_legal_next(session; max_work=100)).label == '('
+@assert advance!(session, '('; max_work=100)
+@assert pda_stack(session) == UInt32[0, marker]
+@assert advance!(session, ')'; max_work=100)
+@assert pda_acceptance(session; max_work=100).accepted
+close(session)
+close(pda)
+```
+
+`pda_frontier` returns a paged iterator of `PdaChoice{Label,Weight}`. Each
+choice's weight combines all epsilon paths that enable its terminal, using
+the selected semiring's multiplication along a path and addition across paths.
+`pda_legal_next` collects that iterator. `advance!` follows the native
+decoder's first matching transition in its traversal order, so an incremental
+session holds one configuration. `pda_acceptance` reports structural acceptance
+and the aggregate weight of its epsilon closure. For whole-string recognition
+across alternative configurations, use the Rust `VectorPda` analysis.
+
+Every frontier and acceptance query needs a positive `max_work`; `advance!`
+also needs one. If work or `max_stack_depth` is exhausted, the call raises
+`NativeError` with `STATUS_LIMIT_EXCEEDED` and returns no partial result.
+Computed `CountWeight` values above $`2^{53}`$ likewise fail because they
+cannot cross the scalar `Float64` carrier exactly.
+Increasing those limits changes which complete computations can be examined;
+it does not change the automaton. A frontier iterator is invalidated by the
+next frontier query or advance. `close(pda)` leaves existing sessions usable
+because each session retains the compiled native machine. Close the session
+when done. The [pushdown model](../../../docs/transducers/pushdown.md)
+defines acceptance modes, stack actions, epsilon closure, and weights.
+
 ## Bounded context-free parsing
 
 `compile_cfg` accepts explicitly typed rules. An empty right-hand side is an

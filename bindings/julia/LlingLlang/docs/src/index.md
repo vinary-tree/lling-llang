@@ -13,6 +13,11 @@ The [CFG example in the package README](https://github.com/vinary-tree/lling-lla
 shows token and scalar-WFST input, explicit graph and parser bounds, and
 ownership.
 
+The same package exposes typed native weighted pushdown automata through
+`PdaBuilder{Label,Weight}`, `PdaSession`, `pda_frontier`, `advance!`, and
+`pda_acceptance`. The [incremental pushdown example](https://github.com/vinary-tree/lling-llang/tree/master/bindings/julia/LlingLlang#incremental-weighted-pushdown-decoding)
+shows explicit work and stack-depth limits, stack actions, and ownership.
+
 ## Build a typed scalar WFST
 
 `WfstBuilder{Label,Weight}` accepts the three family label carriers (`UInt8`,

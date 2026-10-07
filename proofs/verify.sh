@@ -323,6 +323,9 @@ run_tlc abi-ownership-lifecycle \
 run_tlc abi-v2-lifecycle \
   "$ROOT/proofs/tla/AbiV2Lifecycle.tla" \
   "$ROOT/proofs/tla/MC/AbiV2Lifecycle.cfg"
+run_tlc julia-pda-lifecycle \
+  "$ROOT/proofs/tla/JuliaPdaLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/JuliaPdaLifecycle.cfg"
 run_tlc neutral-foundations \
   "$ROOT/proofs/tla/NeutralFoundationLifecycle.tla" \
   "$ROOT/proofs/tla/MC/NeutralFoundationLifecycle.cfg"
