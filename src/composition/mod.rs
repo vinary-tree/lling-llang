@@ -42,11 +42,13 @@
 //! let eager: VectorWfst<_, _> = materialize(lazy);
 //! ```
 
+mod bounded;
 mod cfg_fst;
 mod filter;
 mod fst_fst;
 mod materialize;
 
+pub use bounded::BoundedComposition;
 pub use cfg_fst::{
     CompositionStats, FilteredLattice, LazyCfgComposition, ParseState, ValidPathIterator,
 };

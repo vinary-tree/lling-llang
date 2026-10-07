@@ -40,6 +40,7 @@ pub struct OperationPlan {
     pub algorithm_id: String,
     /// Ordered state requests; duplicates are deliberate distinct visits.
     pub states: Vec<StateId>,
+    dynamic: bool,
 }
 
 impl OperationPlan {
@@ -77,7 +78,30 @@ impl OperationPlan {
             source_binding,
             algorithm_id,
             states,
+            dynamic: false,
         })
+    }
+
+    /// Bind a traversal whose next states are discovered in deterministic
+    /// order. The caller must retain the frontier alongside the checkpoint.
+    pub fn new_dynamic(
+        source: SourceSnapshot,
+        source_binding: [u8; 32],
+        algorithm_id: impl Into<String>,
+    ) -> Result<Self, OperationError> {
+        let mut plan = Self::new(source, source_binding, algorithm_id, Vec::new())?;
+        let mut digest = blake3::Hasher::new();
+        digest.update(b"lling.wfst.dynamic-operation-plan/v1\0");
+        digest.update(&plan.identity.plan_digest);
+        plan.identity.plan_digest = *digest.finalize().as_bytes();
+        plan.dynamic = true;
+        Ok(plan)
+    }
+
+    /// Whether the state order is discovered during execution.
+    #[must_use]
+    pub const fn is_dynamic(&self) -> bool {
+        self.dynamic
     }
 }
 
@@ -344,6 +368,7 @@ impl<T> CompleteResultCache<T> {
         match outcome {
             OperationOutcome::Complete { value, checkpoint }
                 if checkpoint.identity == plan.identity
+                    && !plan.dynamic
                     && u64::try_from(plan.states.len()).ok() == Some(checkpoint.next_index)
                     && checkpoint.usage.states == checkpoint.next_index =>
             {
@@ -416,9 +441,11 @@ impl OperationSession {
         checkpoint: OperationCheckpoint,
     ) -> Result<Self, OperationError> {
         if checkpoint.identity != plan.identity
-            || usize::try_from(checkpoint.next_index)
-                .ok()
-                .is_none_or(|index| index > plan.states.len())
+            || (!plan.dynamic
+                && usize::try_from(checkpoint.next_index)
+                    .ok()
+                    .is_none_or(|index| index > plan.states.len()))
+            || usize::try_from(checkpoint.next_index).is_err()
             || checkpoint.usage.states != checkpoint.next_index
         {
             return Err(OperationError::StaleCheckpoint);
@@ -451,6 +478,12 @@ impl OperationSession {
         self.usage
     }
 
+    /// Bound plan retained by this session.
+    #[must_use]
+    pub const fn plan(&self) -> &OperationPlan {
+        &self.plan
+    }
+
     /// Poll shared cancellation and monotonic time.
     pub fn poll(&self) -> Result<(), IncompleteReason> {
         if self.cancellation.is_cancelled() {
@@ -466,6 +499,45 @@ impl OperationSession {
     pub fn charge(&mut self, cost: OperationCost) -> Result<(), IncompleteReason> {
         self.usage = self.project_charge(cost)?;
         Ok(())
+    }
+
+    /// Atomically admit one discovered state and advance its cursor. This is
+    /// separate from fixed-plan `charge`, so a rejected step cannot advance.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a fixed plan, invalid unit cost, cancellation or a limit.
+    pub fn advance_dynamic(
+        &mut self,
+        cost: OperationCost,
+    ) -> Result<Result<(), IncompleteReason>, OperationError> {
+        if !self.plan.dynamic || cost.states != 1 || self.next_index == usize::MAX {
+            return Err(OperationError::InvalidCost);
+        }
+        match self.project_charge(cost) {
+            Ok(usage) => {
+                self.usage = usage;
+                self.next_index += 1;
+                Ok(Ok(()))
+            }
+            Err(reason) => Ok(Err(reason)),
+        }
+    }
+
+    /// Check a discovered step before invoking an expensive source adapter.
+    /// The full cost still needs `advance_dynamic` after expansion.
+    ///
+    /// # Errors
+    ///
+    /// Refuses a fixed plan or a non-unit state charge.
+    pub fn preview_dynamic(
+        &self,
+        cost: OperationCost,
+    ) -> Result<Result<(), IncompleteReason>, OperationError> {
+        if !self.plan.dynamic || cost.states != 1 || self.next_index == usize::MAX {
+            return Err(OperationError::InvalidCost);
+        }
+        Ok(self.project_charge(cost).map(|_| ()))
     }
 
     fn project_charge(&self, cost: OperationCost) -> Result<OperationUsage, IncompleteReason> {
@@ -535,6 +607,9 @@ impl OperationSession {
         W: Semiring,
         F: Fn(&LazyState<L, W>) -> u64,
     {
+        if self.plan.dynamic {
+            return Err(OperationError::InvalidPlan);
+        }
         if wrapper.current_snapshot() != self.plan.identity.source
             || wrapper.source().snapshot() != self.plan.identity.source
             || observed_source_binding != self.plan.source_binding
