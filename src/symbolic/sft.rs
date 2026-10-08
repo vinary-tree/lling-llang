@@ -24,8 +24,9 @@
 //!   $`(A\to B)\circ(B\to C)=(A\to C)`$.
 //! - **Pre-image** (`pre_image`): given an SFA over $`B`$, compute an SFA
 //!   over $`A`$.
-//! - **Post-image** (`post_image`): given an SFA over $`A`$, compute an SFA
-//!   over $`B`$.
+//! - **Post-image** (`bounded_postimage`): given an SFA over $`A`$, construct
+//!   an epsilon-capable output acceptor over $`B`$ or reject an output
+//!   function without an exact symbolic image oracle.
 //! - **Functionality** (`is_functional`): Check if single-valued
 //! - **Equivalence** (`is_equivalent_functional`): Check equivalence for functional SFTs
 //!
@@ -735,95 +736,6 @@ where
                             }
                         }
                     }
-                }
-            }
-        }
-
-        result
-    }
-
-    /// Post-image: given SFA over A, compute SFA over B accepting exactly
-    /// the outputs produced from inputs in L(input_lang).
-    ///
-    /// Algorithm: product construction SFA × SFT, project to output.
-    pub fn post_image(&self, input_lang: &SymbolicAutomaton<A>) -> SymbolicAutomaton<B>
-    where
-        A::Domain: Clone + Into<B::Domain>,
-    {
-        let mut result = SymbolicAutomaton::new(self.output_algebra.clone());
-
-        let mut state_map: HashMap<(usize, usize), usize> = HashMap::new();
-        let mut worklist: VecDeque<(usize, usize)> = VecDeque::new();
-
-        // Initial product states: (SFA_init, SFT_init).
-        for &i_sfa in &input_lang.initial_states {
-            for &i_sft in &self.initial_states {
-                let is_acc = input_lang.accepting_states.contains(&i_sfa)
-                    && self.accepting_states.contains(&i_sft);
-                let pid = result.add_state(is_acc, None);
-                result.set_initial(pid);
-                state_map.insert((i_sfa, i_sft), pid);
-                worklist.push_back((i_sfa, i_sft));
-            }
-        }
-
-        while let Some((q_sfa, q_sft)) = worklist.pop_front() {
-            let from_pid = state_map[&(q_sfa, q_sft)];
-
-            // For each SFA transition and each SFT transition,
-            // if their input guards are compatible...
-            for t_sfa in &input_lang.transitions {
-                if t_sfa.from != q_sfa {
-                    continue;
-                }
-                for t_sft in &self.transitions {
-                    if t_sft.from != q_sft {
-                        continue;
-                    }
-
-                    // Input guard compatibility: t_sfa.guard ∧ t_sft.guard.
-                    let combined_guard = self.input_algebra.and(&t_sfa.guard, &t_sft.guard);
-                    if !self.input_algebra.is_satisfiable(&combined_guard) {
-                        continue;
-                    }
-
-                    let to_pair = (t_sfa.to, t_sft.to);
-                    let to_pid = *state_map.entry(to_pair).or_insert_with(|| {
-                        let is_acc = input_lang.accepting_states.contains(&t_sfa.to)
-                            && self.accepting_states.contains(&t_sft.to);
-                        let pid = result.add_state(is_acc, None);
-                        worklist.push_back(to_pair);
-                        pid
-                    });
-
-                    // Output: project SFT's output as SFA transition guard.
-                    // For constant/identity, we can construct exact predicates.
-                    // For computed functions, use TRUE (conservative).
-                    let out_guard = match &t_sft.output {
-                        OutputFunction::Epsilon => {
-                            // No output: this is an ε-transition in the output SFA.
-                            // We add a direct connection without consuming output.
-                            result.add_transition(
-                                from_pid,
-                                to_pid,
-                                self.output_algebra.true_pred(),
-                            );
-                            continue;
-                        }
-                        OutputFunction::Identity => {
-                            // Identity: output guard = input guard (projected).
-                            // Conservative: TRUE.
-                            self.output_algebra.true_pred()
-                        }
-                        OutputFunction::Constant(_)
-                        | OutputFunction::Map(_)
-                        | OutputFunction::FlatMap(_) => {
-                            // Conservative: TRUE.
-                            self.output_algebra.true_pred()
-                        }
-                    };
-
-                    result.add_transition(from_pid, to_pid, out_guard);
                 }
             }
         }
