@@ -49,6 +49,7 @@
 //! - Mohri, M., Pereira, F., & Riley, M. (2002). "WFSTs in Speech Recognition"
 
 mod bounded_determinize;
+mod bounded_shortest;
 mod connect;
 mod determinize;
 mod epsilon_removal;
@@ -86,6 +87,9 @@ pub use shortest_distance::{
 };
 
 pub use bounded_determinize::{BoundedDeterminization, BoundedDeterminizeError};
+pub use bounded_shortest::{
+    BoundedShortestWitness, ShortestWitness, ShortestWitnessError, ShortestWitnessStep,
+};
 pub use determinize::{
     determinize, is_deterministic, non_determinism_degree, DeterminizeConfig, DeterminizeError,
 };
