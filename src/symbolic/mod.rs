@@ -18,6 +18,7 @@ pub mod behavioral_algebra;
 pub mod behavioral_pred;
 pub mod bisimulation;
 pub mod bounded_compose;
+pub mod bounded_preimage;
 pub mod bounded_transduce;
 pub mod collection_algebra;
 pub mod kat_algebra;
