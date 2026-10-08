@@ -26,7 +26,9 @@ and output use the same Boolean algebra:
 - A finite constant output is simulated through *all* matching output-SFA
   transitions; distinct reachable endpoints become cases.
 - Identity output uses each outgoing output-SFA guard directly as the
-  input-side pullback.
+  input-side pullback, but only when both algebra instances interpret
+  every predicate identically. Different bounded-integer universes
+  return a typed `IncompatibleAlgebras` error.
 - Opaque map and flat-map closures return a typed
   `UnrepresentableOutput` error. A caller that knows an exact finite
   pullback for particular closures can implement the oracle trait and bind

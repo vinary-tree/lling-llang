@@ -6,7 +6,7 @@ use std::mem::size_of;
 
 use super::bounded_transduce::OrderedSftTransitionIndex;
 use super::sft::{OutputFunction, SymbolicFiniteTransducer};
-use super::{BooleanAlgebra, SymbolicAutomaton};
+use super::{BooleanAlgebra, ExactAlgebraSemantics, SymbolicAutomaton};
 use crate::wfst::operation::{
     IncompleteReason, OperationCheckpoint, OperationCost, OperationError, OperationLimits,
     OperationOutcome, OperationPlan, OperationSession,
@@ -38,6 +38,8 @@ pub struct PreimageCases<P> {
 pub enum PreimageOracleError {
     /// No exact finite pullback is available for this output function.
     UnrepresentableOutput,
+    /// Identity guards cannot be transferred across these algebra instances.
+    IncompatibleAlgebras,
     /// A concretely taken acceptor transition targets no declared state.
     InvalidAcceptorTarget {
         transition_index: usize,
@@ -71,7 +73,7 @@ pub trait ExactOutputPreimageOracle<A: BooleanAlgebra, B: BooleanAlgebra>: Send 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SameAlgebraPreimageOracle;
 
-impl<A: BooleanAlgebra> ExactOutputPreimageOracle<A, A> for SameAlgebraPreimageOracle {
+impl<A: ExactAlgebraSemantics> ExactOutputPreimageOracle<A, A> for SameAlgebraPreimageOracle {
     fn cases(
         &self,
         input_algebra: &A,
@@ -139,6 +141,9 @@ impl<A: BooleanAlgebra> ExactOutputPreimageOracle<A, A> for SameAlgebraPreimageO
                 })
             }
             OutputFunction::Identity => {
+                if !input_algebra.same_semantics(&acceptor.algebra) {
+                    return Err(PreimageOracleError::IncompatibleAlgebras);
+                }
                 let outgoing = acceptor_outgoing
                     .get(start_state)
                     .ok_or(PreimageOracleError::ExhaustedRepresentation)?;
