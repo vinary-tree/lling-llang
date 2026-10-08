@@ -170,6 +170,27 @@ pub trait BooleanAlgebra: Clone + std::fmt::Debug + Send + Sync + 'static {
     }
 }
 
+/// Certifies that predicates can be transferred between two instances of
+/// the same Boolean-algebra type without changing their interpretation.
+/// Instance type equality alone is insufficient for parameterized domains.
+pub trait ExactAlgebraSemantics: BooleanAlgebra {
+    /// Whether both instances interpret every predicate and domain element
+    /// identically. Implementations must be sound for all predicates.
+    fn same_semantics(&self, other: &Self) -> bool;
+}
+
+impl ExactAlgebraSemantics for IntervalAlgebra {
+    fn same_semantics(&self, other: &Self) -> bool {
+        self.min_val == other.min_val && self.max_val == other.max_val
+    }
+}
+
+impl ExactAlgebraSemantics for CharClassAlgebra {
+    fn same_semantics(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // IntervalAlgebra — numeric range predicates
 // ══════════════════════════════════════════════════════════════════════════════

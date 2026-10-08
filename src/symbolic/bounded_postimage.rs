@@ -5,7 +5,10 @@ use std::fmt;
 use std::mem::size_of;
 
 use super::bounded_transduce::OrderedSftTransitionIndex;
-use super::sfa::{CharClassAlgebra, CharClassPred, IntervalAlgebra, IntervalPred, SymbolicState};
+use super::sfa::{
+    CharClassAlgebra, CharClassPred, ExactAlgebraSemantics, IntervalAlgebra, IntervalPred,
+    SymbolicState,
+};
 use super::sft::{OutputFunction, SymbolicFiniteTransducer};
 use super::{BooleanAlgebra, SymbolicAutomaton};
 use crate::wfst::operation::{
@@ -119,22 +122,14 @@ impl<B: BooleanAlgebra> OutputAutomaton<B> {
 
 /// Construct exact singleton predicates for concrete output constants.
 /// Returning `None` means this algebra cannot denote that singleton.
-pub trait ExactSingletonPredicate: BooleanAlgebra {
+pub trait ExactSingletonPredicate: ExactAlgebraSemantics {
     /// A predicate satisfied by precisely this domain element, if expressible.
     fn singleton(&self, value: &Self::Domain) -> Option<Self::Predicate>;
-
-    /// Whether both instances interpret every predicate and domain element
-    /// identically, as required to project an identity output guard.
-    fn same_semantics(&self, other: &Self) -> bool;
 }
 
 impl ExactSingletonPredicate for CharClassAlgebra {
     fn singleton(&self, value: &char) -> Option<CharClassPred> {
         Some(CharClassPred::Range(*value, *value))
-    }
-
-    fn same_semantics(&self, _other: &Self) -> bool {
-        true
     }
 }
 
@@ -146,10 +141,6 @@ impl ExactSingletonPredicate for IntervalAlgebra {
         value
             .checked_add(1)
             .map(|end| IntervalPred::Range(*value, end))
-    }
-
-    fn same_semantics(&self, other: &Self) -> bool {
-        self.min_val == other.min_val && self.max_val == other.max_val
     }
 }
 

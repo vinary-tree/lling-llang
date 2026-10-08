@@ -20,6 +20,7 @@ pub mod bisimulation;
 pub mod bounded_compose;
 pub mod bounded_postimage;
 pub mod bounded_preimage;
+pub mod bounded_restrict;
 pub mod bounded_transduce;
 pub mod collection_algebra;
 pub mod kat_algebra;
