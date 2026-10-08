@@ -160,3 +160,26 @@ small-stack gate, and exact exclusions are collected in
 [WFST graph-operation qualification](wfst-graph-operation-qualification.md).
 This link is the S5 integration boundary; it does not elevate local tests to
 trusted verification or remove the qualification note's stated limits.
+
+## Bounded accepting-path extraction adapters
+
+`algorithms::BoundedShortestWitness` and `BoundedTopK` extend the same
+source-bound plan/session, cancellation, typed outcome and exact in-memory
+checkpoint contract to accepting-path extraction. They require nonnegative
+tropical costs; unsupported reachable weights or malformed targets are
+errors. The first returns one exact minimum-cost witness, while the second
+returns an ordered sequence of distinct accepting paths. Both preserve each
+source arc's location, labels and weight plus the final state/weight.
+Neither calls a recursive production traversal. Top-k has additional path
+depth, emitted-path and frontier limits, all of which yield `Incomplete`
+when work remains. An exhausted output quota alone is never treated as
+proof that the language has only that many paths.
+
+The algorithms and their boundaries are described in
+[shortest witness](bounded-shortest-witness.md) and
+[top-k witnesses](bounded-topk-witnesses.md). Their independent recursive
+shallow oracles, 128 KiB deep/wide gates, resource slopes, interruption
+equivalence and false-complete controls are in
+[S6 qualification](shortest-topk-qualification.md). These local checks do
+not turn caller-metered logical heap into an RSS guarantee or supply a
+trusted external verification receipt.
