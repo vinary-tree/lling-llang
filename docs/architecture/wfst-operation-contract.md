@@ -153,3 +153,10 @@ cache. Tests cover both projection directions, source-order and weight
 preservation, exclusion of unreachable states, caps, cancellation, source
 drift, cross-direction checkpoint rejection, exact resume, and malformed
 reachable targets.
+
+The composition, determinization, intersection, and projection adapters form
+the G6.S5 graph-operation set. Their independent cross-operation evidence,
+small-stack gate, and exact exclusions are collected in
+[WFST graph-operation qualification](wfst-graph-operation-qualification.md).
+This link is the S5 integration boundary; it does not elevate local tests to
+trusted verification or remove the qualification note's stated limits.
