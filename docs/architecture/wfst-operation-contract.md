@@ -183,3 +183,24 @@ equivalence and false-complete controls are in
 [S6 qualification](shortest-topk-qualification.md). These local checks do
 not turn caller-metered logical heap into an RSS guarantee or supply a
 trusted external verification receipt.
+
+## Bounded symbolic-transducer adapters
+
+The G6.S7 adapters apply the same bounded-operation contract to symbolic
+finite transducers (SFTs). Concrete-input [transduction](bounded-sft-transduction.md)
+and [composition](bounded-sft-composition.md) return exact ordered witnesses
+with flat transition provenance. [Pre-image](bounded-sft-preimage.md),
+[post-image](bounded-sft-postimage.md), and
+[domain restriction](bounded-sft-domain-restriction.md) construct reachable
+symbolic product machines when their exact predicate representations exist.
+Post-image has explicit epsilon edges and output-word chains; the old
+single-guard `post_image` method was removed because it could not represent
+those cases exactly. Opaque computed functions require an exact finite
+symbolic oracle for image/pre-image rather than an unmarked approximation.
+
+The [S7 qualification](bounded-sft-operations-qualification.md) compares all
+five adapters to an independent shallow relation enumerator and exercises
+deep and wide 128 KiB-stack controls, linear charged resource slopes,
+interruption, resumption and partial-cache exclusion. This integration
+boundary claims the S7 implementation scope, not arbitrary closure
+representability, an RSS bound, or trusted external verification.
