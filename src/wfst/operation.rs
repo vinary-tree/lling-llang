@@ -165,6 +165,12 @@ pub enum IncompleteReason {
     WorkLimit,
     /// Caller-metered logical heap limit reached.
     HeapLimit,
+    /// A path-depth ceiling would omit a continuation.
+    DepthLimit,
+    /// A path-count ceiling was reached before exact frontier exhaustion.
+    PathLimit,
+    /// The ordered search frontier cannot admit another candidate.
+    FrontierLimit,
 }
 
 impl IncompleteReason {
@@ -176,6 +182,9 @@ impl IncompleteReason {
             Self::ArcLimit => 4,
             Self::WorkLimit => 5,
             Self::HeapLimit => 6,
+            Self::DepthLimit => 7,
+            Self::PathLimit => 8,
+            Self::FrontierLimit => 9,
         }
     }
 }
