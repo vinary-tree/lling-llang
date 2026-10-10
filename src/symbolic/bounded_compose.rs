@@ -182,8 +182,8 @@ where
     A::Domain: Clone + Into<B::Domain>,
     B::Domain: Clone + Into<C::Domain>,
 {
-    first: SymbolicFiniteTransducer<A, B>,
-    second: SymbolicFiniteTransducer<B, C>,
+    first: Arc<SymbolicFiniteTransducer<A, B>>,
+    second: Arc<SymbolicFiniteTransducer<B, C>>,
     input: Vec<A::Domain>,
     first_binding: [u8; 32],
     second_binding: [u8; 32],
@@ -219,6 +219,35 @@ where
     pub fn new(
         first: SymbolicFiniteTransducer<A, B>,
         second: SymbolicFiniteTransducer<B, C>,
+        input: Vec<A::Domain>,
+        first_binding: [u8; 32],
+        second_binding: [u8; 32],
+        input_binding: [u8; 32],
+        limits: OperationLimits,
+        path_limits: SftCompositionLimits,
+        cancellation: CancellationToken,
+    ) -> Result<Self, SftCompositionError> {
+        Self::new_shared(
+            Arc::new(first),
+            Arc::new(second),
+            input,
+            first_binding,
+            second_binding,
+            input_binding,
+            limits,
+            path_limits,
+            cancellation,
+        )
+    }
+
+    /// Bind shared immutable source graphs without copying either transition set.
+    ///
+    /// # Errors
+    ///
+    /// Rejects missing bindings or an invalid operation plan.
+    pub fn new_shared(
+        first: Arc<SymbolicFiniteTransducer<A, B>>,
+        second: Arc<SymbolicFiniteTransducer<B, C>>,
         input: Vec<A::Domain>,
         first_binding: [u8; 32],
         second_binding: [u8; 32],

@@ -120,6 +120,28 @@ fn machine(
 }
 
 #[test]
+fn shared_immutable_source_is_retained_without_copying_graph() {
+    let source = Arc::new(fixture());
+    let mut search = BoundedSftTransduction::new_shared(
+        Arc::clone(&source),
+        vec!['a', 'b'],
+        SOURCE,
+        INPUT,
+        OperationLimits::default(),
+        SftTransductionLimits::default(),
+        CancellationToken::new(),
+    )
+    .unwrap();
+    assert_eq!(Arc::strong_count(&source), 2);
+    assert!(matches!(
+        search.run(SOURCE, INPUT, |_| 0, |_| 0).unwrap(),
+        OperationOutcome::Complete { .. }
+    ));
+    drop(search);
+    assert_eq!(Arc::strong_count(&source), 1);
+}
+
+#[test]
 fn hand_outputs_recursive_oracle_and_full_step_provenance() {
     let source = fixture();
     let mut search = machine(

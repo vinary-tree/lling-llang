@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::mem::size_of;
 use std::ops::Range;
+use std::sync::Arc;
 
 use super::sft::SymbolicFiniteTransducer;
 use super::BooleanAlgebra;
@@ -147,7 +148,7 @@ where
     B: BooleanAlgebra,
     A::Domain: Clone + Into<B::Domain>,
 {
-    source: SymbolicFiniteTransducer<A, B>,
+    source: Arc<SymbolicFiniteTransducer<A, B>>,
     input: Vec<A::Domain>,
     source_binding: [u8; 32],
     input_binding: [u8; 32],
@@ -176,6 +177,32 @@ where
     /// Rejects missing bindings or an invalid operation plan.
     pub fn new(
         source: SymbolicFiniteTransducer<A, B>,
+        input: Vec<A::Domain>,
+        source_binding: [u8; 32],
+        input_binding: [u8; 32],
+        limits: OperationLimits,
+        path_limits: SftTransductionLimits,
+        cancellation: CancellationToken,
+    ) -> Result<Self, SftTransductionError> {
+        Self::new_shared(
+            Arc::new(source),
+            input,
+            source_binding,
+            input_binding,
+            limits,
+            path_limits,
+            cancellation,
+        )
+    }
+
+    /// Bind a shared immutable source without copying its state and transitions.
+    /// The caller-computed source binding must identify the exact shared graph.
+    ///
+    /// # Errors
+    ///
+    /// Rejects missing bindings or an invalid operation plan.
+    pub fn new_shared(
+        source: Arc<SymbolicFiniteTransducer<A, B>>,
         input: Vec<A::Domain>,
         source_binding: [u8; 32],
         input_binding: [u8; 32],

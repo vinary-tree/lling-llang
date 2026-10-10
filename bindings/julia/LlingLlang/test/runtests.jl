@@ -7,6 +7,7 @@ const VTI = VinaryTreeInterop
 
 include("symbolic_predicates.jl")
 include("symbolic_automata.jl")
+include("symbolic_transducers.jl")
 
 const LABEL_CASES = [
     (UInt8, UInt8(0xfe)),

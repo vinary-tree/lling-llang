@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 13u
+#define LLING_LLANG_API_REVISION 14u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -69,6 +69,8 @@ typedef struct LlingRankedPathCursor LlingRankedPathCursor;
 typedef struct LlingSamplePathCursor LlingSamplePathCursor;
 typedef struct LlingSymbolicPredicate LlingSymbolicPredicate;
 typedef struct LlingSymbolicAutomaton LlingSymbolicAutomaton;
+typedef struct LlingSymbolicTransducer LlingSymbolicTransducer;
+typedef struct LlingSymbolicTransduction LlingSymbolicTransduction;
 
 /* Native effective Boolean algebra over Unicode scalars or a bounded i64 universe. */
 #define LLING_SYMBOLIC_CHAR 1u
@@ -121,6 +123,49 @@ LLING_LLANG_API LlingLlangStatus lling_symbolic_automaton_accepts(
 LLING_LLANG_API LlingLlangStatus lling_symbolic_automaton_is_empty(
     const LlingSymbolicAutomaton* automaton, uint8_t* out_empty);
 LLING_LLANG_API void lling_symbolic_automaton_free(LlingSymbolicAutomaton* input);
+
+/* Exact, bounded concrete-input symbolic transduction. */
+#define LLING_SYMBOLIC_OUTPUT_EPSILON 1u
+#define LLING_SYMBOLIC_OUTPUT_IDENTITY 2u
+#define LLING_SYMBOLIC_OUTPUT_CONSTANT 3u
+typedef struct LlingSymbolicTransductionLimits {
+    uint32_t struct_size;
+    uint32_t version;
+    uint64_t max_states;
+    uint64_t max_arcs;
+    uint64_t max_work;
+    uint64_t max_heap_bytes;
+    uint64_t max_elapsed_ns;
+    uint64_t max_paths;
+    uint64_t max_frontier;
+} LlingSymbolicTransductionLimits;
+LLING_LLANG_API LlingLlangStatus lling_symbolic_transducer_new(
+    uint32_t domain, int64_t universe_min, int64_t universe_max,
+    LlingSymbolicTransducer** out_transducer);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_transducer_add_state(
+    LlingSymbolicTransducer* transducer, uint8_t accepting, uint64_t* out_state);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_transducer_set_initial(
+    LlingSymbolicTransducer* transducer, uint64_t state);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_transducer_add_transition(
+    LlingSymbolicTransducer* transducer, uint64_t from, uint64_t to,
+    const LlingSymbolicPredicate* guard, uint32_t output_kind,
+    const int64_t* output_values, size_t output_length);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_transducer_transduce(
+    const LlingSymbolicTransducer* transducer, const int64_t* word,
+    size_t length, const LlingSymbolicTransductionLimits* limits,
+    LlingSymbolicTransduction** out_result);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_transducer_compose_transduce(
+    const LlingSymbolicTransducer* first,
+    const LlingSymbolicTransducer* second, const int64_t* word,
+    size_t length, const LlingSymbolicTransductionLimits* limits,
+    LlingSymbolicTransduction** out_result);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_transduction_count(
+    const LlingSymbolicTransduction* result, uint64_t* out_count);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_transduction_output(
+    const LlingSymbolicTransduction* result, uint64_t index,
+    int64_t* out_values, size_t capacity, size_t* out_required);
+LLING_LLANG_API void lling_symbolic_transducer_free(LlingSymbolicTransducer* input);
+LLING_LLANG_API void lling_symbolic_transduction_free(LlingSymbolicTransduction* input);
 
 /* Revision 8: each path walk owns a captured snapshot and explicit bounds. */
 typedef struct LlingPathConfig {

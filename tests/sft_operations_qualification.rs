@@ -1,6 +1,7 @@
 //! Cross-operation SFT language laws, resource slopes and small-stack checks.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use lling_llang::symbolic::bounded_compose::{BoundedSftComposition, SftCompositionLimits};
 use lling_llang::symbolic::bounded_postimage::{BoundedSftPostimage, SameAlgebraPostimageOracle};
@@ -149,6 +150,36 @@ fn source_outputs(sft: &Sft, input: &[char]) -> Vec<Vec<char>> {
     all.sort();
     all.dedup();
     all
+}
+
+#[test]
+fn shared_composition_retains_both_sources_without_graph_copies() {
+    let (first, second, _, _) = fixture();
+    let first = Arc::new(first);
+    let second = Arc::new(second);
+    let mut search = BoundedSftComposition::new_shared(
+        Arc::clone(&first),
+        Arc::clone(&second),
+        vec!['a'],
+        FIRST,
+        SECOND,
+        INPUT,
+        OperationLimits::default(),
+        SftCompositionLimits::default(),
+        CancellationToken::new(),
+    )
+    .unwrap();
+    assert_eq!(Arc::strong_count(&first), 2);
+    assert_eq!(Arc::strong_count(&second), 2);
+    assert!(matches!(
+        search
+            .run(FIRST, SECOND, INPUT, |_| 0, |_| 0, |_| 0)
+            .unwrap(),
+        OperationOutcome::Complete { .. }
+    ));
+    drop(search);
+    assert_eq!(Arc::strong_count(&first), 1);
+    assert_eq!(Arc::strong_count(&second), 1);
 }
 
 #[test]

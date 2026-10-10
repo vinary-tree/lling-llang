@@ -6,6 +6,9 @@ use crate::symbolic::{
     SymbolicAutomaton,
 };
 
+mod transducer;
+pub use transducer::*;
+
 /// Unicode scalar predicates use kind 1; bounded integer predicates use kind 2.
 pub const LLING_SYMBOLIC_CHAR: u32 = 1;
 /// Bounded signed integer domain.
@@ -510,6 +513,10 @@ pub unsafe extern "C" fn lling_symbolic_automaton_accepts(
 ) -> LlingLlangStatus {
     boundary(|| {
         let output = required_mut(out_accepted, "out_accepted")?;
+        if length > (isize::MAX as usize) / std::mem::size_of::<i64>() {
+            set_error("symbolic word length exceeds the native slice limit");
+            return Err(LlingLlangStatus::LimitExceeded);
+        }
         let values = if length == 0 {
             &[][..]
         } else if word.is_null() {

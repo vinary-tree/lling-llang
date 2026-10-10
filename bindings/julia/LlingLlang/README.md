@@ -90,6 +90,41 @@ Close every predicate and automaton when finished; Julia finalizers provide
 backup cleanup. Integer guards and automata must share identical universe
 bounds. The native API rejects invalid state IDs and Unicode scalars.
 
+### Exact bounded symbolic transduction
+
+`SymbolicTransducer` uses the same native guard algebras. Each transition can
+emit its input (`:identity`), emit nothing (`:epsilon`), or emit a constant
+word. `symbolic_transduce` returns one output per accepting path, including
+duplicates when different paths produce the same word. Composition executes
+two transducers with one shared native budget and materializes only complete
+results. Repeated calls share immutable native graph snapshots; adding a state
+or transition changes the source binding for later calls.
+
+```julia
+first = SymbolicTransducer(Char)
+second = SymbolicTransducer(Char)
+guard_a = symbolic_char_range('a', 'a')
+guard_b = symbolic_char_range('b', 'b')
+try
+    for machine in (first, second)
+        start = add_state!(machine)
+        finish = add_state!(machine; accepting=true)
+        set_initial!(machine, start)
+    end
+    add_transition!(first, 0, 1, guard_a, ['b'])
+    add_transition!(second, 0, 1, guard_b, ['Q'])
+    limits = SymbolicTransductionLimits(max_paths=10, max_work=1_000)
+    @assert symbolic_transduce(first, "a"; limits=limits) == ["b"]
+    @assert symbolic_compose_transduce(first, second, "a"; limits=limits) == ["Q"]
+finally
+    foreach(close, (first, second, guard_a, guard_b))
+end
+```
+
+The limit configuration also bounds native state visits, arcs, logical heap,
+elapsed time, and pending path frames. Exhaustion raises
+`NativeError(STATUS_LIMIT_EXCEEDED, ...)`; no partial output is returned.
+
 ### Choose label and weight domains
 
 The default `WfstBuilder()` remains `WfstBuilder{Char,TropicalWeight}()`.

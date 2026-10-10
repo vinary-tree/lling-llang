@@ -83,8 +83,8 @@ SKIP_DIR_PARTS = {
 
 
 def read_ffi_surface() -> str:
-    """Read the root C facade and every deliberately split child module."""
-    children = sorted(FFI_MODULE_ROOT.glob("*.rs")) if FFI_MODULE_ROOT.is_dir() else []
+    """Read the root C facade and all nested child modules."""
+    children = sorted(FFI_MODULE_ROOT.rglob("*.rs")) if FFI_MODULE_ROOT.is_dir() else []
     return "\n".join(read(path) for path in [FFI_PATH, *children])
 
 

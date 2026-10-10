@@ -193,6 +193,10 @@ export ABI_VERSION,
     set_initial!,
     add_transition!,
     symbolic_accepts,
+    SymbolicTransducer,
+    SymbolicTransductionLimits,
+    symbolic_transduce,
+    symbolic_compose_transduce,
     wfst_start,
     wfst_state_count,
     wfst_state,
@@ -200,6 +204,7 @@ export ABI_VERSION,
 
 include("SymbolicPredicates.jl")
 include("SymbolicAutomata.jl")
+include("SymbolicTransducers.jl")
 
 """A copied native error with its stable status and thread-local diagnostic."""
 struct NativeError <: Exception

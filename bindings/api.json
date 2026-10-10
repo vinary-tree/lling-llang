@@ -174,7 +174,7 @@
   },
   "packageVersion": "4.0.0-rc.6",
   "abiVersion": 1,
-  "apiRevision": 13,
+  "apiRevision": 14,
   "cPrefix": "lling_",
   "headers": {
     "c": "include/lling_llang.h",
@@ -5043,6 +5043,520 @@
           "direction": "inout",
           "ownership": "consumed-when-non-null",
           "nullability": "nullable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_transducer_new",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-transducer-new",
+      "sinceApiRevision": 14,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "domain",
+          "cType": "uint32_t",
+          "rakuType": "uint32",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "universe_min",
+          "cType": "int64_t",
+          "rakuType": "int64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "universe_max",
+          "cType": "int64_t",
+          "rakuType": "int64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_transducer",
+          "cType": "LlingSymbolicTransducer**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_transducer_add_state",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-transducer-add-state",
+      "sinceApiRevision": 14,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "transducer",
+          "cType": "LlingSymbolicTransducer*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "accepting",
+          "cType": "uint8_t",
+          "rakuType": "uint8",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_state",
+          "cType": "uint64_t*",
+          "rakuType": "uint64",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_transducer_set_initial",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-transducer-set-initial",
+      "sinceApiRevision": 14,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "transducer",
+          "cType": "LlingSymbolicTransducer*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "state",
+          "cType": "uint64_t",
+          "rakuType": "uint64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_transducer_add_transition",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-transducer-add-transition",
+      "sinceApiRevision": 14,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "transducer",
+          "cType": "LlingSymbolicTransducer*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "from",
+          "cType": "uint64_t",
+          "rakuType": "uint64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "to",
+          "cType": "uint64_t",
+          "rakuType": "uint64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "guard",
+          "cType": "const LlingSymbolicPredicate*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "output_kind",
+          "cType": "uint32_t",
+          "rakuType": "uint32",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "output_values",
+          "cType": "const int64_t*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "nullable-if-output-length-is-zero"
+        },
+        {
+          "name": "output_length",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_transducer_transduce",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-transducer-transduce",
+      "sinceApiRevision": 14,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "transducer",
+          "cType": "const LlingSymbolicTransducer*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "word",
+          "cType": "const int64_t*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "nullable-if-length-is-zero"
+        },
+        {
+          "name": "length",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "limits",
+          "cType": "const LlingSymbolicTransductionLimits*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_result",
+          "cType": "LlingSymbolicTransduction**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_transduction_count",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-transduction-count",
+      "sinceApiRevision": 14,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "result",
+          "cType": "const LlingSymbolicTransduction*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_count",
+          "cType": "uint64_t*",
+          "rakuType": "uint64",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_transduction_output",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-transduction-output",
+      "sinceApiRevision": 14,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "result",
+          "cType": "const LlingSymbolicTransduction*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "index",
+          "cType": "uint64_t",
+          "rakuType": "uint64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_values",
+          "cType": "int64_t*",
+          "rakuType": "int64",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "nullable-if-capacity-is-zero"
+        },
+        {
+          "name": "capacity",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_required",
+          "cType": "size_t*",
+          "rakuType": "size_t",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_transducer_free",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-transducer-free",
+      "sinceApiRevision": 14,
+      "threading": "exclusive-owner-close",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "void",
+        "rakuType": null,
+        "ownership": "none",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "input",
+          "cType": "LlingSymbolicTransducer*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "inout",
+          "ownership": "consumed-when-non-null",
+          "nullability": "nullable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_transduction_free",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-transduction-free",
+      "sinceApiRevision": 14,
+      "threading": "exclusive-owner-close",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "void",
+        "rakuType": null,
+        "ownership": "none",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "input",
+          "cType": "LlingSymbolicTransduction*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "inout",
+          "ownership": "consumed-when-non-null",
+          "nullability": "nullable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_transducer_compose_transduce",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-transducer-compose-transduce",
+      "sinceApiRevision": 14,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "first",
+          "cType": "const LlingSymbolicTransducer*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "second",
+          "cType": "const LlingSymbolicTransducer*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "word",
+          "cType": "const int64_t*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "nullable-if-length-is-zero"
+        },
+        {
+          "name": "length",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "limits",
+          "cType": "const LlingSymbolicTransductionLimits*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_result",
+          "cType": "LlingSymbolicTransduction**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
         }
       ],
       "raku": {
