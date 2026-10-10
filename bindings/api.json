@@ -174,7 +174,7 @@
   },
   "packageVersion": "4.0.0-rc.6",
   "abiVersion": 1,
-  "apiRevision": 12,
+  "apiRevision": 13,
   "cPrefix": "lling_",
   "headers": {
     "c": "include/lling_llang.h",
@@ -4294,6 +4294,760 @@
       "parameters": [
         {"name": "cursor", "cType": "LlingSamplePathCursor*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "inout", "ownership": "consumed-when-non-null", "nullability": "nullable"}
       ], "raku": {"bind": true}
+    },
+    {
+      "name": "lling_symbolic_predicate_constant",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-predicate-constant",
+      "sinceApiRevision": 13,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "domain",
+          "cType": "uint32_t",
+          "rakuType": "uint32",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "universe_min",
+          "cType": "int64_t",
+          "rakuType": "int64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "universe_max",
+          "cType": "int64_t",
+          "rakuType": "int64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "truth",
+          "cType": "uint8_t",
+          "rakuType": "uint8",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_predicate",
+          "cType": "LlingSymbolicPredicate**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_interval_range",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-interval-range",
+      "sinceApiRevision": 13,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "universe_min",
+          "cType": "int64_t",
+          "rakuType": "int64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "universe_max",
+          "cType": "int64_t",
+          "rakuType": "int64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "lo",
+          "cType": "int64_t",
+          "rakuType": "int64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "hi_exclusive",
+          "cType": "int64_t",
+          "rakuType": "int64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_predicate",
+          "cType": "LlingSymbolicPredicate**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_char_range",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-char-range",
+      "sinceApiRevision": 13,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "lo",
+          "cType": "uint32_t",
+          "rakuType": "uint32",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "hi_inclusive",
+          "cType": "uint32_t",
+          "rakuType": "uint32",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_predicate",
+          "cType": "LlingSymbolicPredicate**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_predicate_binary",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-predicate-binary",
+      "sinceApiRevision": 13,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "operation",
+          "cType": "uint32_t",
+          "rakuType": "uint32",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "first",
+          "cType": "const LlingSymbolicPredicate*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "second",
+          "cType": "const LlingSymbolicPredicate*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_predicate",
+          "cType": "LlingSymbolicPredicate**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_predicate_not",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-predicate-not",
+      "sinceApiRevision": 13,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "input",
+          "cType": "const LlingSymbolicPredicate*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_predicate",
+          "cType": "LlingSymbolicPredicate**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_predicate_evaluate",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-predicate-evaluate",
+      "sinceApiRevision": 13,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "input",
+          "cType": "const LlingSymbolicPredicate*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "value",
+          "cType": "int64_t",
+          "rakuType": "int64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_matches",
+          "cType": "uint8_t*",
+          "rakuType": "uint8",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_predicate_witness",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-predicate-witness",
+      "sinceApiRevision": 13,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "input",
+          "cType": "const LlingSymbolicPredicate*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_satisfiable",
+          "cType": "uint8_t*",
+          "rakuType": "uint8",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_witness",
+          "cType": "int64_t*",
+          "rakuType": "int64",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_predicate_relation",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-predicate-relation",
+      "sinceApiRevision": 13,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "relation",
+          "cType": "uint32_t",
+          "rakuType": "uint32",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "first",
+          "cType": "const LlingSymbolicPredicate*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "second",
+          "cType": "const LlingSymbolicPredicate*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_result",
+          "cType": "uint8_t*",
+          "rakuType": "uint8",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_predicate_free",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-predicate-free",
+      "sinceApiRevision": 13,
+      "threading": "exclusive-owner-close",
+      "capability": "native-symbolic-predicates",
+      "return": {
+        "cType": "void",
+        "rakuType": null,
+        "ownership": "none",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "input",
+          "cType": "LlingSymbolicPredicate*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "inout",
+          "ownership": "consumed-when-non-null",
+          "nullability": "nullable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_automaton_new",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-automaton-new",
+      "sinceApiRevision": 13,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-automata",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "domain",
+          "cType": "uint32_t",
+          "rakuType": "uint32",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "universe_min",
+          "cType": "int64_t",
+          "rakuType": "int64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "universe_max",
+          "cType": "int64_t",
+          "rakuType": "int64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_automaton",
+          "cType": "LlingSymbolicAutomaton**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_automaton_add_state",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-automaton-add-state",
+      "sinceApiRevision": 13,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-automata",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "automaton",
+          "cType": "LlingSymbolicAutomaton*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "accepting",
+          "cType": "uint8_t",
+          "rakuType": "uint8",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_state",
+          "cType": "uint64_t*",
+          "rakuType": "uint64",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_automaton_set_initial",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-automaton-set-initial",
+      "sinceApiRevision": 13,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-automata",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "automaton",
+          "cType": "LlingSymbolicAutomaton*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "state",
+          "cType": "uint64_t",
+          "rakuType": "uint64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_automaton_add_transition",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-automaton-add-transition",
+      "sinceApiRevision": 13,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-automata",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "automaton",
+          "cType": "LlingSymbolicAutomaton*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "from",
+          "cType": "uint64_t",
+          "rakuType": "uint64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "to",
+          "cType": "uint64_t",
+          "rakuType": "uint64",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "guard",
+          "cType": "const LlingSymbolicPredicate*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_automaton_accepts",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-automaton-accepts",
+      "sinceApiRevision": 13,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-automata",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "automaton",
+          "cType": "const LlingSymbolicAutomaton*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "word",
+          "cType": "const int64_t*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "nullable-if-length-is-zero"
+        },
+        {
+          "name": "length",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "value",
+          "nullability": "not-applicable"
+        },
+        {
+          "name": "out_accepted",
+          "cType": "uint8_t*",
+          "rakuType": "uint8",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_automaton_is_empty",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-automaton-is-empty",
+      "sinceApiRevision": 13,
+      "threading": "caller-synchronized-handle-lifetime",
+      "capability": "native-symbolic-automata",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "automaton",
+          "cType": "const LlingSymbolicAutomaton*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_empty",
+          "cType": "uint8_t*",
+          "rakuType": "uint8",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
+    },
+    {
+      "name": "lling_symbolic_automaton_free",
+      "rustModule": "ffi",
+      "rakuName": "lling-symbolic-automaton-free",
+      "sinceApiRevision": 13,
+      "threading": "exclusive-owner-close",
+      "capability": "native-symbolic-automata",
+      "return": {
+        "cType": "void",
+        "rakuType": null,
+        "ownership": "none",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "input",
+          "cType": "LlingSymbolicAutomaton*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "inout",
+          "ownership": "consumed-when-non-null",
+          "nullability": "nullable"
+        }
+      ],
+      "raku": {
+        "bind": true
+      }
     }
   ],
   "javascript": {

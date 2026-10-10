@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 12u
+#define LLING_LLANG_API_REVISION 13u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -67,6 +67,60 @@ typedef struct LlingGraphDistanceCursor LlingGraphDistanceCursor;
 typedef struct LlingGraphDistances LlingGraphDistances;
 typedef struct LlingRankedPathCursor LlingRankedPathCursor;
 typedef struct LlingSamplePathCursor LlingSamplePathCursor;
+typedef struct LlingSymbolicPredicate LlingSymbolicPredicate;
+typedef struct LlingSymbolicAutomaton LlingSymbolicAutomaton;
+
+/* Native effective Boolean algebra over Unicode scalars or a bounded i64 universe. */
+#define LLING_SYMBOLIC_CHAR 1u
+#define LLING_SYMBOLIC_INTERVAL 2u
+#define LLING_SYMBOLIC_AND 1u
+#define LLING_SYMBOLIC_OR 2u
+#define LLING_SYMBOLIC_IMPLIES 1u
+#define LLING_SYMBOLIC_EQUIVALENT 2u
+#define LLING_SYMBOLIC_OVERLAPS 3u
+LLING_LLANG_API LlingLlangStatus lling_symbolic_predicate_constant(
+    uint32_t domain, int64_t universe_min, int64_t universe_max, uint8_t truth,
+    LlingSymbolicPredicate** out_predicate);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_interval_range(
+    int64_t universe_min, int64_t universe_max, int64_t lo,
+    int64_t hi_exclusive, LlingSymbolicPredicate** out_predicate);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_char_range(
+    uint32_t lo, uint32_t hi_inclusive,
+    LlingSymbolicPredicate** out_predicate);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_predicate_binary(
+    uint32_t operation, const LlingSymbolicPredicate* first,
+    const LlingSymbolicPredicate* second,
+    LlingSymbolicPredicate** out_predicate);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_predicate_not(
+    const LlingSymbolicPredicate* input,
+    LlingSymbolicPredicate** out_predicate);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_predicate_evaluate(
+    const LlingSymbolicPredicate* input, int64_t value, uint8_t* out_matches);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_predicate_witness(
+    const LlingSymbolicPredicate* input, uint8_t* out_satisfiable,
+    int64_t* out_witness);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_predicate_relation(
+    uint32_t relation, const LlingSymbolicPredicate* first,
+    const LlingSymbolicPredicate* second, uint8_t* out_result);
+LLING_LLANG_API void lling_symbolic_predicate_free(LlingSymbolicPredicate* input);
+
+/* Native symbolic finite automata use the same predicate domains and universes. */
+LLING_LLANG_API LlingLlangStatus lling_symbolic_automaton_new(
+    uint32_t domain, int64_t universe_min, int64_t universe_max,
+    LlingSymbolicAutomaton** out_automaton);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_automaton_add_state(
+    LlingSymbolicAutomaton* automaton, uint8_t accepting, uint64_t* out_state);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_automaton_set_initial(
+    LlingSymbolicAutomaton* automaton, uint64_t state);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_automaton_add_transition(
+    LlingSymbolicAutomaton* automaton, uint64_t from, uint64_t to,
+    const LlingSymbolicPredicate* guard);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_automaton_accepts(
+    const LlingSymbolicAutomaton* automaton, const int64_t* word,
+    size_t length, uint8_t* out_accepted);
+LLING_LLANG_API LlingLlangStatus lling_symbolic_automaton_is_empty(
+    const LlingSymbolicAutomaton* automaton, uint8_t* out_empty);
+LLING_LLANG_API void lling_symbolic_automaton_free(LlingSymbolicAutomaton* input);
 
 /* Revision 8: each path walk owns a captured snapshot and explicit bounds. */
 typedef struct LlingPathConfig {

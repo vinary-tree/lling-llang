@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 12
+API_REVISION = 13
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -1043,6 +1043,22 @@ _bind(
 )
 _bind("lling_cancellation_v2_free", [ctypes.POINTER(ctypes.c_void_p)])
 
+_bind("lling_symbolic_predicate_constant", [ctypes.c_uint32, ctypes.c_int64, ctypes.c_int64, ctypes.c_uint8, ctypes.POINTER(ctypes.c_void_p)])
+_bind("lling_symbolic_interval_range", [ctypes.c_int64, ctypes.c_int64, ctypes.c_int64, ctypes.c_int64, ctypes.POINTER(ctypes.c_void_p)])
+_bind("lling_symbolic_char_range", [ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p)])
+_bind("lling_symbolic_predicate_binary", [ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)])
+_bind("lling_symbolic_predicate_not", [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)])
+_bind("lling_symbolic_predicate_evaluate", [ctypes.c_void_p, ctypes.c_int64, ctypes.POINTER(ctypes.c_uint8)])
+_bind("lling_symbolic_predicate_witness", [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_int64)])
+_bind("lling_symbolic_predicate_relation", [ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint8)])
+_bind("lling_symbolic_predicate_free", [ctypes.c_void_p], None)
+_bind("lling_symbolic_automaton_new", [ctypes.c_uint32, ctypes.c_int64, ctypes.c_int64, ctypes.POINTER(ctypes.c_void_p)])
+_bind("lling_symbolic_automaton_add_state", [ctypes.c_void_p, ctypes.c_uint8, ctypes.POINTER(ctypes.c_uint64)])
+_bind("lling_symbolic_automaton_set_initial", [ctypes.c_void_p, ctypes.c_uint64])
+_bind("lling_symbolic_automaton_add_transition", [ctypes.c_void_p, ctypes.c_uint64, ctypes.c_uint64, ctypes.c_void_p])
+_bind("lling_symbolic_automaton_accepts", [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int64), ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint8)])
+_bind("lling_symbolic_automaton_is_empty", [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint8)])
+_bind("lling_symbolic_automaton_free", [ctypes.c_void_p], None)
 
 def last_error_message() -> str:
     """Copy the current thread's native diagnostic before another ABI call."""

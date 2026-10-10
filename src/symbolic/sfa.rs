@@ -775,16 +775,17 @@ impl CharClassAlgebra {
             }
             CharClassPred::Not(_) => unreachable!("the unary spine was fully traversed"),
         };
-        if negated {
+        let ranges = if negated {
             complement_u32_ranges(&ranges, 0, (char::MAX as u32) + 1)
         } else {
             ranges
-        }
+        };
+        scalar_u32_ranges(&ranges)
     }
 
     /// Build a `CharClassPred` from a list of half-open `u32` ranges.
     fn from_u32_ranges(ranges: &[(u32, u32)]) -> CharClassPred {
-        let char_ranges: Vec<(char, char)> = ranges
+        let char_ranges: Vec<(char, char)> = scalar_u32_ranges(ranges)
             .iter()
             .filter_map(|&(lo, hi)| {
                 if lo < hi {
@@ -803,6 +804,23 @@ impl CharClassAlgebra {
             _ => CharClassPred::Union(char_ranges),
         }
     }
+}
+
+/// Keep only valid Unicode scalar values. The surrogate interval is never
+/// part of the character algebra's domain, even after complementing ranges.
+fn scalar_u32_ranges(ranges: &[(u32, u32)]) -> Vec<(u32, u32)> {
+    let mut scalars = Vec::new();
+    for &(lo, hi) in ranges {
+        for &(domain_lo, domain_hi) in &[(0, 0xD800), (0xE000, 0x110000)] {
+            let start = lo.max(domain_lo);
+            let end = hi.min(domain_hi);
+            if start < end {
+                scalars.push((start, end));
+            }
+        }
+    }
+    scalars.sort_unstable();
+    merge_u32_ranges(&scalars)
 }
 
 impl Default for CharClassAlgebra {

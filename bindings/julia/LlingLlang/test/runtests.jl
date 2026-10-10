@@ -5,6 +5,9 @@ import LLattice
 
 const VTI = VinaryTreeInterop
 
+include("symbolic_predicates.jl")
+include("symbolic_automata.jl")
+
 const LABEL_CASES = [
     (UInt8, UInt8(0xfe)),
     (Char, 'λ'),

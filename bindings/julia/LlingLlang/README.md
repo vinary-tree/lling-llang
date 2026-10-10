@@ -58,6 +58,38 @@ graph = build!(builder)
 close(graph)
 ```
 
+### Native symbolic predicates and automata
+
+`SymbolicPredicate{Char}` uses Rust's Unicode character-class algebra.
+`SymbolicPredicate{Int64}` uses Rust's signed-integer interval algebra with
+an explicit half-open universe. Boolean operations, membership, satisfiability,
+and relation checks run in the native engine. Matching `SymbolicAutomaton`
+values copy guards into native transitions and evaluate whole words in Rust.
+
+```julia
+letters = symbolic_char_range('a', 'z')
+vowels = symbolic_char_range('a', 'e')
+@assert symbolic_overlaps(letters, vowels)
+overlap = letters & vowels
+@assert symbolic_witness(overlap) == 'a'
+close(overlap)
+
+machine = SymbolicAutomaton(Char)
+start = add_state!(machine)
+finish = add_state!(machine; accepting=true)
+set_initial!(machine, start)
+add_transition!(machine, start, finish, letters)
+close(letters)  # the transition owns a native copy of its guard
+@assert symbolic_accepts(machine, "z")
+@assert !symbolic_accepts(machine, "zz")
+close(machine)
+close(vowels)
+```
+
+Close every predicate and automaton when finished; Julia finalizers provide
+backup cleanup. Integer guards and automata must share identical universe
+bounds. The native API rejects invalid state IDs and Unicode scalars.
+
 ### Choose label and weight domains
 
 The default `WfstBuilder()` remains `WfstBuilder{Char,TropicalWeight}()`.
@@ -608,8 +640,8 @@ owned weight without exposing its provider token.
 These are the currently versioned customer-provider seams in this package:
 the dynamic semiring capability and immutable scalar WFST capability. Julia
 can also create lattice providers through LLattice.jl and consume them here.
-CFG/grammar, symbolic constraint, decoder, and pipeline extension traits do
-not yet have corresponding negotiated native provider interfaces; a Julia
+CFG/grammar, customer-defined symbolic constraint, decoder, and pipeline
+extension traits do not yet have corresponding negotiated native provider interfaces; a Julia
 subtype or wrapper around a scalar WFST would not implement those distinct
 contracts. They remain open binding/ABI work, not architectural exclusions.
 
