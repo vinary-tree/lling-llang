@@ -300,8 +300,21 @@ impl StackProbe {
         }
     }
     fn sample(&self) -> u64 {
-        let marker = 0_u8;
-        let address = std::hint::black_box(&marker) as *const u8 as usize;
+        // ASan may place address-taken locals on its fake stack. Measure the
+        // real stack pointer where this qualification runs in CI.
+        #[cfg(target_arch = "x86_64")]
+        let address = {
+            let address: usize;
+            unsafe {
+                std::arch::asm!("mov {}, rsp", out(reg) address, options(nostack, preserves_flags));
+            }
+            address
+        };
+        #[cfg(not(target_arch = "x86_64"))]
+        let address = {
+            let marker = 0_u8;
+            std::hint::black_box(&marker) as *const u8 as usize
+        };
         self.low.set(self.low.get().min(address));
         self.high.set(self.high.get().max(address));
         0
@@ -395,7 +408,7 @@ fn deep_wide_small_stack_and_linear_logical_resource_slopes() {
                 assert_eq!(usage.states, 2049);
                 assert_eq!(usage.arcs, 2048);
             }
-            // Sampled callback addresses remain in a small band despite a 64x
+            // Sampled stack pointers remain in a small band despite a 64x
             // increase in graph depth; the actual gate is the 128 KiB thread.
             assert!(probe.span() <= small_stack_span + 8 * 1024);
             assert!(
