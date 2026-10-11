@@ -10,8 +10,8 @@ the output deterministic and ensuring that finite-depth paths are not starved
 by zero-cost cycles. Arc order in the source determines insertion order.
 
 In tropical notation, a path's total weight is the sum of its arc weights and
-its final weight. For a prefix with accumulated cost `$c$`, every completion
-has cost at least `$c$` because all remaining weights are nonnegative. The
+its final weight. For a prefix with accumulated cost $`c`$, every completion
+has cost at least $`c`$ because all remaining weights are nonnegative. The
 queue therefore orders candidates by `(cost, depth, insertion order)`, with
 terminal candidates carrying their exact total cost.
 
