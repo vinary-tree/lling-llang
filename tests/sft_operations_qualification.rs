@@ -399,8 +399,21 @@ fn wide(n: usize) -> (Sft, Sfa, Sfa) {
 }
 
 fn observe_stack(low: &AtomicUsize, high: &AtomicUsize) -> u64 {
-    let local = 0_u8;
-    let address = (&raw const local).addr();
+    // ASan may move address-taken locals to its fake stack. Read the actual
+    // stack pointer on the CI architecture so this measures call depth.
+    #[cfg(target_arch = "x86_64")]
+    let address = {
+        let address: usize;
+        unsafe {
+            std::arch::asm!("mov {}, rsp", out(reg) address, options(nostack, preserves_flags));
+        }
+        address
+    };
+    #[cfg(not(target_arch = "x86_64"))]
+    let address = {
+        let local = 0_u8;
+        (&raw const local).addr()
+    };
     low.fetch_min(address, Ordering::Relaxed);
     high.fetch_max(address, Ordering::Relaxed);
     0
