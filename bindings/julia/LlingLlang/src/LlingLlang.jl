@@ -86,6 +86,7 @@ export ABI_VERSION,
     DynamicLatticeValue,
     SemiringContext,
     SemiringWeight,
+    SymbolicPredicate,
     abi_version,
     api_revision,
     validate_abi_v2_header,
@@ -203,6 +204,24 @@ export ABI_VERSION,
     semiring_stable_bytes,
     validate_semiring_laws,
     semiring_diagnostic,
+    symbolic_true,
+    symbolic_false,
+    symbolic_char_range,
+    symbolic_interval_range,
+    symbolic_evaluate,
+    symbolic_witness,
+    symbolic_satisfiable,
+    symbolic_implies,
+    symbolic_equivalent,
+    symbolic_overlaps,
+    SymbolicAutomaton,
+    set_initial!,
+    add_transition!,
+    symbolic_accepts,
+    SymbolicTransducer,
+    SymbolicTransductionLimits,
+    symbolic_transduce,
+    symbolic_compose_transduce,
     wfst_start,
     wfst_state_count,
     wfst_state,
@@ -227,6 +246,10 @@ export ABI_VERSION,
     cfg_forest_node,
     cfg_forest_children,
     close!
+
+include("SymbolicPredicates.jl")
+include("SymbolicAutomata.jl")
+include("SymbolicTransducers.jl")
 
 """A copied native error with its stable status and thread-local diagnostic."""
 struct NativeError <: Exception

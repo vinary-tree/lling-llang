@@ -16,7 +16,9 @@
 //! product state space can explode exponentially. Instead of computing all
 //! states upfront, lazy WFSTs compute states on-demand during traversal.
 
+mod bounded_projection;
 mod lazy;
+pub mod operation;
 pub mod rational;
 mod shared_cache;
 mod state;
@@ -27,6 +29,9 @@ mod types;
 pub mod unary;
 mod vector;
 
+pub use bounded_projection::{
+    BoundedInputProjection, BoundedOutputProjection, BoundedProjection, ProjectionError,
+};
 pub(crate) use lazy::compute_state_at_snapshot;
 pub use lazy::{
     CancellationReason, CancellationToken, ExpansionError, ExpansionFailure, ExpansionFailureKind,

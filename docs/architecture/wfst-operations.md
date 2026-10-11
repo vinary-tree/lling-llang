@@ -2,6 +2,8 @@
 
 This document describes the rational and unary operations available on Weighted Finite State Transducers. These operations are the building blocks for constructing complex WFSTs from simpler ones.
 
+For resource-bounded, resumable exploration, see the [shared operation contract](wfst-operation-contract.md). Existing operations adopt that contract in separate implementation phases.
+
 ## Terms & symbols
 
 Symbols link to [`NOTATION.md`](../NOTATION.md); conventions in [`STYLE.md`](../STYLE.md).

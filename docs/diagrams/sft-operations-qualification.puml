@@ -1,0 +1,39 @@
+@startuml
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam componentStyle rectangle
+skinparam rectangle {
+  BorderColor #374151
+  FontColor #111827
+}
+rectangle "Source SFT\ninput/output relation" as SFT #DBEAFE
+rectangle "Concrete input\nword" as WORD #E0F2FE
+rectangle "Input and output\nSFAs" as SFA #E0F2FE
+rectangle "Bounded transduction" as T #DCFCE7
+rectangle "Bounded composition" as C #DCFCE7
+rectangle "Exact pre-image" as PRE #DCFCE7
+rectangle "Exact post-image" as POST #DCFCE7
+rectangle "Domain restriction" as RESTRICT #DCFCE7
+rectangle "Independent shallow\nrelation enumerator" as ORACLE #FEF3C7
+rectangle "Shared limits, receipts,\nresume and cache controls" as CONTRACT #FCE7F3
+SFT --> T
+SFT --> C
+SFT --> PRE
+SFT --> POST
+SFT --> RESTRICT
+WORD --> T
+WORD --> C
+SFA --> PRE
+SFA --> POST
+SFA --> RESTRICT
+ORACLE ..> T : outputs
+ORACLE ..> C : sequential outputs
+ORACLE ..> PRE : accepted inputs
+ORACLE ..> POST : output language
+ORACLE ..> RESTRICT : filtered relation
+CONTRACT ..> T
+CONTRACT ..> C
+CONTRACT ..> PRE
+CONTRACT ..> POST
+CONTRACT ..> RESTRICT
+@enduml
