@@ -124,6 +124,125 @@ end
 The limit configuration also bounds native state visits, arcs, logical heap,
 elapsed time, and pending path frames. Exhaustion raises
 `NativeError(STATUS_LIMIT_EXCEEDED, ...)`; no partial output is returned.
+## Incremental weighted pushdown decoding
+
+A **pushdown automaton** (PDA) recognizes nested structures by keeping a stack
+alongside its finite control state. `PdaBuilder{Label,Weight}` uses the same
+three scalar label domains and seven built-in weight domains as `WfstBuilder`.
+Transitions may read a terminal or `nothing` for an epsilon step. A transition
+checks the stack top, then pops it, replaces it with a sequence, or leaves it
+in place. In `push_stack` and `replace_stack`, the last supplied symbol becomes
+the new top; stack symbol `0` is the initial bottom marker.
+
+The following machine recognizes one opening and one closing parenthesis. Its
+session is incremental: the application asks for legal next labels, consumes
+one, and checks whether the resulting configuration is accepting.
+
+```julia
+using LlingLlang
+
+builder = PdaBuilder{Char,TropicalWeight}()
+start = add_state!(builder)
+inside = add_state!(builder)
+done = add_state!(builder)
+set_start!(builder, start)
+set_final!(builder, done)
+marker = add_stack_symbol!(builder)
+add_transition!(builder, start, '(', 0, inside,
+    push_stack([0, marker]))
+add_transition!(builder, inside, ')', marker, done, pop_stack())
+pda = build!(builder)
+session = pda_session(pda; max_stack_depth=32)
+@assert only(pda_legal_next(session; max_work=100)).label == '('
+@assert advance!(session, '('; max_work=100)
+@assert pda_stack(session) == UInt32[0, marker]
+@assert advance!(session, ')'; max_work=100)
+@assert pda_acceptance(session; max_work=100).accepted
+close(session)
+close(pda)
+```
+
+`pda_frontier` returns a paged iterator of `PdaChoice{Label,Weight}`. Each
+choice's weight combines all epsilon paths that enable its terminal, using
+the selected semiring's multiplication along a path and addition across paths.
+`pda_legal_next` collects that iterator. `advance!` follows the native
+decoder's first matching transition in its traversal order, so an incremental
+session holds one configuration. `pda_acceptance` reports structural acceptance
+and the aggregate weight of its epsilon closure. For whole-string recognition
+across alternative configurations, use the Rust `VectorPda` analysis.
+
+Every frontier and acceptance query needs a positive `max_work`; `advance!`
+also needs one. If work or `max_stack_depth` is exhausted, the call raises
+`NativeError` with `STATUS_LIMIT_EXCEEDED` and returns no partial result.
+Computed `CountWeight` values above $`2^{53}`$ likewise fail because they
+cannot cross the scalar `Float64` carrier exactly.
+Increasing those limits changes which complete computations can be examined;
+it does not change the automaton. A frontier iterator is invalidated by the
+next frontier query or advance. `close(pda)` leaves existing sessions usable
+because each session retains the compiled native machine. Close the session
+when done. The [pushdown model](../../../docs/transducers/pushdown.md)
+defines acceptance modes, stack actions, epsilon closure, and weights.
+
+## Bounded context-free parsing
+
+`compile_cfg` accepts explicitly typed rules. An empty right-hand side is an
+epsilon production. `parse_cfg` accepts terminal names or `UInt32` vocabulary
+IDs and returns an owned `CfgAnalysis`, including for rejected input. The
+optional `terminal_ids` map pins terminal IDs to an existing byte, Unicode,
+or integer WFST vocabulary. It must cover every terminal in the rules and
+assign distinct `UInt32` IDs. The analysis exposes acceptance, a deterministic
+Earley chart, complete parse
+roots, and packed forest nodes and children. `close` the grammar and analysis
+when finished; the analysis retains its own snapshot and survives closing the
+grammar.
+
+```julia
+S = CfgNonterminal("S")
+word = CfgTerminal("word")
+grammar = compile_cfg(S, [CfgRule(S, [word])])
+analysis = parse_cfg(grammar, ["word"];
+    limits=CfgLimits(max_tokens=8, max_chart_items=128,
+        max_forest_nodes=128, max_work=1024))
+@assert cfg_info(analysis).accepted
+@assert length(cfg_roots(analysis)) == 1
+@assert length(collect(cfg_chart(analysis; batch_size=16))) ==
+    cfg_info(analysis).chart_items
+close(analysis)
+close(grammar)
+```
+
+The same grammar can parse a scalar WFST lattice. Put grammar terminal IDs on
+the selected tape; `cfg_terminal_id(grammar, word)` returns the ID assigned
+when the grammar was compiled. `parse_cfg(grammar, graph; tape=:input,
+limits=CfgWfstLimits(...))` captures the reachable graph once and parses all
+reachable final states together. It accepts any built-in scalar label and
+weight domain when the selected labels fit `UInt32`. `cfg_edge_labels` returns
+the captured labels in forest edge-ID order. Input and output tapes can be
+selected independently. The selected tape must have no epsilon arcs, and the
+reachable graph must be acyclic; these cases raise `NativeError` with an
+explicit status. All graph and parser limits are mandatory. The parser uses
+arc labels for recognition and retains the arc weights only in its native
+lattice; it does not currently rank parses by arc or production weight.
+For a `Char` graph, assign Unicode code points explicitly, for example
+`terminal_ids=Dict("word" => Int('w'))` and put `'w'` on the selected tape.
+
+```julia
+S = CfgNonterminal("S")
+word = CfgTerminal("word")
+grammar = compile_cfg(S, [CfgRule(S, [word])])
+token_id = UInt64(cfg_terminal_id(grammar, word))
+builder = WfstBuilder{UInt64,TropicalWeight}(size_hint=2)
+source = add_state!(builder); target = add_state!(builder)
+set_start!(builder, source); set_final!(builder, target, TropicalWeight(0))
+add_arc!(builder, source, token_id, token_id, target, TropicalWeight(0))
+graph = build!(builder)
+analysis = parse_cfg(grammar, graph;
+    limits=CfgWfstLimits(max_states=2, max_arcs=1, max_bytes=4096,
+        max_import_work=16, max_chart_items=128,
+        max_forest_nodes=128, max_parse_work=1024))
+@assert cfg_info(analysis).accepted
+close(analysis); close(graph); close(grammar)
+```
 
 ### Choose label and weight domains
 
@@ -586,6 +705,9 @@ prefix and close the cursor. Directly collecting the iterator through its
 continues to admit paths. `max_depth` truncation, work exhaustion, numeric
 failure, and cancellation are likewise explicit. The sampler retains its
 complete graph lease, so the source graph may close after construction.
+The [finite Julia path cursor contract](../../../docs/algorithms/julia-path-formal-contract.md)
+maps resource, order, limit, seed, and terminal laws to executable model and
+facade properties.
 
 ### Implement a lazy Julia provider
 

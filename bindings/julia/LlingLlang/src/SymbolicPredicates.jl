@@ -19,8 +19,8 @@ const SYMBOLIC_EQUIVALENT = UInt32(2)
 const SYMBOLIC_OVERLAPS = UInt32(3)
 
 function require_symbolic_abi()
-    api_revision() >= 13 || throw(NativeError(STATUS_UNSUPPORTED,
-        :symbolic_predicate, "native symbolic predicates require API revision 13"))
+    api_revision() >= 15 || throw(NativeError(STATUS_UNSUPPORTED,
+        :symbolic_predicate, "native symbolic predicates require API revision 15"))
     nothing
 end
 

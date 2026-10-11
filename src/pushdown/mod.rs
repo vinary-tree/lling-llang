@@ -72,7 +72,7 @@ mod vector;
 pub mod wpds;
 
 pub use builder::{BracketAlphabetError, BracketPair, BuildError, DyckAlphabet, PdaBuilder};
-pub use decode::PdaDecoder;
+pub use decode::{PdaDecodeLimit, PdaDecoder};
 pub use stack::{StackAction, StackSymbol};
 pub use traits::{PdaAcceptMode, PdaConfiguration, WeightedPda};
 pub use transition::PdaTransition;

@@ -28,6 +28,10 @@ use vinary_tree_interop::{VtResource, VtStatus, VtUnitDomain, VtWeightDomain, Vt
 
 mod lattice;
 pub use lattice::*;
+mod cfg;
+pub use cfg::*;
+mod pda;
+pub use pda::*;
 mod distance;
 mod graph;
 pub use distance::*;
@@ -44,7 +48,7 @@ pub use symbolic::*;
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_LLANG_API_REVISION: u32 = 14;
+pub const LLING_LLANG_API_REVISION: u32 = 15;
 
 fn bounded_usize(value: u64, name: &'static str) -> Result<usize, LlingLlangStatus> {
     usize::try_from(value).map_err(|_| {
@@ -1166,6 +1170,16 @@ macro_rules! dispatch_scalar_domains {
             VtUnitDomain::U64 => dispatch_scalar_weight!(u64, $weight, $function, $($argument),*),
         }
     };
+}
+
+fn cfg_wfst_dispatch(
+    unit: VtUnitDomain,
+    weight: VtWeightDomain,
+    resource: VtResource,
+    grammar: &LlingCfgGrammar,
+    limits: &LlingCfgWfstLimits,
+) -> Result<LlingCfgAnalysis, LlingLlangStatus> {
+    dispatch_scalar_domains!(unit, weight, parse_wfst_typed, resource, grammar, limits)
 }
 
 mod transforms;

@@ -494,6 +494,7 @@ fn process_batch(lattices: &mut [Lattice<TropicalWeight, HashMapBackend>]) -> Ve
 - [Topological Sort](topological-sort.md): DAG ordering algorithm
 - [Lattices](../architecture/lattices.md): Lattice construction
 - [Semirings](../architecture/semirings.md): Weight algebra
+- [Julia path cursor formal contract](julia-path-formal-contract.md): bounded cursor lifetime, exact outcomes, and generated API properties
 
 ## References
 

@@ -178,6 +178,10 @@ python3 "$ROOT/scripts/check-abi-invariants.py" \
   2>&1 | tee "$LOG_DIR/abi-invariant-registry.log"
 python3 "$ROOT/scripts/check-host-provider-invariants.py" \
   2>&1 | tee "$LOG_DIR/host-provider-invariant-registry.log"
+python3 "$ROOT/scripts/generate-julia-path-properties.py" --check \
+  2>&1 | tee "$LOG_DIR/julia-path-property-registry.log"
+python3 "$ROOT/scripts/verify-julia-path-formal.py" \
+  2>&1 | tee "$LOG_DIR/julia-path-formal.log"
 python3 "$ROOT/scripts/check-lazy-expansion-invariants.py" \
   2>&1 | tee "$LOG_DIR/lazy-expansion-invariant-registry.log"
 python3 "$ROOT/scripts/check-domain-integration-invariants.py" \
@@ -319,6 +323,9 @@ run_tlc abi-ownership-lifecycle \
 run_tlc abi-v2-lifecycle \
   "$ROOT/proofs/tla/AbiV2Lifecycle.tla" \
   "$ROOT/proofs/tla/MC/AbiV2Lifecycle.cfg"
+run_tlc julia-pda-lifecycle \
+  "$ROOT/proofs/tla/JuliaPdaLifecycle.tla" \
+  "$ROOT/proofs/tla/MC/JuliaPdaLifecycle.cfg"
 run_tlc neutral-foundations \
   "$ROOT/proofs/tla/NeutralFoundationLifecycle.tla" \
   "$ROOT/proofs/tla/MC/NeutralFoundationLifecycle.cfg"

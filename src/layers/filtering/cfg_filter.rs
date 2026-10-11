@@ -76,6 +76,9 @@ impl<'g, W: Semiring, B: LatticeBackend> CorrectionLayer<W, B> for CfgFilterLaye
             ParseError::NoParse => LayerError::ParseError("no valid parse found".to_string()),
             ParseError::EmptyLattice => LayerError::ParseError("empty lattice".to_string()),
             ParseError::GrammarError(msg) => LayerError::ConfigError(msg),
+            ParseError::LimitExceeded(axis) => {
+                LayerError::ParseError(format!("CFG {axis} limit exceeded"))
+            }
         })?;
 
         // Collect edges that are used in at least one valid parse

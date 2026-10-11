@@ -458,3 +458,4 @@ For the tropical semiring, $`\otimes`$ is addition. For the probability semiring
 - [Shortest Distance](shortest-distance.md) - Alternative to sampling for exact computation
 - [Power Semiring](../architecture/power-semiring.md) - Soft weights for sampling
 - [RRWM Algorithm](rrwm.md) - Online learning that uses path sampling
+- [Julia path cursor formal contract](julia-path-formal-contract.md) - Seeded cursor lifetime and explicit terminal outcomes

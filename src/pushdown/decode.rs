@@ -51,6 +51,30 @@ use super::{PdaAcceptMode, PdaConfiguration, StackSymbol, VectorPda};
 use crate::llm::{TokenId, TokenMask};
 use crate::semiring::Semiring;
 
+/// A caller-supplied bound stopped an incremental PDA query before its result
+/// could be reported. No partial frontier or weight is returned.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PdaDecodeLimit {
+    /// The epsilon closure or result projection exhausted its work allowance.
+    Work,
+    /// A reachable configuration exceeds the caller's stack-depth bound.
+    StackDepth,
+    /// A computed weight cannot be represented by the scalar binding carrier.
+    Weight,
+}
+
+impl std::fmt::Display for PdaDecodeLimit {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Work => formatter.write_str("PDA decode work limit exceeded"),
+            Self::StackDepth => formatter.write_str("PDA decode stack-depth limit exceeded"),
+            Self::Weight => formatter.write_str("PDA weight exceeds the scalar ABI carrier"),
+        }
+    }
+}
+
+impl std::error::Error for PdaDecodeLimit {}
+
 /// Incremental decode surface over a [`VectorPda`].
 ///
 /// Borrows the automaton immutably; all decode state lives in the
@@ -104,6 +128,275 @@ impl<'a, L: Clone + PartialEq, W: Semiring> PdaDecoder<'a, L, W> {
             .get_num_states()
             .saturating_add(self.pda.get_num_transitions())
             .max(1)
+    }
+
+    fn charge(work: &mut usize, limit: usize) -> Result<(), PdaDecodeLimit> {
+        if *work >= limit {
+            return Err(PdaDecodeLimit::Work);
+        }
+        *work += 1;
+        Ok(())
+    }
+
+    /// Compute the exact epsilon closure under an explicit operation bound.
+    /// Every dequeued configuration and inspected outgoing transition is
+    /// charged before it can allocate a successor. This also bounds the number
+    /// of retained configurations on branching epsilon-push graphs.
+    fn bounded_epsilon_closure(
+        &self,
+        cfg: &PdaConfiguration<L>,
+        max_work: usize,
+    ) -> Result<(Vec<PdaConfiguration<L>>, usize), PdaDecodeLimit> {
+        let mut spent = 0;
+        let mut visited = HashSet::new();
+        let mut closure = Vec::new();
+        let mut work = Vec::new();
+        let seed = PdaConfiguration::new(cfg.state, Vec::new(), cfg.stack.clone());
+        visited.insert((seed.state, seed.stack.clone()));
+        work.push(seed);
+        while let Some(config) = work.pop() {
+            Self::charge(&mut spent, max_work)?;
+            if let Some(stack_top) = config.stack_top() {
+                for trans in self.pda.get_transitions(config.state) {
+                    Self::charge(&mut spent, max_work)?;
+                    if !trans.is_epsilon() || trans.stack_top != stack_top {
+                        continue;
+                    }
+                    let staged =
+                        PdaConfiguration::new(config.state, Vec::new(), config.stack.clone());
+                    if let Some(next) = staged.apply_transition(trans) {
+                        if next.stack.len() > self.max_stack_depth {
+                            return Err(PdaDecodeLimit::StackDepth);
+                        }
+                        if visited.insert((next.state, next.stack.clone())) {
+                            work.push(next);
+                        }
+                    }
+                }
+            }
+            closure.push(config);
+        }
+        Ok((closure, spent))
+    }
+
+    /// Compute weighted epsilon closure under an explicit work bound. The
+    /// bound also terminates non-idempotent or improving epsilon cycles for
+    /// which a generic semiring has no finite closure theorem.
+    fn bounded_weighted_epsilon_closure(
+        &self,
+        cfg: &PdaConfiguration<L>,
+        max_work: usize,
+    ) -> Result<(Vec<(PdaConfiguration<L>, W)>, usize), PdaDecodeLimit> {
+        let mut spent = 0;
+        let mut best = HashMap::new();
+        let mut pending = HashMap::new();
+        let mut order = Vec::new();
+        let mut queue = VecDeque::new();
+        let seed = PdaConfiguration::new(cfg.state, Vec::new(), cfg.stack.clone());
+        let seed_key = (seed.state, seed.stack.clone());
+        best.insert(seed_key.clone(), W::one());
+        pending.insert(seed_key.clone(), W::one());
+        order.push(seed_key);
+        queue.push_back(seed);
+        while let Some(config) = queue.pop_front() {
+            Self::charge(&mut spent, max_work)?;
+            let delta = pending
+                .remove(&(config.state, config.stack.clone()))
+                .expect("queued PDA configuration has a pending contribution");
+            let Some(stack_top) = config.stack_top() else {
+                continue;
+            };
+            for trans in self.pda.get_transitions(config.state) {
+                Self::charge(&mut spent, max_work)?;
+                if !trans.is_epsilon() || trans.stack_top != stack_top {
+                    continue;
+                }
+                let staged = PdaConfiguration::new(config.state, Vec::new(), config.stack.clone());
+                let Some(next) = staged.apply_transition(trans) else {
+                    continue;
+                };
+                if next.stack.len() > self.max_stack_depth {
+                    return Err(PdaDecodeLimit::StackDepth);
+                }
+                let key = (next.state, next.stack.clone());
+                // Propagate only this path contribution. Reprocessing the
+                // accumulated weight would count earlier paths again when
+                // two branches reach the same configuration before dequeue.
+                let candidate = delta.times(&trans.weight);
+                match best.entry(key.clone()) {
+                    Entry::Vacant(slot) => {
+                        slot.insert(candidate);
+                        order.push(key.clone());
+                        pending.insert(key, candidate);
+                        queue.push_back(next);
+                    }
+                    Entry::Occupied(mut slot) => {
+                        let merged = slot.get().plus(&candidate);
+                        if merged != *slot.get() {
+                            slot.insert(merged);
+                            match pending.entry(key) {
+                                Entry::Vacant(pending_slot) => {
+                                    pending_slot.insert(candidate);
+                                    queue.push_back(next);
+                                }
+                                Entry::Occupied(mut pending_slot) => {
+                                    let sum = pending_slot.get().plus(&candidate);
+                                    pending_slot.insert(sum);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let closure = order
+            .into_iter()
+            .map(|(state, stack)| {
+                let weight = best[&(state, stack.clone())];
+                (PdaConfiguration::new(state, Vec::new(), stack), weight)
+            })
+            .collect();
+        Ok((closure, spent))
+    }
+
+    /// Enumerate the complete legal terminal frontier within `max_work`.
+    /// An exhausted bound returns an error instead of a partial frontier.
+    pub fn try_legal_next(
+        &self,
+        cfg: &PdaConfiguration<L>,
+        max_work: usize,
+    ) -> Result<Vec<L>, PdaDecodeLimit> {
+        let (closure, mut spent) = self.bounded_epsilon_closure(cfg, max_work)?;
+        let mut out = Vec::new();
+        for config in &closure {
+            let Some(stack_top) = config.stack_top() else {
+                continue;
+            };
+            for trans in self.pda.get_transitions(config.state) {
+                Self::charge(&mut spent, max_work)?;
+                if trans.stack_top == stack_top {
+                    if let Some(label) = &trans.input {
+                        if !out.contains(label) {
+                            out.push(label.clone());
+                        }
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Return the exact native next configuration within `max_work`.
+    pub fn try_advance(
+        &self,
+        cfg: &PdaConfiguration<L>,
+        sym: &L,
+        max_work: usize,
+    ) -> Result<Option<PdaConfiguration<L>>, PdaDecodeLimit> {
+        let (closure, mut spent) = self.bounded_epsilon_closure(cfg, max_work)?;
+        for config in closure {
+            let Some(stack_top) = config.stack_top() else {
+                continue;
+            };
+            for trans in self.pda.get_transitions(config.state) {
+                Self::charge(&mut spent, max_work)?;
+                if trans.is_epsilon()
+                    || trans.stack_top != stack_top
+                    || trans.input.as_ref() != Some(sym)
+                {
+                    continue;
+                }
+                let staged =
+                    PdaConfiguration::new(config.state, vec![sym.clone()], config.stack.clone());
+                if let Some(mut next) = staged.apply_transition(trans) {
+                    if next.stack.len() > self.max_stack_depth {
+                        return Err(PdaDecodeLimit::StackDepth);
+                    }
+                    next.remaining_input.clear();
+                    return Ok(Some(next));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Test acceptance without returning an incomplete result on exhaustion.
+    pub fn try_is_accepting(
+        &self,
+        cfg: &PdaConfiguration<L>,
+        max_work: usize,
+    ) -> Result<bool, PdaDecodeLimit> {
+        let (closure, _) = self.bounded_epsilon_closure(cfg, max_work)?;
+        let mode = self.pda.get_accept_mode();
+        Ok(closure
+            .iter()
+            .any(|config| Self::config_accepts(self.pda, mode, config)))
+    }
+
+    /// Return native weighted terminal choices under an explicit work bound.
+    pub fn try_legal_next_weighted(
+        &self,
+        cfg: &PdaConfiguration<L>,
+        max_work: usize,
+    ) -> Result<Vec<(L, W)>, PdaDecodeLimit> {
+        let (closure, mut spent) = self.bounded_weighted_epsilon_closure(cfg, max_work)?;
+        let mut out: Vec<(L, W)> = Vec::new();
+        for (config, path_weight) in &closure {
+            let Some(stack_top) = config.stack_top() else {
+                continue;
+            };
+            for trans in self.pda.get_transitions(config.state) {
+                Self::charge(&mut spent, max_work)?;
+                if trans.is_epsilon() || trans.stack_top != stack_top {
+                    continue;
+                }
+                if let Some(label) = &trans.input {
+                    let weight = path_weight.times(&trans.weight);
+                    if let Some(entry) = out.iter_mut().find(|entry| &entry.0 == label) {
+                        entry.1 = entry.1.plus(&weight);
+                    } else {
+                        out.push((label.clone(), weight));
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Return the complete accepting weight or a work-limit error.
+    pub fn try_acceptance_weight(
+        &self,
+        cfg: &PdaConfiguration<L>,
+        max_work: usize,
+    ) -> Result<W, PdaDecodeLimit> {
+        let (closure, _) = self.bounded_weighted_epsilon_closure(cfg, max_work)?;
+        let mode = self.pda.get_accept_mode();
+        let mut total = W::zero();
+        let mut accepted = false;
+        for (config, path_weight) in closure {
+            if !Self::config_accepts(self.pda, mode, &config) {
+                continue;
+            }
+            let final_weight = match mode {
+                PdaAcceptMode::FinalState => self.pda.get_final_weight(config.state),
+                PdaAcceptMode::EmptyStack => W::one(),
+                PdaAcceptMode::Both => {
+                    if self.pda.get_is_final(config.state) {
+                        self.pda.get_final_weight(config.state)
+                    } else {
+                        W::one()
+                    }
+                }
+            };
+            let contribution = path_weight.times(&final_weight);
+            total = if accepted {
+                total.plus(&contribution)
+            } else {
+                contribution
+            };
+            accepted = true;
+        }
+        Ok(total)
     }
 
     /// The initial configuration: start state, empty remaining input (terminals
@@ -284,16 +577,20 @@ impl<'a, L: Clone + PartialEq, W: Semiring> PdaDecoder<'a, L, W> {
         let capacity = self.closure_work_capacity();
         let mut best: HashMap<(crate::wfst::StateId, Vec<StackSymbol>), W> =
             HashMap::with_capacity(capacity);
+        let mut pending: HashMap<(crate::wfst::StateId, Vec<StackSymbol>), W> =
+            HashMap::with_capacity(capacity);
         let mut queue: VecDeque<PdaConfiguration<L>> = VecDeque::with_capacity(capacity);
 
         let seed = PdaConfiguration::new(cfg.state, Vec::new(), cfg.stack.clone());
-        best.insert((seed.state, seed.stack.clone()), W::one());
+        let seed_key = (seed.state, seed.stack.clone());
+        best.insert(seed_key.clone(), W::one());
+        pending.insert(seed_key, W::one());
         queue.push_back(seed);
 
         while let Some(config) = queue.pop_front() {
-            let current = *best
-                .get(&(config.state, config.stack.clone()))
-                .expect("a queued configuration always has a recorded best weight");
+            let delta = pending
+                .remove(&(config.state, config.stack.clone()))
+                .expect("queued PDA configuration has a pending contribution");
             let Some(stack_top) = config.stack_top() else {
                 continue;
             };
@@ -308,20 +605,31 @@ impl<'a, L: Clone + PartialEq, W: Semiring> PdaDecoder<'a, L, W> {
                 if next.stack.len() > self.max_stack_depth {
                     continue;
                 }
-                let candidate = current.times(&trans.weight);
-                match best.entry((next.state, next.stack.clone())) {
+                let candidate = delta.times(&trans.weight);
+                let key = (next.state, next.stack.clone());
+                match best.entry(key.clone()) {
                     Entry::Vacant(slot) => {
                         slot.insert(candidate);
+                        pending.insert(key, candidate);
                         queue.push_back(next);
                     }
                     Entry::Occupied(mut slot) => {
-                        // Semiring-add relax: keep the best weight; re-enqueue only when it
-                        // strictly improves so the fixpoint is reached finitely
-                        // (semiring addition is idempotent; tropical cost is bounded below).
+                        // Only propagate the new contribution. Idempotent
+                        // additions skip duplicate paths; non-idempotent
+                        // divergent cycles require the bounded query API.
                         let merged = slot.get().plus(&candidate);
                         if merged != *slot.get() {
                             slot.insert(merged);
-                            queue.push_back(next);
+                            match pending.entry(key) {
+                                Entry::Vacant(pending_slot) => {
+                                    pending_slot.insert(candidate);
+                                    queue.push_back(next);
+                                }
+                                Entry::Occupied(mut pending_slot) => {
+                                    let sum = pending_slot.get().plus(&candidate);
+                                    pending_slot.insert(sum);
+                                }
+                            }
                         }
                     }
                 }
@@ -764,6 +1072,123 @@ mod tests {
         assert!(
             !dec.has_legal_continuation(&c2),
             "\"ab\" is a complete dead-end (the decoder must stop here)"
+        );
+    }
+
+    #[test]
+    fn bounded_queries_agree_with_native_decoder_on_complete_results() {
+        let pda = brackets();
+        let decoder = PdaDecoder::new(&pda);
+        let start = decoder.initial_config();
+        assert_eq!(
+            decoder.try_legal_next(&start, 100).unwrap(),
+            decoder.legal_next(&start)
+        );
+        let mut bounded_weighted = decoder.try_legal_next_weighted(&start, 100).unwrap();
+        let mut native_weighted = decoder.legal_next_weighted(&start);
+        bounded_weighted.sort_unstable_by_key(|entry| entry.0);
+        native_weighted.sort_unstable_by_key(|entry| entry.0);
+        assert_eq!(bounded_weighted, native_weighted);
+        let next = decoder.try_advance(&start, &'(', 100).unwrap().unwrap();
+        assert_eq!(next, decoder.advance(&start, &'(').unwrap());
+        assert_eq!(
+            decoder.try_is_accepting(&next, 100).unwrap(),
+            decoder.is_accepting(&next)
+        );
+        assert_eq!(
+            decoder.try_acceptance_weight(&next, 100).unwrap(),
+            decoder.acceptance_weight(&next)
+        );
+    }
+
+    #[test]
+    fn bounded_weighted_query_rejects_divergent_count_epsilon_cycle() {
+        use crate::semiring::CountWeight;
+        let mut builder: PdaBuilder<char, CountWeight> = PdaBuilder::new();
+        let state = builder.add_final_state(CountWeight::one());
+        builder.set_start(state);
+        let bottom = builder.initial_stack();
+        builder.add_epsilon_transition(state, bottom, state, StackAction::Noop, CountWeight::one());
+        let pda = builder.try_build().unwrap();
+        let decoder = PdaDecoder::new(&pda);
+        let start = decoder.initial_config();
+        assert_eq!(
+            decoder.try_acceptance_weight(&start, 20),
+            Err(PdaDecodeLimit::Work)
+        );
+        assert_eq!(
+            decoder.try_legal_next_weighted(&start, 20),
+            Err(PdaDecodeLimit::Work)
+        );
+    }
+
+    #[test]
+    fn weighted_epsilon_diamond_counts_each_path_once() {
+        use crate::semiring::CountWeight;
+        let mut builder: PdaBuilder<char, CountWeight> = PdaBuilder::new();
+        let start = builder.add_state();
+        let left = builder.add_state();
+        let right = builder.add_state();
+        let join = builder.add_final_state(CountWeight::one());
+        builder.set_start(start);
+        let bottom = builder.initial_stack();
+        for intermediate in [left, right] {
+            builder.add_epsilon_transition(
+                start,
+                bottom,
+                intermediate,
+                StackAction::Noop,
+                CountWeight::one(),
+            );
+            builder.add_epsilon_transition(
+                intermediate,
+                bottom,
+                join,
+                StackAction::Noop,
+                CountWeight::one(),
+            );
+        }
+        let pda = builder.try_build().unwrap();
+        let decoder = PdaDecoder::new(&pda);
+        let initial = decoder.initial_config();
+        assert_eq!(decoder.acceptance_weight(&initial), CountWeight::new(2));
+        assert_eq!(
+            decoder.try_acceptance_weight(&initial, 100),
+            Ok(CountWeight::new(2))
+        );
+    }
+
+    #[test]
+    fn bounded_queries_report_stack_truncation_instead_of_partial_answers() {
+        let pda = brackets();
+        let decoder = PdaDecoder::with_max_stack_depth(&pda, 1);
+        let initial = decoder.initial_config();
+        assert_eq!(
+            decoder.try_advance(&initial, &'(', 100),
+            Err(PdaDecodeLimit::StackDepth)
+        );
+        let mut builder: PdaBuilder<char, TropicalWeight> = PdaBuilder::new();
+        let state = builder.add_final_state(TropicalWeight::one());
+        builder.set_start(state);
+        let bottom = builder.initial_stack();
+        let marker = builder.add_stack_symbol();
+        builder.add_epsilon_transition(
+            state,
+            bottom,
+            state,
+            StackAction::Push(vec![bottom, marker]),
+            TropicalWeight::one(),
+        );
+        let pda = builder.try_build().unwrap();
+        let decoder = PdaDecoder::with_max_stack_depth(&pda, 1);
+        let initial = decoder.initial_config();
+        assert_eq!(
+            decoder.try_legal_next_weighted(&initial, 100),
+            Err(PdaDecodeLimit::StackDepth)
+        );
+        assert_eq!(
+            decoder.try_acceptance_weight(&initial, 100),
+            Err(PdaDecodeLimit::StackDepth)
         );
     }
 }

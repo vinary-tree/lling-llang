@@ -47,8 +47,8 @@ const SYMBOLIC_OUTPUT_IDENTITY = UInt32(2)
 const SYMBOLIC_OUTPUT_CONSTANT = UInt32(3)
 
 function symbolic_transducer(::Type{D}, domain::UInt32, lo::Int64, hi::Int64) where {D}
-    api_revision() >= 14 || throw(NativeError(STATUS_UNSUPPORTED,
-        :symbolic_transducer, "native symbolic transducers require API revision 14"))
+    api_revision() >= 15 || throw(NativeError(STATUS_UNSUPPORTED,
+        :symbolic_transducer, "native symbolic transducers require API revision 15"))
     output = Ref{Ptr{Cvoid}}(C_NULL)
     checked(ccall(native(:lling_symbolic_transducer_new), UInt32,
         (UInt32, Int64, Int64, Ref{Ptr{Cvoid}}), domain, lo, hi, output),

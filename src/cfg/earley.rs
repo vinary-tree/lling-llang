@@ -189,6 +189,7 @@ pub struct EarleyChart {
     agenda: VecDeque<(NodeId, EarleyState)>,
     /// Set of (pos, key) pairs already processed to avoid re-adding to agenda.
     processed: FxHashSet<(NodeId, EarleyKey)>,
+    item_count: usize,
 }
 
 impl EarleyChart {
@@ -198,6 +199,7 @@ impl EarleyChart {
             positions: FxHashMap::default(),
             agenda: VecDeque::new(),
             processed: FxHashSet::default(),
+            item_count: 0,
         }
     }
 
@@ -228,6 +230,7 @@ impl EarleyChart {
             false // Not a new state
         } else {
             map.insert(key.clone(), state.clone());
+            self.item_count += 1;
             // Only add to agenda if not already processed
             if !self.processed.contains(&(pos, key.clone())) {
                 self.processed.insert((pos, key));
@@ -237,12 +240,38 @@ impl EarleyChart {
         }
     }
 
+    fn add_bounded(
+        &mut self,
+        pos: NodeId,
+        state: EarleyState,
+        max_items: usize,
+    ) -> Result<bool, ParseError> {
+        let key = EarleyKey::from(&state);
+        if self.item_count >= max_items
+            && self
+                .positions
+                .get(&pos)
+                .is_none_or(|items| !items.contains_key(&key))
+        {
+            return Err(ParseError::LimitExceeded("chart items"));
+        }
+        Ok(self.add(pos, state))
+    }
+
     /// Get all items at a position.
     pub fn at(&self, pos: NodeId) -> impl Iterator<Item = &EarleyState> {
         self.positions
             .get(&pos)
             .into_iter()
             .flat_map(|s| s.values())
+    }
+
+    /// Visit every retained item with its lattice position. The order is
+    /// unspecified; callers needing stable output should sort the rows.
+    pub fn items(&self) -> impl Iterator<Item = (NodeId, &EarleyState)> {
+        self.positions
+            .iter()
+            .flat_map(|(position, items)| items.values().map(move |item| (*position, item)))
     }
 
     /// Pop the next item from the agenda.
@@ -257,7 +286,7 @@ impl EarleyChart {
 
     /// Get the number of items in the chart.
     pub fn len(&self) -> usize {
-        self.positions.values().map(|s| s.len()).sum()
+        self.item_count
     }
 
     /// Check if the chart is empty.
@@ -281,6 +310,8 @@ pub enum ParseError {
     EmptyLattice,
     /// Grammar error.
     GrammarError(String),
+    /// A caller-provided resource limit was reached before parsing completed.
+    LimitExceeded(&'static str),
 }
 
 impl fmt::Display for ParseError {
@@ -289,11 +320,58 @@ impl fmt::Display for ParseError {
             ParseError::NoParse => write!(f, "no complete parse found"),
             ParseError::EmptyLattice => write!(f, "empty lattice"),
             ParseError::GrammarError(msg) => write!(f, "grammar error: {}", msg),
+            ParseError::LimitExceeded(axis) => write!(f, "CFG {axis} limit exceeded"),
         }
     }
 }
 
 impl std::error::Error for ParseError {}
+
+/// Hard limits for one Earley parse. Work counts agenda steps, predicted
+/// productions, examined lattice edges, and completion candidates.
+#[derive(Clone, Copy, Debug)]
+pub struct ParseLimits {
+    /// Maximum number of distinct chart items retained at once.
+    pub max_chart_items: usize,
+    /// Maximum number of packed forest nodes retained at once.
+    pub max_forest_nodes: usize,
+    /// Maximum number of charged parser operations.
+    pub max_work: u64,
+}
+
+impl ParseLimits {
+    /// Preserve the historical unbounded Rust parsing behavior.
+    pub const UNBOUNDED: Self = Self {
+        max_chart_items: usize::MAX,
+        max_forest_nodes: usize::MAX,
+        max_work: u64::MAX,
+    };
+}
+
+/// The chart and packed forest captured by one complete bounded parse.
+pub struct ParseAnalysis {
+    /// Completed chart indexed by lattice position.
+    pub chart: EarleyChart,
+    /// Packed forest containing complete parses.
+    pub forest: ParseForest,
+    /// Charged parser operations for this analysis.
+    pub work: u64,
+}
+
+struct WorkBudget {
+    used: u64,
+    max: u64,
+}
+
+impl WorkBudget {
+    fn charge(&mut self) -> Result<(), ParseError> {
+        if self.used >= self.max {
+            return Err(ParseError::LimitExceeded("work"));
+        }
+        self.used += 1;
+        Ok(())
+    }
+}
 
 /// Earley parser for lattices.
 pub struct EarleyParser<'g> {
@@ -314,44 +392,109 @@ impl<'g> EarleyParser<'g> {
         &self,
         lattice: &Lattice<W, B>,
     ) -> Result<ParseForest, ParseError> {
+        self.parse_lattice_with_limits(lattice, ParseLimits::UNBOUNDED)
+            .map(|analysis| analysis.forest)
+    }
+
+    /// Parse with strict chart, forest, and work bounds, retaining the chart
+    /// for callers that need to inspect the completed analysis.
+    pub fn parse_lattice_with_limits<W: Semiring, B: LatticeBackend>(
+        &self,
+        lattice: &Lattice<W, B>,
+        limits: ParseLimits,
+    ) -> Result<ParseAnalysis, ParseError> {
+        let analysis = self.analyze_lattice_with_limits(lattice, limits)?;
+        if analysis.forest.is_empty() {
+            Err(ParseError::NoParse)
+        } else {
+            Ok(analysis)
+        }
+    }
+
+    /// Analyze even a rejected lattice so callers can inspect the chart.
+    pub fn analyze_lattice_with_limits<W: Semiring, B: LatticeBackend>(
+        &self,
+        lattice: &Lattice<W, B>,
+        limits: ParseLimits,
+    ) -> Result<ParseAnalysis, ParseError> {
+        let mut final_positions = vec![false; lattice.num_nodes()];
+        let end = final_positions
+            .get_mut(lattice.end().0 as usize)
+            .ok_or_else(|| {
+                ParseError::GrammarError("lattice end is outside its node range".into())
+            })?;
+        *end = true;
+        self.analyze_lattice_with_finals(lattice, &final_positions, limits)
+    }
+
+    /// Analyze a lattice with several accepting positions. The final-position
+    /// bitmap uses lattice node IDs, allowing a WFST to retain all final states
+    /// and one shared packed forest without enumerating complete paths.
+    pub fn analyze_lattice_with_finals<W: Semiring, B: LatticeBackend>(
+        &self,
+        lattice: &Lattice<W, B>,
+        final_positions: &[bool],
+        limits: ParseLimits,
+    ) -> Result<ParseAnalysis, ParseError> {
+        if final_positions.len() != lattice.num_nodes() {
+            return Err(ParseError::GrammarError(
+                "final-position bitmap does not match lattice nodes".into(),
+            ));
+        }
         if lattice.is_empty() && lattice.start() != lattice.end() {
             return Err(ParseError::EmptyLattice);
         }
 
         let mut chart = EarleyChart::new();
         let mut forest = ParseForest::new();
+        let mut work = WorkBudget {
+            used: 0,
+            max: limits.max_work,
+        };
 
         let start = lattice.start();
 
         // Initialize: Add S → •α for all S-productions
-        self.predict(&mut chart, start, self.grammar.start());
+        self.predict(&mut chart, start, self.grammar.start(), limits, &mut work)?;
 
         // Process agenda
         while let Some((pos, state)) = chart.pop() {
+            work.charge()?;
             if state.is_complete(self.grammar) {
                 // Completer
-                self.complete(&mut chart, &mut forest, lattice, pos, &state);
+                self.complete(
+                    &mut chart,
+                    &mut forest,
+                    lattice,
+                    final_positions,
+                    pos,
+                    &state,
+                    limits,
+                    &mut work,
+                )?;
             } else {
                 let next_sym = state.next_symbol(self.grammar);
                 match next_sym {
                     Some(Symbol::NonTerminal(nt)) => {
                         // Predictor
-                        self.predict(&mut chart, pos, *nt);
+                        self.predict(&mut chart, pos, *nt, limits, &mut work)?;
 
                         // Handle nullable non-terminals (epsilon completion)
                         if self.nullable[nt.index() as usize] {
                             let advanced = state.advance();
-                            chart.add(pos, advanced);
+                            chart.add_bounded(pos, advanced, limits.max_chart_items)?;
                         }
                     }
                     Some(Symbol::Terminal(terminal)) => {
                         // Scanner
-                        self.scan(&mut chart, lattice, pos, &state, *terminal);
+                        self.scan(
+                            &mut chart, lattice, pos, &state, *terminal, limits, &mut work,
+                        )?;
                     }
                     Some(Symbol::Epsilon) => {
                         // Skip epsilon
                         let advanced = state.advance();
-                        chart.add(pos, advanced);
+                        chart.add_bounded(pos, advanced, limits.max_chart_items)?;
                     }
                     None => {
                         // Already complete, handled above
@@ -360,21 +503,28 @@ impl<'g> EarleyParser<'g> {
             }
         }
 
-        // Check for successful parse by looking at the forest roots
-        // (roots are now added in complete() when start-symbol rules finish)
-        if !forest.is_empty() {
-            Ok(forest)
-        } else {
-            Err(ParseError::NoParse)
-        }
+        Ok(ParseAnalysis {
+            chart,
+            forest,
+            work: work.used,
+        })
     }
 
     /// Predictor: Add items for productions of a non-terminal.
-    fn predict(&self, chart: &mut EarleyChart, pos: NodeId, nt: NonTerminal) {
+    fn predict(
+        &self,
+        chart: &mut EarleyChart,
+        pos: NodeId,
+        nt: NonTerminal,
+        limits: ParseLimits,
+        work: &mut WorkBudget,
+    ) -> Result<(), ParseError> {
         for prod in self.grammar.productions_for(nt) {
+            work.charge()?;
             let state = EarleyState::new(prod.id, 0, pos);
-            chart.add(pos, state);
+            chart.add_bounded(pos, state, limits.max_chart_items)?;
         }
+        Ok(())
     }
 
     /// Scanner: Match a terminal against lattice edges.
@@ -385,15 +535,19 @@ impl<'g> EarleyParser<'g> {
         pos: NodeId,
         state: &EarleyState,
         terminal: Terminal,
-    ) {
+        limits: ParseLimits,
+        work: &mut WorkBudget,
+    ) -> Result<(), ParseError> {
         // Look for matching edges
         for edge in lattice.outgoing_edges(pos) {
+            work.charge()?;
             if edge.label == terminal.vocab_id() {
                 // Advance and track the edge that was consumed
                 let advanced = state.advance_with_terminal(edge.id);
-                chart.add(edge.target, advanced);
+                chart.add_bounded(edge.target, advanced, limits.max_chart_items)?;
             }
         }
+        Ok(())
     }
 
     /// Completer: When a rule completes, advance waiting rules.
@@ -402,14 +556,20 @@ impl<'g> EarleyParser<'g> {
         chart: &mut EarleyChart,
         forest: &mut ParseForest,
         lattice: &Lattice<W, B>,
+        final_positions: &[bool],
         pos: NodeId,
         completed: &EarleyState,
-    ) {
+        limits: ParseLimits,
+        work: &mut WorkBudget,
+    ) -> Result<(), ParseError> {
         let Some(completed_nt) = completed.lhs(self.grammar) else {
-            return;
+            return Ok(());
         };
 
         // Create forest node for completed rule
+        if forest.num_nodes() >= limits.max_forest_nodes {
+            return Err(ParseError::LimitExceeded("forest nodes"));
+        }
         let mut node = ForestNode::new(completed.rule, completed.start, pos);
 
         // Add all children accumulated during parsing this rule
@@ -420,7 +580,10 @@ impl<'g> EarleyParser<'g> {
         // If this is a start-symbol rule spanning the entire input, add as root
         if completed_nt == self.grammar.start()
             && completed.start == lattice.start()
-            && pos == lattice.end()
+            && final_positions
+                .get(pos.0 as usize)
+                .copied()
+                .unwrap_or(false)
         {
             forest.add_root(forest_node);
         }
@@ -435,10 +598,12 @@ impl<'g> EarleyParser<'g> {
             .collect();
 
         for waiter in waiting {
+            work.charge()?;
             // Advance with the completed non-terminal's forest node
             let advanced = waiter.advance_with_nonterminal(forest_node);
-            chart.add(pos, advanced);
+            chart.add_bounded(pos, advanced, limits.max_chart_items)?;
         }
+        Ok(())
     }
 
     /// Check if the grammar accepts the lattice.
@@ -557,6 +722,59 @@ mod tests {
         let (pos, s) = chart.pop().expect("item");
         assert_eq!(pos, NodeId(0));
         assert_eq!(s.rule, RuleId::new(0));
+    }
+
+    #[test]
+    fn bounded_parse_reports_each_limit_before_publishing_analysis() {
+        let grammar = GrammarBuilder::new()
+            .start("S")
+            .rule("S", &["word"])
+            .build()
+            .expect("valid grammar");
+        let lattice = build_lattice(&["word"], &grammar);
+        let parser = EarleyParser::new(&grammar);
+        let limits = ParseLimits {
+            max_chart_items: 8,
+            max_forest_nodes: 8,
+            max_work: 32,
+        };
+        let analysis = parser
+            .parse_lattice_with_limits(&lattice, limits)
+            .expect("bounded parse");
+        assert_eq!(analysis.forest.num_roots(), 1);
+        assert!(analysis.chart.len() >= 2);
+        assert!(analysis.work > 0);
+
+        assert!(matches!(
+            parser.parse_lattice_with_limits(
+                &lattice,
+                ParseLimits {
+                    max_chart_items: 1,
+                    ..limits
+                }
+            ),
+            Err(ParseError::LimitExceeded("chart items"))
+        ));
+        assert!(matches!(
+            parser.parse_lattice_with_limits(
+                &lattice,
+                ParseLimits {
+                    max_forest_nodes: 0,
+                    ..limits
+                }
+            ),
+            Err(ParseError::LimitExceeded("forest nodes"))
+        ));
+        assert!(matches!(
+            parser.parse_lattice_with_limits(
+                &lattice,
+                ParseLimits {
+                    max_work: 1,
+                    ..limits
+                }
+            ),
+            Err(ParseError::LimitExceeded("work"))
+        ));
     }
 
     #[test]
