@@ -82,16 +82,66 @@ end
         add_arc!(builder, start, label, label, finish, one(W))
         source = build!(builder)
         runner = SubsequentialRunner(source; max_input_units=2)
+        with_suffix = SubsequentialRunner(source; max_input_units=2,
+            final_outputs=Dict(finish => [label, label]))
         close(source)
         output, weight = subsequential_apply(runner, [label])
         @test output == [label]
         @test weight == one(W)
         @test isnothing(subsequential_apply(runner, L[]))
         @test_throws ArgumentError subsequential_apply(runner, fill(label, 3))
+        @test subsequential_apply(with_suffix, [label]) ==
+            ([label, label, label], one(W))
+        suffix_session = SubsequentialSession(with_suffix)
+        @test subsequential_step!(suffix_session, label) ==
+            (active=true, output=label)
+        @test subsequential_finish(suffix_session) == ([label, label], one(W))
+        close(suffix_session)
+        close(with_suffix)
+        session = SubsequentialSession(runner)
         close(runner)
         @test !isopen(runner)
         @test_throws NativeError subsequential_apply(runner, [label])
+        @test subsequential_step!(session, label) == (active=true, output=label)
+        @test subsequential_finish(session) == (L[], one(W))
+        @test subsequential_step!(session, label) == (active=false, output=nothing)
+        @test isnothing(subsequential_finish(session))
+        @test_throws ArgumentError subsequential_step!(session, label)
+        close(session)
+        @test_throws NativeError subsequential_finish(session)
     end
+
+    builder = WfstBuilder{Char,TropicalWeight}(size_hint=2)
+    start, finish = add_state!(builder), add_state!(builder)
+    set_start!(builder, start)
+    set_final!(builder, finish)
+    add_arc!(builder, start, 'a', nothing, finish)
+    epsilon_output = build!(builder)
+    @test_throws NativeError SubsequentialRunner(epsilon_output;
+        final_outputs=Dict(start => ['x']))
+    runner = SubsequentialRunner(epsilon_output)
+    session = SubsequentialSession(runner)
+    @test subsequential_step!(session, 'a') == (active=true, output=nothing)
+    @test subsequential_finish(session) == (Char[], one(TropicalWeight))
+    close(session)
+    close(runner)
+    close(epsilon_output)
+
+    builder = WfstBuilder{Char,TropicalWeight}(size_hint=1)
+    empty_final = add_state!(builder)
+    set_start!(builder, empty_final)
+    set_final!(builder, empty_final)
+    empty_source = build!(builder)
+    empty_runner = SubsequentialRunner(empty_source;
+        final_outputs=Dict(empty_final => ['!']))
+    @test subsequential_apply(empty_runner, Char[]) ==
+        (['!'], one(TropicalWeight))
+    empty_session = SubsequentialSession(empty_runner)
+    @test subsequential_finish(empty_session) ==
+        (['!'], one(TropicalWeight))
+    close(empty_session)
+    close(empty_runner)
+    close(empty_source)
 
     builder = WfstBuilder{Char,TropicalWeight}(size_hint=1)
     start = add_state!(builder)

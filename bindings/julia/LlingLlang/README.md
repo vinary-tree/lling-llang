@@ -77,20 +77,32 @@ graph = build!(builder)
 runner = SubsequentialRunner(graph;
     budget=BudgetV2(max_states=100, max_arcs=1000,
         max_bytes=1_000_000, max_work=10_000),
-    max_input_units=100)
+    max_input_units=100,
+    final_outputs=Dict(finish => ['!']))
 close(graph)                         # runner owns the captured snapshot
-@assert subsequential_apply(runner, ['a']) == (['b'], TropicalWeight(0.0))
+@assert subsequential_apply(runner, ['a']) == (['b', '!'], TropicalWeight(0.0))
 @assert isnothing(subsequential_apply(runner, ['x']))
+session = SubsequentialSession(runner)
 close(runner)
+@assert subsequential_step!(session, 'a') == (active=true, output='b')
+@assert subsequential_finish(session) == (['!'], TropicalWeight(0.0))
+close(session)
 ```
 
 The native constructor rejects duplicate input labels from one state and
 epsilon-input transitions, because either would make this left-to-right runner
 ambiguous or skip a transition. It validates the source under the four-axis
 `BudgetV2` and limits each later input to `max_input_units`. Output length is at
-most input length; this interface does not configure final-output suffixes.
+most input length plus the longest configured final-output suffix. Final
+outputs are attached to distinct accepting state IDs and are captured under
+the same byte and work budget as the graph.
 Calls may share the immutable runner concurrently while the owner keeps it
-open, and `close` releases its snapshot.
+open. A session consumes each input symbol once, emits `nothing` for an
+epsilon-output arc, and reports `active=false` after a prefix without a
+continuation. `subsequential_finish` inspects the current accepting state and
+returns its final suffix and total weight, or `nothing` when it is not
+accepting. A session retains the native snapshot after its runner closes; each
+session has its own `max_input_units` limit and must be closed independently.
 
 ## Incremental weighted pushdown decoding
 

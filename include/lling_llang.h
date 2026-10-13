@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 15u
+#define LLING_LLANG_API_REVISION 16u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -56,6 +56,7 @@ typedef enum LlingLlangStatus {
 typedef struct LlingWfstBuilder LlingWfstBuilder;
 typedef struct LlingWfst LlingWfst;
 typedef struct LlingSubsequential LlingSubsequential;
+typedef struct LlingSubsequentialSession LlingSubsequentialSession;
 typedef struct LlingSemiring LlingSemiring;
 typedef struct LlingSemiringWeight LlingSemiringWeight;
 typedef struct LlingLatticeValue LlingLatticeValue;
@@ -605,11 +606,32 @@ LLING_LLANG_API LlingLlangStatus lling_wfst_resource(
 LLING_LLANG_API LlingLlangStatus lling_subsequential_new_ref(
     const VtResource* resource, const LlingBudgetV2* budget,
     uint64_t max_input_units, LlingSubsequential** out_runner);
-/* Output capacity of input_len units suffices; result fields change only on success. */
+/* Capture immutable final-output suffixes from flat state/offset/label arrays. */
+LLING_LLANG_API LlingLlangStatus lling_subsequential_new_with_final_outputs_ref(
+    const VtResource* resource, const LlingBudgetV2* budget,
+    uint64_t max_input_units, const uint64_t* final_states,
+    const size_t* final_offsets, const uint64_t* final_labels,
+    size_t final_count, size_t final_label_count,
+    LlingSubsequential** out_runner);
+/* Capacity of input_len plus largest final suffix suffices; atomic on error. */
 LLING_LLANG_API LlingLlangStatus lling_subsequential_apply(
     const LlingSubsequential* runner, const uint64_t* input,
     size_t input_len, uint64_t* out_labels, size_t out_capacity,
     size_t* out_len, double* out_weight, uint8_t* out_accepted);
+/* A session retains its immutable graph after the runner is released. */
+LLING_LLANG_API LlingLlangStatus lling_subsequential_session_new(
+    const LlingSubsequential* runner, LlingSubsequentialSession** out_session);
+/* One native transition per call; output fields change only on success. */
+LLING_LLANG_API LlingLlangStatus lling_subsequential_session_step(
+    LlingSubsequentialSession* session, uint64_t input_label,
+    uint8_t* out_active, uint8_t* out_emitted, uint64_t* out_label);
+/* out_len reports required suffix capacity even on LimitExceeded. */
+LLING_LLANG_API LlingLlangStatus lling_subsequential_session_finish(
+    const LlingSubsequentialSession* session, uint64_t* out_labels,
+    size_t out_capacity, size_t* out_len, double* out_weight,
+    uint8_t* out_accepted);
+LLING_LLANG_API void lling_subsequential_session_free(
+    LlingSubsequentialSession* session);
 LLING_LLANG_API void lling_subsequential_free(LlingSubsequential* runner);
 LLING_LLANG_API void lling_resource_release(VtResource resource);
 LLING_LLANG_API LlingLlangStatus lling_abi_v2_validate_header(
