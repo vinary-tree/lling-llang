@@ -11,7 +11,10 @@ use super::traits::MultiTapeWfst;
 use super::transition::MultiTapeTransition;
 use super::vector::VectorMultiTapeWfst;
 use crate::semiring::Semiring;
-use crate::wfst::StateId;
+use crate::wfst::{
+    synchronize as scalar_synchronize, MutableWfst, StateId, VectorWfst, WeightedTransition,
+    NO_STATE,
+};
 
 #[cfg(test)]
 use super::builder::MultiTapeWfstBuilder;
@@ -222,67 +225,81 @@ where
     }
 }
 
-/// Check if a multi-tape WFST has bounded delay.
+/// Check whether every reachable path has a delay at most `max_delay`.
 pub fn has_bounded_delay<L, W, T, const N: usize>(source: &T, max_delay: usize) -> bool
 where
     L: Clone + Eq + Hash + Send + Sync,
     W: Semiring + Clone,
     T: MultiTapeWfst<L, W, N>,
 {
-    // DFS to check all reachable (state, delay) pairs
-    let mut visited: HashMap<(StateId, TapeDelay<N>), bool> = HashMap::new();
-    let mut stack: Vec<(StateId, TapeDelay<N>)> = vec![(source.start(), TapeDelay::zero())];
-
-    while let Some((state, delay)) = stack.pop() {
-        let key = (state, delay.clone());
-        if visited.contains_key(&key) {
-            continue;
-        }
-        visited.insert(key.clone(), true);
-
-        if !delay.is_bounded(max_delay) {
-            return false;
-        }
-
-        for trans in source.transitions(state) {
-            let new_delay = delay.consume(&trans.labels);
-            if !new_delay.is_bounded(max_delay) {
-                return false;
-            }
-            stack.push((trans.to, new_delay));
-        }
-    }
-
-    true
+    compute_max_delay(source).is_some_and(|delay| delay <= max_delay)
 }
 
-/// Compute the maximum delay in a multi-tape WFST.
-pub fn compute_max_delay<L, W, T, const N: usize>(source: &T) -> usize
+/// Compute the exact maximum pairwise tape delay over all reachable paths.
+///
+/// Returns `None` when some reachable cycle advances two tapes by different
+/// amounts or the result cannot be represented. Such a cycle can be repeated
+/// to make the delay unbounded. The analysis uses the scalar WFST delay proof
+/// for every tape pair and retains the greatest finite result.
+pub fn compute_max_delay<L, W, T, const N: usize>(source: &T) -> Option<usize>
 where
     L: Clone + Eq + Hash + Send + Sync,
     W: Semiring + Clone,
     T: MultiTapeWfst<L, W, N>,
 {
-    let mut max_found = 0usize;
-    let mut visited: HashMap<(StateId, TapeDelay<N>), bool> = HashMap::new();
-    let mut stack: Vec<(StateId, TapeDelay<N>)> = vec![(source.start(), TapeDelay::zero())];
-
-    while let Some((state, delay)) = stack.pop() {
-        let key = (state, delay.clone());
-        if visited.contains_key(&key) {
-            continue;
-        }
-        visited.insert(key.clone(), true);
-
-        max_found = max_found.max(delay.max_difference());
-
-        for trans in source.transitions(state) {
-            let new_delay = delay.consume(&trans.labels);
-            stack.push((trans.to, new_delay));
+    let mut max_found = 0;
+    for first_tape in 0..N {
+        for second_tape in first_tape + 1..N {
+            let pair = scalar_pair_projection(source, first_tape, second_tape)?;
+            let delay = scalar_synchronize::compute_max_delay(&pair)?;
+            max_found = max_found.max(delay);
         }
     }
+    Some(max_found)
+}
 
-    max_found
+fn scalar_pair_projection<L, W, T, const N: usize>(
+    source: &T,
+    first_tape: usize,
+    second_tape: usize,
+) -> Option<VectorWfst<L, W>>
+where
+    L: Clone + Eq + Hash + Send + Sync,
+    W: Semiring + Clone,
+    T: MultiTapeWfst<L, W, N>,
+{
+    let states: Vec<StateId> = source.states().collect();
+    if states.len() >= NO_STATE as usize {
+        return None;
+    }
+    let mut pair = VectorWfst::new();
+    let mut remap = HashMap::with_capacity(states.len());
+    for &state in &states {
+        let mapped = pair.add_state();
+        if remap.insert(state, mapped).is_some() {
+            return None;
+        }
+        if source.is_final(state) {
+            pair.set_final(mapped, source.final_weight(state));
+        }
+    }
+    pair.set_start(remap.get(&source.start()).copied().unwrap_or(NO_STATE));
+    for &state in &states {
+        let from = remap[&state];
+        for transition in source.transitions(state) {
+            let Some(&to) = remap.get(&transition.to) else {
+                continue;
+            };
+            pair.add_transition(WeightedTransition::new(
+                from,
+                transition.tape_label(first_tape).cloned(),
+                transition.tape_label(second_tape).cloned(),
+                to,
+                transition.weight.clone(),
+            ));
+        }
+    }
+    Some(pair)
 }
 
 #[cfg(test)]
@@ -409,10 +426,44 @@ mod tests {
     #[test]
     fn test_compute_max_delay() {
         let mt = make_synchronized_mt();
-        assert_eq!(compute_max_delay(&mt), 0);
+        assert_eq!(compute_max_delay(&mt), Some(0));
 
         let mt2 = make_unsynchronized_mt();
-        assert_eq!(compute_max_delay(&mt2), 2);
+        assert_eq!(compute_max_delay(&mt2), Some(2));
+    }
+
+    #[test]
+    fn divergent_cycle_has_no_finite_maximum_delay() {
+        let mut builder = MultiTapeWfstBuilder::<char, TropicalWeight, 3>::new();
+        let state = builder.add_state();
+        builder.set_start(state);
+        builder.set_final(state, TropicalWeight::one());
+        builder.add_transition(
+            state,
+            state,
+            MultiTapeLabel::new([Some('a'), None, None]),
+            TropicalWeight::one(),
+        );
+        let graph = builder.build();
+        assert_eq!(compute_max_delay(&graph), None);
+        assert!(!has_bounded_delay(&graph, usize::MAX));
+    }
+
+    #[test]
+    fn balanced_cycle_has_zero_maximum_delay() {
+        let mut builder = MultiTapeWfstBuilder::<char, TropicalWeight, 3>::new();
+        let state = builder.add_state();
+        builder.set_start(state);
+        builder.set_final(state, TropicalWeight::one());
+        builder.add_transition(
+            state,
+            state,
+            MultiTapeLabel::from_values(['a', 'b', 'c']),
+            TropicalWeight::one(),
+        );
+        let graph = builder.build();
+        assert_eq!(compute_max_delay(&graph), Some(0));
+        assert!(has_bounded_delay(&graph, 0));
     }
 
     #[test]

@@ -221,7 +221,7 @@ $`\max - \min > d`$:
 
 | Function | Returns | Meaning |
 |---|---|---|
-| `compute_max_delay(&t)` | `usize` | The largest delay reachable from $`q_0`$. |
+| `compute_max_delay(&t)` | `Option<usize>` | `Some(d)` for the exact largest reachable delay; `None` for unbounded delay or an unrepresentable result. |
 | `has_bounded_delay(&t, d)` | `bool` | Whether every reachable delay is $`\le d`$. |
 | `synchronize(&t, cfg)` | `SynchronizedMultiTape` | A rebuilt WFST whose states are `(original state, delay)` pairs, dropping any arc that would exceed `cfg.max_delay`. |
 
@@ -231,6 +231,19 @@ the start, and for each outgoing arc computes the successor delay
 pruned, so the result accepts exactly the bounded-delay sublanguage of the input.
 This is the multi-tape analogue of the single-tape
 [synchronization algorithm](../algorithms/synchronization.md).
+
+For a path, let $`n_i`$ count labels consumed on tape $`i`$. Its delay is
+the greatest difference between any two tape counts:
+
+```math
+D=\max_{i<j}|n_i-n_j|.
+```
+
+`compute_max_delay` analyzes each tape pair with the scalar WFST delay
+algorithm and retains the greatest result. A reachable cycle that advances
+two tapes by different amounts can be repeated, so the result is `None` and
+`has_bounded_delay` is false for every finite bound. Balanced cycles return a
+finite result without enumerating ever longer paths.
 
 ---
 
@@ -328,7 +341,7 @@ builder.add_transition(s1, s2, MultiTapeLabel::single(0, 'b'), TropicalWeight::o
 builder.add_transition(s2, s3, MultiTapeLabel::pair(0, 'c', 1, 'x'), TropicalWeight::one());
 let mt = builder.build();
 
-assert_eq!(compute_max_delay(&mt), 2);
+assert_eq!(compute_max_delay(&mt), Some(2));
 assert!(!has_bounded_delay(&mt, 1));
 assert!(has_bounded_delay(&mt, 2));
 
