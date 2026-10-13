@@ -69,6 +69,12 @@ where
 /// The source resource is borrowed for this call only. The returned runner owns
 /// its native snapshot. `budget` bounds capture; `max_input_units` bounds each
 /// subsequent call and must be finite and nonzero.
+///
+/// # Safety
+///
+/// `resource` and `budget` must point to readable values for this call, and
+/// `out_runner` must point to a writable, nonoverlapping output slot. The
+/// caller must keep the resource alive throughout snapshot capture.
 #[no_mangle]
 pub unsafe extern "C" fn lling_subsequential_new_ref(
     resource: *const VtResource,
@@ -103,6 +109,14 @@ pub unsafe extern "C" fn lling_subsequential_new_ref(
 /// accepted input. The caller owns `out_labels`; it needs at most `input_len`
 /// elements because this runner has no final-output suffix configuration.
 /// All outputs remain untouched on error.
+///
+/// # Safety
+///
+/// `runner` must remain open throughout this call. `input` must contain
+/// `input_len` readable values when nonempty, and `out_labels` must contain
+/// `out_capacity` writable values when nonempty. The three result pointers
+/// must be writable and must not overlap any other argument or one another.
+/// The owner must coordinate concurrent calls with `lling_subsequential_free`.
 #[no_mangle]
 pub unsafe extern "C" fn lling_subsequential_apply(
     runner: *const LlingSubsequential,
@@ -167,6 +181,12 @@ pub unsafe extern "C" fn lling_subsequential_apply(
 }
 
 /// Release a runner returned by `lling_subsequential_new_ref`.
+///
+/// # Safety
+///
+/// A non-null `runner` must be an open handle returned by
+/// `lling_subsequential_new_ref`, used exactly once for release. No call may
+/// access it concurrently or after this function returns.
 #[no_mangle]
 pub unsafe extern "C" fn lling_subsequential_free(runner: *mut LlingSubsequential) {
     if !runner.is_null() {

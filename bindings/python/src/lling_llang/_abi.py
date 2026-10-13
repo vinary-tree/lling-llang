@@ -676,15 +676,25 @@ _bind(
 _bind("lling_wfst_resource", [ctypes.c_void_p, ctypes.POINTER(VtResource)])
 _bind(
     "lling_subsequential_new_ref",
-    [ctypes.POINTER(VtResource), ctypes.POINTER(Budget), ctypes.c_uint64,
-     ctypes.POINTER(ctypes.c_void_p)],
+    [
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(Budget),
+        ctypes.c_uint64,
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
 )
 _bind(
     "lling_subsequential_apply",
-    [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t,
-     ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t,
-     ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_double),
-     ctypes.POINTER(ctypes.c_uint8)],
+    [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint64),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_uint64),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.POINTER(ctypes.c_uint8),
+    ],
 )
 _bind("lling_subsequential_free", [ctypes.c_void_p], None)
 _bind("lling_resource_release", [VtResource], None)
