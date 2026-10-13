@@ -174,7 +174,7 @@
   },
   "packageVersion": "4.0.0-rc.6",
   "abiVersion": 1,
-  "apiRevision": 14,
+  "apiRevision": 15,
   "cPrefix": "lling_",
   "headers": {
     "c": "include/lling_llang.h",
@@ -3627,6 +3627,9 @@
         "bind": true
       }
     },
+    {"name":"lling_subsequential_new_ref","rustModule":"ffi","rakuName":"lling-subsequential-new-ref","sinceApiRevision":15,"threading":"caller-coordinates-immutable-handle-lifetime","capability":"subsequential-runner","return":{"cType":"LlingLlangStatus","rakuType":"uint32","ownership":"value","nullability":"not-applicable"},"parameters":[{"name":"resource","cType":"const VtResource*","rakuType":"Vinary::Tree::Interop::RawResource","rakuPassing":"value","direction":"in","ownership":"borrowed-capture-snapshot","nullability":"non-null"},{"name":"budget","cType":"const LlingBudgetV2*","rakuType":"Pointer","rakuPassing":"value","direction":"in","ownership":"borrowed-for-call","nullability":"non-null"},{"name":"max_input_units","cType":"uint64_t","rakuType":"uint64","rakuPassing":"value","direction":"in","ownership":"value","nullability":"not-applicable"},{"name":"out_runner","cType":"LlingSubsequential**","rakuType":"Pointer","rakuPassing":"rw","direction":"out","ownership":"owned-output-on-success","nullability":"non-null"}],"raku":{"bind":false,"reason":"Raku subsequential facade is a separately planned binding parity leaf"}},
+    {"name":"lling_subsequential_apply","rustModule":"ffi","rakuName":"lling-subsequential-apply","sinceApiRevision":15,"threading":"caller-coordinates-immutable-handle-lifetime","capability":"subsequential-runner","return":{"cType":"LlingLlangStatus","rakuType":"uint32","ownership":"value","nullability":"not-applicable"},"parameters":[{"name":"runner","cType":"const LlingSubsequential*","rakuType":"Pointer","rakuPassing":"value","direction":"in","ownership":"borrowed-for-call","nullability":"non-null"},{"name":"input","cType":"const uint64_t*","rakuType":"Pointer","rakuPassing":"value","direction":"in","ownership":"borrowed-for-call","nullability":"nullable-only-if-empty"},{"name":"input_len","cType":"size_t","rakuType":"size_t","rakuPassing":"value","direction":"in","ownership":"value","nullability":"not-applicable"},{"name":"out_labels","cType":"uint64_t*","rakuType":"Pointer","rakuPassing":"value","direction":"out","ownership":"caller-buffer","nullability":"nullable-only-if-empty"},{"name":"out_capacity","cType":"size_t","rakuType":"size_t","rakuPassing":"value","direction":"in","ownership":"value","nullability":"not-applicable"},{"name":"out_len","cType":"size_t*","rakuType":"size_t","rakuPassing":"rw","direction":"out","ownership":"borrowed-output-slot","nullability":"non-null"},{"name":"out_weight","cType":"double*","rakuType":"num64","rakuPassing":"rw","direction":"out","ownership":"borrowed-output-slot","nullability":"non-null"},{"name":"out_accepted","cType":"uint8_t*","rakuType":"uint8","rakuPassing":"rw","direction":"out","ownership":"borrowed-output-slot","nullability":"non-null"}],"raku":{"bind":false,"reason":"Raku subsequential facade is a separately planned binding parity leaf"}},
+    {"name":"lling_subsequential_free","rustModule":"ffi","rakuName":"lling-subsequential-free","sinceApiRevision":15,"threading":"exclusive-owner-close","capability":"subsequential-runner","return":{"cType":"void","rakuType":null,"ownership":"none","nullability":"not-applicable"},"parameters":[{"name":"runner","cType":"LlingSubsequential*","rakuType":"Pointer","rakuPassing":"value","direction":"in","ownership":"consumed-handle","nullability":"nullable-noop"}],"raku":{"bind":false,"reason":"Raku subsequential facade is a separately planned binding parity leaf"}},
     {
       "name": "lling_resource_release",
       "rustModule": "ffi",

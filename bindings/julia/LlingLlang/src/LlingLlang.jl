@@ -43,6 +43,8 @@ export ABI_VERSION,
     Wfst,
     WfstArc,
     WfstState,
+    SubsequentialRunner,
+    subsequential_apply,
     PathLimits,
     WfstPathStep,
     WfstPath,
@@ -908,6 +910,76 @@ function VTI.snapshot(wfst::Wfst{L,W}) where {L,W}
     Wfst(VTI.snapshot(wfst.native), L, W;
         input_symbols=wfst.input_symbols,
         output_symbols=wfst.output_symbols)
+end
+
+"""Reusable native input-deterministic runner over one immutable WFST snapshot."""
+mutable struct SubsequentialRunner{L,W<:AbstractScalarWeight,S1,S2}
+    handle::Ptr{Cvoid}
+    closed::Bool
+    max_input_units::Int
+    input_symbols::S1
+    output_symbols::S2
+end
+
+function SubsequentialRunner(source::Wfst{L,W};
+    budget::BudgetV2=BudgetV2(max_states=10_000, max_arcs=100_000,
+        max_bytes=64_000_000, max_work=1_000_000),
+    max_input_units::Integer=100_000) where {L,W<:AbstractScalarWeight}
+    0 < max_input_units <= min(typemax(UInt64), typemax(Int)) ||
+        throw(ArgumentError("max_input_units must fit a positive native size"))
+    isopen(source) || throw(NativeError(STATUS_CLOSED, :subsequential_new,
+        "source WFST is closed"))
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    resource = Ref(raw_resource(source))
+    GC.@preserve source begin
+        checked(ccall(native(:lling_subsequential_new_ref), UInt32,
+            (Ref{VTI.VtResourceRaw}, Ref{BudgetV2}, UInt64, Ref{Ptr{Cvoid}}),
+            resource, Ref(budget), UInt64(max_input_units), output),
+            :subsequential_new)
+    end
+    runner = SubsequentialRunner{L,W,typeof(source.input_symbols),
+        typeof(source.output_symbols)}(output[], false, Int(max_input_units),
+        source.input_symbols, source.output_symbols)
+    finalizer(finalize_close, runner)
+    runner
+end
+
+function close!(runner::SubsequentialRunner)
+    runner.closed && return nothing
+    ccall(native(:lling_subsequential_free), Cvoid, (Ptr{Cvoid},), runner.handle)
+    runner.handle = C_NULL
+    runner.closed = true
+    nothing
+end
+Base.close(runner::SubsequentialRunner) = close!(runner)
+Base.isopen(runner::SubsequentialRunner) = !runner.closed
+
+"""Run one bounded input sequence; return `(output, weight)` or `nothing`."""
+function subsequential_apply(runner::SubsequentialRunner{L,W},
+    input::AbstractVector) where {L,W}
+    isopen(runner) || throw(NativeError(STATUS_CLOSED, :subsequential_apply,
+        "runner is closed"))
+    length(input) <= runner.max_input_units || throw(ArgumentError(
+        "input exceeds max_input_units"))
+    labels = Vector{UInt64}(undef, length(input))
+    for (index, value) in enumerate(input)
+        labels[index], present = wire_label(L, value, runner.input_symbols)
+        present == 1 || throw(ArgumentError("subsequential input cannot contain epsilon"))
+    end
+    output = Vector{UInt64}(undef, length(labels))
+    output_len = Ref{Csize_t}(0)
+    output_weight = Ref{Float64}(0)
+    accepted = Ref{UInt8}(0)
+    GC.@preserve labels output begin
+        checked(ccall(native(:lling_subsequential_apply), UInt32,
+            (Ptr{Cvoid}, Ptr{UInt64}, Csize_t, Ptr{UInt64}, Csize_t,
+                Ref{Csize_t}, Ref{Float64}, Ref{UInt8}),
+            runner.handle, labels, length(labels), output, length(output),
+            output_len, output_weight, accepted), :subsequential_apply)
+    end
+    accepted[] == 0 && return nothing
+    decoded = [decode_label(L, output[index]) for index in 1:Int(output_len[])]
+    (decoded, decode_weight(W, output_weight[]))
 end
 
 """One type-stable immutable arc decoded from the family ABI."""

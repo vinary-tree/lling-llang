@@ -58,6 +58,40 @@ graph = build!(builder)
 close(graph)
 ```
 
+### Reuse a deterministic transducer snapshot
+
+`SubsequentialRunner` captures an immutable native weighted finite-state
+transducer (WFST) once. It accepts one input label at each transition, emits
+zero or one output label, and returns a typed output vector and semiring weight
+for an accepted input. An input with no accepting path returns `nothing`.
+
+```julia
+builder = WfstBuilder(size_hint=2)
+start = add_state!(builder)
+finish = add_state!(builder)
+set_start!(builder, start)
+set_final!(builder, finish)
+add_arc!(builder, start, 'a', 'b', finish)
+graph = build!(builder)
+
+runner = SubsequentialRunner(graph;
+    budget=BudgetV2(max_states=100, max_arcs=1000,
+        max_bytes=1_000_000, max_work=10_000),
+    max_input_units=100)
+close(graph)                         # runner owns the captured snapshot
+@assert subsequential_apply(runner, ['a']) == (['b'], TropicalWeight(0.0))
+@assert isnothing(subsequential_apply(runner, ['x']))
+close(runner)
+```
+
+The native constructor rejects duplicate input labels from one state and
+epsilon-input transitions, because either would make this left-to-right runner
+ambiguous or skip a transition. It validates the source under the four-axis
+`BudgetV2` and limits each later input to `max_input_units`. Output length is at
+most input length; this interface does not configure final-output suffixes.
+Calls may share the immutable runner concurrently while the owner keeps it
+open, and `close` releases its snapshot.
+
 ## Incremental weighted pushdown decoding
 
 A **pushdown automaton** (PDA) recognizes nested structures by keeping a stack

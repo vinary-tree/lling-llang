@@ -100,6 +100,12 @@ where
             let mut seen_inputs: HashMap<Option<L>, bool> = HashMap::new();
 
             for trans in wfst.transitions(state_id) {
+                // `apply` consumes exactly one input symbol per transition. An
+                // epsilon-input arc would be silently skipped, so it cannot be
+                // represented by this deterministic streaming runner.
+                if trans.input.is_none() {
+                    return false;
+                }
                 if seen_inputs.contains_key(&trans.input) {
                     return false; // Non-deterministic
                 }
@@ -824,6 +830,20 @@ mod tests {
         let ambiguous = make_ambiguous_fst();
         let subseq = SubsequentialTransducer::from_wfst(ambiguous);
         assert!(subseq.is_none());
+    }
+
+    #[test]
+    fn test_subsequential_rejects_epsilon_input() {
+        let mut fst = make_simple_fst();
+        let start = fst.start();
+        fst.add_transition(WeightedTransition::new(
+            start,
+            None,
+            Some('E'),
+            start,
+            TropicalWeight::one(),
+        ));
+        assert!(SubsequentialTransducer::from_wfst(fst).is_none());
     }
 
     #[test]

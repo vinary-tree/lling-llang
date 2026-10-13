@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 14u
+#define LLING_LLANG_API_REVISION 15u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -55,6 +55,7 @@ typedef enum LlingLlangStatus {
 
 typedef struct LlingWfstBuilder LlingWfstBuilder;
 typedef struct LlingWfst LlingWfst;
+typedef struct LlingSubsequential LlingSubsequential;
 typedef struct LlingSemiring LlingSemiring;
 typedef struct LlingSemiringWeight LlingSemiringWeight;
 typedef struct LlingLatticeValue LlingLatticeValue;
@@ -600,6 +601,16 @@ LLING_LLANG_API LlingLlangStatus lling_wfst_closure_plus_ref(
 /* On success, out_resource owns one retain. */
 LLING_LLANG_API LlingLlangStatus lling_wfst_resource(
     const LlingWfst* wfst, VtResource* out_resource);
+/* Capture one deterministic, epsilon-input-free native snapshot. */
+LLING_LLANG_API LlingLlangStatus lling_subsequential_new_ref(
+    const VtResource* resource, const LlingBudgetV2* budget,
+    uint64_t max_input_units, LlingSubsequential** out_runner);
+/* Output capacity of input_len units suffices; result fields change only on success. */
+LLING_LLANG_API LlingLlangStatus lling_subsequential_apply(
+    const LlingSubsequential* runner, const uint64_t* input,
+    size_t input_len, uint64_t* out_labels, size_t out_capacity,
+    size_t* out_len, double* out_weight, uint8_t* out_accepted);
+LLING_LLANG_API void lling_subsequential_free(LlingSubsequential* runner);
 LLING_LLANG_API void lling_resource_release(VtResource resource);
 LLING_LLANG_API LlingLlangStatus lling_abi_v2_validate_header(
     const LlingAbiV2Header* header, uint32_t required_size,

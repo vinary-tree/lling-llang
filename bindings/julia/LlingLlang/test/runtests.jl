@@ -73,6 +73,46 @@ function scalar_chain(::Type{L}, ::Type{W}, label, arc_weight, final_weight;
     build!(builder)
 end
 
+@testset "captured native subsequential runner" begin
+    for (L, label) in LABEL_CASES, (W, _, _) in WEIGHT_CASES
+        builder = WfstBuilder{L,W}(size_hint=2)
+        start, finish = add_state!(builder), add_state!(builder)
+        set_start!(builder, start)
+        set_final!(builder, finish, one(W))
+        add_arc!(builder, start, label, label, finish, one(W))
+        source = build!(builder)
+        runner = SubsequentialRunner(source; max_input_units=2)
+        close(source)
+        output, weight = subsequential_apply(runner, [label])
+        @test output == [label]
+        @test weight == one(W)
+        @test isnothing(subsequential_apply(runner, L[]))
+        @test_throws ArgumentError subsequential_apply(runner, fill(label, 3))
+        close(runner)
+        @test !isopen(runner)
+        @test_throws NativeError subsequential_apply(runner, [label])
+    end
+
+    builder = WfstBuilder{Char,TropicalWeight}(size_hint=1)
+    start = add_state!(builder)
+    set_start!(builder, start)
+    set_final!(builder, start)
+    add_arc!(builder, start, 'a', 'x', start)
+    add_arc!(builder, start, 'a', 'y', start)
+    nondeterministic = build!(builder)
+    @test_throws NativeError SubsequentialRunner(nondeterministic)
+    close(nondeterministic)
+
+    builder = WfstBuilder{Char,TropicalWeight}(size_hint=1)
+    start = add_state!(builder)
+    set_start!(builder, start)
+    set_final!(builder, start)
+    add_arc!(builder, start, nothing, 'x', start)
+    epsilon = build!(builder)
+    @test_throws NativeError SubsequentialRunner(epsilon)
+    close(epsilon)
+end
+
 @testset "bounded CFG analysis over a scalar WFST lattice" begin
     start = CfgNonterminal("S")
     a, b = CfgTerminal("a"), CfgTerminal("b")

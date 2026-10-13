@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 14
+API_REVISION = 15
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -674,6 +674,19 @@ _bind(
     ],
 )
 _bind("lling_wfst_resource", [ctypes.c_void_p, ctypes.POINTER(VtResource)])
+_bind(
+    "lling_subsequential_new_ref",
+    [ctypes.POINTER(VtResource), ctypes.POINTER(Budget), ctypes.c_uint64,
+     ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind(
+    "lling_subsequential_apply",
+    [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t,
+     ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t,
+     ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_double),
+     ctypes.POINTER(ctypes.c_uint8)],
+)
+_bind("lling_subsequential_free", [ctypes.c_void_p], None)
 _bind("lling_resource_release", [VtResource], None)
 _bind(
     "lling_path_cursor_open",
