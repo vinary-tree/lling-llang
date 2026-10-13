@@ -114,7 +114,7 @@ extension**, a concrete vector backing, and a builder.
 | [`MultiTapeWfst<L, W, const N>`](../../src/multitape/traits.rs) | trait | Read-only structural queries: `start`, `is_final`, `final_weight`, `transitions`, `states`, `num_tapes`. |
 | [`MultiTapeWfstOps<L, W, N>`](../../src/multitape/traits.rs) | trait (blanket) | Higher-level ops layered on the query trait: per-tape filtering, `tape_alphabet`, `transduce`, `accepts`. |
 | [`VectorMultiTapeWfst<L, W, N>`](../../src/multitape/vector.rs) | struct | The default in-memory implementation (states in a `Vec`, arcs per state). |
-| [`RuntimeMultiTapeWfst<L, W>`](../../src/multitape/runtime.rs) | struct | Checked runtime tape count for foreign-language callers; captures fixed-arity graphs and supports bounded acceptance and projection. |
+| [`RuntimeMultiTapeWfst<L, W>`](../../src/multitape/runtime.rs) | struct | Checked runtime tape count for foreign-language callers; captures fixed-arity graphs, projects tapes, analyzes delay, and materializes bounded synchronization. |
 | [`MultiTapeState<L, W, N>`](../../src/multitape/vector.rs) | struct | One state: `is_final`, `final_weight`, and its outgoing `transitions`. |
 | [`MultiTapeWfstBuilder<L, W, N>`](../../src/multitape/builder.rs) | struct | Ergonomic construction with chaining; `build()` yields a `VectorMultiTapeWfst`. |
 | [`MultiTapeLabel<L, const N>`](../../src/multitape/label.rs) | struct | An `[Option<L>; N]` tape-label vector (`None` = $`\varepsilon`$). |
@@ -148,7 +148,13 @@ const-arity native graph while preserving arc insertion order, and the
 runtime `transduce` and projection methods follow the corresponding native
 operations. `transduce` requires a finite work limit, including work spent
 following pure $`\varepsilon`$ arcs, so cyclic graphs cannot consume unbounded
-work through the binding.
+work through the binding. Runtime delay analysis projects every tape pair to
+the scalar delay proof; its work limit counts the states and arcs inspected
+for each pair. Runtime synchronization uses the same `(state, delay)` product
+as the fixed-arity implementation, with explicit state, arc, payload-byte,
+and work limits. A wider intermediate delay is computed in `u128` before the
+requested bound is checked, so a legal `usize` bound cannot cause arithmetic
+wraparound.
 
 ### The multi-tape label
 

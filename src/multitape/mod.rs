@@ -66,7 +66,8 @@ pub use builder::{three_tape_transducer, two_tape_transducer, MultiTapeWfstBuild
 pub use label::MultiTapeLabel;
 pub use project::{project, project_tapes, ProjectSource, ProjectedWfst};
 pub use runtime::{
-    RuntimeMultiTapeError, RuntimeMultiTapeState, RuntimeMultiTapeTransition, RuntimeMultiTapeWfst,
+    RuntimeMultiTapeError, RuntimeMultiTapeLimits, RuntimeMultiTapeState,
+    RuntimeMultiTapeTransition, RuntimeMultiTapeWfst,
 };
 pub use synchronize::{
     compute_max_delay, has_bounded_delay, synchronize, SyncConfig, SynchronizedMultiTape, TapeDelay,
