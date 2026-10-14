@@ -293,8 +293,11 @@ pub unsafe extern "C" fn lling_llm_session_step(
 
 /// Clone a session's independent cancellation token before a concurrent step.
 /// The token remains valid after the session is released.
+///
+/// # Safety
+/// `pointer` must be a live session and `out_cancellation` must be writable.
 #[no_mangle]
-pub extern "C" fn lling_llm_session_cancellation(
+pub unsafe extern "C" fn lling_llm_session_cancellation(
     pointer: *const LlingLlmSession,
     out_cancellation: *mut *mut LlingLlmCancellation,
 ) -> LlingLlangStatus {
@@ -312,8 +315,11 @@ pub extern "C" fn lling_llm_session_cancellation(
 }
 
 /// Request cancellation concurrently with a decoder step.
+///
+/// # Safety
+/// `pointer` must be a live cancellation token.
 #[no_mangle]
-pub extern "C" fn lling_llm_cancellation_request(
+pub unsafe extern "C" fn lling_llm_cancellation_request(
     pointer: *const LlingLlmCancellation,
 ) -> LlingLlangStatus {
     boundary(|| {
@@ -338,8 +344,11 @@ pub unsafe extern "C" fn lling_llm_cancellation_free(pointer: *mut LlingLlmCance
 }
 
 /// Return cumulative committed work and current beam size.
+///
+/// # Safety
+/// `pointer` must be a live session and `out_stats` must be writable.
 #[no_mangle]
-pub extern "C" fn lling_llm_session_stats(
+pub unsafe extern "C" fn lling_llm_session_stats(
     pointer: *const LlingLlmSession,
     out_stats: *mut LlingLlmStats,
 ) -> LlingLlangStatus {

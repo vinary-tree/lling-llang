@@ -210,6 +210,8 @@ jobs:
         run: |
           cargo build --manifest-path ../libdictenstein/Cargo.toml --lib \
             --no-default-features --features julia-bindings
+          cargo build --manifest-path ../liblevenshtein-rust/Cargo.toml --lib \
+            --no-default-features --features julia-bindings
           cargo build --manifest-path ../duallity/Cargo.toml --lib \
             --no-default-features --features julia-bindings
       - name: Instantiate local package graph
@@ -241,6 +243,7 @@ jobs:
               Pkg.PackageSpec(path="../llattice/bindings/julia/LLattice"),
               Pkg.PackageSpec(path="bindings/julia/LlingLlang"),
               Pkg.PackageSpec(path="../libdictenstein/bindings/julia/Libdictenstein"),
+              Pkg.PackageSpec(path="../liblevenshtein-rust/bindings/julia/Liblevenshtein"),
               Pkg.PackageSpec(path="../duallity/bindings/julia/Duallity"),
             ])
             Pkg.instantiate()
@@ -250,6 +253,7 @@ jobs:
           JULIA_DEPOT_PATH: ${{ github.workspace }}/target/julia-depot
           LLING_LLANG_LIBRARY: ${{ github.workspace }}/target/debug/liblling_llang.so
           LIBDICTENSTEIN_LIBRARY: ${{ github.workspace }}/target/julia-integration/debug/liblibdictenstein.so
+          LIBLEVENSHTEIN_LIBRARY: ${{ github.workspace }}/target/julia-integration/debug/libliblevenshtein.so
           DUALLITY_LIBRARY: ${{ github.workspace }}/target/julia-integration/debug/libduallity.so
         run: julia --project=target/julia-integration-env bindings/julia/LlingLlang/test/correction_integration.jl
       - name: Build Documenter API reference

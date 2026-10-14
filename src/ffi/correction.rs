@@ -245,8 +245,11 @@ pub unsafe extern "C" fn lling_correction_dictionary_query(
 }
 
 /// Return the number of bounded correction results.
+///
+/// # Safety
+/// `result` must be a live result and `out_count` must be writable.
 #[no_mangle]
-pub extern "C" fn lling_correction_result_count(
+pub unsafe extern "C" fn lling_correction_result_count(
     result: *const LlingCorrectionResult,
     out_count: *mut usize,
 ) -> LlingLlangStatus {
