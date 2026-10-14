@@ -1,11 +1,12 @@
 #![cfg(feature = "ffi")]
 
 use lling_llang::ffi::{
-    lling_tree_free, lling_tree_new, lling_tree_result_copy, lling_tree_result_info,
-    lling_tree_results_free, lling_tree_results_info, lling_tree_rule_info,
-    lling_tree_rule_pattern_copy, lling_tree_transduce, LlingAbiV2Header, LlingBudgetV2,
-    LlingLlangStatus, LlingTreeNode, LlingTreeResults, LlingTreeRule, LlingTreeTransducer,
-    LLING_ABI_V2, LLING_BUDGET_ARCS, LLING_BUDGET_BYTES, LLING_BUDGET_STATES, LLING_BUDGET_WORK,
+    lling_tree_apply_rule, lling_tree_free, lling_tree_instantiate_pattern, lling_tree_new,
+    lling_tree_result_copy, lling_tree_result_info, lling_tree_results_free,
+    lling_tree_results_info, lling_tree_rule_info, lling_tree_rule_pattern_copy,
+    lling_tree_transduce, LlingAbiV2Header, LlingBudgetV2, LlingLlangStatus, LlingTreeNode,
+    LlingTreeResults, LlingTreeRule, LlingTreeTransducer, LLING_ABI_V2, LLING_BUDGET_ARCS,
+    LLING_BUDGET_BYTES, LLING_BUDGET_STATES, LLING_BUDGET_WORK,
 };
 use std::mem::size_of;
 use std::ptr;
@@ -103,6 +104,53 @@ fn tree_abi_captures_snapshot_and_bounds_results() {
     assert_eq!(copied[0], symbol('b', 0));
 
     let input = [symbol('a', 0)];
+    let mut applied = 0u8;
+    let mut direct = ptr::null_mut();
+    assert_eq!(
+        unsafe {
+            lling_tree_apply_rule(
+                graph,
+                0,
+                input.as_ptr(),
+                1,
+                &limits,
+                &mut applied,
+                &mut direct,
+            )
+        },
+        LlingLlangStatus::Ok
+    );
+    assert_eq!(applied, 1);
+    assert!(!direct.is_null());
+    unsafe { lling_tree_results_free(direct) };
+    let missing_child = [
+        symbol('c', 1),
+        LlingTreeNode {
+            kind: 1,
+            symbol: 0,
+            arity: 0,
+            state: 0,
+            variable_index: 1,
+        },
+    ];
+    direct = ptr::dangling_mut();
+    assert_eq!(
+        unsafe {
+            lling_tree_instantiate_pattern(
+                graph,
+                missing_child.as_ptr(),
+                missing_child.len() as u64,
+                input.as_ptr(),
+                1,
+                &limits,
+                &mut applied,
+                &mut direct,
+            )
+        },
+        LlingLlangStatus::Ok
+    );
+    assert_eq!(applied, 0);
+    assert!(direct.is_null());
     let mut results: *mut LlingTreeResults = ptr::null_mut();
     assert_eq!(
         unsafe {

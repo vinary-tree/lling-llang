@@ -207,9 +207,11 @@ the time — can grow with the number of derivations.
 
 ### Bounded native execution
 
-`TreeTransducerOps::transduce_bounded` and `transduce_from_state_bounded`
-evaluate the same rules and preserve the same output order as the unrestricted
-operations. A `TreeTransducerLimits` value bounds four parts of the computation:
+`TreeTransducerOps::transduce_bounded`, `transduce_from_state_bounded`,
+`apply_rule_bounded`, and `instantiate_output_pattern_bounded` evaluate the
+same rules and preserve the same output order and optional result as the
+corresponding unrestricted operations. A `TreeTransducerLimits` value bounds
+four parts of the computation:
 
 | Field | Bound |
 |---|---|

@@ -290,6 +290,30 @@ end
         @test isempty(tree_result(results, 3)[1].children)
         @test tree_result(results, 4)[1].children[1].label == constant
         @test all(pair[2] == rule_weight for pair in results)
+        applied = tree_apply_rule(graph, 2, input)
+        @test !isnothing(applied)
+        @test only(collect(applied))[2] == rule_weight
+        close(applied)
+        instantiated = tree_instantiate_pattern(graph,
+            TreePattern(swapped, [TreeVariable(state, 2),
+                TreeVariable(state, 1)]), input)
+        @test !isnothing(instantiated)
+        @test only(collect(instantiated))[2] == one(W)
+        close(instantiated)
+        @test isnothing(tree_instantiate_pattern(graph,
+            TreePattern(swapped, [TreeVariable(state, 2),
+                TreeVariable(state, 3)]), input))
+        @test_throws NativeError tree_apply_rule(graph, 99, input)
+        cyclic_tree = Tree(source)
+        push!(cyclic_tree.children, cyclic_tree)
+        @test_throws ArgumentError tree_transduce(graph, cyclic_tree)
+        cyclic_pattern = TreePattern(swapped)
+        push!(cyclic_pattern.children, cyclic_pattern)
+        @test_throws ArgumentError tree_instantiate_pattern(graph,
+            cyclic_pattern, input)
+        @test_throws ArgumentError tree_transduce(graph, input;
+            budget=BudgetV2(max_states=100, max_arcs=2,
+                max_bytes=64_000, max_work=10_000))
         @test_throws NativeError tree_transduce(graph,
             Tree(source, [Tree(a)]))
         @test_throws NativeError tree_transduce(graph, input;
@@ -300,6 +324,63 @@ end
         close(results)
         @test_throws NativeError tree_result(results, 1)
     end
+end
+
+@testset "Julia tree values and native rule conveniences" begin
+    input = Tree('S', [Tree('a'), Tree('b')])
+    @test !tree_is_leaf(input)
+    @test tree_arity(input) == 2
+    @test tree_size(input) == 3
+    @test tree_depth(input) == 2
+    @test [node.label for node in tree_preorder(input)] == ['S', 'a', 'b']
+    visited = Char[]
+    mapped = tree_map(label -> (push!(visited, label); uppercase(label)), input)
+    @test visited == ['S', 'a', 'b']
+    @test mapped.children[1].label == 'A'
+    @test tree_subtree(input, [2]).label == 'b'
+    @test isnothing(tree_subtree(input, [3]))
+    replaced = tree_replace(input, [1], Tree('z'))
+    @test replaced.children[1].label == 'z'
+    @test input.children[1].label == 'a'
+    @test isnothing(tree_replace(input, [3], Tree('z')))
+    mixed = Tree{Any}(:root, Tree{Any}[Tree{Any}(1, Tree{Any}[])])
+    @test tree_subtree(mixed, [1]) isa Tree{Any}
+    @test tree_replace(mixed, [1], Tree{Any}(:new, Tree{Any}[])) isa Tree{Any}
+
+    swap = TreePattern('T', [TreeVariable(0, 2), TreeVariable(0, 1)])
+    @test pattern_arity(swap) == 2
+    @test !pattern_is_leaf(swap)
+    @test pattern_variable_indices(swap) == UInt64[1, 2]
+    linear = TreeRule{Char,TropicalWeight}(0, 'S', 2,
+        swap, one(TropicalWeight))
+    @test tree_is_linear(linear)
+    @test !tree_is_identity_like(linear)
+    copying = TreeRule{Char,TropicalWeight}(0, 'S', 2,
+        TreePattern('C', [TreeVariable(0, 1), TreeVariable(0, 1)]),
+        one(TropicalWeight))
+    @test tree_is_copying(copying)
+    @test tree_is_deleting(copying)
+    identity_rule = TreeRule{Char,TropicalWeight}(0, 'S', 2,
+        TreePattern('S', [TreeVariable(0, 1), TreeVariable(0, 2)]),
+        one(TropicalWeight))
+    @test tree_is_identity_like(identity_rule)
+
+    builder = TreeTransducerBuilder{Char,TropicalWeight}()
+    state = add_state!(builder)
+    set_start!(builder, state)
+    add_identity_rule!(builder, state, 'a', 0)
+    add_identity_rule!(builder, state, 'b', 0)
+    add_swap_rule!(builder, state, 'S', 'T', [2, 1])
+    add_relabel_rule!(builder, state, 'R', 'Q', 1)
+    add_deletion_rule!(builder, state, 'D', 2, 'E')
+    add_copy_rule!(builder, state, 'C', 1, 'X', [1, 1])
+    add_flatten_rule!(builder, state, 'F', state)
+    graph = build!(builder)
+    @test tree_info(graph).num_rules == 7
+    outputs = tree_transduce(graph, input)
+    @test only(collect(outputs))[1].children[1].label == 'b'
+    close(outputs)
+    close(graph)
 end
 
 @testset "bounded CFG analysis over a scalar WFST lattice" begin

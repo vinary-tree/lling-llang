@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 19
+API_REVISION = 20
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -916,6 +916,31 @@ _bind(
         ctypes.c_uint64,
         ctypes.c_uint64,
         ctypes.POINTER(Budget),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_tree_apply_rule",
+    [
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.POINTER(TreeNode),
+        ctypes.c_uint64,
+        ctypes.POINTER(Budget),
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_tree_instantiate_pattern",
+    [
+        ctypes.c_void_p,
+        ctypes.POINTER(TreeNode),
+        ctypes.c_uint64,
+        ctypes.POINTER(TreeNode),
+        ctypes.c_uint64,
+        ctypes.POINTER(Budget),
+        ctypes.POINTER(ctypes.c_uint8),
         ctypes.POINTER(ctypes.c_void_p),
     ],
 )

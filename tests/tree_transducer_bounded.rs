@@ -1,7 +1,7 @@
 use lling_llang::semiring::{Semiring, TropicalWeight};
 use lling_llang::tree_transducers::{
     Tree, TreeChild, TreePattern, TreeRule, TreeTransducerLimits, TreeTransducerOps,
-    TreeTransducerRunError, VectorTreeTransducer,
+    TreeTransducerRunError, VectorTreeTransducer, WeightedTreeTransducer,
 };
 
 #[test]
@@ -62,6 +62,19 @@ fn bounded_tree_transduction_matches_native_and_stops_expansion() {
             .transduce_from_state_bounded(state, &input, generous)
             .unwrap(),
         expected
+    );
+    let first_root_rule = transducer.all_rules()[2];
+    assert_eq!(
+        transducer
+            .apply_rule_bounded(first_root_rule, &input, generous)
+            .unwrap(),
+        transducer.apply_rule(first_root_rule, &input)
+    );
+    assert_eq!(
+        transducer
+            .instantiate_output_pattern_bounded(&first_root_rule.output_pattern, &input, generous,)
+            .unwrap(),
+        transducer.instantiate_output_pattern(&first_root_rule.output_pattern, &input)
     );
 
     assert_eq!(

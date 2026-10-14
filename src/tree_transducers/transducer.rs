@@ -337,6 +337,32 @@ where
         Some(outputs)
     }
 
+    /// Apply one rule under finite limits, preserving the native optional
+    /// result when a referenced input child does not exist.
+    fn apply_rule_bounded(
+        &self,
+        rule: &TreeRule<L, W>,
+        input: &Tree<L>,
+        limits: TreeTransducerLimits,
+    ) -> Result<Option<Vec<(Tree<L>, W)>>, TreeTransducerRunError> {
+        let mut budget = TreeRunBudget::new(limits);
+        let mut outputs = run_transducer_machine_checked(
+            self,
+            MachineTask::Pattern {
+                pattern: &rule.output_pattern,
+                input,
+            },
+            Some(&mut budget),
+        )?;
+        if let Some(outputs) = &mut outputs {
+            budget.charge_work(outputs.len())?;
+            for (_, child_weight) in outputs {
+                *child_weight = rule.weight.clone().times(child_weight);
+            }
+        }
+        Ok(outputs)
+    }
+
     /// Instantiate an output pattern against an input tree.
     fn instantiate_output_pattern(
         &self,
@@ -344,6 +370,20 @@ where
         input: &Tree<L>,
     ) -> Option<Vec<(Tree<L>, W)>> {
         run_transducer_machine(self, MachineTask::Pattern { pattern, input })
+    }
+
+    /// Instantiate an output pattern under finite limits.
+    fn instantiate_output_pattern_bounded(
+        &self,
+        pattern: &TreePattern<L>,
+        input: &Tree<L>,
+        limits: TreeTransducerLimits,
+    ) -> Result<Option<Vec<(Tree<L>, W)>>, TreeTransducerRunError> {
+        run_transducer_machine_checked(
+            self,
+            MachineTask::Pattern { pattern, input },
+            Some(&mut TreeRunBudget::new(limits)),
+        )
     }
 }
 

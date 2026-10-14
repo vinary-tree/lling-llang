@@ -189,6 +189,18 @@ trait TreeOps: Send + Sync {
         state: u64,
         mut_budget: GraphBudget,
     ) -> Result<Box<dyn TreeResultOps>, LlingLlangStatus>;
+    fn apply_rule(
+        &self,
+        rule_index: usize,
+        input: &[LlingTreeNode],
+        budget: GraphBudget,
+    ) -> Result<Option<Box<dyn TreeResultOps>>, LlingLlangStatus>;
+    fn instantiate_pattern(
+        &self,
+        pattern: &[LlingTreeNode],
+        input: &[LlingTreeNode],
+        budget: GraphBudget,
+    ) -> Result<Option<Box<dyn TreeResultOps>>, LlingLlangStatus>;
 }
 
 trait TreeResultOps: Send + Sync {
@@ -204,6 +216,7 @@ where
 {
     graph: VectorTreeTransducer<L, W>,
     input_ranks: HashMap<L, usize>,
+    output_ranks: HashMap<L, usize>,
 }
 
 struct TypedTreeResults<L, W>
@@ -212,6 +225,38 @@ where
     W: AbiScalarWeight,
 {
     outputs: Vec<(Tree<L>, W)>,
+}
+
+fn prepare_tree_input<L: AbiScalarLabel + Eq + Hash>(
+    input: &[LlingTreeNode],
+    ranks: &HashMap<L, usize>,
+    budget: &mut GraphBudget,
+) -> Result<(Tree<L>, TreeTransducerLimits), LlingLlangStatus> {
+    let input_count = u64::try_from(input.len()).map_err(|_| LlingLlangStatus::LimitExceeded)?;
+    let input_bytes = input
+        .len()
+        .checked_mul(std::mem::size_of::<Tree<L>>())
+        .and_then(|size| u64::try_from(size).ok())
+        .ok_or(LlingLlangStatus::LimitExceeded)?;
+    budget
+        .charge(0, input_count, input_bytes, input_count)
+        .map_err(map_error)?;
+    let tree = decode_tree::<L>(input, ranks)?;
+    let limits = TreeTransducerLimits {
+        max_results: bounded_usize(budget.remaining(0), "result limit")?,
+        max_nodes: bounded_usize(budget.remaining(1), "node limit")?,
+        max_bytes: bounded_usize(budget.remaining(2), "byte limit")?,
+        max_work: bounded_usize(budget.remaining(3), "work limit")?,
+    };
+    Ok((tree, limits))
+}
+
+fn boxed_tree_results<L, W>(outputs: Vec<(Tree<L>, W)>) -> Box<dyn TreeResultOps>
+where
+    L: AbiScalarLabel + Eq + Hash,
+    W: AbiScalarWeight,
+{
+    Box::new(TypedTreeResults { outputs })
 }
 
 impl<L, W> TreeOps for TypedTree<L, W>
@@ -225,17 +270,7 @@ where
         state: u64,
         mut mut_budget: GraphBudget,
     ) -> Result<Box<dyn TreeResultOps>, LlingLlangStatus> {
-        let input_count =
-            u64::try_from(input.len()).map_err(|_| LlingLlangStatus::LimitExceeded)?;
-        let input_bytes = input
-            .len()
-            .checked_mul(std::mem::size_of::<Tree<L>>())
-            .and_then(|size| u64::try_from(size).ok())
-            .ok_or(LlingLlangStatus::LimitExceeded)?;
-        mut_budget
-            .charge(0, input_count, input_bytes, input_count)
-            .map_err(map_error)?;
-        let tree = decode_tree::<L>(input, &self.input_ranks)?;
+        let (tree, limits) = prepare_tree_input::<L>(input, &self.input_ranks, &mut mut_budget)?;
         let requested_state = if state == u64::from(NO_STATE) {
             None
         } else {
@@ -245,12 +280,6 @@ where
                 return Err(invalid("tree state is outside the graph's state range"));
             }
             Some(state)
-        };
-        let limits = TreeTransducerLimits {
-            max_results: bounded_usize(mut_budget.remaining(0), "result limit")?,
-            max_nodes: bounded_usize(mut_budget.remaining(1), "node limit")?,
-            max_bytes: bounded_usize(mut_budget.remaining(2), "byte limit")?,
-            max_work: bounded_usize(mut_budget.remaining(3), "work limit")?,
         };
         let outputs = if self.graph.num_states() == 0 {
             Vec::new()
@@ -263,7 +292,46 @@ where
                 .transduce_bounded(&tree, limits)
                 .map_err(map_tree_run_error)?
         };
-        Ok(Box::new(TypedTreeResults { outputs }))
+        Ok(boxed_tree_results(outputs))
+    }
+
+    fn apply_rule(
+        &self,
+        rule_index: usize,
+        input: &[LlingTreeNode],
+        mut budget: GraphBudget,
+    ) -> Result<Option<Box<dyn TreeResultOps>>, LlingLlangStatus> {
+        let rules = self.graph.all_rules();
+        let rule = rules
+            .get(rule_index)
+            .ok_or_else(|| invalid("rule index is outside the tree graph"))?;
+        let (tree, limits) = prepare_tree_input::<L>(input, &self.input_ranks, &mut budget)?;
+        self.graph
+            .apply_rule_bounded(rule, &tree, limits)
+            .map_err(map_tree_run_error)
+            .map(|outputs| outputs.map(boxed_tree_results))
+    }
+
+    fn instantiate_pattern(
+        &self,
+        pattern: &[LlingTreeNode],
+        input: &[LlingTreeNode],
+        mut budget: GraphBudget,
+    ) -> Result<Option<Box<dyn TreeResultOps>>, LlingLlangStatus> {
+        let count = u64::try_from(pattern.len()).map_err(|_| LlingLlangStatus::LimitExceeded)?;
+        let bytes = pattern
+            .len()
+            .checked_mul(std::mem::size_of::<TreeChild<L>>())
+            .and_then(|size| u64::try_from(size).ok())
+            .ok_or(LlingLlangStatus::LimitExceeded)?;
+        budget.charge(0, count, bytes, count).map_err(map_error)?;
+        let mut ranks = self.output_ranks.clone();
+        let pattern = decode_pattern::<L>(pattern, &mut ranks)?;
+        let (tree, limits) = prepare_tree_input::<L>(input, &self.input_ranks, &mut budget)?;
+        self.graph
+            .instantiate_output_pattern_bounded(&pattern, &tree, limits)
+            .map_err(map_tree_run_error)
+            .map(|outputs| outputs.map(boxed_tree_results))
     }
 }
 
@@ -445,7 +513,11 @@ where
         final_weights: raw.final_weights.to_vec(),
         rules: raw.rules.to_vec(),
         patterns: raw.patterns.to_vec(),
-        inner: Box::new(TypedTree { graph, input_ranks }),
+        inner: Box::new(TypedTree {
+            graph,
+            input_ranks,
+            output_ranks,
+        }),
     })
 }
 
@@ -693,6 +765,113 @@ pub unsafe extern "C" fn lling_tree_transduce(
         let nodes = unsafe { std::slice::from_raw_parts(input, count) };
         let results = unsafe { &*graph }.inner.transduce(nodes, state, budget)?;
         *output = Box::into_raw(Box::new(LlingTreeResults { inner: results }));
+        Ok(())
+    })
+}
+
+unsafe fn borrowed_tree_nodes<'a>(
+    nodes: *const LlingTreeNode,
+    count: u64,
+    name: &'static str,
+) -> Result<&'a [LlingTreeNode], LlingLlangStatus> {
+    let length = bounded_usize(count, name)?;
+    checked_slice_len::<LlingTreeNode>(length, name)?;
+    if length == 0 {
+        return Err(invalid(format!("{name} needs one root node")));
+    }
+    if nodes.is_null() {
+        set_error(format!("{name} is null"));
+        return Err(LlingLlangStatus::NullPointer);
+    }
+    Ok(unsafe { std::slice::from_raw_parts(nodes, length) })
+}
+
+fn publish_optional_results(
+    applicable: &mut u8,
+    output: &mut *mut LlingTreeResults,
+    results: Option<Box<dyn TreeResultOps>>,
+) {
+    if let Some(results) = results {
+        *applicable = 1;
+        *output = Box::into_raw(Box::new(LlingTreeResults { inner: results }));
+    } else {
+        *applicable = 0;
+        *output = std::ptr::null_mut();
+    }
+}
+
+/// Apply one captured rule to an input tree under four finite limits.
+///
+/// The optional result is preserved: `out_applicable` is zero when a pattern
+/// variable references a missing child, and `out_results` is then null.
+///
+/// # Safety
+///
+/// `graph` must be live; `input` contains `num_nodes` readable preorder nodes;
+/// `budget` is readable; output slots are writable, mutually disjoint, and
+/// separate from all inputs.
+#[no_mangle]
+pub unsafe extern "C" fn lling_tree_apply_rule(
+    graph: *const LlingTreeTransducer,
+    rule_index: usize,
+    input: *const LlingTreeNode,
+    num_nodes: u64,
+    budget: *const LlingBudgetV2,
+    out_applicable: *mut u8,
+    out_results: *mut *mut LlingTreeResults,
+) -> LlingLlangStatus {
+    boundary(|| {
+        let applicable = required_mut(out_applicable, "out_applicable")?;
+        let output = required_mut(out_results, "out_results")?;
+        if graph.is_null() {
+            set_error("tree graph is null");
+            return Err(LlingLlangStatus::NullPointer);
+        }
+        let input = unsafe { borrowed_tree_nodes(input, num_nodes, "input tree") }?;
+        let (budget, _) = tree_budget(budget)?;
+        let results = unsafe { &*graph }
+            .inner
+            .apply_rule(rule_index, input, budget)?;
+        publish_optional_results(applicable, output, results);
+        Ok(())
+    })
+}
+
+/// Instantiate an arbitrary checked output pattern against an input tree.
+///
+/// The pattern may select native states and one-based Julia callers must
+/// convert variable indices to zero-based wire indices. The optional result
+/// contract matches [`lling_tree_apply_rule`].
+///
+/// # Safety
+///
+/// `graph` must be live; both node arrays readable for their declared lengths;
+/// `budget` readable; output slots writable and disjoint from all inputs.
+#[no_mangle]
+pub unsafe extern "C" fn lling_tree_instantiate_pattern(
+    graph: *const LlingTreeTransducer,
+    pattern: *const LlingTreeNode,
+    num_pattern_nodes: u64,
+    input: *const LlingTreeNode,
+    num_input_nodes: u64,
+    budget: *const LlingBudgetV2,
+    out_instantiated: *mut u8,
+    out_results: *mut *mut LlingTreeResults,
+) -> LlingLlangStatus {
+    boundary(|| {
+        let instantiated = required_mut(out_instantiated, "out_instantiated")?;
+        let output = required_mut(out_results, "out_results")?;
+        if graph.is_null() {
+            set_error("tree graph is null");
+            return Err(LlingLlangStatus::NullPointer);
+        }
+        let pattern = unsafe { borrowed_tree_nodes(pattern, num_pattern_nodes, "output pattern") }?;
+        let input = unsafe { borrowed_tree_nodes(input, num_input_nodes, "input tree") }?;
+        let (budget, _) = tree_budget(budget)?;
+        let results = unsafe { &*graph }
+            .inner
+            .instantiate_pattern(pattern, input, budget)?;
+        publish_optional_results(instantiated, output, results);
         Ok(())
     })
 }

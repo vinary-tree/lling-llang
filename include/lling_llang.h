@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 19u
+#define LLING_LLANG_API_REVISION 20u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -720,6 +720,17 @@ LLING_LLANG_API LlingLlangStatus lling_tree_transduce(
     const LlingTreeTransducer* graph, const LlingTreeNode* input,
     uint64_t num_nodes, uint64_t state, const LlingBudgetV2* budget,
     LlingTreeResults** out_results);
+/* Optional direct pattern results: flag zero implies a null result handle. */
+LLING_LLANG_API LlingLlangStatus lling_tree_apply_rule(
+    const LlingTreeTransducer* graph, size_t rule_index,
+    const LlingTreeNode* input, uint64_t num_nodes,
+    const LlingBudgetV2* budget, uint8_t* out_applicable,
+    LlingTreeResults** out_results);
+LLING_LLANG_API LlingLlangStatus lling_tree_instantiate_pattern(
+    const LlingTreeTransducer* graph, const LlingTreeNode* pattern,
+    uint64_t num_pattern_nodes, const LlingTreeNode* input,
+    uint64_t num_input_nodes, const LlingBudgetV2* budget,
+    uint8_t* out_instantiated, LlingTreeResults** out_results);
 LLING_LLANG_API LlingLlangStatus lling_tree_results_info(
     const LlingTreeResults* results, size_t* out_count);
 LLING_LLANG_API LlingLlangStatus lling_tree_result_info(

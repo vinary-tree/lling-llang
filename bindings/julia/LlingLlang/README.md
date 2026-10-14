@@ -190,9 +190,22 @@ valid after the transducer is closed and must be closed separately. Its
 `BudgetV2` axes bound alternatives, input and output nodes, logical payload
 bytes, and native work, respectively. Exhausting a limit raises `NativeError`
 without returning partial results. A caller may pass `state=` to start from a
-specific native state. `tree_state`, `tree_rule`, and `tree_result` read an
-individual state, rule, or one-based result index. This surface requires
-native API revision 19.
+specific native state. `tree_apply_rule(graph, zero_based_rule_index, input)`
+and `tree_instantiate_pattern(graph, pattern, input)` execute the corresponding
+native operations under the same limits; they return `nothing` when a pattern
+variable selects a missing input child. `tree_state`, `tree_rule`, and
+`tree_result` read an individual state, rule, or one-based result index. This
+surface requires native API revision 20.
+
+The Julia tree values also provide `tree_arity`, `tree_is_leaf`, `tree_size`,
+`tree_depth`, lazy `tree_preorder`, `tree_map`, `tree_subtree`, and
+`tree_replace`. Subtree paths use one-based child indices and return
+`nothing` when a path is missing. Pattern queries expose rank, leaf status,
+and selected one-based input child indices. Rule predicates report deleting,
+copying, linear, and identity-like behavior. Convenience builder methods
+`add_identity_rule!`, `add_relabel_rule!`, `add_deletion_rule!`,
+`add_copy_rule!`, `add_swap_rule!`, and `add_flatten_rule!` capture the same
+native rule forms through `add_rule!`.
 
 ## Incremental weighted pushdown decoding
 
