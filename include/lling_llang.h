@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 17u
+#define LLING_LLANG_API_REVISION 18u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -653,6 +653,25 @@ LLING_LLANG_API LlingLlangStatus lling_multitape_arc(
     const LlingMultitape* graph, uint64_t state, size_t arc_index,
     uint64_t* out_to, double* out_weight, uint64_t* out_labels,
     uint8_t* out_present, size_t capacity);
+LLING_LLANG_API LlingLlangStatus lling_multitape_transduce(
+    const LlingMultitape* graph, const uint64_t* labels,
+    const uint8_t* present, uint64_t num_steps,
+    const LlingBudgetV2* budget, uint8_t* out_accepted,
+    double* out_weight);
+LLING_LLANG_API LlingLlangStatus lling_multitape_project(
+    const LlingMultitape* graph, uint64_t tape,
+    const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_multitape_project_tapes(
+    const LlingMultitape* graph, const uint64_t* tapes,
+    uint64_t num_tapes, const LlingBudgetV2* budget,
+    LlingMultitape** out_graph);
+LLING_LLANG_API LlingLlangStatus lling_multitape_max_delay(
+    const LlingMultitape* graph, uint64_t max_work,
+    uint8_t* out_bounded, uint64_t* out_delay);
+LLING_LLANG_API LlingLlangStatus lling_multitape_synchronize(
+    const LlingMultitape* graph, uint64_t max_delay,
+    uint8_t allow_epsilon, const LlingBudgetV2* budget,
+    LlingMultitape** out_graph);
 LLING_LLANG_API void lling_multitape_free(LlingMultitape* graph);
 LLING_LLANG_API void lling_resource_release(VtResource resource);
 LLING_LLANG_API LlingLlangStatus lling_abi_v2_validate_header(

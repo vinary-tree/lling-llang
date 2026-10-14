@@ -188,6 +188,26 @@ end
         @test arc.to == finish
         @test arc.labels == [label, nothing, label]
         @test arc.weight == one(W)
+        @test multitape_transduce(graph, [[label, nothing, label]]) == one(W)
+        @test multitape_accepts(graph, [[label, nothing, label]])
+        @test isnothing(multitape_transduce(graph, []))
+        @test_throws ArgumentError multitape_transduce(graph, [[label]])
+        @test multitape_max_delay(graph) == UInt64(1)
+        @test !multitape_has_bounded_delay(graph, 0)
+        @test multitape_has_bounded_delay(graph, 1)
+        projected = multitape_project(graph, 1)
+        @test VTI.state_count(projected) == 2
+        @test only(VTI.arcs(projected, 0)).input == UInt64(label)
+        close(projected)
+        subset = multitape_project_tapes(graph, [3, 1])
+        @test multitape_info(subset).num_tapes == 2
+        @test only(collect(multitape_arcs(subset, start))).labels == [label, label]
+        close(subset)
+        synced = multitape_synchronize(graph, 0)
+        @test multitape_info(synced).num_states == 1
+        @test multitape_info(synced).num_arcs == 0
+        close(synced)
+        @test_throws NativeError multitape_max_delay(graph; max_work=0)
         close(graph)
         @test_throws NativeError multitape_state(graph, start)
     end
@@ -198,6 +218,34 @@ end
         (num_tapes=9, num_states=0, num_arcs=0, start=nothing)
     close(empty_graph)
     @test_throws ArgumentError MultiTapeBuilder{Char,TropicalWeight}(0)
+
+    cyclic_builder = MultiTapeBuilder{Char,TropicalWeight}(2)
+    cyclic_start = add_state!(cyclic_builder)
+    set_start!(cyclic_builder, cyclic_start)
+    set_final!(cyclic_builder, cyclic_start)
+    add_arc!(cyclic_builder, cyclic_start, ['a', nothing], cyclic_start)
+    cyclic = build!(cyclic_builder)
+    @test isnothing(multitape_max_delay(cyclic))
+    @test !multitape_has_bounded_delay(cyclic, 100)
+    bounded = multitape_synchronize(cyclic, 1)
+    @test multitape_info(bounded).num_states == 2
+    @test multitape_info(bounded).num_arcs == 1
+    close(bounded)
+    close(cyclic)
+
+    epsilon_builder = MultiTapeBuilder{Char,TropicalWeight}(2)
+    epsilon_start, epsilon_finish = add_state!(epsilon_builder),
+        add_state!(epsilon_builder)
+    set_start!(epsilon_builder, epsilon_start)
+    set_final!(epsilon_builder, epsilon_finish)
+    add_arc!(epsilon_builder, epsilon_start, [nothing, nothing],
+        epsilon_finish)
+    epsilon = build!(epsilon_builder)
+    @test multitape_transduce(epsilon, []) == one(TropicalWeight)
+    no_epsilon = multitape_synchronize(epsilon, 0; allow_epsilon=false)
+    @test multitape_info(no_epsilon).num_arcs == 0
+    close(no_epsilon)
+    close(epsilon)
 end
 
 @testset "bounded CFG analysis over a scalar WFST lattice" begin

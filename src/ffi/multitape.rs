@@ -1,13 +1,13 @@
 //! Immutable runtime-arity multi-tape graphs at the C boundary.
 
 use super::{
-    boundary, bounded_usize, decode_unit_domain, decode_weight_domain, graph_budget_from_v2,
-    required_mut, set_error, AbiScalarLabel, AbiScalarWeight, ArcticWeight, BoolWeight,
-    CountWeight, GraphBudget, LlingBudgetV2, LlingLlangStatus, LogWeight, ProbabilityWeight,
-    SignedTropicalWeight, TropicalWeight, LLING_BUDGET_ARCS, LLING_BUDGET_BYTES,
-    LLING_BUDGET_STATES, LLING_BUDGET_WORK,
+    boundary, bounded_usize, decode_unit_domain, decode_weight_domain, export_native_wfst,
+    graph_budget_from_v2, map_error, required_mut, set_error, AbiScalarLabel, AbiScalarWeight,
+    ArcticWeight, BoolWeight, CountWeight, GraphBudget, LlingBudgetV2, LlingLlangStatus, LogWeight,
+    OwnedWfstResource, ProbabilityWeight, SignedTropicalWeight, TropicalWeight, LLING_BUDGET_ARCS,
+    LLING_BUDGET_BYTES, LLING_BUDGET_STATES, LLING_BUDGET_WORK,
 };
-use crate::multitape::{RuntimeMultiTapeError, RuntimeMultiTapeWfst};
+use crate::multitape::{RuntimeMultiTapeError, RuntimeMultiTapeLimits, RuntimeMultiTapeWfst};
 use crate::wfst::{StateId, NO_STATE};
 use std::hash::Hash;
 use vinary_tree_interop::{VtUnitDomain, VtWeightDomain};
@@ -74,6 +74,48 @@ struct ArcInfo {
     present: Vec<u8>,
 }
 
+fn charge_graph_copy<L, W>(
+    mut budget: GraphBudget,
+    states: usize,
+    arcs: usize,
+    tapes: usize,
+) -> Result<(), LlingLlangStatus>
+where
+    W: crate::semiring::Semiring,
+{
+    let state_bytes = states
+        .checked_mul(std::mem::size_of::<
+            crate::multitape::RuntimeMultiTapeState<L, W>,
+        >())
+        .ok_or(LlingLlangStatus::LimitExceeded)?;
+    let arc_bytes = tapes
+        .checked_mul(std::mem::size_of::<Option<L>>())
+        .and_then(|labels| {
+            labels.checked_add(std::mem::size_of::<
+                crate::multitape::RuntimeMultiTapeTransition<L, W>,
+            >())
+        })
+        .and_then(|arc| arc.checked_mul(arcs))
+        .ok_or(LlingLlangStatus::LimitExceeded)?;
+    let bytes = state_bytes
+        .checked_add(arc_bytes)
+        .and_then(|bytes| u64::try_from(bytes).ok())
+        .ok_or(LlingLlangStatus::LimitExceeded)?;
+    let work = arcs
+        .checked_mul(tapes)
+        .and_then(|units| units.checked_add(states))
+        .and_then(|units| u64::try_from(units).ok())
+        .ok_or(LlingLlangStatus::LimitExceeded)?;
+    budget
+        .charge(
+            u64::try_from(states).map_err(|_| LlingLlangStatus::LimitExceeded)?,
+            u64::try_from(arcs).map_err(|_| LlingLlangStatus::LimitExceeded)?,
+            bytes,
+            work,
+        )
+        .map_err(map_error)
+}
+
 trait MultiTapeOps: Send + Sync {
     fn num_tapes(&self) -> usize;
     fn num_states(&self) -> usize;
@@ -81,6 +123,30 @@ trait MultiTapeOps: Send + Sync {
     fn start(&self) -> Option<StateId>;
     fn state_info(&self, state: StateId) -> Result<StateInfo, LlingLlangStatus>;
     fn arc_info(&self, state: StateId, index: usize) -> Result<ArcInfo, LlingLlangStatus>;
+    fn transduce(
+        &self,
+        labels: &[u64],
+        present: &[u8],
+        budget: GraphBudget,
+        max_work: u64,
+    ) -> Result<Option<f64>, LlingLlangStatus>;
+    fn project(
+        &self,
+        tape: usize,
+        budget: GraphBudget,
+    ) -> Result<OwnedWfstResource, LlingLlangStatus>;
+    fn project_tapes(
+        &self,
+        tapes: &[usize],
+        budget: GraphBudget,
+    ) -> Result<Box<dyn MultiTapeOps>, LlingLlangStatus>;
+    fn max_delay(&self, max_work: u64) -> Result<Option<usize>, LlingLlangStatus>;
+    fn synchronize(
+        &self,
+        max_delay: usize,
+        allow_epsilon: bool,
+        limits: RuntimeMultiTapeLimits,
+    ) -> Result<Box<dyn MultiTapeOps>, LlingLlangStatus>;
 }
 
 struct TypedGraph<L, W>
@@ -155,6 +221,110 @@ where
                 .map(|label| u8::from(label.is_some()))
                 .collect(),
         })
+    }
+
+    fn transduce(
+        &self,
+        labels: &[u64],
+        present: &[u8],
+        mut budget: GraphBudget,
+        max_work: u64,
+    ) -> Result<Option<f64>, LlingLlangStatus> {
+        let units = u64::try_from(labels.len()).map_err(|_| LlingLlangStatus::LimitExceeded)?;
+        let bytes = labels
+            .len()
+            .checked_mul(std::mem::size_of::<Option<L>>())
+            .and_then(|size| u64::try_from(size).ok())
+            .ok_or(LlingLlangStatus::LimitExceeded)?;
+        budget.charge(0, 0, bytes, units).map_err(map_error)?;
+        let remaining_work = max_work.checked_sub(units).ok_or_else(|| {
+            set_error("input decoding exhausts the multi-tape work bound");
+            LlingLlangStatus::LimitExceeded
+        })?;
+        let mut input = Vec::with_capacity(labels.len() / self.graph.num_tapes());
+        for (raw_labels, raw_present) in labels
+            .chunks_exact(self.graph.num_tapes())
+            .zip(present.chunks_exact(self.graph.num_tapes()))
+        {
+            let tuple = raw_labels
+                .iter()
+                .zip(raw_present)
+                .map(|(&value, &present)| match present {
+                    0 => Ok(None),
+                    1 => L::decode(value).map(Some).ok_or_else(|| {
+                        set_error("input label is outside the selected unit domain");
+                        LlingLlangStatus::InvalidArgument
+                    }),
+                    _ => {
+                        set_error("input label presence must be zero or one");
+                        Err(LlingLlangStatus::InvalidArgument)
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            input.push(tuple);
+        }
+        self.graph
+            .transduce(&input, remaining_work)
+            .map_err(map_multitape_error)?
+            .map(|weight| {
+                weight.encode().ok_or_else(|| {
+                    set_error("path weight is not exactly representable by the scalar ABI");
+                    LlingLlangStatus::LimitExceeded
+                })
+            })
+            .transpose()
+    }
+
+    fn project(
+        &self,
+        tape: usize,
+        budget: GraphBudget,
+    ) -> Result<OwnedWfstResource, LlingLlangStatus> {
+        charge_graph_copy::<L, W>(
+            budget,
+            self.graph.num_states(),
+            self.graph.num_transitions(),
+            1,
+        )?;
+        let graph = self.graph.project(tape).map_err(map_multitape_error)?;
+        export_native_wfst(&graph).map_err(map_error)
+    }
+
+    fn project_tapes(
+        &self,
+        tapes: &[usize],
+        budget: GraphBudget,
+    ) -> Result<Box<dyn MultiTapeOps>, LlingLlangStatus> {
+        charge_graph_copy::<L, W>(
+            budget,
+            self.graph.num_states(),
+            self.graph.num_transitions(),
+            tapes.len(),
+        )?;
+        let graph = self
+            .graph
+            .project_tapes(tapes)
+            .map_err(map_multitape_error)?;
+        Ok(Box::new(Self { graph }))
+    }
+
+    fn max_delay(&self, max_work: u64) -> Result<Option<usize>, LlingLlangStatus> {
+        self.graph
+            .compute_max_delay(max_work)
+            .map_err(map_multitape_error)
+    }
+
+    fn synchronize(
+        &self,
+        max_delay: usize,
+        allow_epsilon: bool,
+        limits: RuntimeMultiTapeLimits,
+    ) -> Result<Box<dyn MultiTapeOps>, LlingLlangStatus> {
+        let graph = self
+            .graph
+            .synchronize(max_delay, allow_epsilon, limits)
+            .map_err(map_multitape_error)?;
+        Ok(Box::new(Self { graph }))
     }
 }
 
@@ -491,6 +661,213 @@ pub unsafe extern "C" fn lling_multitape_arc(
         }
         *to = arc.to;
         *weight = arc.weight;
+        Ok(())
+    })
+}
+
+/// Return the first accepting path weight for a sequence of tape tuples.
+///
+/// Pure epsilon arcs may be traversed without consuming an input tuple. All
+/// four budget axes must be finite; work includes input decoding and native
+/// search. Outputs remain unchanged on error.
+///
+/// # Safety
+///
+/// `graph` must remain open. For nonzero `num_steps`, `labels` and `present`
+/// must each contain `num_steps * graph.num_tapes` readable elements.
+/// `budget` must be readable and result pointers must be writable, mutually
+/// nonoverlapping, and separate from all inputs.
+#[no_mangle]
+pub unsafe extern "C" fn lling_multitape_transduce(
+    graph: *const LlingMultitape,
+    labels: *const u64,
+    present: *const u8,
+    num_steps: u64,
+    budget: *const LlingBudgetV2,
+    out_accepted: *mut u8,
+    out_weight: *mut f64,
+) -> LlingLlangStatus {
+    boundary(|| {
+        let accepted = required_mut(out_accepted, "out_accepted")?;
+        let weight = required_mut(out_weight, "out_weight")?;
+        if graph.is_null() {
+            set_error("graph is null");
+            return Err(LlingLlangStatus::NullPointer);
+        }
+        let graph = unsafe { &*graph };
+        let steps = bounded_usize(num_steps, "num_steps")?;
+        let count = steps.checked_mul(graph.inner.num_tapes()).ok_or_else(|| {
+            set_error("flat input label count overflows native size");
+            LlingLlangStatus::LimitExceeded
+        })?;
+        checked_slice_len::<u64>(count, "labels")?;
+        checked_slice_len::<u8>(count, "present")?;
+        if count != 0 && (labels.is_null() || present.is_null()) {
+            set_error("nonempty input label or presence array is null");
+            return Err(LlingLlangStatus::NullPointer);
+        }
+        let (budget, raw_budget) = finite_budget(budget)?;
+        let labels = if count == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(labels, count) }
+        };
+        let present = if count == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(present, count) }
+        };
+        let result = graph
+            .inner
+            .transduce(labels, present, budget, raw_budget.max_work)?;
+        *accepted = u8::from(result.is_some());
+        *weight = result.unwrap_or(0.0);
+        Ok(())
+    })
+}
+
+/// Project one zero-based tape to a scalar WFST under a finite budget.
+///
+/// # Safety
+///
+/// `graph` must remain open, `budget` readable, and `out_wfst` writable and
+/// separate from both inputs.
+#[no_mangle]
+pub unsafe extern "C" fn lling_multitape_project(
+    graph: *const LlingMultitape,
+    tape: u64,
+    budget: *const LlingBudgetV2,
+    out_wfst: *mut *mut super::LlingWfst,
+) -> LlingLlangStatus {
+    boundary(|| {
+        let output = required_mut(out_wfst, "out_wfst")?;
+        if graph.is_null() {
+            set_error("graph is null");
+            return Err(LlingLlangStatus::NullPointer);
+        }
+        let tape = bounded_usize(tape, "tape")?;
+        let (budget, _) = finite_budget(budget)?;
+        let resource = unsafe { &*graph }.inner.project(tape, budget)?;
+        *output = Box::into_raw(Box::new(super::LlingWfst { resource }));
+        Ok(())
+    })
+}
+
+/// Project an ordered, nonempty selection of zero-based tapes.
+///
+/// Repeated tape indices are allowed. The result is a new immutable graph.
+///
+/// # Safety
+///
+/// `graph` must remain open. `tapes` must contain `num_tapes` readable values
+/// when nonempty; `budget` must be readable and `out_graph` writable and
+/// separate from all inputs.
+#[no_mangle]
+pub unsafe extern "C" fn lling_multitape_project_tapes(
+    graph: *const LlingMultitape,
+    tapes: *const u64,
+    num_tapes: u64,
+    budget: *const LlingBudgetV2,
+    out_graph: *mut *mut LlingMultitape,
+) -> LlingLlangStatus {
+    boundary(|| {
+        let output = required_mut(out_graph, "out_graph")?;
+        if graph.is_null() {
+            set_error("graph is null");
+            return Err(LlingLlangStatus::NullPointer);
+        }
+        let count = bounded_usize(num_tapes, "num_tapes")?;
+        checked_slice_len::<u64>(count, "tapes")?;
+        if count != 0 && tapes.is_null() {
+            set_error("nonempty tape index array is null");
+            return Err(LlingLlangStatus::NullPointer);
+        }
+        let (budget, _) = finite_budget(budget)?;
+        let tapes = if count == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(tapes, count) }
+        };
+        let indices = tapes
+            .iter()
+            .map(|&tape| bounded_usize(tape, "tape"))
+            .collect::<Result<Vec<_>, _>>()?;
+        let inner = unsafe { &*graph }.inner.project_tapes(&indices, budget)?;
+        *output = Box::into_raw(Box::new(LlingMultitape { inner }));
+        Ok(())
+    })
+}
+
+/// Analyze the exact maximum reachable pairwise tape delay.
+///
+/// `out_bounded` is zero for unbounded delay or an unrepresentable finite
+/// result. `max_work` bounds pair-projection work.
+///
+/// # Safety
+///
+/// `graph` must remain open. Outputs must be writable, nonoverlapping, and
+/// separate from the graph.
+#[no_mangle]
+pub unsafe extern "C" fn lling_multitape_max_delay(
+    graph: *const LlingMultitape,
+    max_work: u64,
+    out_bounded: *mut u8,
+    out_delay: *mut u64,
+) -> LlingLlangStatus {
+    boundary(|| {
+        let bounded = required_mut(out_bounded, "out_bounded")?;
+        let delay = required_mut(out_delay, "out_delay")?;
+        if graph.is_null() {
+            set_error("graph is null");
+            return Err(LlingLlangStatus::NullPointer);
+        }
+        let result = unsafe { &*graph }.inner.max_delay(max_work)?;
+        let encoded = result.map(u64::try_from).transpose().map_err(|_| {
+            set_error("delay exceeds the ABI u64 representation");
+            LlingLlangStatus::LimitExceeded
+        })?;
+        *bounded = u8::from(encoded.is_some());
+        *delay = encoded.unwrap_or(0);
+        Ok(())
+    })
+}
+
+/// Materialize the bounded-delay subgraph under four finite output limits.
+///
+/// # Safety
+///
+/// `graph` must remain open, `budget` readable, and `out_graph` writable and
+/// separate from both inputs.
+#[no_mangle]
+pub unsafe extern "C" fn lling_multitape_synchronize(
+    graph: *const LlingMultitape,
+    max_delay: u64,
+    allow_epsilon: u8,
+    budget: *const LlingBudgetV2,
+    out_graph: *mut *mut LlingMultitape,
+) -> LlingLlangStatus {
+    boundary(|| {
+        let output = required_mut(out_graph, "out_graph")?;
+        if graph.is_null() {
+            set_error("graph is null");
+            return Err(LlingLlangStatus::NullPointer);
+        }
+        if allow_epsilon > 1 {
+            set_error("allow_epsilon must be zero or one");
+            return Err(LlingLlangStatus::InvalidArgument);
+        }
+        let max_delay = bounded_usize(max_delay, "max_delay")?;
+        let (_, raw) = finite_budget(budget)?;
+        let limits = RuntimeMultiTapeLimits {
+            max_states: bounded_usize(raw.max_states, "max_states")?,
+            max_arcs: bounded_usize(raw.max_arcs, "max_arcs")?,
+            max_bytes: raw.max_bytes,
+            max_work: raw.max_work,
+        };
+        let inner = unsafe { &*graph }
+            .inner
+            .synchronize(max_delay, allow_epsilon == 1, limits)?;
+        *output = Box::into_raw(Box::new(LlingMultitape { inner }));
         Ok(())
     })
 }

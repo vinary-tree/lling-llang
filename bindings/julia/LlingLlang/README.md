@@ -125,6 +125,14 @@ graph = build!(builder)
 @assert multitape_state(graph, finish).final_weight == one(TropicalWeight)
 @assert only(collect(multitape_arcs(graph, start))).labels ==
     ['a', nothing, 'z']
+@assert multitape_transduce(graph, [['a', nothing, 'z']]) ==
+    one(TropicalWeight)
+@assert multitape_max_delay(graph) == UInt64(1)
+projected = multitape_project(graph, 1) # Julia tape indices are one-based
+close(projected)
+bounded = multitape_synchronize(graph, 0)
+@assert multitape_info(bounded).num_arcs == 0
+close(bounded)
 close(graph)
 ```
 
@@ -133,6 +141,15 @@ the complete arc set. The builder copies caller label vectors when arcs are
 added; the native graph copies the complete builder snapshot at `build!`.
 Closed builders and graphs reject later operations. The default constructor
 budget is finite and can be adjusted with `budget=BudgetV2(...)`.
+`multitape_transduce` follows the native first-accepting-path semantics over
+a sequence of full tape-label tuples; `multitape_accepts` reports whether a
+path exists. `multitape_project` returns a scalar `Wfst`, while
+`multitape_project_tapes` returns another immutable multi-tape snapshot in
+the requested tape order. Tape indices in these Julia methods are one-based.
+`multitape_max_delay` returns `nothing` for an unbounded delay, and
+`multitape_synchronize` materializes the bounded-delay subgraph. Projection,
+transduction, and synchronization require finite four-axis budgets; the
+exact delay query takes a finite `max_work` limit.
 
 ## Incremental weighted pushdown decoding
 

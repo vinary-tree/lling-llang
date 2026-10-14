@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 17
+API_REVISION = 18
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -788,6 +788,56 @@ _bind(
         ctypes.POINTER(ctypes.c_uint64),
         ctypes.POINTER(ctypes.c_uint8),
         ctypes.c_size_t,
+    ],
+)
+_bind(
+    "lling_multitape_transduce",
+    [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint64),
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.c_uint64,
+        ctypes.POINTER(Budget),
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.POINTER(ctypes.c_double),
+    ],
+)
+_bind(
+    "lling_multitape_project",
+    [
+        ctypes.c_void_p,
+        ctypes.c_uint64,
+        ctypes.POINTER(Budget),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_multitape_project_tapes",
+    [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint64),
+        ctypes.c_uint64,
+        ctypes.POINTER(Budget),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_multitape_max_delay",
+    [
+        ctypes.c_void_p,
+        ctypes.c_uint64,
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.POINTER(ctypes.c_uint64),
+    ],
+)
+_bind(
+    "lling_multitape_synchronize",
+    [
+        ctypes.c_void_p,
+        ctypes.c_uint64,
+        ctypes.c_uint8,
+        ctypes.POINTER(Budget),
+        ctypes.POINTER(ctypes.c_void_p),
     ],
 )
 _bind("lling_multitape_free", [ctypes.c_void_p], None)

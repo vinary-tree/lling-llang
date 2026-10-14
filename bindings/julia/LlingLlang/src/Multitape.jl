@@ -265,3 +265,128 @@ function multitape_arcs(graph::MultiTapeWfst, state::Integer)
     info = multitape_state(graph, state)
     MultiTapeArcIterator(graph, info.id, info.arc_count)
 end
+
+function adopt_multitape(handle::Ptr{Cvoid}, ::Type{L}, ::Type{W},
+    num_tapes::Int, symbols) where {L,W<:AbstractScalarWeight}
+    try
+        frozen = Union{Nothing,SymbolTable}[frozen_copy(table) for table in symbols]
+        graph = MultiTapeWfst{L,W}(handle, false, num_tapes, frozen)
+        finalizer(finalize_close, graph)
+        graph
+    catch
+        ccall(native(:lling_multitape_free), Cvoid, (Ptr{Cvoid},), handle)
+        rethrow()
+    end
+end
+
+const DEFAULT_MULTITAPE_BUDGET = BudgetV2(max_states=10_000,
+    max_arcs=100_000, max_bytes=64_000_000, max_work=1_000_000)
+
+"""Return the first accepted native path weight, or `nothing`."""
+function multitape_transduce(graph::MultiTapeWfst{L,W}, input::AbstractVector;
+    budget::BudgetV2=DEFAULT_MULTITAPE_BUDGET) where {L,W}
+    mt_handle(graph)
+    length(input) <= typemax(Int) ÷ graph.num_tapes || throw(ArgumentError(
+        "flat multi-tape input size overflows native size"))
+    labels = Vector{UInt64}(undef, length(input) * graph.num_tapes)
+    present = Vector{UInt8}(undef, length(labels))
+    for (step, tuple) in enumerate(input)
+        length(tuple) == graph.num_tapes || throw(ArgumentError(
+            "input tuple arity must equal the tape count"))
+        for tape in 1:graph.num_tapes
+            index = (step - 1) * graph.num_tapes + tape
+            labels[index], present[index] = wire_label(L, tuple[tape],
+                graph.symbols[tape])
+        end
+    end
+    accepted = Ref{UInt8}(0)
+    weight = Ref{Float64}(0)
+    GC.@preserve labels present begin
+        checked(ccall(native(:lling_multitape_transduce), UInt32,
+            (Ptr{Cvoid}, Ptr{UInt64}, Ptr{UInt8}, UInt64,
+                Ref{BudgetV2}, Ref{UInt8}, Ref{Float64}),
+            graph.handle, labels, present, UInt64(length(input)),
+            Ref(budget), accepted, weight), :multitape_transduce)
+    end
+    accepted[] == 0 ? nothing : decode_weight(W, weight[])
+end
+
+"""Whether the native multi-tape graph accepts a sequence of label tuples."""
+multitape_accepts(graph::MultiTapeWfst, input::AbstractVector; kwargs...) =
+    !isnothing(multitape_transduce(graph, input; kwargs...))
+
+"""Project one Julia one-based tape to an ordinary scalar WFST."""
+function multitape_project(graph::MultiTapeWfst{L,W}, tape::Integer;
+    budget::BudgetV2=DEFAULT_MULTITAPE_BUDGET) where {L,W}
+    mt_handle(graph)
+    1 <= tape <= graph.num_tapes || throw(ArgumentError(
+        "tape index must be in 1:$(graph.num_tapes)"))
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    checked(ccall(native(:lling_multitape_project), UInt32,
+        (Ptr{Cvoid}, UInt64, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+        graph.handle, UInt64(tape - 1), Ref(budget), output),
+        :multitape_project)
+    table = graph.symbols[Int(tape)]
+    adopt_native_wfst(output[], L, W;
+        input_symbols=table, output_symbols=table)
+end
+
+"""Project an ordered nonempty selection of Julia one-based tapes."""
+function multitape_project_tapes(graph::MultiTapeWfst{L,W}, tapes::AbstractVector{<:Integer};
+    budget::BudgetV2=DEFAULT_MULTITAPE_BUDGET) where {L,W}
+    mt_handle(graph)
+    isempty(tapes) && throw(ArgumentError("tape selection cannot be empty"))
+    raw = Vector{UInt64}(undef, length(tapes))
+    for (index, tape) in enumerate(tapes)
+        1 <= tape <= graph.num_tapes || throw(ArgumentError(
+            "tape index must be in 1:$(graph.num_tapes)"))
+        raw[index] = UInt64(tape - 1)
+    end
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    GC.@preserve raw begin
+        checked(ccall(native(:lling_multitape_project_tapes), UInt32,
+            (Ptr{Cvoid}, Ptr{UInt64}, UInt64, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+            graph.handle, raw, UInt64(length(raw)), Ref(budget), output),
+            :multitape_project_tapes)
+    end
+    adopt_multitape(output[], L, W, length(raw),
+        [graph.symbols[Int(tape)] for tape in tapes])
+end
+
+"""Return the exact maximum pairwise delay, or `nothing` if unbounded."""
+function multitape_max_delay(graph::MultiTapeWfst;
+    max_work::Integer=1_000_000)
+    mt_handle(graph)
+    0 <= max_work <= typemax(UInt64) || throw(ArgumentError(
+        "max_work must fit UInt64"))
+    bounded = Ref{UInt8}(0)
+    delay = Ref{UInt64}(0)
+    checked(ccall(native(:lling_multitape_max_delay), UInt32,
+        (Ptr{Cvoid}, UInt64, Ref{UInt8}, Ref{UInt64}),
+        graph.handle, UInt64(max_work), bounded, delay),
+        :multitape_max_delay)
+    bounded[] == 0 ? nothing : delay[]
+end
+
+"""Whether every reachable path stays within a finite tape delay."""
+function multitape_has_bounded_delay(graph::MultiTapeWfst, max_delay::Integer;
+    max_work::Integer=1_000_000)
+    max_delay >= 0 || throw(ArgumentError("max_delay cannot be negative"))
+    maximum = multitape_max_delay(graph; max_work)
+    !isnothing(maximum) && maximum <= max_delay
+end
+
+"""Materialize the native bounded-delay subgraph under four finite limits."""
+function multitape_synchronize(graph::MultiTapeWfst{L,W}, max_delay::Integer;
+    allow_epsilon::Bool=true,
+    budget::BudgetV2=DEFAULT_MULTITAPE_BUDGET) where {L,W}
+    mt_handle(graph)
+    0 <= max_delay <= typemax(UInt64) || throw(ArgumentError(
+        "max_delay must fit UInt64"))
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    checked(ccall(native(:lling_multitape_synchronize), UInt32,
+        (Ptr{Cvoid}, UInt64, UInt8, Ref{BudgetV2}, Ref{Ptr{Cvoid}}),
+        graph.handle, UInt64(max_delay), UInt8(allow_epsilon),
+        Ref(budget), output), :multitape_synchronize)
+    adopt_multitape(output[], L, W, graph.num_tapes, graph.symbols)
+end
