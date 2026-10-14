@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 18u
+#define LLING_LLANG_API_REVISION 19u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -58,6 +58,8 @@ typedef struct LlingWfst LlingWfst;
 typedef struct LlingSubsequential LlingSubsequential;
 typedef struct LlingSubsequentialSession LlingSubsequentialSession;
 typedef struct LlingMultitape LlingMultitape;
+typedef struct LlingTreeTransducer LlingTreeTransducer;
+typedef struct LlingTreeResults LlingTreeResults;
 typedef struct LlingSemiring LlingSemiring;
 typedef struct LlingSemiringWeight LlingSemiringWeight;
 typedef struct LlingLatticeValue LlingLatticeValue;
@@ -75,6 +77,26 @@ typedef struct LlingCfgAnalysis LlingCfgAnalysis;
 typedef struct LlingPdaBuilder LlingPdaBuilder;
 typedef struct LlingPda LlingPda;
 typedef struct LlingPdaSession LlingPdaSession;
+
+/* Revision 19: ranked tree patterns and trees use preorder flat node arrays. */
+#define LLING_TREE_SYMBOL_NODE 0u
+#define LLING_TREE_VARIABLE_NODE 1u
+typedef struct LlingTreeNode {
+    uint64_t kind;
+    uint64_t symbol;
+    uint64_t arity;
+    uint64_t state;
+    uint64_t variable_index;
+} LlingTreeNode;
+
+typedef struct LlingTreeRule {
+    uint64_t state;
+    uint64_t input_symbol;
+    uint64_t input_arity;
+    uint64_t pattern_offset;
+    uint64_t pattern_len;
+    double weight;
+} LlingTreeRule;
 
 /* Revision 14: native weighted PDA construction and bounded decode. */
 #define LLING_PDA_POP 0u
@@ -673,6 +695,41 @@ LLING_LLANG_API LlingLlangStatus lling_multitape_synchronize(
     uint8_t allow_epsilon, const LlingBudgetV2* budget,
     LlingMultitape** out_graph);
 LLING_LLANG_API void lling_multitape_free(LlingMultitape* graph);
+/* The flat arrays are borrowed for capture; the immutable graph owns copies. */
+LLING_LLANG_API LlingLlangStatus lling_tree_new(
+    uint32_t unit_domain, uint32_t weight_domain,
+    uint64_t num_states, uint64_t start,
+    const uint8_t* final_flags, const double* final_weights,
+    const LlingTreeRule* rules, uint64_t num_rules,
+    const LlingTreeNode* patterns, uint64_t num_pattern_nodes,
+    const LlingBudgetV2* budget, LlingTreeTransducer** out_graph);
+LLING_LLANG_API LlingLlangStatus lling_tree_info(
+    const LlingTreeTransducer* graph, size_t* out_states,
+    size_t* out_rules, uint64_t* out_start);
+LLING_LLANG_API LlingLlangStatus lling_tree_state_info(
+    const LlingTreeTransducer* graph, uint64_t state,
+    uint8_t* out_final, double* out_weight);
+LLING_LLANG_API LlingLlangStatus lling_tree_rule_info(
+    const LlingTreeTransducer* graph, size_t index,
+    LlingTreeRule* out_rule);
+LLING_LLANG_API LlingLlangStatus lling_tree_rule_pattern_copy(
+    const LlingTreeTransducer* graph, size_t index,
+    LlingTreeNode* out_nodes, size_t capacity);
+/* All budget axes are finite; results own a bounded snapshot of outputs. */
+LLING_LLANG_API LlingLlangStatus lling_tree_transduce(
+    const LlingTreeTransducer* graph, const LlingTreeNode* input,
+    uint64_t num_nodes, uint64_t state, const LlingBudgetV2* budget,
+    LlingTreeResults** out_results);
+LLING_LLANG_API LlingLlangStatus lling_tree_results_info(
+    const LlingTreeResults* results, size_t* out_count);
+LLING_LLANG_API LlingLlangStatus lling_tree_result_info(
+    const LlingTreeResults* results, size_t index,
+    size_t* out_nodes, double* out_weight);
+LLING_LLANG_API LlingLlangStatus lling_tree_result_copy(
+    const LlingTreeResults* results, size_t index,
+    LlingTreeNode* out_nodes, size_t capacity);
+LLING_LLANG_API void lling_tree_free(LlingTreeTransducer* graph);
+LLING_LLANG_API void lling_tree_results_free(LlingTreeResults* results);
 LLING_LLANG_API void lling_resource_release(VtResource resource);
 LLING_LLANG_API LlingLlangStatus lling_abi_v2_validate_header(
     const LlingAbiV2Header* header, uint32_t required_size,

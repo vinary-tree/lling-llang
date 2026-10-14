@@ -151,6 +151,49 @@ the requested tape order. Tape indices in these Julia methods are one-based.
 transduction, and synchronization require finite four-axis budgets; the
 exact delay query takes a finite `max_work` limit.
 
+### Rewrite ranked trees
+
+`TreeTransducerBuilder{L,W}` captures native weighted tree rules. `Tree` holds
+an input or output tree, `TreePattern` describes a rule's output, and
+`TreeVariable(state, input_child)` selects an input child for recursive
+rewriting. Native state IDs are zero-based; `input_child` is one-based in
+Julia. Input and output symbols each have a consistent rank (child count).
+Rules may reorder, copy, delete, or embed fixed subtrees.
+
+```julia
+builder = TreeTransducerBuilder{Char,TropicalWeight}()
+state = add_state!(builder)
+set_start!(builder, state)
+add_rule!(builder, state, 'a', 0, TreePattern('a'))
+add_rule!(builder, state, 'b', 0, TreePattern('b'))
+add_rule!(builder, state, 'S', 2, TreePattern('T',
+    [TreeVariable(state, 2), TreeVariable(state, 1)]))
+transducer = build!(builder)
+
+@assert tree_info(transducer).num_rules == 3
+@assert length(collect(tree_rules(transducer))) == 3
+outputs = tree_transduce(transducer,
+    Tree('S', [Tree('a'), Tree('b')]))
+rewritten, weight = only(collect(outputs))
+@assert rewritten.label == 'T'
+@assert rewritten.children[1].label == 'b'
+@assert weight == one(TropicalWeight)
+close(transducer)
+close(outputs)
+```
+
+`build!` freezes the builder as an immutable native snapshot. `tree_rules`
+reads one rule and its pattern per iterator step. `tree_transduce` evaluates
+the native rules under finite limits and returns an owned result collection;
+iteration decodes one output tree at a time. The result collection remains
+valid after the transducer is closed and must be closed separately. Its
+`BudgetV2` axes bound alternatives, input and output nodes, logical payload
+bytes, and native work, respectively. Exhausting a limit raises `NativeError`
+without returning partial results. A caller may pass `state=` to start from a
+specific native state. `tree_state`, `tree_rule`, and `tree_result` read an
+individual state, rule, or one-based result index. This surface requires
+native API revision 19.
+
 ## Incremental weighted pushdown decoding
 
 A **pushdown automaton** (PDA) recognizes nested structures by keeping a stack

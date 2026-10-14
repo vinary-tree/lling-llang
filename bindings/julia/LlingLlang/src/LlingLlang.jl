@@ -62,6 +62,19 @@ export ABI_VERSION,
     multitape_max_delay,
     multitape_has_bounded_delay,
     multitape_synchronize,
+    Tree,
+    TreeVariable,
+    TreePattern,
+    TreeRule,
+    TreeTransducerBuilder,
+    TreeTransducer,
+    TreeResults,
+    tree_info,
+    tree_state,
+    tree_rule,
+    tree_rules,
+    tree_result,
+    tree_transduce,
     PathLimits,
     WfstPathStep,
     WfstPath,
@@ -132,6 +145,7 @@ export ABI_VERSION,
     set_final!,
     clear_final!,
     add_arc!,
+    add_rule!,
     build!,
     pda_domains,
     pda_session,
@@ -808,7 +822,8 @@ function wire_label(::Type{Char}, value::AbstractString, symbols)
     wire_label(Char, only(characters), symbols)
 end
 function wire_label(::Type{Char}, value::Integer, symbols)
-    value >= 0 || throw(ArgumentError("a Unicode WFST label cannot be negative"))
+    0 <= value <= typemax(UInt32) || throw(ArgumentError(
+        "a Unicode WFST label must fit UInt32"))
     scalar = UInt32(value)
     isvalid(Char, scalar) || throw(ArgumentError("label is not a Unicode scalar"))
     (UInt64(scalar), UInt8(1))
@@ -4057,6 +4072,7 @@ provider(implementation::AbstractWfstProvider; kwargs...) =
 include("Cfg.jl")
 include("Pda.jl")
 include("Multitape.jl")
+include("Tree.jl")
 
 function __init__()
     initialize_callbacks!()

@@ -248,6 +248,60 @@ end
     close(epsilon)
 end
 
+@testset "ranked native tree transducer snapshots and bounded results" begin
+    for L in (UInt8, Char, UInt64), (W, rule_weight, _) in WEIGHT_CASES
+        a, b, source, swapped, copied, deleted, fixed, constant =
+            L == Char ? ('a', 'b', 'S', 'T', 'C', 'D', 'F', 'K') :
+            (L(1), L(2), L(3), L(4), L(5), L(6), L(7), L(8))
+        builder = TreeTransducerBuilder{L,W}()
+        state = add_state!(builder)
+        set_start!(builder, state)
+        set_final!(builder, state)
+        if L == Char
+            @test_throws ArgumentError add_rule!(builder, state,
+                typemax(UInt64), 0, TreePattern(a))
+        end
+        add_rule!(builder, state, a, 0, TreePattern(a))
+        add_rule!(builder, state, b, 0, TreePattern(b))
+        add_rule!(builder, state, source, 2, TreePattern(swapped,
+            [TreeVariable(state, 2), TreeVariable(state, 1)]), rule_weight)
+        add_rule!(builder, state, source, 2, TreePattern(copied,
+            [TreeVariable(state, 1), TreeVariable(state, 1)]), rule_weight)
+        add_rule!(builder, state, source, 2,
+            TreePattern(deleted), rule_weight)
+        add_rule!(builder, state, source, 2, TreePattern(fixed,
+            [TreePattern(constant), TreeVariable(state, 2)]), rule_weight)
+        @test_throws ArgumentError add_rule!(builder, state, source, 2,
+            TreePattern(fixed, [TreeVariable(state, 3)]))
+        graph = build!(builder)
+        @test !isopen(builder)
+        @test tree_info(graph) ==
+            (num_states=1, num_rules=6, start=state)
+        @test tree_state(graph, state) == one(W)
+        rules = collect(tree_rules(graph))
+        @test length(rules) == 6
+        @test rules[3].input_symbol == source
+        @test rules[3].output_pattern.children[1].input_child == 2
+        input = Tree(source, [Tree(a), Tree(b)])
+        results = tree_transduce(graph, input)
+        @test length(results) == 4
+        @test tree_result(results, 1)[1].children[1].label == b
+        @test tree_result(results, 2)[1].children[2].label == a
+        @test isempty(tree_result(results, 3)[1].children)
+        @test tree_result(results, 4)[1].children[1].label == constant
+        @test all(pair[2] == rule_weight for pair in results)
+        @test_throws NativeError tree_transduce(graph,
+            Tree(source, [Tree(a)]))
+        @test_throws NativeError tree_transduce(graph, input;
+            budget=BudgetV2(max_states=1, max_arcs=100,
+                max_bytes=64_000, max_work=10_000))
+        close(graph)
+        @test tree_result(results, 1)[1].label == swapped
+        close(results)
+        @test_throws NativeError tree_result(results, 1)
+    end
+end
+
 @testset "bounded CFG analysis over a scalar WFST lattice" begin
     start = CfgNonterminal("S")
     a, b = CfgTerminal("a"), CfgTerminal("b")

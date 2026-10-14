@@ -46,7 +46,7 @@ pub use sample_path::*;
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_LLANG_API_REVISION: u32 = 18;
+pub const LLING_LLANG_API_REVISION: u32 = 19;
 
 fn bounded_usize(value: u64, name: &'static str) -> Result<usize, LlingLlangStatus> {
     usize::try_from(value).map_err(|_| {
@@ -1174,6 +1174,8 @@ mod subsequential;
 pub use subsequential::*;
 mod multitape;
 pub use multitape::*;
+mod tree;
+pub use tree::*;
 
 fn cfg_wfst_dispatch(
     unit: VtUnitDomain,
