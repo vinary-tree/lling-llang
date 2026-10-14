@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 15
+API_REVISION = 16
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -391,6 +391,45 @@ class LfMmiSummary(ctypes.Structure):
         ("denominator_log_prob", ctypes.c_double),
         ("xent_loss", ctypes.c_double),
     ]
+
+
+class LlmConfig(ctypes.Structure):
+    """Revision-16 bounded token decoder controls."""
+
+    _fields_ = [
+        ("version", ctypes.c_uint32),
+        ("reserved", ctypes.c_uint32),
+        ("beam_width", ctypes.c_size_t),
+        ("max_length", ctypes.c_size_t),
+        ("max_candidates_per_step", ctypes.c_size_t),
+        ("max_vocabulary", ctypes.c_size_t),
+        ("temperature", ctypes.c_double),
+        ("length_penalty", ctypes.c_double),
+    ]
+
+
+class LlmStats(ctypes.Structure):
+    """Revision-16 committed decoder work counters."""
+
+    _fields_ = [
+        ("steps", ctypes.c_uint64),
+        ("score_calls", ctypes.c_uint64),
+        ("considered_tokens", ctypes.c_uint64),
+        ("candidates", ctypes.c_uint64),
+        ("hypotheses", ctypes.c_size_t),
+        ("finished", ctypes.c_uint8),
+        ("reserved", ctypes.c_uint8 * 7),
+    ]
+
+
+LlmScoreCallback = ctypes.CFUNCTYPE(
+    ctypes.c_uint32,
+    ctypes.c_void_p,
+    ctypes.POINTER(ctypes.c_uint32),
+    ctypes.c_size_t,
+    ctypes.POINTER(ctypes.c_double),
+    ctypes.c_size_t,
+)
 
 
 class ArcGradient(ctypes.Structure):
@@ -1270,6 +1309,47 @@ _bind(
     "lling_lattice_validate_laws",
     [ctypes.POINTER(ctypes.c_void_p), ctypes.c_size_t],
 )
+
+_bind(
+    "lling_llm_session_open_wfst",
+    [
+        ctypes.POINTER(VtResource),
+        ctypes.c_size_t,
+        ctypes.POINTER(LlmConfig),
+        ctypes.POINTER(Budget),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_llm_session_step",
+    [
+        ctypes.c_void_p,
+        LlmScoreCallback,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint32),
+    ],
+)
+_bind(
+    "lling_llm_session_cancellation",
+    [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind("lling_llm_cancellation_request", [ctypes.c_void_p])
+_bind("lling_llm_cancellation_free", [ctypes.c_void_p], None)
+_bind("lling_llm_session_stats", [ctypes.c_void_p, ctypes.POINTER(LlmStats)])
+_bind(
+    "lling_llm_session_hypothesis",
+    [
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.POINTER(ctypes.c_uint8),
+    ],
+)
+_bind("lling_llm_session_free", [ctypes.c_void_p], None)
 
 _bind(
     "lling_abi_v2_validate_header",

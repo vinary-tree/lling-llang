@@ -30,6 +30,10 @@ pub type TokenId = u32;
 /// `TokenMask`), Task #22 §4-C.1.
 pub mod symbolic_decoder;
 pub use symbolic_decoder::SymbolicConstrainedDecoder;
+mod session;
+pub use session::{
+    BeamSearchConfig, BeamSearchError, BeamSearchStats, BeamStep, ConstrainedBeamSession,
+};
 
 /// Bit vector for efficient token masking.
 #[derive(Debug, Clone)]

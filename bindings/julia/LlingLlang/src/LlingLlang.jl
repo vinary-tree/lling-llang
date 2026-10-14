@@ -91,6 +91,20 @@ export ABI_VERSION,
     gradient_page,
     gradient_pages,
     log_gradients,
+    LlmConfig,
+    LlmSession,
+    LlmHypothesis,
+    LlmStats,
+    LlmStep,
+    LLM_ADVANCED,
+    LLM_COMPLETE,
+    LLM_EXHAUSTED,
+    LLM_CANCELLED,
+    llm_session,
+    llm_step!,
+    llm_hypotheses,
+    llm_stats,
+    cancel!,
     ProviderArc,
     ProviderState,
     AbstractWfstProvider,
@@ -3856,10 +3870,12 @@ provider(implementation::AbstractWfstProvider; kwargs...) =
 include("Cfg.jl")
 include("Pda.jl")
 include("Training.jl")
+include("Llm.jl")
 
 function __init__()
     initialize_callbacks!()
     initialize_semiring_callbacks!()
+    initialize_llm_callback!()
     abi_version() == ABI_VERSION || error(
         "lling-llang ABI $(abi_version()) does not match Julia facade $ABI_VERSION")
     api_revision() >= API_REVISION || error(

@@ -174,7 +174,7 @@
   },
   "packageVersion": "4.0.0-rc.6",
   "abiVersion": 1,
-  "apiRevision": 15,
+  "apiRevision": 16,
   "cPrefix": "lling_",
   "headers": {
     "c": "include/lling_llang.h",
@@ -4712,6 +4712,382 @@
       "raku": {
         "bind": false,
         "reason": "Raku CTC training and acoustic parity is a separate approved binding task"
+      }
+    },
+    {
+      "name": "lling_llm_session_open_wfst",
+      "rustModule": "ffi",
+      "rakuName": "lling-llm-session-open-wfst",
+      "sinceApiRevision": 16,
+      "threading": "caller-synchronized-mutable-handle",
+      "capability": "bounded-native-llm-decoding",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "resource",
+          "cType": "const VtResource*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "vocab_size",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "config",
+          "cType": "const LlingLlmConfig*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "budget",
+          "cType": "const LlingBudgetV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_session",
+          "cType": "LlingLlmSession**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "Raku correction and LLM decoder facade has a separate approved binding parity task"
+      }
+    },
+    {
+      "name": "lling_llm_session_step",
+      "rustModule": "ffi",
+      "rakuName": "lling-llm-session-step",
+      "sinceApiRevision": 16,
+      "threading": "caller-synchronized-mutable-handle",
+      "capability": "bounded-native-llm-decoding",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "session",
+          "cType": "LlingLlmSession*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "inout",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "callback",
+          "cType": "LlingLlmScoreCallback",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "context",
+          "cType": "void*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "nullable"
+        },
+        {
+          "name": "out_step",
+          "cType": "uint32_t*",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "Raku correction and LLM decoder facade has a separate approved binding parity task"
+      }
+    },
+    {
+      "name": "lling_llm_session_cancellation",
+      "rustModule": "ffi",
+      "rakuName": "lling-llm-session-cancellation",
+      "sinceApiRevision": 16,
+      "threading": "caller-synchronized-mutable-handle",
+      "capability": "bounded-native-llm-decoding",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "session",
+          "cType": "const LlingLlmSession*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_cancellation",
+          "cType": "LlingLlmCancellation**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "owned-output-on-success",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "Raku correction and LLM decoder facade has a separate approved binding parity task"
+      }
+    },
+    {
+      "name": "lling_llm_cancellation_request",
+      "rustModule": "ffi",
+      "rakuName": "lling-llm-cancellation-request",
+      "sinceApiRevision": 16,
+      "threading": "concurrent-atomic",
+      "capability": "bounded-native-llm-decoding",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "cancellation",
+          "cType": "const LlingLlmCancellation*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "Raku correction and LLM decoder facade has a separate approved binding parity task"
+      }
+    },
+    {
+      "name": "lling_llm_cancellation_free",
+      "rustModule": "ffi",
+      "rakuName": "lling-llm-cancellation-free",
+      "sinceApiRevision": 16,
+      "threading": "exclusive-owner-close",
+      "capability": "bounded-native-llm-decoding",
+      "return": {
+        "cType": "void",
+        "rakuType": null,
+        "ownership": "none",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "cancellation",
+          "cType": "LlingLlmCancellation*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "owned-handle-consumed",
+          "nullability": "nullable"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "Raku correction and LLM decoder facade has a separate approved binding parity task"
+      }
+    },
+    {
+      "name": "lling_llm_session_stats",
+      "rustModule": "ffi",
+      "rakuName": "lling-llm-session-stats",
+      "sinceApiRevision": 16,
+      "threading": "caller-synchronized-read",
+      "capability": "bounded-native-llm-decoding",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "session",
+          "cType": "const LlingLlmSession*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_stats",
+          "cType": "LlingLlmStats*",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "Raku correction and LLM decoder facade has a separate approved binding parity task"
+      }
+    },
+    {
+      "name": "lling_llm_session_hypothesis",
+      "rustModule": "ffi",
+      "rakuName": "lling-llm-session-hypothesis",
+      "sinceApiRevision": 16,
+      "threading": "caller-synchronized-read",
+      "capability": "bounded-native-llm-decoding",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "session",
+          "cType": "const LlingLlmSession*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "index",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_tokens",
+          "cType": "uint32_t*",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-buffer",
+          "nullability": "nullable"
+        },
+        {
+          "name": "capacity",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_written",
+          "cType": "size_t*",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_required",
+          "cType": "size_t*",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_score",
+          "cType": "double*",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_accepting",
+          "cType": "uint8_t*",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "Raku correction and LLM decoder facade has a separate approved binding parity task"
+      }
+    },
+    {
+      "name": "lling_llm_session_free",
+      "rustModule": "ffi",
+      "rakuName": "lling-llm-session-free",
+      "sinceApiRevision": 16,
+      "threading": "exclusive-owner-close",
+      "capability": "bounded-native-llm-decoding",
+      "return": {
+        "cType": "void",
+        "rakuType": null,
+        "ownership": "none",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "session",
+          "cType": "LlingLlmSession*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "owned-handle-consumed",
+          "nullability": "nullable"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "Raku correction and LLM decoder facade has a separate approved binding parity task"
       }
     }
   ],

@@ -16,6 +16,48 @@ Julia code may also implement the weight algebra itself. The native engine
 consumes that algebra through a retained, capability-negotiated semiring
 resource without requiring the weight type to be `isbits` or `Copy`.
 
+## Constrained language-model decoding
+
+`llm_session` captures a `UInt64`/`TropicalWeight` token acceptor as an owned,
+native decoder. Its arc labels are zero-based vocabulary IDs; each arc must
+read and write the same ID, and each state can have only one outgoing arc per
+ID. The native boundary imports the graph under a `BudgetV2` and rejects
+epsilon arcs, out-of-range IDs, and nondeterministic transitions. The source
+graph can be closed after the session is created. Arc weights do not alter
+model scores: this API uses the graph to constrain legal tokens.
+
+```julia
+using LlingLlang
+
+builder = WfstBuilder{UInt64,TropicalWeight}(size_hint=3)
+root, middle, finish = (add_state!(builder) for _ in 1:3)
+set_start!(builder, root)
+set_final!(builder, finish, TropicalWeight(0))
+add_arc!(builder, root, UInt64(0), UInt64(0), middle, TropicalWeight(0))
+add_arc!(builder, middle, UInt64(1), UInt64(1), finish, TropicalWeight(0))
+constraint = build!(builder)
+
+decoder = llm_session(constraint; vocab_size=2,
+    config=LlmConfig(beam_width=4, max_length=8))
+close(constraint)
+scorer(prefix) = isempty(prefix) ? [0.0, -Inf] : [-Inf, -0.25]
+@assert llm_step!(decoder, scorer) == LLM_ADVANCED
+@assert llm_step!(decoder, scorer) == LLM_COMPLETE
+@assert only(llm_hypotheses(decoder)).tokens == UInt32[0, 1]
+@assert llm_stats(decoder).steps == 2
+close(decoder)
+```
+
+The scorer receives a copied prefix and returns one dense log score per
+vocabulary token. `-Inf` disables a token. `llm_step!` publishes a new beam
+only after every callback and limit check succeeds; a Julia callback exception
+is rethrown with the previous beam intact. `llm_hypotheses` copies each
+partial result and marks accepting paths. `LlmConfig` bounds beam width,
+length, vocabulary, and expansions per step, and controls temperature and
+length penalty. `cancel!(decoder)` uses an independently owned atomic token;
+the caller must keep the decoder open until a concurrent step returns. Read
+statistics and hypotheses after a step, never concurrently with it.
+
 The [published development guide and API reference](https://vinary-tree.github.io/lling-llang/dev/)
 documents the current source; it is not a claim that RC.6 is registered.
 

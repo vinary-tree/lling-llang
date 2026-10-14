@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 15u
+#define LLING_LLANG_API_REVISION 16u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -73,6 +73,37 @@ typedef struct LlingPdaBuilder LlingPdaBuilder;
 typedef struct LlingPda LlingPda;
 typedef struct LlingPdaSession LlingPdaSession;
 typedef struct LlingGradientCursor LlingGradientCursor;
+typedef struct LlingLlmSession LlingLlmSession;
+typedef struct LlingLlmCancellation LlingLlmCancellation;
+
+/* Revision 16: bounded, resumable token-WFST constrained decoding. */
+typedef struct LlingLlmConfig {
+    uint32_t version; /* Must be one. */
+    uint32_t reserved; /* Must be zero. */
+    size_t beam_width;
+    size_t max_length;
+    size_t max_candidates_per_step;
+    size_t max_vocabulary;
+    double temperature;
+    double length_penalty;
+} LlingLlmConfig;
+
+typedef struct LlingLlmStats {
+    uint64_t steps;
+    uint64_t score_calls;
+    uint64_t considered_tokens;
+    uint64_t candidates;
+    size_t hypotheses;
+    uint8_t finished;
+    uint8_t reserved[7];
+} LlingLlmStats;
+
+/* The callback fills a dense vocabulary score buffer initialized to -infinity.
+ * Its borrowed prefix and score buffer are valid only during the callback.
+ * Zero indicates success; any other code reports a model failure. */
+typedef uint32_t (*LlingLlmScoreCallback)(
+    void* context, const uint32_t* prefix, size_t prefix_count,
+    double* out_scores, size_t score_count);
 
 typedef struct LlingArcGradient {
     uint32_t from;
@@ -855,6 +886,34 @@ LLING_LLANG_API void lling_log_gradients_free(LlingGradientCursor* cursor);
 LLING_LLANG_API LlingLlangStatus lling_ctc_topology(
     uint32_t variant, size_t vocab_size, const LlingBudgetV2* budget,
     const LlingCancellationV2* cancellation, LlingWfst** out_wfst);
+
+/* The token acceptor is imported and validated under the supplied budget.
+ * Sessions are exclusive and retain their own graph after provider release. */
+LLING_LLANG_API LlingLlangStatus lling_llm_session_open_wfst(
+    const VtResource* resource, size_t vocab_size,
+    const LlingLlmConfig* config, const LlingBudgetV2* budget,
+    LlingLlmSession** out_session);
+/* out_step: 0 advanced, 1 complete, 2 exhausted, 3 cancelled. */
+LLING_LLANG_API LlingLlangStatus lling_llm_session_step(
+    LlingLlmSession* session, LlingLlmScoreCallback callback,
+    void* context, uint32_t* out_step);
+/* Obtain before a concurrent step. Only the independent token may be used
+ * concurrently with that step; callers synchronize stats and hypothesis reads. */
+LLING_LLANG_API LlingLlangStatus lling_llm_session_cancellation(
+    const LlingLlmSession* session, LlingLlmCancellation** out_cancellation);
+LLING_LLANG_API LlingLlangStatus lling_llm_cancellation_request(
+    const LlingLlmCancellation* cancellation);
+LLING_LLANG_API void lling_llm_cancellation_free(
+    LlingLlmCancellation* cancellation);
+LLING_LLANG_API LlingLlangStatus lling_llm_session_stats(
+    const LlingLlmSession* session, LlingLlmStats* out_stats);
+/* A zero token capacity queries the exact required count. The caller owns the
+ * copied tokens. Reads must be synchronized with step and free. */
+LLING_LLANG_API LlingLlangStatus lling_llm_session_hypothesis(
+    const LlingLlmSession* session, size_t index,
+    uint32_t* out_tokens, size_t capacity, size_t* out_written,
+    size_t* out_required, double* out_score, uint8_t* out_accepting);
+LLING_LLANG_API void lling_llm_session_free(LlingLlmSession* session);
 
 #ifdef __cplusplus
 }
