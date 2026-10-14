@@ -57,6 +57,14 @@ product = compose(query, mapper)
 close(product)
 close(mapper)
 close(query)
+
+decoder = correction_llm_session(layer, "cat", ["cat", "cot", "dog"];
+    edit_weight=3, config=LlmConfig(beam_width=3))
+@assert llm_step!(decoder, _ -> [-2.0, -0.1, -Inf]) == LLM_COMPLETE
+choice = first(llm_hypotheses(decoder))
+@assert decoder.words[Int(first(choice.tokens)) + 1] == "cat"
+@assert llm_stats(decoder).score_calls == 1
+close(decoder)
 close(layer)
 ```
 
@@ -66,6 +74,16 @@ product; it joins the query's output tape to the mapper's input tape. The
 [cross-package conformance test](test/correction_integration.jl) traverses
 the product and checks its accepted words and costs against the correction
 layer after the producer has been closed.
+
+`correction_llm_session` turns the bounded dictionary results present in the
+model vocabulary into a native one-token acceptor. The decoder imports that
+acceptor and owns it independently of the dictionary. `llm_step!` combines
+each candidate's model log score with its edit cost: it scales the model score
+by `model_weight`, divides it by `LlmConfig.temperature`, and subtracts the
+edit cost scaled by `edit_weight`. Negative infinity from the model excludes
+that token. A missing vocabulary correction raises an error. The ordinary
+decoder `cancel!`, `llm_hypotheses`, and `llm_stats` methods also accept this
+session; an error in the scorer leaves its prior beam intact.
 
 ## Constrained language-model decoding
 

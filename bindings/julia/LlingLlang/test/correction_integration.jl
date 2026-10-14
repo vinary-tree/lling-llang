@@ -50,9 +50,33 @@ end
     @test Set(candidate.word for candidate in found) == Set(["cat", "cot"])
     @test all(candidate.cost == 1.0 for candidate in found)
     @test isempty(corrections(layer, ""))
+
+    @test_throws ArgumentError correction_llm_session(layer, "cut", ["cat", "cat"])
+    @test_throws ArgumentError correction_llm_session(layer, "cut", ["dog"])
+    @test_throws ArgumentError correction_llm_session(layer, "cut", ["cat"];
+        edit_weight=-1)
+    @test_throws ArgumentError correction_llm_session(layer, "cut", ["cat"];
+        model_weight=big"1e1000")
+    session = correction_llm_session(layer, "cat", ["cat", "cot", "dog"];
+        edit_weight=3, config=LlmConfig(beam_width=3, temperature=2))
+    cancelled = correction_llm_session(layer, "cat", ["cat", "cot"])
     close(layer)
     @test !isopen(layer)
     @test_throws NativeError corrections(layer, "cut")
+    @test_throws ErrorException llm_step!(session, _ -> error("model unavailable"))
+    @test llm_stats(session).steps == 0
+    @test llm_step!(session, _ -> [-2.0, -0.1, -Inf]) == LLM_COMPLETE
+    selected = llm_hypotheses(session)
+    @test session.words[Int(first(selected[1].tokens)) + 1] == "cat"
+    @test selected[1].score == -1.0
+    @test llm_stats(session).score_calls == 1
+    close(session)
+    @test !isopen(session)
+
+    cancel!(cancelled)
+    @test llm_step!(cancelled, _ -> [0.0, 0.0]) == LLM_CANCELLED
+    @test llm_stats(cancelled).steps == 0
+    close(cancelled)
 
     producer = LD.DynamicDawg()
     LD.insert_batch!(producer, ["cat" => nothing])
@@ -81,6 +105,14 @@ end
         for candidate in corrections(layer, "cat"))
     @test expected == Dict("cat" => 0.0, "cot" => 1.0)
     @test accepted_language(query) == expected
+
+    session = correction_llm_session(layer, "cat", ["cat", "cot", "dog"];
+        config=LlmConfig(beam_width=3))
+    @test llm_step!(session, _ -> [-2.0, -0.1, -Inf]) == LLM_COMPLETE
+    @test Dict(session.words[Int(first(h.tokens)) + 1] => h.score
+        for h in llm_hypotheses(session)) ==
+        Dict("cat" => -2.0, "cot" => -1.1)
+    close(session)
 
     mapper_builder = WfstBuilder(size_hint=1)
     state = add_state!(mapper_builder)

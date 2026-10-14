@@ -165,3 +165,109 @@ function corrections(dictionary::CorrectionDictionary, word::AbstractString)
             (Ptr{Cvoid},), output[])
     end
 end
+
+"""One native decoder over bounded dictionary candidates and their edit costs.
+
+The vocabulary is copied so token IDs and candidate words remain stable for
+the lifetime of the session. `llm_hypotheses` returns zero-based token IDs;
+index `words` with `Int(token) + 1` to recover the chosen word.
+"""
+mutable struct CorrectionLlmSession
+    decoder::LlmSession
+    words::Vector{String}
+    candidate_costs::Vector{Pair{Int,Float64}}
+    edit_weight::Float64
+    model_weight::Float64
+    temperature::Float64
+end
+
+"""Compose a retained dictionary layer with the native constrained decoder.
+
+`words` is the model's ordered vocabulary. Only dictionary corrections found
+in that vocabulary become accepting one-token paths. The WFST is imported by
+the decoder, then released. The returned session owns its constraint and can
+outlive the dictionary. `edit_weight` multiplies edit cost; `model_weight`
+multiplies the scorer's log probability. Both must be finite and nonnegative.
+"""
+function correction_llm_session(dictionary::CorrectionDictionary,
+    query::AbstractString, words::AbstractVector{<:AbstractString};
+    config::LlmConfig=LlmConfig(), edit_weight::Real=1.0,
+    model_weight::Real=1.0,
+    budget::BudgetV2=BudgetV2(max_states=65_536, max_arcs=1_048_576,
+        max_bytes=128 * 1024 * 1024, max_work=8_388_608))
+    correction_handle(dictionary)
+    0 < length(words) <= config.max_vocabulary ||
+        throw(ArgumentError("vocabulary size exceeds the configured range"))
+    edit_scale = Float64(edit_weight)
+    model_scale = Float64(model_weight)
+    isfinite(edit_scale) && edit_scale >= 0 ||
+        throw(ArgumentError("edit_weight must be finite and nonnegative"))
+    isfinite(model_scale) && model_scale >= 0 ||
+        throw(ArgumentError("model_weight must be finite and nonnegative"))
+    vocabulary = String.(words)
+    length(Set(vocabulary)) == length(vocabulary) ||
+        throw(ArgumentError("vocabulary words must be unique"))
+    by_word = Dict(word => index - 1 for (index, word) in enumerate(vocabulary))
+    candidates = corrections(dictionary, query)
+    selected = Pair{Int,Float64}[]
+    for candidate in candidates
+        index = get(by_word, candidate.word, nothing)
+        isnothing(index) || push!(selected, index => candidate.cost)
+    end
+    isempty(selected) && throw(ArgumentError(
+        "dictionary returned no correction in the model vocabulary"))
+
+    builder = WfstBuilder{UInt64,TropicalWeight}(size_hint=2)
+    graph = nothing
+    try
+        root = add_state!(builder)
+        terminal = add_state!(builder)
+        set_start!(builder, root)
+        set_final!(builder, terminal, TropicalWeight(0))
+        for (index, _) in selected
+            add_arc!(builder, root, UInt64(index), UInt64(index), terminal,
+                TropicalWeight(0))
+        end
+        graph = build!(builder)
+        decoder = llm_session(graph; vocab_size=length(vocabulary), config, budget)
+        CorrectionLlmSession(decoder, vocabulary, selected,
+            edit_scale, model_scale, config.temperature)
+    finally
+        close(builder)
+        isnothing(graph) || close(graph)
+    end
+end
+
+"""Advance one correction step using the language model's dense log scores.
+
+The native decoder supplies the prefix to `scorer`. For each legal candidate,
+the combined score is `model_weight * log_probability / temperature -
+edit_weight * edit_cost`. Callback errors preserve the last committed beam.
+"""
+function llm_step!(session::CorrectionLlmSession, scorer)
+    llm_step!(session.decoder, prefix -> begin
+        raw = scorer(prefix)
+        length(raw) == length(session.words) ||
+            throw(ArgumentError("model scorer returned the wrong vocabulary length"))
+        scores = collect(Float64, raw)
+        for (index, cost) in session.candidate_costs
+            value = scores[index + 1]
+            (isfinite(value) || value == -Inf) ||
+                throw(ArgumentError("model scores must be finite or -Inf"))
+            value == -Inf && continue
+            combined = session.model_weight * value -
+                session.edit_weight * cost * session.temperature
+            isfinite(combined) ||
+                throw(ArgumentError("combined correction score is not finite"))
+            scores[index + 1] = combined
+        end
+        scores
+    end)
+end
+
+llm_hypotheses(session::CorrectionLlmSession) = llm_hypotheses(session.decoder)
+llm_stats(session::CorrectionLlmSession) = llm_stats(session.decoder)
+cancel!(session::CorrectionLlmSession) = (cancel!(session.decoder); session)
+close!(session::CorrectionLlmSession) = close!(session.decoder)
+Base.close(session::CorrectionLlmSession) = close!(session)
+Base.isopen(session::CorrectionLlmSession) = isopen(session.decoder)
