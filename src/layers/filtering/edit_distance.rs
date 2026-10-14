@@ -665,6 +665,18 @@ impl<W: Semiring> EditDistanceLayer<W> {
         }
     }
 
+    /// Create with a retained provider and an explicit correction policy.
+    pub fn with_dictionary_and_config(
+        dictionary: Arc<dyn Dictionary>,
+        config: EditDistanceLayerConfig,
+    ) -> Self {
+        EditDistanceLayer {
+            dictionary,
+            config,
+            _phantom: PhantomData,
+        }
+    }
+
     /// Create with custom configuration.
     pub fn with_config<S: AsRef<str>>(words: &[S], config: EditDistanceLayerConfig) -> Self {
         let dictionary = InMemoryDictionary::new(words, config.case_insensitive);
@@ -880,9 +892,9 @@ where
             }
         }
 
-        // Build the new lattice with the original node count
-        let num_nodes = lattice.num_nodes();
-        Ok(builder.build(num_nodes))
+        // Preserve the input's accepting sink rather than appending a new,
+        // unreachable node after it.
+        Ok(builder.build(lattice.end().value() as usize))
     }
 
     fn can_apply(&self, _lattice: &Lattice<W, B>) -> bool {
@@ -1246,6 +1258,8 @@ mod tests {
 
         // Should have more edges now (original + corrections)
         assert!(result.num_edges() >= 1);
+        assert_eq!(result.end(), lattice.end());
+        assert_eq!(result.clone().path_count(), Some(result.num_edges()));
     }
 
     #[test]

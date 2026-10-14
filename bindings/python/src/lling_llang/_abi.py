@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 16
+API_REVISION = 17
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -405,6 +405,27 @@ class LlmConfig(ctypes.Structure):
         ("max_vocabulary", ctypes.c_size_t),
         ("temperature", ctypes.c_double),
         ("length_penalty", ctypes.c_double),
+    ]
+
+
+class CorrectionConfig(ctypes.Structure):
+    """Revision-17 retained Unicode dictionary correction policy."""
+
+    _fields_ = [
+        ("version", ctypes.c_uint32),
+        ("reserved", ctypes.c_uint32),
+        ("max_distance", ctypes.c_size_t),
+        ("max_corrections_per_word", ctypes.c_size_t),
+        ("min_word_length", ctypes.c_size_t),
+        ("cost_per_edit", ctypes.c_double),
+        ("substitution_multiplier", ctypes.c_double),
+        ("transposition_multiplier", ctypes.c_double),
+        ("exact_match_boost", ctypes.c_double),
+        ("enable_transpositions", ctypes.c_uint8),
+        ("case_insensitive", ctypes.c_uint8),
+        ("keep_original", ctypes.c_uint8),
+        ("normalization", ctypes.c_uint8),
+        ("reserved_flags", ctypes.c_uint8 * 4),
     ]
 
 
@@ -1309,6 +1330,41 @@ _bind(
     "lling_lattice_validate_laws",
     [ctypes.POINTER(ctypes.c_void_p), ctypes.c_size_t],
 )
+
+_bind(
+    "lling_correction_dictionary_open",
+    [
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(CorrectionConfig),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_correction_dictionary_query",
+    [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_correction_result_count", [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t)]
+)
+_bind(
+    "lling_correction_result_item",
+    [
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_double),
+    ],
+)
+_bind("lling_correction_dictionary_free", [ctypes.c_void_p], None)
+_bind("lling_correction_result_free", [ctypes.c_void_p], None)
 
 _bind(
     "lling_llm_session_open_wfst",

@@ -104,6 +104,11 @@ export ABI_VERSION,
     llm_step!,
     llm_hypotheses,
     llm_stats,
+    CorrectionConfig,
+    CorrectionCandidate,
+    CorrectionDictionary,
+    correction_dictionary,
+    corrections,
     cancel!,
     ProviderArc,
     ProviderState,
@@ -917,6 +922,7 @@ function build!(builder::WfstBuilder{L,W}) where {L,W}
 end
 
 raw_resource(resource::VTI.Resource) = VTI.raw_resource(resource)
+raw_resource(dictionary::VTI.Dictionary) = VTI.raw_resource(dictionary.resource)
 raw_resource(wfst::VTI.Wfst) = VTI.raw_resource(wfst.resource)
 raw_resource(wfst::Wfst) = raw_resource(wfst.native)
 
@@ -3871,6 +3877,7 @@ include("Cfg.jl")
 include("Pda.jl")
 include("Training.jl")
 include("Llm.jl")
+include("Correction.jl")
 
 function __init__()
     initialize_callbacks!()

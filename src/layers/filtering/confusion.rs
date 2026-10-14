@@ -717,8 +717,7 @@ where
             }
         }
 
-        let num_nodes = lattice.num_nodes();
-        Ok(builder.build(num_nodes))
+        Ok(builder.build(lattice.end().value() as usize))
     }
 
     fn can_apply(&self, _lattice: &Lattice<W, B>) -> bool {
@@ -892,6 +891,8 @@ mod tests {
 
         // Should have at least the original edge
         assert!(result.num_edges() >= 1);
+        assert_eq!(result.end(), lattice.end());
+        assert_eq!(result.clone().path_count(), Some(result.num_edges()));
     }
 
     #[test]

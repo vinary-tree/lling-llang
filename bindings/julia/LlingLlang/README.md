@@ -16,6 +16,57 @@ Julia code may also implement the weight algebra itself. The native engine
 consumes that algebra through a retained, capability-negotiated semiring
 resource without requiring the weight type to be `isbits` or `Copy`.
 
+## Dictionary correction and query products
+
+`correction_dictionary` retains a Unicode-scalar dictionary resource and
+captures its current immutable revision. It calls Rust's `EditDistanceLayer`
+and `ResourceDictionary` directly; each `corrections` call returns owned Julia
+strings with edit costs. `CorrectionConfig` sets the maximum edit distance,
+maximum returned candidates, minimum word length, edit-cost multipliers,
+transposition behavior, and exact-match boost. Case-insensitive search is
+available only when the producer declares that its stored keys are already
+Unicode lowercase.
+
+```julia
+using LlingLlang
+import Libdictenstein as LD
+import Duallity
+
+producer = LD.DynamicDawg()
+LD.insert_batch!(producer,
+    ["cat" => nothing, "cot" => nothing, "dog" => nothing])
+view = LD.snapshot(producer)
+layer = correction_dictionary(view;
+    config=CorrectionConfig(max_distance=1))
+query = Duallity.wfst(view, "cat"; maximum_distance=1)
+close(view)
+close(producer)
+
+@assert Dict(item.word => item.cost for item in corrections(layer, "cat")) ==
+    Dict("cat" => 0.0, "cot" => 1.0)
+
+builder = WfstBuilder(size_hint=1)
+state = add_state!(builder)
+set_start!(builder, state)
+set_final!(builder, state)
+for character in ['a', 'c', 'o', 't']
+    add_arc!(builder, state, character, uppercase(character), state)
+end
+mapper = build!(builder)
+product = compose(query, mapper)
+close(product)
+close(mapper)
+close(query)
+close(layer)
+```
+
+The duallity query graph and the correction layer each pin the dictionary
+revision at construction. `compose` is lling-llang's lazy native weighted
+product; it joins the query's output tape to the mapper's input tape. The
+[cross-package conformance test](test/correction_integration.jl) traverses
+the product and checks its accepted words and costs against the correction
+layer after the producer has been closed.
+
 ## Constrained language-model decoding
 
 `llm_session` captures a `UInt64`/`TropicalWeight` token acceptor as an owned,

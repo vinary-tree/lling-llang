@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 16u
+#define LLING_LLANG_API_REVISION 17u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -75,6 +75,26 @@ typedef struct LlingPdaSession LlingPdaSession;
 typedef struct LlingGradientCursor LlingGradientCursor;
 typedef struct LlingLlmSession LlingLlmSession;
 typedef struct LlingLlmCancellation LlingLlmCancellation;
+typedef struct LlingCorrectionDictionary LlingCorrectionDictionary;
+typedef struct LlingCorrectionResult LlingCorrectionResult;
+
+/* Revision 17: retained Unicode dictionary correction policy. */
+typedef struct LlingCorrectionConfig {
+    uint32_t version; /* Must be one. */
+    uint32_t reserved; /* Must be zero. */
+    size_t max_distance;
+    size_t max_corrections_per_word;
+    size_t min_word_length;
+    double cost_per_edit;
+    double substitution_multiplier;
+    double transposition_multiplier;
+    double exact_match_boost;
+    uint8_t enable_transpositions;
+    uint8_t case_insensitive;
+    uint8_t keep_original;
+    uint8_t normalization; /* 0 exact keys, 1 Unicode-lowercase keys. */
+    uint8_t reserved_flags[4];
+} LlingCorrectionConfig;
 
 /* Revision 16: bounded, resumable token-WFST constrained decoding. */
 typedef struct LlingLlmConfig {
@@ -914,6 +934,26 @@ LLING_LLANG_API LlingLlangStatus lling_llm_session_hypothesis(
     uint32_t* out_tokens, size_t capacity, size_t* out_written,
     size_t* out_required, double* out_score, uint8_t* out_accepting);
 LLING_LLANG_API void lling_llm_session_free(LlingLlmSession* session);
+
+/* A dictionary capture pins its current immutable revision. The resource must
+ * provide Unicode-scalar keys. The levenshtein feature is required. */
+LLING_LLANG_API LlingLlangStatus lling_correction_dictionary_open(
+    const VtResource* resource, const LlingCorrectionConfig* config,
+    LlingCorrectionDictionary** out_dictionary);
+LLING_LLANG_API LlingLlangStatus lling_correction_dictionary_query(
+    const LlingCorrectionDictionary* dictionary, const uint8_t* query,
+    size_t query_len, LlingCorrectionResult** out_result);
+LLING_LLANG_API LlingLlangStatus lling_correction_result_count(
+    const LlingCorrectionResult* result, size_t* out_count);
+/* Zero capacity queries the required UTF-8 byte count. */
+LLING_LLANG_API LlingLlangStatus lling_correction_result_item(
+    const LlingCorrectionResult* result, size_t index, uint8_t* out_word,
+    size_t capacity, size_t* out_written, size_t* out_required,
+    double* out_cost);
+LLING_LLANG_API void lling_correction_dictionary_free(
+    LlingCorrectionDictionary* dictionary);
+LLING_LLANG_API void lling_correction_result_free(
+    LlingCorrectionResult* result);
 
 #ifdef __cplusplus
 }
