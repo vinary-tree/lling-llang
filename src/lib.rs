@@ -505,7 +505,9 @@ pub mod prelude {
         TreeRule,
         // Builder
         TreeTransducerBuilder,
+        TreeTransducerLimits,
         TreeTransducerOps,
+        TreeTransducerRunError,
         VectorTreeTransducer,
         // Transducer trait and implementations
         WeightedTreeTransducer,

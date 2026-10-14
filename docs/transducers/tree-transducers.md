@@ -205,6 +205,53 @@ rules can duplicate subtrees, and ambiguity (several rules per `(state, symbol)`
 multiplies the output set via the cartesian product, so the output count — and
 the time — can grow with the number of derivations.
 
+### Bounded native execution
+
+`TreeTransducerOps::transduce_bounded` and `transduce_from_state_bounded`
+evaluate the same rules and preserve the same output order as the unrestricted
+operations. A `TreeTransducerLimits` value bounds four parts of the computation:
+
+| Field | Bound |
+|---|---|
+| `max_results` | Alternatives in each intermediate or final result vector, including partial Cartesian products. |
+| `max_nodes` | Cumulative output-tree nodes materialized, including nodes copied by ambiguous or copying rules. |
+| `max_bytes` | Cumulative logical payload bytes for result vectors and tree nodes; this is not a process-RSS limit. |
+| `max_work` | Machine transitions and visits to output nodes before copying. |
+
+Exhausting any bound returns `TreeTransducerRunError` without returning a
+partial result. The limit applies during rule evaluation, before an output
+vector can grow without restriction. A caller can increase a limit and retry
+the immutable transducer and input tree. The output limits count intermediate
+expansion because a later rule may discard results after an earlier branch has
+already created them.
+
+```rust
+use lling_llang::semiring::{Semiring, TropicalWeight};
+use lling_llang::tree_transducers::{
+    Tree, TreePattern, TreeTransducerBuilder, TreeTransducerLimits,
+    TreeTransducerOps,
+};
+
+let mut builder: TreeTransducerBuilder<&str, TropicalWeight> =
+    TreeTransducerBuilder::new();
+let state = builder.add_state();
+builder.set_start(state);
+builder.add_rule_parts(
+    state, "a", 0, TreePattern::leaf("b"), TropicalWeight::one(),
+);
+let transducer = builder.build();
+let outputs = transducer.transduce_bounded(
+    &Tree::leaf("a"),
+    TreeTransducerLimits {
+        max_results: 4,
+        max_nodes: 16,
+        max_bytes: 4_096,
+        max_work: 128,
+    },
+).expect("the example fits its limits");
+assert_eq!(outputs[0].0, Tree::leaf("b"));
+```
+
 ---
 
 ## Examples
