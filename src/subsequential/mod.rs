@@ -48,6 +48,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
+use std::sync::Arc;
 
 use crate::semiring::Semiring;
 use crate::wfst::{MutableWfst, StateId, VectorWfst, WeightedTransition, Wfst, NO_STATE};
@@ -100,6 +101,12 @@ where
             let mut seen_inputs: HashMap<Option<L>, bool> = HashMap::new();
 
             for trans in wfst.transitions(state_id) {
+                // `apply` consumes exactly one input symbol per transition. An
+                // epsilon-input arc would be silently skipped, so it cannot be
+                // represented by this deterministic streaming runner.
+                if trans.input.is_none() {
+                    return false;
+                }
                 if seen_inputs.contains_key(&trans.input) {
                     return false; // Non-deterministic
                 }
@@ -113,46 +120,49 @@ where
     ///
     /// Returns `None` if the input is not accepted.
     pub fn apply(&self, input: &[L]) -> Option<(Vec<L>, W)> {
-        let start = self.wfst.start();
-        if start == NO_STATE {
-            return None;
-        }
-
-        let mut state = start;
+        let mut state = self.start_state()?;
         let mut output = Vec::new();
         let mut weight = W::one();
 
         for symbol in input {
-            let mut found = false;
-            for trans in self.wfst.transitions(state) {
-                if trans.input.as_ref() == Some(symbol) {
-                    if let Some(out) = &trans.output {
-                        output.push(out.clone());
-                    }
-                    weight = weight.times(&trans.weight);
-                    state = trans.to;
-                    found = true;
-                    break;
-                }
+            let (next, emitted, arc_weight) = self.advance(state, symbol)?;
+            if let Some(label) = emitted {
+                output.push(label);
             }
-            if !found {
-                return None; // Input not accepted
-            }
+            weight = weight.times(&arc_weight);
+            state = next;
         }
 
-        // Check if final state and add final output
-        if self.wfst.is_final(state) {
-            let final_weight = self.wfst.final_weight(state);
-            weight = weight.times(&final_weight);
+        let (suffix, final_weight) = self.finish_at(state)?;
+        output.extend(suffix);
+        Some((output, weight.times(&final_weight)))
+    }
 
-            if let Some(final_out) = self.final_outputs.get(&state) {
-                output.extend(final_out.iter().cloned());
-            }
+    /// Return the start state, if this transducer has one.
+    pub fn start_state(&self) -> Option<StateId> {
+        (self.wfst.start() != NO_STATE).then(|| self.wfst.start())
+    }
 
-            Some((output, weight))
-        } else {
-            None
-        }
+    /// Consume one input symbol without replaying the preceding input.
+    ///
+    /// Returns the next state, optional output label, and arc weight. `None`
+    /// means that this input has no continuation from `state`.
+    pub fn advance(&self, state: StateId, symbol: &L) -> Option<(StateId, Option<L>, W)> {
+        self.wfst
+            .transitions(state)
+            .iter()
+            .find(|trans| trans.input.as_ref() == Some(symbol))
+            .map(|trans| (trans.to, trans.output.clone(), trans.weight.clone()))
+    }
+
+    /// Return the terminal output and weight when `state` is accepting.
+    pub fn finish_at(&self, state: StateId) -> Option<(Vec<L>, W)> {
+        self.wfst.is_final(state).then(|| {
+            (
+                self.final_outputs.get(&state).cloned().unwrap_or_default(),
+                self.wfst.final_weight(state),
+            )
+        })
     }
 
     /// Get the underlying WFST.
@@ -168,6 +178,61 @@ where
     /// Set a final output for a state.
     pub fn set_final_output(&mut self, state: StateId, output: Vec<L>) {
         self.final_outputs.insert(state, output);
+    }
+}
+
+/// Incremental evaluation of one captured subsequential transducer.
+///
+/// The shared immutable graph is retained by the session, so it remains valid
+/// when the owner drops its other references to the transducer.
+pub struct SubsequentialSession<L, W>
+where
+    L: Clone + Eq + Hash,
+    W: Semiring,
+{
+    transducer: Arc<SubsequentialTransducer<L, W>>,
+    state: Option<StateId>,
+    weight: W,
+}
+
+impl<L, W> SubsequentialSession<L, W>
+where
+    L: Clone + Eq + Hash + Send + Sync + 'static,
+    W: Semiring,
+{
+    /// Start a new run without copying the captured graph.
+    pub fn new(transducer: Arc<SubsequentialTransducer<L, W>>) -> Self {
+        let state = transducer.start_state();
+        Self {
+            transducer,
+            state,
+            weight: W::one(),
+        }
+    }
+
+    /// Consume one symbol and return its optional output label.
+    ///
+    /// An outer `None` means the input has been rejected. Once rejected, a
+    /// session stays rejected. `Some(None)` means the arc emitted epsilon.
+    pub fn advance(&mut self, symbol: &L) -> Option<Option<L>> {
+        let state = self.state?;
+        match self.transducer.advance(state, symbol) {
+            Some((next, output, arc_weight)) => {
+                self.state = Some(next);
+                self.weight = self.weight.times(&arc_weight);
+                Some(output)
+            }
+            None => {
+                self.state = None;
+                None
+            }
+        }
+    }
+
+    /// Return the final suffix and weight when the current state is accepting.
+    pub fn finish(&self) -> Option<(Vec<L>, W)> {
+        let (suffix, final_weight) = self.transducer.finish_at(self.state?)?;
+        Some((suffix, self.weight.times(&final_weight)))
     }
 }
 
@@ -827,6 +892,20 @@ mod tests {
     }
 
     #[test]
+    fn test_subsequential_rejects_epsilon_input() {
+        let mut fst = make_simple_fst();
+        let start = fst.start();
+        fst.add_transition(WeightedTransition::new(
+            start,
+            None,
+            Some('E'),
+            start,
+            TropicalWeight::one(),
+        ));
+        assert!(SubsequentialTransducer::from_wfst(fst).is_none());
+    }
+
+    #[test]
     fn test_subsequential_apply() {
         let fst = make_simple_fst();
         let subseq = SubsequentialTransducer::from_wfst(fst).expect("Should be subsequential");
@@ -1019,6 +1098,27 @@ mod tests {
 
         let (output, _) = result.expect("subsequential/mod.rs: required value was None/Err");
         assert_eq!(output, vec!['A', 'B', '!']);
+    }
+
+    #[test]
+    fn test_incremental_session_matches_whole_input_and_survives_owner_drop() {
+        let mut transducer = SubsequentialTransducer::from_wfst(make_simple_fst())
+            .expect("fixture is input deterministic");
+        transducer.set_final_output(2, vec!['!']);
+        let transducer = Arc::new(transducer);
+        let expected = transducer.apply(&['a', 'b']);
+        let mut session = SubsequentialSession::new(Arc::clone(&transducer));
+        drop(transducer);
+
+        assert_eq!(session.advance(&'a'), Some(Some('A')));
+        assert_eq!(session.advance(&'b'), Some(Some('B')));
+        let (suffix, weight) = session.finish().expect("accepting state");
+        let mut output = vec!['A', 'B'];
+        output.extend(suffix);
+        assert_eq!(Some((output, weight)), expected);
+        assert_eq!(session.advance(&'z'), None);
+        assert_eq!(session.finish(), None);
+        assert_eq!(session.advance(&'a'), None);
     }
 
     #[test]

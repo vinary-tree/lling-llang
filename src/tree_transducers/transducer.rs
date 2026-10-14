@@ -157,6 +157,113 @@ where
     fn num_rules(&self) -> usize;
 }
 
+/// Limits on a tree-transducer run. Intermediate trees and combinations count
+/// toward these limits because copying and ambiguous rules may expand before
+/// the final output vector is produced.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TreeTransducerLimits {
+    /// Maximum number of alternatives in any intermediate or final result.
+    pub max_results: usize,
+    /// Maximum cumulative output-tree nodes materialized, including copies.
+    pub max_nodes: usize,
+    /// Maximum logical payload bytes materialized during the run.
+    pub max_bytes: usize,
+    /// Maximum machine transitions and copy-traversal units.
+    pub max_work: usize,
+}
+
+/// A finite tree-transducer run exhausted one of its resource bounds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TreeTransducerRunError {
+    /// An intermediate or final result would have too many alternatives.
+    ResultLimitExceeded,
+    /// Materializing another output node would exceed the node bound.
+    NodeLimitExceeded,
+    /// Materializing another payload would exceed the byte bound.
+    ByteLimitExceeded,
+    /// Another machine step would exceed the work bound.
+    WorkLimitExceeded,
+}
+
+impl fmt::Display for TreeTransducerRunError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ResultLimitExceeded => write!(f, "tree-transducer result limit exceeded"),
+            Self::NodeLimitExceeded => write!(f, "tree-transducer node limit exceeded"),
+            Self::ByteLimitExceeded => write!(f, "tree-transducer byte limit exceeded"),
+            Self::WorkLimitExceeded => write!(f, "tree-transducer work limit exceeded"),
+        }
+    }
+}
+
+impl std::error::Error for TreeTransducerRunError {}
+
+struct TreeRunBudget {
+    limits: TreeTransducerLimits,
+    nodes: usize,
+    bytes: usize,
+    work: usize,
+}
+
+impl TreeRunBudget {
+    fn new(limits: TreeTransducerLimits) -> Self {
+        Self {
+            limits,
+            nodes: 0,
+            bytes: 0,
+            work: 0,
+        }
+    }
+
+    fn check_results(&self, count: usize) -> Result<(), TreeTransducerRunError> {
+        if count > self.limits.max_results {
+            Err(TreeTransducerRunError::ResultLimitExceeded)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn charge_work(&mut self, units: usize) -> Result<(), TreeTransducerRunError> {
+        self.work = self
+            .work
+            .checked_add(units)
+            .filter(|&work| work <= self.limits.max_work)
+            .ok_or(TreeTransducerRunError::WorkLimitExceeded)?;
+        Ok(())
+    }
+
+    fn charge_bytes(&mut self, bytes: usize) -> Result<(), TreeTransducerRunError> {
+        self.bytes = self
+            .bytes
+            .checked_add(bytes)
+            .filter(|&total| total <= self.limits.max_bytes)
+            .ok_or(TreeTransducerRunError::ByteLimitExceeded)?;
+        Ok(())
+    }
+
+    fn charge_nodes<L>(&mut self, nodes: usize) -> Result<(), TreeTransducerRunError> {
+        self.nodes = self
+            .nodes
+            .checked_add(nodes)
+            .filter(|&total| total <= self.limits.max_nodes)
+            .ok_or(TreeTransducerRunError::NodeLimitExceeded)?;
+        self.charge_bytes(
+            nodes
+                .checked_mul(std::mem::size_of::<Tree<L>>())
+                .ok_or(TreeTransducerRunError::ByteLimitExceeded)?,
+        )
+    }
+
+    fn charge_copied_trees<L>(&mut self, trees: &[Tree<L>]) -> Result<(), TreeTransducerRunError> {
+        for tree in trees {
+            let nodes = tree.size();
+            self.charge_work(nodes)?;
+            self.charge_nodes::<L>(nodes)?;
+        }
+        Ok(())
+    }
+}
+
 /// Extension trait for tree transducer operations.
 pub trait TreeTransducerOps<L, W>: WeightedTreeTransducer<L, W>
 where
@@ -177,10 +284,42 @@ where
         .expect("a state task always produces a result vector")
     }
 
+    /// Apply the transducer while bounding every intermediate expansion.
+    fn transduce_bounded(
+        &self,
+        input: &Tree<L>,
+        limits: TreeTransducerLimits,
+    ) -> Result<Vec<(Tree<L>, W)>, TreeTransducerRunError> {
+        run_transducer_machine_checked(
+            self,
+            MachineTask::State {
+                state: self.start(),
+                input,
+            },
+            Some(&mut TreeRunBudget::new(limits)),
+        )
+        .map(|results| results.expect("a state task always produces a result vector"))
+    }
+
     /// Apply the transducer starting from a specific state.
     fn transduce_from_state(&self, state: StateId, input: &Tree<L>) -> Vec<(Tree<L>, W)> {
         run_transducer_machine(self, MachineTask::State { state, input })
             .expect("a state task always produces a result vector")
+    }
+
+    /// Apply the transducer from a specified state under finite limits.
+    fn transduce_from_state_bounded(
+        &self,
+        state: StateId,
+        input: &Tree<L>,
+        limits: TreeTransducerLimits,
+    ) -> Result<Vec<(Tree<L>, W)>, TreeTransducerRunError> {
+        run_transducer_machine_checked(
+            self,
+            MachineTask::State { state, input },
+            Some(&mut TreeRunBudget::new(limits)),
+        )
+        .map(|results| results.expect("a state task always produces a result vector"))
     }
 
     /// Apply a single rule to an input tree.
@@ -198,6 +337,32 @@ where
         Some(outputs)
     }
 
+    /// Apply one rule under finite limits, preserving the native optional
+    /// result when a referenced input child does not exist.
+    fn apply_rule_bounded(
+        &self,
+        rule: &TreeRule<L, W>,
+        input: &Tree<L>,
+        limits: TreeTransducerLimits,
+    ) -> Result<Option<Vec<(Tree<L>, W)>>, TreeTransducerRunError> {
+        let mut budget = TreeRunBudget::new(limits);
+        let mut outputs = run_transducer_machine_checked(
+            self,
+            MachineTask::Pattern {
+                pattern: &rule.output_pattern,
+                input,
+            },
+            Some(&mut budget),
+        )?;
+        if let Some(outputs) = &mut outputs {
+            budget.charge_work(outputs.len())?;
+            for (_, child_weight) in outputs {
+                *child_weight = rule.weight.clone().times(child_weight);
+            }
+        }
+        Ok(outputs)
+    }
+
     /// Instantiate an output pattern against an input tree.
     fn instantiate_output_pattern(
         &self,
@@ -205,6 +370,20 @@ where
         input: &Tree<L>,
     ) -> Option<Vec<(Tree<L>, W)>> {
         run_transducer_machine(self, MachineTask::Pattern { pattern, input })
+    }
+
+    /// Instantiate an output pattern under finite limits.
+    fn instantiate_output_pattern_bounded(
+        &self,
+        pattern: &TreePattern<L>,
+        input: &Tree<L>,
+        limits: TreeTransducerLimits,
+    ) -> Result<Option<Vec<(Tree<L>, W)>>, TreeTransducerRunError> {
+        run_transducer_machine_checked(
+            self,
+            MachineTask::Pattern { pattern, input },
+            Some(&mut TreeRunBudget::new(limits)),
+        )
     }
 }
 
@@ -258,11 +437,28 @@ where
     L: Clone + Eq + Hash + Send + Sync,
     W: Semiring + Clone,
 {
+    run_transducer_machine_checked(transducer, root, None)
+        .expect("unbounded tree-transducer execution has no resource limits")
+}
+
+fn run_transducer_machine_checked<'a, T, L, W>(
+    transducer: &'a T,
+    root: MachineTask<'a, L, W>,
+    mut budget: Option<&mut TreeRunBudget>,
+) -> Result<Option<WeightedTrees<L, W>>, TreeTransducerRunError>
+where
+    T: WeightedTreeTransducer<L, W>,
+    L: Clone + Eq + Hash + Send + Sync,
+    W: Semiring + Clone,
+{
     let mut task = Some(root);
     let mut returned = None;
     let mut continuations = Vec::new();
 
     loop {
+        if let Some(budget) = budget.as_deref_mut() {
+            budget.charge_work(1)?;
+        }
         if let Some(current) = task.take() {
             match current {
                 MachineTask::State { state, input } => {
@@ -307,6 +503,11 @@ where
                             && frame.input.is_leaf()
                             && frame.results.is_empty()
                         {
+                            if let Some(budget) = budget.as_deref_mut() {
+                                budget.check_results(1)?;
+                                budget.charge_nodes::<L>(1)?;
+                                budget.charge_bytes(std::mem::size_of::<(Tree<L>, W)>())?;
+                            }
                             frame
                                 .results
                                 .push((frame.input.clone(), transducer.final_weight(frame.state)));
@@ -339,9 +540,14 @@ where
                             }
                         }
                     } else {
-                        let combinations = cartesian_product(frame.child_outputs);
+                        let combinations =
+                            cartesian_product_checked(frame.child_outputs, budget.as_deref_mut())?;
                         let mut results = Vec::with_capacity(combinations.len());
                         for (children, child_weight) in combinations {
+                            if let Some(budget) = budget.as_deref_mut() {
+                                budget.charge_nodes::<L>(1)?;
+                                budget.charge_bytes(std::mem::size_of::<(Tree<L>, W)>())?;
+                            }
                             results.push((
                                 Tree::node(frame.pattern.symbol.clone(), children),
                                 child_weight,
@@ -358,7 +564,7 @@ where
             .take()
             .expect("a completed machine task always returns one value");
         let Some(continuation) = continuations.pop() else {
-            return value;
+            return Ok(value);
         };
         match continuation {
             Continuation::StateRule {
@@ -366,6 +572,20 @@ where
                 rule_weight,
             } => {
                 if let Some(outputs) = value {
+                    if let Some(budget) = budget.as_deref_mut() {
+                        let count = frame
+                            .results
+                            .len()
+                            .checked_add(outputs.len())
+                            .ok_or(TreeTransducerRunError::ResultLimitExceeded)?;
+                        budget.check_results(count)?;
+                        budget.charge_bytes(
+                            outputs
+                                .len()
+                                .checked_mul(std::mem::size_of::<(Tree<L>, W)>())
+                                .ok_or(TreeTransducerRunError::ByteLimitExceeded)?,
+                        )?;
+                    }
                     frame.results.reserve(outputs.len());
                     frame
                         .results
@@ -396,11 +616,23 @@ where
 }
 
 /// Compute cartesian product of vectors of weighted items.
+#[cfg(test)]
 fn cartesian_product<L: Clone, W: Semiring + Clone>(
     items: Vec<Vec<(Tree<L>, W)>>,
 ) -> Vec<(Vec<Tree<L>>, W)> {
+    cartesian_product_checked(items, None)
+        .expect("unbounded cartesian product has no resource limits")
+}
+
+fn cartesian_product_checked<L: Clone, W: Semiring + Clone>(
+    items: Vec<Vec<(Tree<L>, W)>>,
+    mut budget: Option<&mut TreeRunBudget>,
+) -> Result<Vec<(Vec<Tree<L>>, W)>, TreeTransducerRunError> {
     if items.is_empty() {
-        return vec![(Vec::new(), W::one())];
+        if let Some(budget) = budget.as_deref_mut() {
+            budget.check_results(1)?;
+        }
+        return Ok(vec![(Vec::new(), W::one())]);
     }
 
     let mut result = vec![(Vec::new(), W::one())];
@@ -410,6 +642,11 @@ fn cartesian_product<L: Clone, W: Semiring + Clone>(
         // prefix and one choice.  Move both trees instead of cloning the entire
         // already-built output subtree at every input level.
         if result.len() == 1 && item_vec.len() == 1 {
+            if let Some(budget) = budget.as_deref_mut() {
+                budget.check_results(1)?;
+                budget.charge_work(1)?;
+                budget.charge_bytes(std::mem::size_of::<Tree<L>>())?;
+            }
             let (mut prefix, prefix_weight) = result
                 .pop()
                 .expect("the singleton prefix was length-checked");
@@ -422,10 +659,34 @@ fn cartesian_product<L: Clone, W: Semiring + Clone>(
         }
 
         // The output of this round is exactly `result × item_vec`; preallocate it.
-        let mut new_result = Vec::with_capacity(result.len().saturating_mul(item_vec.len()));
+        let count = result
+            .len()
+            .checked_mul(item_vec.len())
+            .ok_or(TreeTransducerRunError::ResultLimitExceeded)?;
+        if let Some(budget) = budget.as_deref_mut() {
+            budget.check_results(count)?;
+            budget.charge_bytes(
+                count
+                    .checked_mul(std::mem::size_of::<(Vec<Tree<L>>, W)>())
+                    .ok_or(TreeTransducerRunError::ByteLimitExceeded)?,
+            )?;
+        }
+        let mut new_result = Vec::with_capacity(count);
 
         for (prefix, prefix_weight) in &result {
             for (item, item_weight) in &item_vec {
+                if let Some(budget) = budget.as_deref_mut() {
+                    budget.charge_work(1)?;
+                    budget.charge_copied_trees(prefix)?;
+                    budget.charge_copied_trees(std::slice::from_ref(item))?;
+                    budget.charge_bytes(
+                        prefix
+                            .len()
+                            .checked_add(1)
+                            .and_then(|len| len.checked_mul(std::mem::size_of::<Tree<L>>()))
+                            .ok_or(TreeTransducerRunError::ByteLimitExceeded)?,
+                    )?;
+                }
                 let mut new_prefix = prefix.clone();
                 new_prefix.push(item.clone());
                 let new_weight = prefix_weight.clone().times(item_weight);
@@ -436,7 +697,7 @@ fn cartesian_product<L: Clone, W: Semiring + Clone>(
         result = new_result;
     }
 
-    result
+    Ok(result)
 }
 
 /// Vector-based weighted tree transducer implementation.

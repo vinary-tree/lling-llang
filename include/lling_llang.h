@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 14u
+#define LLING_LLANG_API_REVISION 20u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -55,6 +55,11 @@ typedef enum LlingLlangStatus {
 
 typedef struct LlingWfstBuilder LlingWfstBuilder;
 typedef struct LlingWfst LlingWfst;
+typedef struct LlingSubsequential LlingSubsequential;
+typedef struct LlingSubsequentialSession LlingSubsequentialSession;
+typedef struct LlingMultitape LlingMultitape;
+typedef struct LlingTreeTransducer LlingTreeTransducer;
+typedef struct LlingTreeResults LlingTreeResults;
 typedef struct LlingSemiring LlingSemiring;
 typedef struct LlingSemiringWeight LlingSemiringWeight;
 typedef struct LlingLatticeValue LlingLatticeValue;
@@ -72,6 +77,26 @@ typedef struct LlingCfgAnalysis LlingCfgAnalysis;
 typedef struct LlingPdaBuilder LlingPdaBuilder;
 typedef struct LlingPda LlingPda;
 typedef struct LlingPdaSession LlingPdaSession;
+
+/* Revision 19: ranked tree patterns and trees use preorder flat node arrays. */
+#define LLING_TREE_SYMBOL_NODE 0u
+#define LLING_TREE_VARIABLE_NODE 1u
+typedef struct LlingTreeNode {
+    uint64_t kind;
+    uint64_t symbol;
+    uint64_t arity;
+    uint64_t state;
+    uint64_t variable_index;
+} LlingTreeNode;
+
+typedef struct LlingTreeRule {
+    uint64_t state;
+    uint64_t input_symbol;
+    uint64_t input_arity;
+    uint64_t pattern_offset;
+    uint64_t pattern_len;
+    double weight;
+} LlingTreeRule;
 
 /* Revision 14: native weighted PDA construction and bounded decode. */
 #define LLING_PDA_POP 0u
@@ -600,6 +625,122 @@ LLING_LLANG_API LlingLlangStatus lling_wfst_closure_plus_ref(
 /* On success, out_resource owns one retain. */
 LLING_LLANG_API LlingLlangStatus lling_wfst_resource(
     const LlingWfst* wfst, VtResource* out_resource);
+/* Capture one deterministic, epsilon-input-free native snapshot. */
+LLING_LLANG_API LlingLlangStatus lling_subsequential_new_ref(
+    const VtResource* resource, const LlingBudgetV2* budget,
+    uint64_t max_input_units, LlingSubsequential** out_runner);
+/* Capture immutable final-output suffixes from flat state/offset/label arrays. */
+LLING_LLANG_API LlingLlangStatus lling_subsequential_new_with_final_outputs_ref(
+    const VtResource* resource, const LlingBudgetV2* budget,
+    uint64_t max_input_units, const uint64_t* final_states,
+    const size_t* final_offsets, const uint64_t* final_labels,
+    size_t final_count, size_t final_label_count,
+    LlingSubsequential** out_runner);
+/* Capacity of input_len plus largest final suffix suffices; atomic on error. */
+LLING_LLANG_API LlingLlangStatus lling_subsequential_apply(
+    const LlingSubsequential* runner, const uint64_t* input,
+    size_t input_len, uint64_t* out_labels, size_t out_capacity,
+    size_t* out_len, double* out_weight, uint8_t* out_accepted);
+/* A session retains its immutable graph after the runner is released. */
+LLING_LLANG_API LlingLlangStatus lling_subsequential_session_new(
+    const LlingSubsequential* runner, LlingSubsequentialSession** out_session);
+/* One native transition per call; output fields change only on success. */
+LLING_LLANG_API LlingLlangStatus lling_subsequential_session_step(
+    LlingSubsequentialSession* session, uint64_t input_label,
+    uint8_t* out_active, uint8_t* out_emitted, uint64_t* out_label);
+/* out_len reports required suffix capacity even on LimitExceeded. */
+LLING_LLANG_API LlingLlangStatus lling_subsequential_session_finish(
+    const LlingSubsequentialSession* session, uint64_t* out_labels,
+    size_t out_capacity, size_t* out_len, double* out_weight,
+    uint8_t* out_accepted);
+LLING_LLANG_API void lling_subsequential_session_free(
+    LlingSubsequentialSession* session);
+LLING_LLANG_API void lling_subsequential_free(LlingSubsequential* runner);
+/* Capture a checked immutable runtime-arity graph under all four budget axes. */
+LLING_LLANG_API LlingLlangStatus lling_multitape_new(
+    uint32_t unit_domain, uint32_t weight_domain, uint64_t num_tapes,
+    uint64_t num_states, uint64_t start, const uint8_t* final_flags,
+    const double* final_weights, const uint64_t* arc_from,
+    const uint64_t* arc_to, const double* arc_weights,
+    const uint64_t* labels, const uint8_t* present, uint64_t num_arcs,
+    const LlingBudgetV2* budget, LlingMultitape** out_graph);
+LLING_LLANG_API LlingLlangStatus lling_multitape_info(
+    const LlingMultitape* graph, size_t* out_tapes,
+    size_t* out_states, size_t* out_arcs, uint64_t* out_start);
+LLING_LLANG_API LlingLlangStatus lling_multitape_state_info(
+    const LlingMultitape* graph, uint64_t state, uint8_t* out_final,
+    double* out_weight, size_t* out_arc_count);
+/* Reads exactly one arc into caller-owned tape-sized label and presence arrays. */
+LLING_LLANG_API LlingLlangStatus lling_multitape_arc(
+    const LlingMultitape* graph, uint64_t state, size_t arc_index,
+    uint64_t* out_to, double* out_weight, uint64_t* out_labels,
+    uint8_t* out_present, size_t capacity);
+LLING_LLANG_API LlingLlangStatus lling_multitape_transduce(
+    const LlingMultitape* graph, const uint64_t* labels,
+    const uint8_t* present, uint64_t num_steps,
+    const LlingBudgetV2* budget, uint8_t* out_accepted,
+    double* out_weight);
+LLING_LLANG_API LlingLlangStatus lling_multitape_project(
+    const LlingMultitape* graph, uint64_t tape,
+    const LlingBudgetV2* budget, LlingWfst** out_wfst);
+LLING_LLANG_API LlingLlangStatus lling_multitape_project_tapes(
+    const LlingMultitape* graph, const uint64_t* tapes,
+    uint64_t num_tapes, const LlingBudgetV2* budget,
+    LlingMultitape** out_graph);
+LLING_LLANG_API LlingLlangStatus lling_multitape_max_delay(
+    const LlingMultitape* graph, uint64_t max_work,
+    uint8_t* out_bounded, uint64_t* out_delay);
+LLING_LLANG_API LlingLlangStatus lling_multitape_synchronize(
+    const LlingMultitape* graph, uint64_t max_delay,
+    uint8_t allow_epsilon, const LlingBudgetV2* budget,
+    LlingMultitape** out_graph);
+LLING_LLANG_API void lling_multitape_free(LlingMultitape* graph);
+/* The flat arrays are borrowed for capture; the immutable graph owns copies. */
+LLING_LLANG_API LlingLlangStatus lling_tree_new(
+    uint32_t unit_domain, uint32_t weight_domain,
+    uint64_t num_states, uint64_t start,
+    const uint8_t* final_flags, const double* final_weights,
+    const LlingTreeRule* rules, uint64_t num_rules,
+    const LlingTreeNode* patterns, uint64_t num_pattern_nodes,
+    const LlingBudgetV2* budget, LlingTreeTransducer** out_graph);
+LLING_LLANG_API LlingLlangStatus lling_tree_info(
+    const LlingTreeTransducer* graph, size_t* out_states,
+    size_t* out_rules, uint64_t* out_start);
+LLING_LLANG_API LlingLlangStatus lling_tree_state_info(
+    const LlingTreeTransducer* graph, uint64_t state,
+    uint8_t* out_final, double* out_weight);
+LLING_LLANG_API LlingLlangStatus lling_tree_rule_info(
+    const LlingTreeTransducer* graph, size_t index,
+    LlingTreeRule* out_rule);
+LLING_LLANG_API LlingLlangStatus lling_tree_rule_pattern_copy(
+    const LlingTreeTransducer* graph, size_t index,
+    LlingTreeNode* out_nodes, size_t capacity);
+/* All budget axes are finite; results own a bounded snapshot of outputs. */
+LLING_LLANG_API LlingLlangStatus lling_tree_transduce(
+    const LlingTreeTransducer* graph, const LlingTreeNode* input,
+    uint64_t num_nodes, uint64_t state, const LlingBudgetV2* budget,
+    LlingTreeResults** out_results);
+/* Optional direct pattern results: flag zero implies a null result handle. */
+LLING_LLANG_API LlingLlangStatus lling_tree_apply_rule(
+    const LlingTreeTransducer* graph, size_t rule_index,
+    const LlingTreeNode* input, uint64_t num_nodes,
+    const LlingBudgetV2* budget, uint8_t* out_applicable,
+    LlingTreeResults** out_results);
+LLING_LLANG_API LlingLlangStatus lling_tree_instantiate_pattern(
+    const LlingTreeTransducer* graph, const LlingTreeNode* pattern,
+    uint64_t num_pattern_nodes, const LlingTreeNode* input,
+    uint64_t num_input_nodes, const LlingBudgetV2* budget,
+    uint8_t* out_instantiated, LlingTreeResults** out_results);
+LLING_LLANG_API LlingLlangStatus lling_tree_results_info(
+    const LlingTreeResults* results, size_t* out_count);
+LLING_LLANG_API LlingLlangStatus lling_tree_result_info(
+    const LlingTreeResults* results, size_t index,
+    size_t* out_nodes, double* out_weight);
+LLING_LLANG_API LlingLlangStatus lling_tree_result_copy(
+    const LlingTreeResults* results, size_t index,
+    LlingTreeNode* out_nodes, size_t capacity);
+LLING_LLANG_API void lling_tree_free(LlingTreeTransducer* graph);
+LLING_LLANG_API void lling_tree_results_free(LlingTreeResults* results);
 LLING_LLANG_API void lling_resource_release(VtResource resource);
 LLING_LLANG_API LlingLlangStatus lling_abi_v2_validate_header(
     const LlingAbiV2Header* header, uint32_t required_size,

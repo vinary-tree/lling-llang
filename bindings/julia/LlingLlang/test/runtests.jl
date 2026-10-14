@@ -73,6 +73,316 @@ function scalar_chain(::Type{L}, ::Type{W}, label, arc_weight, final_weight;
     build!(builder)
 end
 
+@testset "captured native subsequential runner" begin
+    for (L, label) in LABEL_CASES, (W, _, _) in WEIGHT_CASES
+        builder = WfstBuilder{L,W}(size_hint=2)
+        start, finish = add_state!(builder), add_state!(builder)
+        set_start!(builder, start)
+        set_final!(builder, finish, one(W))
+        add_arc!(builder, start, label, label, finish, one(W))
+        source = build!(builder)
+        runner = SubsequentialRunner(source; max_input_units=2)
+        with_suffix = SubsequentialRunner(source; max_input_units=2,
+            final_outputs=Dict(finish => [label, label]))
+        close(source)
+        output, weight = subsequential_apply(runner, [label])
+        @test output == [label]
+        @test weight == one(W)
+        @test isnothing(subsequential_apply(runner, L[]))
+        @test_throws ArgumentError subsequential_apply(runner, fill(label, 3))
+        @test subsequential_apply(with_suffix, [label]) ==
+            ([label, label, label], one(W))
+        suffix_session = SubsequentialSession(with_suffix)
+        @test subsequential_step!(suffix_session, label) ==
+            (active=true, output=label)
+        @test subsequential_finish(suffix_session) == ([label, label], one(W))
+        close(suffix_session)
+        close(with_suffix)
+        session = SubsequentialSession(runner)
+        close(runner)
+        @test !isopen(runner)
+        @test_throws NativeError subsequential_apply(runner, [label])
+        @test subsequential_step!(session, label) == (active=true, output=label)
+        @test subsequential_finish(session) == (L[], one(W))
+        @test subsequential_step!(session, label) == (active=false, output=nothing)
+        @test isnothing(subsequential_finish(session))
+        @test_throws ArgumentError subsequential_step!(session, label)
+        close(session)
+        @test_throws NativeError subsequential_finish(session)
+    end
+
+    builder = WfstBuilder{Char,TropicalWeight}(size_hint=2)
+    start, finish = add_state!(builder), add_state!(builder)
+    set_start!(builder, start)
+    set_final!(builder, finish)
+    add_arc!(builder, start, 'a', nothing, finish)
+    epsilon_output = build!(builder)
+    @test_throws NativeError SubsequentialRunner(epsilon_output;
+        final_outputs=Dict(start => ['x']))
+    runner = SubsequentialRunner(epsilon_output)
+    session = SubsequentialSession(runner)
+    @test subsequential_step!(session, 'a') == (active=true, output=nothing)
+    @test subsequential_finish(session) == (Char[], one(TropicalWeight))
+    close(session)
+    close(runner)
+    close(epsilon_output)
+
+    builder = WfstBuilder{Char,TropicalWeight}(size_hint=1)
+    empty_final = add_state!(builder)
+    set_start!(builder, empty_final)
+    set_final!(builder, empty_final)
+    empty_source = build!(builder)
+    empty_runner = SubsequentialRunner(empty_source;
+        final_outputs=Dict(empty_final => ['!']))
+    @test subsequential_apply(empty_runner, Char[]) ==
+        (['!'], one(TropicalWeight))
+    empty_session = SubsequentialSession(empty_runner)
+    @test subsequential_finish(empty_session) ==
+        (['!'], one(TropicalWeight))
+    close(empty_session)
+    close(empty_runner)
+    close(empty_source)
+
+    builder = WfstBuilder{Char,TropicalWeight}(size_hint=1)
+    start = add_state!(builder)
+    set_start!(builder, start)
+    set_final!(builder, start)
+    add_arc!(builder, start, 'a', 'x', start)
+    add_arc!(builder, start, 'a', 'y', start)
+    nondeterministic = build!(builder)
+    @test_throws NativeError SubsequentialRunner(nondeterministic)
+    close(nondeterministic)
+
+    builder = WfstBuilder{Char,TropicalWeight}(size_hint=1)
+    start = add_state!(builder)
+    set_start!(builder, start)
+    set_final!(builder, start)
+    add_arc!(builder, start, nothing, 'x', start)
+    epsilon = build!(builder)
+    @test_throws NativeError SubsequentialRunner(epsilon)
+    close(epsilon)
+end
+
+@testset "runtime-arity native multi-tape snapshots and lazy arcs" begin
+    for (L, label) in LABEL_CASES, (W, _, _) in WEIGHT_CASES
+        builder = MultiTapeBuilder{L,W}(3)
+        start, finish = add_state!(builder), add_state!(builder)
+        set_start!(builder, start)
+        set_final!(builder, finish)
+        @test_throws ArgumentError add_arc!(builder, start, [label], finish)
+        @test_throws ArgumentError set_final!(builder, 9)
+        original_labels = Any[label, nothing, label]
+        add_arc!(builder, start, original_labels, finish)
+        original_labels[1] = nothing
+        graph = build!(builder)
+        @test !isopen(builder)
+        @test_throws NativeError add_state!(builder)
+        @test multitape_info(graph) ==
+            (num_tapes=3, num_states=2, num_arcs=1, start=start)
+        @test multitape_state(graph, finish).final_weight == one(W)
+        @test multitape_state(graph, start).arc_count == 1
+        @test_throws NativeError multitape_state(graph, 9)
+        arcs = multitape_arcs(graph, start)
+        @test length(arcs) == 1
+        arc = only(collect(arcs))
+        @test arc.to == finish
+        @test arc.labels == [label, nothing, label]
+        @test arc.weight == one(W)
+        @test multitape_transduce(graph, [[label, nothing, label]]) == one(W)
+        @test multitape_accepts(graph, [[label, nothing, label]])
+        @test isnothing(multitape_transduce(graph, []))
+        @test_throws ArgumentError multitape_transduce(graph, [[label]])
+        @test multitape_max_delay(graph) == UInt64(1)
+        @test !multitape_has_bounded_delay(graph, 0)
+        @test multitape_has_bounded_delay(graph, 1)
+        projected = multitape_project(graph, 1)
+        @test VTI.state_count(projected) == 2
+        @test only(VTI.arcs(projected, 0)).input == UInt64(label)
+        close(projected)
+        subset = multitape_project_tapes(graph, [3, 1])
+        @test multitape_info(subset).num_tapes == 2
+        @test only(collect(multitape_arcs(subset, start))).labels == [label, label]
+        close(subset)
+        synced = multitape_synchronize(graph, 0)
+        @test multitape_info(synced).num_states == 1
+        @test multitape_info(synced).num_arcs == 0
+        close(synced)
+        @test_throws NativeError multitape_max_delay(graph; max_work=0)
+        close(graph)
+        @test_throws NativeError multitape_state(graph, start)
+    end
+
+    empty_builder = MultiTapeBuilder{Char,TropicalWeight}(9)
+    empty_graph = build!(empty_builder)
+    @test multitape_info(empty_graph) ==
+        (num_tapes=9, num_states=0, num_arcs=0, start=nothing)
+    close(empty_graph)
+    @test_throws ArgumentError MultiTapeBuilder{Char,TropicalWeight}(0)
+
+    cyclic_builder = MultiTapeBuilder{Char,TropicalWeight}(2)
+    cyclic_start = add_state!(cyclic_builder)
+    set_start!(cyclic_builder, cyclic_start)
+    set_final!(cyclic_builder, cyclic_start)
+    add_arc!(cyclic_builder, cyclic_start, ['a', nothing], cyclic_start)
+    cyclic = build!(cyclic_builder)
+    @test isnothing(multitape_max_delay(cyclic))
+    @test !multitape_has_bounded_delay(cyclic, 100)
+    bounded = multitape_synchronize(cyclic, 1)
+    @test multitape_info(bounded).num_states == 2
+    @test multitape_info(bounded).num_arcs == 1
+    close(bounded)
+    close(cyclic)
+
+    epsilon_builder = MultiTapeBuilder{Char,TropicalWeight}(2)
+    epsilon_start, epsilon_finish = add_state!(epsilon_builder),
+        add_state!(epsilon_builder)
+    set_start!(epsilon_builder, epsilon_start)
+    set_final!(epsilon_builder, epsilon_finish)
+    add_arc!(epsilon_builder, epsilon_start, [nothing, nothing],
+        epsilon_finish)
+    epsilon = build!(epsilon_builder)
+    @test multitape_transduce(epsilon, []) == one(TropicalWeight)
+    no_epsilon = multitape_synchronize(epsilon, 0; allow_epsilon=false)
+    @test multitape_info(no_epsilon).num_arcs == 0
+    close(no_epsilon)
+    close(epsilon)
+end
+
+@testset "ranked native tree transducer snapshots and bounded results" begin
+    for L in (UInt8, Char, UInt64), (W, rule_weight, _) in WEIGHT_CASES
+        a, b, source, swapped, copied, deleted, fixed, constant =
+            L == Char ? ('a', 'b', 'S', 'T', 'C', 'D', 'F', 'K') :
+            (L(1), L(2), L(3), L(4), L(5), L(6), L(7), L(8))
+        builder = TreeTransducerBuilder{L,W}()
+        state = add_state!(builder)
+        set_start!(builder, state)
+        set_final!(builder, state)
+        if L == Char
+            @test_throws ArgumentError add_rule!(builder, state,
+                typemax(UInt64), 0, TreePattern(a))
+        end
+        add_rule!(builder, state, a, 0, TreePattern(a))
+        add_rule!(builder, state, b, 0, TreePattern(b))
+        add_rule!(builder, state, source, 2, TreePattern(swapped,
+            [TreeVariable(state, 2), TreeVariable(state, 1)]), rule_weight)
+        add_rule!(builder, state, source, 2, TreePattern(copied,
+            [TreeVariable(state, 1), TreeVariable(state, 1)]), rule_weight)
+        add_rule!(builder, state, source, 2,
+            TreePattern(deleted), rule_weight)
+        add_rule!(builder, state, source, 2, TreePattern(fixed,
+            [TreePattern(constant), TreeVariable(state, 2)]), rule_weight)
+        @test_throws ArgumentError add_rule!(builder, state, source, 2,
+            TreePattern(fixed, [TreeVariable(state, 3)]))
+        graph = build!(builder)
+        @test !isopen(builder)
+        @test tree_info(graph) ==
+            (num_states=1, num_rules=6, start=state)
+        @test tree_state(graph, state) == one(W)
+        rules = collect(tree_rules(graph))
+        @test length(rules) == 6
+        @test rules[3].input_symbol == source
+        @test rules[3].output_pattern.children[1].input_child == 2
+        input = Tree(source, [Tree(a), Tree(b)])
+        results = tree_transduce(graph, input)
+        @test length(results) == 4
+        @test tree_result(results, 1)[1].children[1].label == b
+        @test tree_result(results, 2)[1].children[2].label == a
+        @test isempty(tree_result(results, 3)[1].children)
+        @test tree_result(results, 4)[1].children[1].label == constant
+        @test all(pair[2] == rule_weight for pair in results)
+        applied = tree_apply_rule(graph, 2, input)
+        @test !isnothing(applied)
+        @test only(collect(applied))[2] == rule_weight
+        close(applied)
+        instantiated = tree_instantiate_pattern(graph,
+            TreePattern(swapped, [TreeVariable(state, 2),
+                TreeVariable(state, 1)]), input)
+        @test !isnothing(instantiated)
+        @test only(collect(instantiated))[2] == one(W)
+        close(instantiated)
+        @test isnothing(tree_instantiate_pattern(graph,
+            TreePattern(swapped, [TreeVariable(state, 2),
+                TreeVariable(state, 3)]), input))
+        @test_throws NativeError tree_apply_rule(graph, 99, input)
+        cyclic_tree = Tree(source)
+        push!(cyclic_tree.children, cyclic_tree)
+        @test_throws ArgumentError tree_transduce(graph, cyclic_tree)
+        cyclic_pattern = TreePattern(swapped)
+        push!(cyclic_pattern.children, cyclic_pattern)
+        @test_throws ArgumentError tree_instantiate_pattern(graph,
+            cyclic_pattern, input)
+        @test_throws ArgumentError tree_transduce(graph, input;
+            budget=BudgetV2(max_states=100, max_arcs=2,
+                max_bytes=64_000, max_work=10_000))
+        @test_throws NativeError tree_transduce(graph,
+            Tree(source, [Tree(a)]))
+        @test_throws NativeError tree_transduce(graph, input;
+            budget=BudgetV2(max_states=1, max_arcs=100,
+                max_bytes=64_000, max_work=10_000))
+        close(graph)
+        @test tree_result(results, 1)[1].label == swapped
+        close(results)
+        @test_throws NativeError tree_result(results, 1)
+    end
+end
+
+@testset "Julia tree values and native rule conveniences" begin
+    input = Tree('S', [Tree('a'), Tree('b')])
+    @test !tree_is_leaf(input)
+    @test tree_arity(input) == 2
+    @test tree_size(input) == 3
+    @test tree_depth(input) == 2
+    @test [node.label for node in tree_preorder(input)] == ['S', 'a', 'b']
+    visited = Char[]
+    mapped = tree_map(label -> (push!(visited, label); uppercase(label)), input)
+    @test visited == ['S', 'a', 'b']
+    @test mapped.children[1].label == 'A'
+    @test tree_subtree(input, [2]).label == 'b'
+    @test isnothing(tree_subtree(input, [3]))
+    replaced = tree_replace(input, [1], Tree('z'))
+    @test replaced.children[1].label == 'z'
+    @test input.children[1].label == 'a'
+    @test isnothing(tree_replace(input, [3], Tree('z')))
+    mixed = Tree{Any}(:root, Tree{Any}[Tree{Any}(1, Tree{Any}[])])
+    @test tree_subtree(mixed, [1]) isa Tree{Any}
+    @test tree_replace(mixed, [1], Tree{Any}(:new, Tree{Any}[])) isa Tree{Any}
+
+    swap = TreePattern('T', [TreeVariable(0, 2), TreeVariable(0, 1)])
+    @test pattern_arity(swap) == 2
+    @test !pattern_is_leaf(swap)
+    @test pattern_variable_indices(swap) == UInt64[1, 2]
+    linear = TreeRule{Char,TropicalWeight}(0, 'S', 2,
+        swap, one(TropicalWeight))
+    @test tree_is_linear(linear)
+    @test !tree_is_identity_like(linear)
+    copying = TreeRule{Char,TropicalWeight}(0, 'S', 2,
+        TreePattern('C', [TreeVariable(0, 1), TreeVariable(0, 1)]),
+        one(TropicalWeight))
+    @test tree_is_copying(copying)
+    @test tree_is_deleting(copying)
+    identity_rule = TreeRule{Char,TropicalWeight}(0, 'S', 2,
+        TreePattern('S', [TreeVariable(0, 1), TreeVariable(0, 2)]),
+        one(TropicalWeight))
+    @test tree_is_identity_like(identity_rule)
+
+    builder = TreeTransducerBuilder{Char,TropicalWeight}()
+    state = add_state!(builder)
+    set_start!(builder, state)
+    add_identity_rule!(builder, state, 'a', 0)
+    add_identity_rule!(builder, state, 'b', 0)
+    add_swap_rule!(builder, state, 'S', 'T', [2, 1])
+    add_relabel_rule!(builder, state, 'R', 'Q', 1)
+    add_deletion_rule!(builder, state, 'D', 2, 'E')
+    add_copy_rule!(builder, state, 'C', 1, 'X', [1, 1])
+    add_flatten_rule!(builder, state, 'F', state)
+    graph = build!(builder)
+    @test tree_info(graph).num_rules == 7
+    outputs = tree_transduce(graph, input)
+    @test only(collect(outputs))[1].children[1].label == 'b'
+    close(outputs)
+    close(graph)
+end
+
 @testset "bounded CFG analysis over a scalar WFST lattice" begin
     start = CfgNonterminal("S")
     a, b = CfgTerminal("a"), CfgTerminal("b")

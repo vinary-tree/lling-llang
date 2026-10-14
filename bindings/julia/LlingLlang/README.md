@@ -58,6 +58,155 @@ graph = build!(builder)
 close(graph)
 ```
 
+### Reuse a deterministic transducer snapshot
+
+`SubsequentialRunner` captures an immutable native weighted finite-state
+transducer (WFST) once. It accepts one input label at each transition, emits
+zero or one output label, and returns a typed output vector and semiring weight
+for an accepted input. An input with no accepting path returns `nothing`.
+
+```julia
+builder = WfstBuilder(size_hint=2)
+start = add_state!(builder)
+finish = add_state!(builder)
+set_start!(builder, start)
+set_final!(builder, finish)
+add_arc!(builder, start, 'a', 'b', finish)
+graph = build!(builder)
+
+runner = SubsequentialRunner(graph;
+    budget=BudgetV2(max_states=100, max_arcs=1000,
+        max_bytes=1_000_000, max_work=10_000),
+    max_input_units=100,
+    final_outputs=Dict(finish => ['!']))
+close(graph)                         # runner owns the captured snapshot
+@assert subsequential_apply(runner, ['a']) == (['b', '!'], TropicalWeight(0.0))
+@assert isnothing(subsequential_apply(runner, ['x']))
+session = SubsequentialSession(runner)
+close(runner)
+@assert subsequential_step!(session, 'a') == (active=true, output='b')
+@assert subsequential_finish(session) == (['!'], TropicalWeight(0.0))
+close(session)
+```
+
+The native constructor rejects duplicate input labels from one state and
+epsilon-input transitions, because either would make this left-to-right runner
+ambiguous or skip a transition. It validates the source under the four-axis
+`BudgetV2` and limits each later input to `max_input_units`. Output length is at
+most input length plus the longest configured final-output suffix. Final
+outputs are attached to distinct accepting state IDs and are captured under
+the same byte and work budget as the graph.
+Calls may share the immutable runner concurrently while the owner keeps it
+open. A session consumes each input symbol once, emits `nothing` for an
+epsilon-output arc, and reports `active=false` after a prefix without a
+continuation. `subsequential_finish` inspects the current accepting state and
+returns its final suffix and total weight, or `nothing` when it is not
+accepting. A session retains the native snapshot after its runner closes; each
+session has its own `max_input_units` limit and must be closed independently.
+
+### Capture a multi-tape graph
+
+`MultiTapeBuilder{L,W}(num_tapes)` accepts any positive tape count. Each arc
+supplies one label or `nothing` (epsilon) per tape. `build!` validates the
+whole graph under finite state, arc, payload-byte, and work limits, then
+captures an immutable native snapshot. State IDs are zero-based, matching the
+native API.
+
+```julia
+builder = MultiTapeBuilder{Char,TropicalWeight}(3)
+start = add_state!(builder)
+finish = add_state!(builder)
+set_start!(builder, start)
+set_final!(builder, finish)
+add_arc!(builder, start, ['a', nothing, 'z'], finish)
+graph = build!(builder)
+
+@assert multitape_info(graph).num_tapes == 3
+@assert multitape_state(graph, finish).final_weight == one(TropicalWeight)
+@assert only(collect(multitape_arcs(graph, start))).labels ==
+    ['a', nothing, 'z']
+@assert multitape_transduce(graph, [['a', nothing, 'z']]) ==
+    one(TropicalWeight)
+@assert multitape_max_delay(graph) == UInt64(1)
+projected = multitape_project(graph, 1) # Julia tape indices are one-based
+close(projected)
+bounded = multitape_synchronize(graph, 0)
+@assert multitape_info(bounded).num_arcs == 0
+close(bounded)
+close(graph)
+```
+
+`multitape_arcs` reads one native arc on each iterator step. It does not copy
+the complete arc set. The builder copies caller label vectors when arcs are
+added; the native graph copies the complete builder snapshot at `build!`.
+Closed builders and graphs reject later operations. The default constructor
+budget is finite and can be adjusted with `budget=BudgetV2(...)`.
+`multitape_transduce` follows the native first-accepting-path semantics over
+a sequence of full tape-label tuples; `multitape_accepts` reports whether a
+path exists. `multitape_project` returns a scalar `Wfst`, while
+`multitape_project_tapes` returns another immutable multi-tape snapshot in
+the requested tape order. Tape indices in these Julia methods are one-based.
+`multitape_max_delay` returns `nothing` for an unbounded delay, and
+`multitape_synchronize` materializes the bounded-delay subgraph. Projection,
+transduction, and synchronization require finite four-axis budgets; the
+exact delay query takes a finite `max_work` limit.
+
+### Rewrite ranked trees
+
+`TreeTransducerBuilder{L,W}` captures native weighted tree rules. `Tree` holds
+an input or output tree, `TreePattern` describes a rule's output, and
+`TreeVariable(state, input_child)` selects an input child for recursive
+rewriting. Native state IDs are zero-based; `input_child` is one-based in
+Julia. Input and output symbols each have a consistent rank (child count).
+Rules may reorder, copy, delete, or embed fixed subtrees.
+
+```julia
+builder = TreeTransducerBuilder{Char,TropicalWeight}()
+state = add_state!(builder)
+set_start!(builder, state)
+add_rule!(builder, state, 'a', 0, TreePattern('a'))
+add_rule!(builder, state, 'b', 0, TreePattern('b'))
+add_rule!(builder, state, 'S', 2, TreePattern('T',
+    [TreeVariable(state, 2), TreeVariable(state, 1)]))
+transducer = build!(builder)
+
+@assert tree_info(transducer).num_rules == 3
+@assert length(collect(tree_rules(transducer))) == 3
+outputs = tree_transduce(transducer,
+    Tree('S', [Tree('a'), Tree('b')]))
+rewritten, weight = only(collect(outputs))
+@assert rewritten.label == 'T'
+@assert rewritten.children[1].label == 'b'
+@assert weight == one(TropicalWeight)
+close(transducer)
+close(outputs)
+```
+
+`build!` freezes the builder as an immutable native snapshot. `tree_rules`
+reads one rule and its pattern per iterator step. `tree_transduce` evaluates
+the native rules under finite limits and returns an owned result collection;
+iteration decodes one output tree at a time. The result collection remains
+valid after the transducer is closed and must be closed separately. Its
+`BudgetV2` axes bound alternatives, input and output nodes, logical payload
+bytes, and native work, respectively. Exhausting a limit raises `NativeError`
+without returning partial results. A caller may pass `state=` to start from a
+specific native state. `tree_apply_rule(graph, zero_based_rule_index, input)`
+and `tree_instantiate_pattern(graph, pattern, input)` execute the corresponding
+native operations under the same limits; they return `nothing` when a pattern
+variable selects a missing input child. `tree_state`, `tree_rule`, and
+`tree_result` read an individual state, rule, or one-based result index. This
+surface requires native API revision 20.
+
+The Julia tree values also provide `tree_arity`, `tree_is_leaf`, `tree_size`,
+`tree_depth`, lazy `tree_preorder`, `tree_map`, `tree_subtree`, and
+`tree_replace`. Subtree paths use one-based child indices and return
+`nothing` when a path is missing. Pattern queries expose rank, leaf status,
+and selected one-based input child indices. Rule predicates report deleting,
+copying, linear, and identity-like behavior. Convenience builder methods
+`add_identity_rule!`, `add_relabel_rule!`, `add_deletion_rule!`,
+`add_copy_rule!`, `add_swap_rule!`, and `add_flatten_rule!` capture the same
+native rule forms through `add_rule!`.
+
 ## Incremental weighted pushdown decoding
 
 A **pushdown automaton** (PDA) recognizes nested structures by keeping a stack

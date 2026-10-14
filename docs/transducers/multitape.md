@@ -114,6 +114,7 @@ extension**, a concrete vector backing, and a builder.
 | [`MultiTapeWfst<L, W, const N>`](../../src/multitape/traits.rs) | trait | Read-only structural queries: `start`, `is_final`, `final_weight`, `transitions`, `states`, `num_tapes`. |
 | [`MultiTapeWfstOps<L, W, N>`](../../src/multitape/traits.rs) | trait (blanket) | Higher-level ops layered on the query trait: per-tape filtering, `tape_alphabet`, `transduce`, `accepts`. |
 | [`VectorMultiTapeWfst<L, W, N>`](../../src/multitape/vector.rs) | struct | The default in-memory implementation (states in a `Vec`, arcs per state). |
+| [`RuntimeMultiTapeWfst<L, W>`](../../src/multitape/runtime.rs) | struct | Checked runtime tape count for foreign-language callers; captures fixed-arity graphs, projects tapes, analyzes delay, and materializes bounded synchronization. |
 | [`MultiTapeState<L, W, N>`](../../src/multitape/vector.rs) | struct | One state: `is_final`, `final_weight`, and its outgoing `transitions`. |
 | [`MultiTapeWfstBuilder<L, W, N>`](../../src/multitape/builder.rs) | struct | Ergonomic construction with chaining; `build()` yields a `VectorMultiTapeWfst`. |
 | [`MultiTapeLabel<L, const N>`](../../src/multitape/label.rs) | struct | An `[Option<L>; N]` tape-label vector (`None` = $`\varepsilon`$). |
@@ -138,6 +139,22 @@ where
 The trait relationships, the value types each arc carries, and the
 builder→implementation pipeline are drawn in the
 [trait-hierarchy diagram](#trait-hierarchy).
+
+Foreign-language callers choose the tape count at runtime. The runtime graph
+stores one `Vec<Option<L>>` per arc and checks that its length equals the
+positive tape count. It validates state IDs and tape indices before mutation;
+an invalid input leaves the graph unchanged. `from_fixed` captures any
+const-arity native graph while preserving arc insertion order, and the
+runtime `transduce` and projection methods follow the corresponding native
+operations. `transduce` requires a finite work limit, including work spent
+following pure $`\varepsilon`$ arcs, so cyclic graphs cannot consume unbounded
+work through the binding. Runtime delay analysis projects every tape pair to
+the scalar delay proof; its work limit counts the states and arcs inspected
+for each pair. Runtime synchronization uses the same `(state, delay)` product
+as the fixed-arity implementation, with explicit state, arc, payload-byte,
+and work limits. A wider intermediate delay is computed in `u128` before the
+requested bound is checked, so a legal `usize` bound cannot cause arithmetic
+wraparound.
 
 ### The multi-tape label
 
@@ -221,7 +238,7 @@ $`\max - \min > d`$:
 
 | Function | Returns | Meaning |
 |---|---|---|
-| `compute_max_delay(&t)` | `usize` | The largest delay reachable from $`q_0`$. |
+| `compute_max_delay(&t)` | `Option<usize>` | `Some(d)` for the exact largest reachable delay; `None` for unbounded delay or an unrepresentable result. |
 | `has_bounded_delay(&t, d)` | `bool` | Whether every reachable delay is $`\le d`$. |
 | `synchronize(&t, cfg)` | `SynchronizedMultiTape` | A rebuilt WFST whose states are `(original state, delay)` pairs, dropping any arc that would exceed `cfg.max_delay`. |
 
@@ -231,6 +248,19 @@ the start, and for each outgoing arc computes the successor delay
 pruned, so the result accepts exactly the bounded-delay sublanguage of the input.
 This is the multi-tape analogue of the single-tape
 [synchronization algorithm](../algorithms/synchronization.md).
+
+For a path, let $`n_i`$ count labels consumed on tape $`i`$. Its delay is
+the greatest difference between any two tape counts:
+
+```math
+D=\max_{i<j}|n_i-n_j|.
+```
+
+`compute_max_delay` analyzes each tape pair with the scalar WFST delay
+algorithm and retains the greatest result. A reachable cycle that advances
+two tapes by different amounts can be repeated, so the result is `None` and
+`has_bounded_delay` is false for every finite bound. Balanced cycles return a
+finite result without enumerating ever longer paths.
 
 ---
 
@@ -328,7 +358,7 @@ builder.add_transition(s1, s2, MultiTapeLabel::single(0, 'b'), TropicalWeight::o
 builder.add_transition(s2, s3, MultiTapeLabel::pair(0, 'c', 1, 'x'), TropicalWeight::one());
 let mt = builder.build();
 
-assert_eq!(compute_max_delay(&mt), 2);
+assert_eq!(compute_max_delay(&mt), Some(2));
 assert!(!has_bounded_delay(&mt, 1));
 assert!(has_bounded_delay(&mt, 2));
 

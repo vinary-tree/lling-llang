@@ -43,6 +43,62 @@ export ABI_VERSION,
     Wfst,
     WfstArc,
     WfstState,
+    SubsequentialRunner,
+    SubsequentialSession,
+    subsequential_apply,
+    subsequential_step!,
+    subsequential_finish,
+    MultiTapeBuilder,
+    MultiTapeWfst,
+    MultiTapeState,
+    MultiTapeArc,
+    multitape_info,
+    multitape_state,
+    multitape_arcs,
+    multitape_transduce,
+    multitape_accepts,
+    multitape_project,
+    multitape_project_tapes,
+    multitape_max_delay,
+    multitape_has_bounded_delay,
+    multitape_synchronize,
+    Tree,
+    TreeVariable,
+    TreePattern,
+    TreeRule,
+    TreeTransducerBuilder,
+    TreeTransducer,
+    TreeResults,
+    TreePreorder,
+    tree_is_leaf,
+    tree_arity,
+    tree_size,
+    tree_depth,
+    tree_map,
+    tree_preorder,
+    tree_subtree,
+    tree_replace,
+    pattern_arity,
+    pattern_is_leaf,
+    pattern_variable_indices,
+    tree_is_deleting,
+    tree_is_copying,
+    tree_is_linear,
+    tree_is_identity_like,
+    add_identity_rule!,
+    add_relabel_rule!,
+    add_deletion_rule!,
+    add_copy_rule!,
+    add_swap_rule!,
+    add_flatten_rule!,
+    tree_info,
+    tree_state,
+    tree_rule,
+    tree_rules,
+    tree_result,
+    tree_transduce,
+    tree_apply_rule,
+    tree_instantiate_pattern,
     PathLimits,
     WfstPathStep,
     WfstPath,
@@ -113,6 +169,7 @@ export ABI_VERSION,
     set_final!,
     clear_final!,
     add_arc!,
+    add_rule!,
     build!,
     pda_domains,
     pda_session,
@@ -789,7 +846,8 @@ function wire_label(::Type{Char}, value::AbstractString, symbols)
     wire_label(Char, only(characters), symbols)
 end
 function wire_label(::Type{Char}, value::Integer, symbols)
-    value >= 0 || throw(ArgumentError("a Unicode WFST label cannot be negative"))
+    0 <= value <= typemax(UInt32) || throw(ArgumentError(
+        "a Unicode WFST label must fit UInt32"))
     scalar = UInt32(value)
     isvalid(Char, scalar) || throw(ArgumentError("label is not a Unicode scalar"))
     (UInt64(scalar), UInt8(1))
@@ -908,6 +966,200 @@ function VTI.snapshot(wfst::Wfst{L,W}) where {L,W}
     Wfst(VTI.snapshot(wfst.native), L, W;
         input_symbols=wfst.input_symbols,
         output_symbols=wfst.output_symbols)
+end
+
+"""Reusable native input-deterministic runner over one immutable WFST snapshot."""
+mutable struct SubsequentialRunner{L,W<:AbstractScalarWeight,S1,S2}
+    handle::Ptr{Cvoid}
+    closed::Bool
+    max_input_units::Int
+    max_final_output_units::Int
+    input_symbols::S1
+    output_symbols::S2
+end
+
+function SubsequentialRunner(source::Wfst{L,W};
+    budget::BudgetV2=BudgetV2(max_states=10_000, max_arcs=100_000,
+        max_bytes=64_000_000, max_work=1_000_000),
+    max_input_units::Integer=100_000,
+    final_outputs::AbstractDict=Dict()) where {L,W<:AbstractScalarWeight}
+    0 < max_input_units <= min(typemax(UInt64), typemax(Int)) ||
+        throw(ArgumentError("max_input_units must fit a positive native size"))
+    isopen(source) || throw(NativeError(STATUS_CLOSED, :subsequential_new,
+        "source WFST is closed"))
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    resource = Ref(raw_resource(source))
+    final_states = UInt64[]
+    final_offsets = Csize_t[0]
+    final_labels = UInt64[]
+    max_final_output_units = 0
+    for (state, suffix) in final_outputs
+        state isa Integer && 0 <= state <= typemax(UInt64) ||
+            throw(ArgumentError("final output state must fit UInt64"))
+        suffix isa AbstractVector || throw(ArgumentError(
+            "final output suffix must be a vector"))
+        push!(final_states, UInt64(state))
+        for value in suffix
+            label, present = wire_label(L, value, source.output_symbols)
+            present == 1 || throw(ArgumentError(
+                "final output suffix cannot contain epsilon"))
+            push!(final_labels, label)
+        end
+        suffix_length = length(final_labels) - Int(final_offsets[end])
+        max_final_output_units = max(max_final_output_units, suffix_length)
+        push!(final_offsets, Csize_t(length(final_labels)))
+    end
+    GC.@preserve source begin
+        if isempty(final_states)
+            checked(ccall(native(:lling_subsequential_new_ref), UInt32,
+                (Ref{VTI.VtResourceRaw}, Ref{BudgetV2}, UInt64, Ref{Ptr{Cvoid}}),
+                resource, Ref(budget), UInt64(max_input_units), output),
+                :subsequential_new)
+        else
+            GC.@preserve final_states final_offsets final_labels begin
+                checked(ccall(native(:lling_subsequential_new_with_final_outputs_ref), UInt32,
+                    (Ref{VTI.VtResourceRaw}, Ref{BudgetV2}, UInt64,
+                        Ptr{UInt64}, Ptr{Csize_t}, Ptr{UInt64}, Csize_t, Csize_t,
+                        Ref{Ptr{Cvoid}}),
+                    resource, Ref(budget), UInt64(max_input_units),
+                    final_states, final_offsets, final_labels,
+                    length(final_states), length(final_labels), output),
+                    :subsequential_new)
+            end
+        end
+    end
+    runner = SubsequentialRunner{L,W,typeof(source.input_symbols),
+        typeof(source.output_symbols)}(output[], false, Int(max_input_units),
+        max_final_output_units,
+        source.input_symbols, source.output_symbols)
+    finalizer(finalize_close, runner)
+    runner
+end
+
+function close!(runner::SubsequentialRunner)
+    runner.closed && return nothing
+    ccall(native(:lling_subsequential_free), Cvoid, (Ptr{Cvoid},), runner.handle)
+    runner.handle = C_NULL
+    runner.closed = true
+    nothing
+end
+Base.close(runner::SubsequentialRunner) = close!(runner)
+Base.isopen(runner::SubsequentialRunner) = !runner.closed
+
+"""Run one bounded input sequence; return `(output, weight)` or `nothing`."""
+function subsequential_apply(runner::SubsequentialRunner{L,W},
+    input::AbstractVector) where {L,W}
+    isopen(runner) || throw(NativeError(STATUS_CLOSED, :subsequential_apply,
+        "runner is closed"))
+    length(input) <= runner.max_input_units || throw(ArgumentError(
+        "input exceeds max_input_units"))
+    labels = Vector{UInt64}(undef, length(input))
+    for (index, value) in enumerate(input)
+        labels[index], present = wire_label(L, value, runner.input_symbols)
+        present == 1 || throw(ArgumentError("subsequential input cannot contain epsilon"))
+    end
+    length(labels) <= typemax(Int) - runner.max_final_output_units ||
+        throw(ArgumentError("output capacity overflows native size"))
+    output = Vector{UInt64}(undef,
+        length(labels) + runner.max_final_output_units)
+    output_len = Ref{Csize_t}(0)
+    output_weight = Ref{Float64}(0)
+    accepted = Ref{UInt8}(0)
+    GC.@preserve labels output begin
+        checked(ccall(native(:lling_subsequential_apply), UInt32,
+            (Ptr{Cvoid}, Ptr{UInt64}, Csize_t, Ptr{UInt64}, Csize_t,
+                Ref{Csize_t}, Ref{Float64}, Ref{UInt8}),
+            runner.handle, labels, length(labels), output, length(output),
+            output_len, output_weight, accepted), :subsequential_apply)
+    end
+    accepted[] == 0 && return nothing
+    decoded = [decode_label(L, output[index]) for index in 1:Int(output_len[])]
+    (decoded, decode_weight(W, output_weight[]))
+end
+
+"""One incremental run over a captured native subsequential graph."""
+mutable struct SubsequentialSession{L,W<:AbstractScalarWeight,S}
+    handle::Ptr{Cvoid}
+    closed::Bool
+    max_input_units::Int
+    consumed::Int
+    input_symbols::S
+end
+
+function SubsequentialSession(runner::SubsequentialRunner{L,W}) where {L,W}
+    isopen(runner) || throw(NativeError(STATUS_CLOSED, :subsequential_session_new,
+        "runner is closed"))
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    checked(ccall(native(:lling_subsequential_session_new), UInt32,
+        (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), runner.handle, output),
+        :subsequential_session_new)
+    session = SubsequentialSession{L,W,typeof(runner.input_symbols)}(
+        output[], false, runner.max_input_units, 0, runner.input_symbols)
+    finalizer(finalize_close, session)
+    session
+end
+
+function close!(session::SubsequentialSession)
+    session.closed && return nothing
+    ccall(native(:lling_subsequential_session_free), Cvoid,
+        (Ptr{Cvoid},), session.handle)
+    session.handle = C_NULL
+    session.closed = true
+    nothing
+end
+Base.close(session::SubsequentialSession) = close!(session)
+Base.isopen(session::SubsequentialSession) = !session.closed
+
+"""Consume one symbol; return `(active, output)` with `nothing` for epsilon output."""
+function subsequential_step!(session::SubsequentialSession{L}, value) where {L}
+    isopen(session) || throw(NativeError(STATUS_CLOSED, :subsequential_session_step,
+        "session is closed"))
+    session.consumed < session.max_input_units || throw(ArgumentError(
+        "input exceeds max_input_units"))
+    label, present = wire_label(L, value, session.input_symbols)
+    present == 1 || throw(ArgumentError("subsequential input cannot contain epsilon"))
+    active = Ref{UInt8}(0)
+    emitted = Ref{UInt8}(0)
+    output = Ref{UInt64}(0)
+    checked(ccall(native(:lling_subsequential_session_step), UInt32,
+        (Ptr{Cvoid}, UInt64, Ref{UInt8}, Ref{UInt8}, Ref{UInt64}),
+        session.handle, label, active, emitted, output),
+        :subsequential_session_step)
+    session.consumed += 1
+    (active=active[] == 1,
+        output=emitted[] == 1 ? decode_label(L, output[]) : nothing)
+end
+
+"""Inspect the current accepting suffix and total weight, or return `nothing`."""
+function subsequential_finish(session::SubsequentialSession{L,W}) where {L,W}
+    isopen(session) || throw(NativeError(STATUS_CLOSED, :subsequential_session_finish,
+        "session is closed"))
+    output = UInt64[]
+    output_len = Ref{Csize_t}(0)
+    output_weight = Ref{Float64}(0)
+    accepted = Ref{UInt8}(0)
+    status = GC.@preserve output begin
+        ccall(native(:lling_subsequential_session_finish), UInt32,
+            (Ptr{Cvoid}, Ptr{UInt64}, Csize_t, Ref{Csize_t},
+                Ref{Float64}, Ref{UInt8}),
+            session.handle, output, length(output), output_len,
+            output_weight, accepted)
+    end
+    if status == UInt32(STATUS_LIMIT_EXCEEDED) && output_len[] > 0
+        resize!(output, Int(output_len[]))
+        GC.@preserve output begin
+            checked(ccall(native(:lling_subsequential_session_finish), UInt32,
+                (Ptr{Cvoid}, Ptr{UInt64}, Csize_t, Ref{Csize_t},
+                    Ref{Float64}, Ref{UInt8}),
+                session.handle, output, length(output), output_len,
+                output_weight, accepted), :subsequential_session_finish)
+        end
+    else
+        checked(status, :subsequential_session_finish)
+    end
+    accepted[] == 0 && return nothing
+    decoded = [decode_label(L, output[index]) for index in 1:Int(output_len[])]
+    (decoded, decode_weight(W, output_weight[]))
 end
 
 """One type-stable immutable arc decoded from the family ABI."""
@@ -3843,6 +4095,8 @@ provider(implementation::AbstractWfstProvider; kwargs...) =
 
 include("Cfg.jl")
 include("Pda.jl")
+include("Multitape.jl")
+include("Tree.jl")
 
 function __init__()
     initialize_callbacks!()

@@ -67,8 +67,8 @@ pub use alphabet::{RankedAlphabet, SimpleAlphabet, Symbol};
 pub use builder::{leaf, pattern, TreePatternBuilder, TreeTransducerBuilder};
 pub use rule::{TreeChild, TreePattern, TreeRule};
 pub use transducer::{
-    TransducerState, TreeTransducerError, TreeTransducerOps, VectorTreeTransducer,
-    WeightedTreeTransducer,
+    TransducerState, TreeTransducerError, TreeTransducerLimits, TreeTransducerOps,
+    TreeTransducerRunError, VectorTreeTransducer, WeightedTreeTransducer,
 };
 pub use tree::{Tree, TreeNode};
 pub use types::StateId;
