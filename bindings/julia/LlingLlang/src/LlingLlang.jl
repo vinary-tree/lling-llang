@@ -79,6 +79,18 @@ export ABI_VERSION,
     PdaSession,
     PdaChoice,
     PdaFrontier,
+    LfMmiConfig,
+    LfMmiResult,
+    TrainingCancelledError,
+    lfmmi_loss,
+    ctc_topology,
+    ArcGradient,
+    LogGradientCursor,
+    LogGradientResult,
+    log_gradient_cursor,
+    gradient_page,
+    gradient_pages,
+    log_gradients,
     ProviderArc,
     ProviderState,
     AbstractWfstProvider,
@@ -3843,6 +3855,7 @@ provider(implementation::AbstractWfstProvider; kwargs...) =
 
 include("Cfg.jl")
 include("Pda.jl")
+include("Training.jl")
 
 function __init__()
     initialize_callbacks!()

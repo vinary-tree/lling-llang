@@ -174,7 +174,7 @@
   },
   "packageVersion": "4.0.0-rc.6",
   "abiVersion": 1,
-  "apiRevision": 14,
+  "apiRevision": 15,
   "cPrefix": "lling_",
   "headers": {
     "c": "include/lling_llang.h",
@@ -4325,7 +4325,395 @@
     {"name": "lling_pda_session_advance", "rustModule": "ffi", "rakuName": "lling-pda-session-advance", "sinceApiRevision": 14, "threading": "caller-synchronized-mutable-handle", "capability": "bounded-native-pda-decoding", "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"}, "parameters": [{"name": "session", "cType": "LlingPdaSession*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "inout", "ownership": "borrowed-for-call", "nullability": "non-null"}, {"name": "label", "cType": "uint64_t", "rakuType": "uint64", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"}, {"name": "max_work", "cType": "size_t", "rakuType": "size_t", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"}, {"name": "out_advanced", "cType": "uint8_t*", "rakuType": "uint8", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"}], "raku": {"bind": false, "reason": "Raku pushdown and WPDS parity is a separate approved binding task"}},
     {"name": "lling_pda_session_acceptance", "rustModule": "ffi", "rakuName": "lling-pda-session-acceptance", "sinceApiRevision": 14, "threading": "caller-synchronized-mutable-handle", "capability": "bounded-native-pda-decoding", "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"}, "parameters": [{"name": "session", "cType": "const LlingPdaSession*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"}, {"name": "max_work", "cType": "size_t", "rakuType": "size_t", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"}, {"name": "out_accepted", "cType": "uint8_t*", "rakuType": "uint8", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"}, {"name": "out_weight", "cType": "double*", "rakuType": "num64", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"}], "raku": {"bind": false, "reason": "Raku pushdown and WPDS parity is a separate approved binding task"}},
     {"name": "lling_pda_session_info", "rustModule": "ffi", "rakuName": "lling-pda-session-info", "sinceApiRevision": 14, "threading": "caller-synchronized-mutable-handle", "capability": "bounded-native-pda-decoding", "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"}, "parameters": [{"name": "session", "cType": "const LlingPdaSession*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"}, {"name": "out_state", "cType": "uint32_t*", "rakuType": "uint32", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"}, {"name": "out_stack_depth", "cType": "size_t*", "rakuType": "size_t", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"}], "raku": {"bind": false, "reason": "Raku pushdown and WPDS parity is a separate approved binding task"}},
-    {"name": "lling_pda_session_stack_page", "rustModule": "ffi", "rakuName": "lling-pda-session-stack-page", "sinceApiRevision": 14, "threading": "caller-synchronized-mutable-handle", "capability": "bounded-native-pda-decoding", "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"}, "parameters": [{"name": "session", "cType": "const LlingPdaSession*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"}, {"name": "offset", "cType": "size_t", "rakuType": "size_t", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"}, {"name": "out_symbols", "cType": "uint32_t*", "rakuType": "uint32", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-buffer", "nullability": "non-null"}, {"name": "capacity", "cType": "size_t", "rakuType": "size_t", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"}, {"name": "out_written", "cType": "size_t*", "rakuType": "size_t", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"}], "raku": {"bind": false, "reason": "Raku pushdown and WPDS parity is a separate approved binding task"}}
+    {"name": "lling_pda_session_stack_page", "rustModule": "ffi", "rakuName": "lling-pda-session-stack-page", "sinceApiRevision": 14, "threading": "caller-synchronized-mutable-handle", "capability": "bounded-native-pda-decoding", "return": {"cType": "LlingLlangStatus", "rakuType": "uint32", "ownership": "value", "nullability": "not-applicable"}, "parameters": [{"name": "session", "cType": "const LlingPdaSession*", "rakuType": "Pointer", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"}, {"name": "offset", "cType": "size_t", "rakuType": "size_t", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"}, {"name": "out_symbols", "cType": "uint32_t*", "rakuType": "uint32", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-buffer", "nullability": "non-null"}, {"name": "capacity", "cType": "size_t", "rakuType": "size_t", "rakuPassing": "value", "direction": "in", "ownership": "borrowed-for-call", "nullability": "non-null"}, {"name": "out_written", "cType": "size_t*", "rakuType": "size_t", "rakuPassing": "rw", "direction": "out", "ownership": "borrowed-output-slot", "nullability": "non-null"}], "raku": {"bind": false, "reason": "Raku pushdown and WPDS parity is a separate approved binding task"}},
+    {
+      "name": "lling_lfmmi_loss_ref",
+      "rustModule": "ffi",
+      "rakuName": "lling-lfmmi-loss-ref",
+      "sinceApiRevision": 15,
+      "threading": "caller-synchronized-mutable-output",
+      "capability": "bounded-native-lfmmi-training",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "numerator",
+          "cType": "const VtResource*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "denominator",
+          "cType": "const VtResource*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "budget",
+          "cType": "const LlingBudgetV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "cancellation",
+          "cType": "const LlingCancellationV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "nullable"
+        },
+        {
+          "name": "scores",
+          "cType": "const double*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "frames",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "pdfs",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "score_frame_stride",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "score_pdf_stride",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "config",
+          "cType": "const LlingLfMmiConfig*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_summary",
+          "cType": "LlingLfMmiSummary*",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_gradients",
+          "cType": "double*",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-buffer",
+          "nullability": "non-null"
+        },
+        {
+          "name": "gradient_capacity",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "gradient_frame_stride",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "gradient_pdf_stride",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "Raku differentiable training and acoustic parity is a separate approved binding task"
+      }
+    },
+    {
+      "name": "lling_log_gradients_open",
+      "rustModule": "ffi",
+      "rakuName": "lling-log-gradients-open",
+      "sinceApiRevision": 15,
+      "threading": "caller-synchronized-mutable-output",
+      "capability": "bounded-native-log-gradients",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "resource",
+          "cType": "const VtResource*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "budget",
+          "cType": "const LlingBudgetV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "cancellation",
+          "cType": "const LlingCancellationV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "nullable"
+        },
+        {
+          "name": "out_cursor",
+          "cType": "LlingGradientCursor**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_score",
+          "cType": "double*",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_arc_count",
+          "cType": "size_t*",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "Raku differentiable training and acoustic parity is a separate approved binding task"
+      }
+    },
+    {
+      "name": "lling_log_gradients_page",
+      "rustModule": "ffi",
+      "rakuName": "lling-log-gradients-page",
+      "sinceApiRevision": 15,
+      "threading": "caller-synchronized-mutable-output",
+      "capability": "bounded-native-log-gradients",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "cursor",
+          "cType": "const LlingGradientCursor*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "start",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_arcs",
+          "cType": "LlingArcGradient*",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-buffer",
+          "nullability": "non-null"
+        },
+        {
+          "name": "capacity",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "out_written",
+          "cType": "size_t*",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "Raku differentiable training and acoustic parity is a separate approved binding task"
+      }
+    },
+    {
+      "name": "lling_log_gradients_free",
+      "rustModule": "ffi",
+      "rakuName": "lling-log-gradients-free",
+      "sinceApiRevision": 15,
+      "threading": "exclusive-owner-close",
+      "capability": "bounded-native-log-gradients",
+      "return": {
+        "cType": "void",
+        "rakuType": null,
+        "ownership": "none",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "cursor",
+          "cType": "LlingGradientCursor*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "owned-handle-consumed",
+          "nullability": "nullable"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "Raku differentiable training and acoustic parity is a separate approved binding task"
+      }
+    },
+    {
+      "name": "lling_ctc_topology",
+      "rustModule": "ffi",
+      "rakuName": "lling-ctc-topology",
+      "sinceApiRevision": 15,
+      "threading": "caller-synchronized-mutable-output",
+      "capability": "bounded-native-ctc-topology",
+      "return": {
+        "cType": "LlingLlangStatus",
+        "rakuType": "uint32",
+        "ownership": "value",
+        "nullability": "not-applicable"
+      },
+      "parameters": [
+        {
+          "name": "variant",
+          "cType": "uint32_t",
+          "rakuType": "uint32",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "vocab_size",
+          "cType": "size_t",
+          "rakuType": "size_t",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "budget",
+          "cType": "const LlingBudgetV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "non-null"
+        },
+        {
+          "name": "cancellation",
+          "cType": "const LlingCancellationV2*",
+          "rakuType": "Pointer",
+          "rakuPassing": "value",
+          "direction": "in",
+          "ownership": "borrowed-for-call",
+          "nullability": "nullable"
+        },
+        {
+          "name": "out_wfst",
+          "cType": "LlingWfst**",
+          "rakuType": "Pointer",
+          "rakuPassing": "rw",
+          "direction": "out",
+          "ownership": "borrowed-output-slot",
+          "nullability": "non-null"
+        }
+      ],
+      "raku": {
+        "bind": false,
+        "reason": "Raku CTC training and acoustic parity is a separate approved binding task"
+      }
+    }
   ],
   "javascript": {
     "package": "@vinary-tree/lling-llang",

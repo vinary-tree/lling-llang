@@ -254,7 +254,7 @@ impl<L: Clone + Send + Sync> GradientWfst<L> {
 /// 3. For each arc $`(s,t,w)`$, compute
 ///    $`\beta[s]=\beta[s]\oplus(w\otimes\beta[t])`$.
 /// 4. Compute arc gradients as
-///    $`\partial Z/\partial w=\exp(\alpha[s]+w+\beta[t]-Z)`$.
+///    $`\partial Z/\partial w=\exp(Z-\alpha[s]-w-\beta[t])`$.
 ///
 /// # Returns
 ///
@@ -324,13 +324,22 @@ pub fn backward<L: Clone + Send + Sync>(grad_fst: &GradientWfst<L>) -> GradientA
             let arc_weight = trans.weight;
             let beta_to = grad_fst.backward_score(to_state);
 
-            // Gradient = exp(α[from] + w + β[to] - Z)
-            // In log semiring: α[from].value() + w.value() + β[to].value() - Z.value()
-            let log_gradient =
-                alpha_from.value() + arc_weight.value() + beta_to.value() - total_score.value();
-            let gradient = log_gradient.exp();
+            // LogWeight stores negative log probabilities. An arc posterior is
+            // exp(total negative-log mass minus the path's negative-log mass),
+            // and a missing accepting path contributes zero rather than NaN.
+            let gradient = if total_score.is_zero() {
+                0.0
+            } else {
+                let path_cost = alpha_from.value() + arc_weight.value() + beta_to.value();
+                (total_score.value() - path_cost).exp()
+            };
 
-            gradients.add_gradient(ArcIndex::new(state, arc_idx), gradient);
+            // Every (state, arc index) occurs once in this traversal. Appending
+            // directly avoids the quadratic duplicate search in add_gradient.
+            gradients.arc_gradients.push(ArcGradient {
+                arc: ArcIndex::new(state, arc_idx),
+                gradient,
+            });
         }
     }
 
@@ -552,13 +561,13 @@ mod property_tests {
             let grads = backward(&grad_fst);
 
             prop_assert_eq!(grads.arc_gradients.len(), 2);
-            // Gradient ratio reflects weight difference
-            // (not necessarily g1 > g2, but the ratio should be consistent)
+            // Gradient ratio reflects the exact normalized path probability.
             let g1 = grads.arc_gradients[0].gradient;
             let g2 = grads.arc_gradients[1].gradient;
-            // Both should be positive
-            prop_assert!(g1 > 0.0 && g2 > 0.0,
-                "Gradients should be positive: {} and {}", g1, g2);
+            let expected_g1 = 1.0 / (1.0 + (-delta).exp());
+            prop_assert!((g1 - expected_g1).abs() < 1e-10);
+            prop_assert!((g2 - (1.0 - expected_g1)).abs() < 1e-10);
+            prop_assert!(g1 > g2);
         }
 
         /// GradientAccumulator get returns 0 for missing arc.

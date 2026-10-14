@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 14u
+#define LLING_LLANG_API_REVISION 15u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -72,6 +72,38 @@ typedef struct LlingCfgAnalysis LlingCfgAnalysis;
 typedef struct LlingPdaBuilder LlingPdaBuilder;
 typedef struct LlingPda LlingPda;
 typedef struct LlingPdaSession LlingPdaSession;
+typedef struct LlingGradientCursor LlingGradientCursor;
+
+typedef struct LlingArcGradient {
+    uint32_t from;
+    uint32_t arc_index;
+    double gradient;
+} LlingArcGradient;
+
+#define LLING_CTC_CORRECT 0u
+#define LLING_CTC_COMPACT 1u
+#define LLING_CTC_MINIMAL 2u
+#define LLING_CTC_SELFLESS_CORRECT 3u
+#define LLING_CTC_SELFLESS_COMPACT 4u
+
+/* Revision 15: bounded native LF-MMI training over scalar WFST resources. */
+typedef struct LlingLfMmiConfig {
+    uint32_t struct_size;
+    uint32_t version;
+    double leaky_hmm_coefficient;
+    double l2_regularize;
+    double xent_regularize;
+    uint8_t use_chain_topology; /* Must be 1; topology is in the input graphs. */
+    uint8_t reserved[7];
+    uint64_t subsampling_factor; /* Must be 3; frames are already subsampled. */
+} LlingLfMmiConfig;
+
+typedef struct LlingLfMmiSummary {
+    double loss;
+    double numerator_log_prob;
+    double denominator_log_prob;
+    double xent_loss;
+} LlingLfMmiSummary;
 
 /* Revision 14: native weighted PDA construction and bounded decode. */
 #define LLING_PDA_POP 0u
@@ -796,6 +828,33 @@ LLING_LLANG_API LlingLlangStatus lling_pda_session_info(
 LLING_LLANG_API LlingLlangStatus lling_pda_session_stack_page(
     const LlingPdaSession* session, size_t offset,
     uint32_t* out_symbols, size_t capacity, size_t* out_written);
+
+/* Both matrices must be contiguous in row-major (pdfs,1) or column-major
+ * (1,frames) order. Gradient capacity counts doubles, not bytes. Outputs
+ * are untouched on failure. Cancellation is checked between bounded phases. */
+LLING_LLANG_API LlingLlangStatus lling_lfmmi_loss_ref(
+    const VtResource* numerator, const VtResource* denominator,
+    const LlingBudgetV2* budget, const LlingCancellationV2* cancellation,
+    const double* scores, size_t frames, size_t pdfs,
+    size_t score_frame_stride, size_t score_pdf_stride,
+    const LlingLfMmiConfig* config, LlingLfMmiSummary* out_summary,
+    double* out_gradients, size_t gradient_capacity,
+    size_t gradient_frame_stride, size_t gradient_pdf_stride);
+
+/* Exact negative-log path sum and paged arc posteriors for acyclic UInt64 /
+ * LogWeight WFSTs. The cursor owns its result until free is called. */
+LLING_LLANG_API LlingLlangStatus lling_log_gradients_open(
+    const VtResource* resource, const LlingBudgetV2* budget,
+    const LlingCancellationV2* cancellation,
+    LlingGradientCursor** out_cursor, double* out_score,
+    size_t* out_arc_count);
+LLING_LLANG_API LlingLlangStatus lling_log_gradients_page(
+    const LlingGradientCursor* cursor, size_t start,
+    LlingArcGradient* out_arcs, size_t capacity, size_t* out_written);
+LLING_LLANG_API void lling_log_gradients_free(LlingGradientCursor* cursor);
+LLING_LLANG_API LlingLlangStatus lling_ctc_topology(
+    uint32_t variant, size_t vocab_size, const LlingBudgetV2* budget,
+    const LlingCancellationV2* cancellation, LlingWfst** out_wfst);
 
 #ifdef __cplusplus
 }
