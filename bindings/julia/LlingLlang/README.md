@@ -104,6 +104,36 @@ returns its final suffix and total weight, or `nothing` when it is not
 accepting. A session retains the native snapshot after its runner closes; each
 session has its own `max_input_units` limit and must be closed independently.
 
+### Capture a multi-tape graph
+
+`MultiTapeBuilder{L,W}(num_tapes)` accepts any positive tape count. Each arc
+supplies one label or `nothing` (epsilon) per tape. `build!` validates the
+whole graph under finite state, arc, payload-byte, and work limits, then
+captures an immutable native snapshot. State IDs are zero-based, matching the
+native API.
+
+```julia
+builder = MultiTapeBuilder{Char,TropicalWeight}(3)
+start = add_state!(builder)
+finish = add_state!(builder)
+set_start!(builder, start)
+set_final!(builder, finish)
+add_arc!(builder, start, ['a', nothing, 'z'], finish)
+graph = build!(builder)
+
+@assert multitape_info(graph).num_tapes == 3
+@assert multitape_state(graph, finish).final_weight == one(TropicalWeight)
+@assert only(collect(multitape_arcs(graph, start))).labels ==
+    ['a', nothing, 'z']
+close(graph)
+```
+
+`multitape_arcs` reads one native arc on each iterator step. It does not copy
+the complete arc set. The builder copies caller label vectors when arcs are
+added; the native graph copies the complete builder snapshot at `build!`.
+Closed builders and graphs reject later operations. The default constructor
+budget is finite and can be adjusted with `budget=BudgetV2(...)`.
+
 ## Incremental weighted pushdown decoding
 
 A **pushdown automaton** (PDA) recognizes nested structures by keeping a stack

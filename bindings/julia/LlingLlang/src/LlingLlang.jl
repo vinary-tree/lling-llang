@@ -48,6 +48,13 @@ export ABI_VERSION,
     subsequential_apply,
     subsequential_step!,
     subsequential_finish,
+    MultiTapeBuilder,
+    MultiTapeWfst,
+    MultiTapeState,
+    MultiTapeArc,
+    multitape_info,
+    multitape_state,
+    multitape_arcs,
     PathLimits,
     WfstPathStep,
     WfstPath,
@@ -4042,6 +4049,7 @@ provider(implementation::AbstractWfstProvider; kwargs...) =
 
 include("Cfg.jl")
 include("Pda.jl")
+include("Multitape.jl")
 
 function __init__()
     initialize_callbacks!()

@@ -163,6 +163,43 @@ end
     close(epsilon)
 end
 
+@testset "runtime-arity native multi-tape snapshots and lazy arcs" begin
+    for (L, label) in LABEL_CASES, (W, _, _) in WEIGHT_CASES
+        builder = MultiTapeBuilder{L,W}(3)
+        start, finish = add_state!(builder), add_state!(builder)
+        set_start!(builder, start)
+        set_final!(builder, finish)
+        @test_throws ArgumentError add_arc!(builder, start, [label], finish)
+        @test_throws ArgumentError set_final!(builder, 9)
+        original_labels = Any[label, nothing, label]
+        add_arc!(builder, start, original_labels, finish)
+        original_labels[1] = nothing
+        graph = build!(builder)
+        @test !isopen(builder)
+        @test_throws NativeError add_state!(builder)
+        @test multitape_info(graph) ==
+            (num_tapes=3, num_states=2, num_arcs=1, start=start)
+        @test multitape_state(graph, finish).final_weight == one(W)
+        @test multitape_state(graph, start).arc_count == 1
+        @test_throws NativeError multitape_state(graph, 9)
+        arcs = multitape_arcs(graph, start)
+        @test length(arcs) == 1
+        arc = only(collect(arcs))
+        @test arc.to == finish
+        @test arc.labels == [label, nothing, label]
+        @test arc.weight == one(W)
+        close(graph)
+        @test_throws NativeError multitape_state(graph, start)
+    end
+
+    empty_builder = MultiTapeBuilder{Char,TropicalWeight}(9)
+    empty_graph = build!(empty_builder)
+    @test multitape_info(empty_graph) ==
+        (num_tapes=9, num_states=0, num_arcs=0, start=nothing)
+    close(empty_graph)
+    @test_throws ArgumentError MultiTapeBuilder{Char,TropicalWeight}(0)
+end
+
 @testset "bounded CFG analysis over a scalar WFST lattice" begin
     start = CfgNonterminal("S")
     a, b = CfgTerminal("a"), CfgTerminal("b")

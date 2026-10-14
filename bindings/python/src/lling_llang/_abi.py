@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 16
+API_REVISION = 17
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -737,6 +737,60 @@ _bind(
 )
 _bind("lling_subsequential_session_free", [ctypes.c_void_p], None)
 _bind("lling_subsequential_free", [ctypes.c_void_p], None)
+_bind(
+    "lling_multitape_new",
+    [
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_uint64,
+        ctypes.c_uint64,
+        ctypes.c_uint64,
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.POINTER(ctypes.c_uint64),
+        ctypes.POINTER(ctypes.c_uint64),
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.POINTER(ctypes.c_uint64),
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.c_uint64,
+        ctypes.POINTER(Budget),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_multitape_info",
+    [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_uint64),
+    ],
+)
+_bind(
+    "lling_multitape_state_info",
+    [
+        ctypes.c_void_p,
+        ctypes.c_uint64,
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.POINTER(ctypes.c_size_t),
+    ],
+)
+_bind(
+    "lling_multitape_arc",
+    [
+        ctypes.c_void_p,
+        ctypes.c_uint64,
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_uint64),
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.POINTER(ctypes.c_uint64),
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.c_size_t,
+    ],
+)
+_bind("lling_multitape_free", [ctypes.c_void_p], None)
 _bind("lling_resource_release", [VtResource], None)
 _bind(
     "lling_path_cursor_open",

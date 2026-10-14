@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 16u
+#define LLING_LLANG_API_REVISION 17u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -57,6 +57,7 @@ typedef struct LlingWfstBuilder LlingWfstBuilder;
 typedef struct LlingWfst LlingWfst;
 typedef struct LlingSubsequential LlingSubsequential;
 typedef struct LlingSubsequentialSession LlingSubsequentialSession;
+typedef struct LlingMultitape LlingMultitape;
 typedef struct LlingSemiring LlingSemiring;
 typedef struct LlingSemiringWeight LlingSemiringWeight;
 typedef struct LlingLatticeValue LlingLatticeValue;
@@ -633,6 +634,26 @@ LLING_LLANG_API LlingLlangStatus lling_subsequential_session_finish(
 LLING_LLANG_API void lling_subsequential_session_free(
     LlingSubsequentialSession* session);
 LLING_LLANG_API void lling_subsequential_free(LlingSubsequential* runner);
+/* Capture a checked immutable runtime-arity graph under all four budget axes. */
+LLING_LLANG_API LlingLlangStatus lling_multitape_new(
+    uint32_t unit_domain, uint32_t weight_domain, uint64_t num_tapes,
+    uint64_t num_states, uint64_t start, const uint8_t* final_flags,
+    const double* final_weights, const uint64_t* arc_from,
+    const uint64_t* arc_to, const double* arc_weights,
+    const uint64_t* labels, const uint8_t* present, uint64_t num_arcs,
+    const LlingBudgetV2* budget, LlingMultitape** out_graph);
+LLING_LLANG_API LlingLlangStatus lling_multitape_info(
+    const LlingMultitape* graph, size_t* out_tapes,
+    size_t* out_states, size_t* out_arcs, uint64_t* out_start);
+LLING_LLANG_API LlingLlangStatus lling_multitape_state_info(
+    const LlingMultitape* graph, uint64_t state, uint8_t* out_final,
+    double* out_weight, size_t* out_arc_count);
+/* Reads exactly one arc into caller-owned tape-sized label and presence arrays. */
+LLING_LLANG_API LlingLlangStatus lling_multitape_arc(
+    const LlingMultitape* graph, uint64_t state, size_t arc_index,
+    uint64_t* out_to, double* out_weight, uint64_t* out_labels,
+    uint8_t* out_present, size_t capacity);
+LLING_LLANG_API void lling_multitape_free(LlingMultitape* graph);
 LLING_LLANG_API void lling_resource_release(VtResource resource);
 LLING_LLANG_API LlingLlangStatus lling_abi_v2_validate_header(
     const LlingAbiV2Header* header, uint32_t required_size,
