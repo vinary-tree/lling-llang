@@ -19,6 +19,45 @@ resource without requiring the weight type to be `isbits` or `Copy`.
 The [published development guide and API reference](https://vinary-tree.github.io/lling-llang/dev/)
 documents the current source; it is not a claim that RC.6 is registered.
 
+## Differentiable training
+
+`lfmmi_loss(scores, numerator, denominator)` calls the Rust LF-MMI objective
+with a contiguous `Matrix{Float64}`: rows are frames and columns are PDF
+labels. It returns the loss, its components, and a gradient matrix of the same
+shape. The Julia matrix passes directly across the ABI in column-major order;
+the native LF-MMI algorithm presently makes one row-oriented copy of scores.
+Input graphs must use `UInt64` labels and `LogWeight` costs. Input labels are
+checked against the matrix's PDF columns. Build the desired topology into the
+graphs and subsample frames before calling. Use `LfMmiConfig` for regularization
+and `BudgetV2` and `CancellationV2` to bound and cancel the call. Cancellation
+is checked between graph import and objective phases; the Rust objective itself
+runs to completion after it starts. The auxiliary cross-entropy target is held
+fixed when calculating its training gradient.
+
+For arc-cost derivatives, `log_gradient_cursor(graph)` calculates the exact
+negative-log path score and retains arc posteriors in a native cursor. The
+graph must be acyclic and have a finite accepting path. Read bounded pages with
+`gradient_pages(cursor; page_size=1024)`, then `close(cursor)`. Each
+`ArcGradient` identifies a source state and zero-based outgoing arc index.
+`log_gradients(graph; page_size=1024)` collects the pages into an owned Julia
+result and closes the cursor automatically. These calls use bounded native
+graph import; they do not pass Julia callbacks through the differentiable
+calculation.
+
+`ctc_topology(vocab_size; topology=:compact)` builds one of the Rust correct,
+compact, minimal, or selfless CTC graphs as a `UInt64`/`LogWeight` WFST. Label
+zero is blank. Its input labels are PDF IDs, so a topology can serve as an
+LF-MMI denominator or another frame-scored ASR graph. The native builder
+checks the graph budget before allocation. A cyclic CTC topology is valid for
+frame-indexed LF-MMI; the separate exact arc-gradient cursor requires an
+acyclic graph.
+
+Run `julia --project=. benchmark/training_boundary.jl` from the package
+directory to measure the host matrix call and a staging-copy baseline. Set
+`LLING_BENCH_CUDA=1` in an environment with CUDA installed to also measure
+host-to-device and device-to-host staging. The native ABI consumes host memory;
+device arrays require an explicit transfer.
+
 ## Install
 
 The current release-candidate source layout uses local packages:

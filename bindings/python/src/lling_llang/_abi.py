@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 14
+API_REVISION = 15
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -365,6 +365,42 @@ class Budget(ctypes.Structure):
             *values,
             (ctypes.c_uint64 * 2)(),
         )
+
+
+class LfMmiConfig(ctypes.Structure):
+    """Revision-15 native LF-MMI controls; Python's facade is tracked separately."""
+
+    _fields_ = [
+        ("struct_size", ctypes.c_uint32),
+        ("version", ctypes.c_uint32),
+        ("leaky_hmm_coefficient", ctypes.c_double),
+        ("l2_regularize", ctypes.c_double),
+        ("xent_regularize", ctypes.c_double),
+        ("use_chain_topology", ctypes.c_uint8),
+        ("reserved", ctypes.c_uint8 * 7),
+        ("subsampling_factor", ctypes.c_uint64),
+    ]
+
+
+class LfMmiSummary(ctypes.Structure):
+    """Four native LF-MMI scalars; gradients use a caller-owned matrix."""
+
+    _fields_ = [
+        ("loss", ctypes.c_double),
+        ("numerator_log_prob", ctypes.c_double),
+        ("denominator_log_prob", ctypes.c_double),
+        ("xent_loss", ctypes.c_double),
+    ]
+
+
+class ArcGradient(ctypes.Structure):
+    """One exact negative-log arc derivative from a revision-15 cursor."""
+
+    _fields_ = [
+        ("from_state", ctypes.c_uint32),
+        ("arc_index", ctypes.c_uint32),
+        ("gradient", ctypes.c_double),
+    ]
 
 
 class Outcome(ctypes.Structure):
@@ -1022,6 +1058,60 @@ _bind(
         ctypes.POINTER(ctypes.c_uint32),
         ctypes.c_size_t,
         ctypes.POINTER(ctypes.c_size_t),
+    ],
+)
+
+_bind(
+    "lling_lfmmi_loss_ref",
+    [
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(Budget),
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.c_size_t,
+        ctypes.c_size_t,
+        ctypes.c_size_t,
+        ctypes.c_size_t,
+        ctypes.POINTER(LfMmiConfig),
+        ctypes.POINTER(LfMmiSummary),
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.c_size_t,
+        ctypes.c_size_t,
+        ctypes.c_size_t,
+    ],
+)
+
+_bind(
+    "lling_log_gradients_open",
+    [
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(Budget),
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.POINTER(ctypes.c_size_t),
+    ],
+)
+_bind(
+    "lling_log_gradients_page",
+    [
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.POINTER(ArcGradient),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
+    ],
+)
+_bind("lling_log_gradients_free", [ctypes.c_void_p], None)
+_bind(
+    "lling_ctc_topology",
+    [
+        ctypes.c_uint32,
+        ctypes.c_size_t,
+        ctypes.POINTER(Budget),
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p),
     ],
 )
 

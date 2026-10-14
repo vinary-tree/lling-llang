@@ -29,10 +29,12 @@ pub struct LfMmiConfig {
     /// Interpolates MMI with frame-level cross-entropy for stability.
     pub xent_regularize: f64,
 
-    /// Whether to use chain topology (modified HMM).
+    /// Legacy graph-construction metadata. `lfmmi_loss` uses the supplied
+    /// graph as-is; it does not apply a chain topology transformation.
     pub use_chain_topology: bool,
 
-    /// Subsampling factor for output frames.
+    /// Legacy frame-preparation metadata. `lfmmi_loss` uses the supplied
+    /// acoustic matrix as-is; callers must subsample frames beforehand.
     pub subsampling_factor: usize,
 }
 
@@ -136,7 +138,9 @@ where
     // MMI loss = -(numerator - denominator)
     let mmi_loss = -(num_log_prob - den_log_prob);
 
-    // Compute gradients: grad = den_posterior - num_posterior
+    // Compute gradients of the MMI objective with respect to acoustic log
+    // scores. The graph posterior calculation includes the leaky arc mixture
+    // and its derivative, rather than treating the leak as an acoustic score.
     let mut gradients = LfMmiGradients::new(num_frames, num_pdfs);
     for t in 0..num_frames {
         for pdf in 0..num_pdfs {
@@ -160,6 +164,22 @@ where
     };
 
     let total_loss = mmi_loss + config.xent_regularize * xent_loss + l2_loss;
+
+    // The auxiliary cross-entropy target is the numerator posterior detached
+    // from this differentiation step, as in an ordinary auxiliary classifier
+    // loss. L2 is an exact differentiable regularizer.
+    for t in 0..num_frames {
+        for pdf in 0..num_pdfs {
+            let xent_grad = if num_posteriors.get(t, pdf) > 1e-10 {
+                -config.xent_regularize * num_posteriors.get(t, pdf) / num_frames as f64
+            } else {
+                0.0
+            };
+            let regularized =
+                gradients.get(t, pdf) + xent_grad + config.l2_regularize * acoustic_scores[t][pdf];
+            gradients.set(t, pdf, regularized);
+        }
+    }
 
     LfMmiResult {
         loss: total_loss,
@@ -209,11 +229,7 @@ where
                 let arc_score = acoustic - transition_weight; // Convert tropical to log
 
                 // Add leaky HMM regularization
-                let leaky_score = if config.leaky_hmm_coefficient > 0.0 {
-                    log_add(arc_score, config.leaky_hmm_coefficient.ln())
-                } else {
-                    arc_score
-                };
+                let leaky_score = effective_arc_score(arc_score, config.leaky_hmm_coefficient);
 
                 let new_alpha = alpha[t][s] + leaky_score;
                 let next_state = tr.to as usize;
@@ -250,7 +266,8 @@ where
                 let transition_weight: f64 = tr.weight.clone().into();
                 let arc_score = acoustic - transition_weight;
 
-                let new_beta = arc_score + beta[t + 1][next_state];
+                let effective = effective_arc_score(arc_score, config.leaky_hmm_coefficient);
+                let new_beta = effective + beta[t + 1][next_state];
                 beta[t][s] = log_add(beta[t][s], new_beta);
             }
         }
@@ -290,6 +307,9 @@ where
                 let transition_weight: f64 = tr.weight.clone().into();
                 let arc_score = acoustic - transition_weight;
 
+                // d effective_arc_score / d acoustic = exp(raw - effective).
+                // Multiplying the arc posterior by that derivative simplifies
+                // to the expression below and stays stable for a -Inf score.
                 let posterior =
                     (alpha[t][s] + arc_score + beta[t + 1][next_state] - total_log_prob).exp();
                 frame_posteriors.add(t, pdf, posterior);
@@ -624,6 +644,15 @@ fn log_add(a: f64, b: f64) -> f64 {
         a + (1.0 + (b - a).exp()).ln()
     } else {
         b + (1.0 + (a - b).exp()).ln()
+    }
+}
+
+#[inline]
+fn effective_arc_score(raw: f64, leak: f64) -> f64 {
+    if leak > 0.0 {
+        log_add(raw, leak.ln())
+    } else {
+        raw
     }
 }
 

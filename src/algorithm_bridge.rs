@@ -178,6 +178,14 @@ impl GraphBudget {
         }
     }
 
+    /// Tighten caller-provided limits for an operation with a fixed memory and
+    /// work ceiling. The four axes remain cumulative across input graphs.
+    pub(crate) fn cap(&mut self, states: u64, arcs: u64, bytes: u64, work: u64) {
+        for (limit, cap) in self.limits.iter_mut().zip([states, arcs, bytes, work]) {
+            *limit = Some(limit.unwrap_or(cap).min(cap));
+        }
+    }
+
     fn unlimited() -> Self {
         Self::new(None, None, None, None)
     }
