@@ -24,9 +24,14 @@ import VinaryTreeInterop as VTI
     @test only(found).cost ≈ -log(0.4)
     @test_throws NativeError corrections(custom, repeat("é", 257))
     @test_throws NativeError corrections(custom, repeat("a", 1025))
+    decoder = correction_llm_session(custom, "cαt", ["cat", "cot"];
+        edit_weight=2)
     close(custom)
     @test !isopen(custom)
     @test_throws NativeError corrections(custom, "cαt")
+    @test llm_step!(decoder, _ -> [-0.1, -Inf]) == LLM_COMPLETE
+    @test only(llm_hypotheses(decoder)).score ≈ -0.1 + 2 * log(0.4)
+    close(decoder)
 
     builtin = confusion_layer(config=ConfusionConfig(matrix=:qwerty))
     @test !isempty(corrections(builtin, "cat"))

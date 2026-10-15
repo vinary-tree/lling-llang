@@ -248,6 +248,12 @@ mutable struct ConfusionLayer
     closed::Bool
 end
 
+function correction_handle(layer::ConfusionLayer)
+    layer.closed && throw(NativeError(STATUS_CLOSED, :confusion_layer,
+        "confusion layer is closed"))
+    layer.handle
+end
+
 """Create a native confusion layer with a built-in or custom matrix.
 
 Custom rules are copied during construction. Built-in matrices accept no
@@ -287,20 +293,18 @@ Base.isopen(layer::ConfusionLayer) = !layer.closed
 
 """Return native confusion candidates ordered by decreasing probability."""
 function corrections(layer::ConfusionLayer, word::AbstractString)
-    layer.closed && throw(NativeError(STATUS_CLOSED, :confusion_layer,
-        "confusion layer is closed"))
     bytes = Vector{UInt8}(codeunits(String(word)))
     output = Ref{Ptr{Cvoid}}(C_NULL)
     status = GC.@preserve layer bytes ccall(
         native(:lling_confusion_layer_query), UInt32,
         (Ptr{Cvoid}, Ptr{UInt8}, Csize_t, Ref{Ptr{Cvoid}}),
-        layer.handle, isempty(bytes) ? C_NULL : pointer(bytes),
+        correction_handle(layer), isempty(bytes) ? C_NULL : pointer(bytes),
         length(bytes), output)
     checked(status, :confusion_layer_query)
     copied_correction_result(output[])
 end
 
-"""One native decoder over bounded dictionary candidates and their edit costs.
+"""One native decoder over bounded correction candidates and their costs.
 
 The vocabulary is copied so token IDs and candidate words remain stable for
 the lifetime of the session. `llm_hypotheses` returns zero-based token IDs;
@@ -315,21 +319,22 @@ mutable struct CorrectionLlmSession
     temperature::Float64
 end
 
-"""Compose a retained dictionary layer with the native constrained decoder.
+"""Compose a retained correction layer with the native constrained decoder.
 
-`words` is the model's ordered vocabulary. Only dictionary corrections found
+`words` is the model's ordered vocabulary. Only native corrections found
 in that vocabulary become accepting one-token paths. The WFST is imported by
 the decoder, then released. The returned session owns its constraint and can
-outlive the dictionary. `edit_weight` multiplies edit cost; `model_weight`
+outlive the dictionary or confusion layer. `edit_weight` multiplies correction
+cost; `model_weight`
 multiplies the scorer's log probability. Both must be finite and nonnegative.
 """
-function correction_llm_session(dictionary::CorrectionDictionary,
+function correction_llm_session(source::Union{CorrectionDictionary,ConfusionLayer},
     query::AbstractString, words::AbstractVector{<:AbstractString};
     config::LlmConfig=LlmConfig(), edit_weight::Real=1.0,
     model_weight::Real=1.0,
     budget::BudgetV2=BudgetV2(max_states=65_536, max_arcs=1_048_576,
         max_bytes=128 * 1024 * 1024, max_work=8_388_608))
-    correction_handle(dictionary)
+    correction_handle(source)
     0 < length(words) <= config.max_vocabulary ||
         throw(ArgumentError("vocabulary size exceeds the configured range"))
     edit_scale = Float64(edit_weight)
@@ -342,14 +347,14 @@ function correction_llm_session(dictionary::CorrectionDictionary,
     length(Set(vocabulary)) == length(vocabulary) ||
         throw(ArgumentError("vocabulary words must be unique"))
     by_word = Dict(word => index - 1 for (index, word) in enumerate(vocabulary))
-    candidates = corrections(dictionary, query)
+    candidates = corrections(source, query)
     selected = Pair{Int,Float64}[]
     for candidate in candidates
         index = get(by_word, candidate.word, nothing)
         isnothing(index) || push!(selected, index => candidate.cost)
     end
     isempty(selected) && throw(ArgumentError(
-        "dictionary returned no correction in the model vocabulary"))
+        "correction layer returned no candidate in the model vocabulary"))
 
     builder = WfstBuilder{UInt64,TropicalWeight}(size_hint=2)
     graph = nothing

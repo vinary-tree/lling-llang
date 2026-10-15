@@ -114,6 +114,11 @@ most 4,096 candidates. Limits fail explicitly. This native layer generates
 word corrections; lattice-wide filtering and disfluency layers are separate
 APIs.
 
+`correction_llm_session` also accepts a `ConfusionLayer`, combining its
+negative-log candidate costs with the native constrained decoder in the same
+way as dictionary edit costs. Once constructed, the decoder owns its token
+constraint and can outlive the confusion layer.
+
 ## Constrained language-model decoding
 
 `llm_session` captures a `UInt64`/`TropicalWeight` token acceptor as an owned,
