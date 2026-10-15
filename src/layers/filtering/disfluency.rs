@@ -395,15 +395,7 @@ where
             }
         }
 
-        // Find max node id for final state
-        let max_node = lattice
-            .edges()
-            .iter()
-            .map(|e| e.source.value().max(e.target.value()) as usize)
-            .max()
-            .unwrap_or(0);
-
-        Ok(builder.build(max_node))
+        Ok(builder.build(lattice.end().value() as usize))
     }
 
     fn estimated_reduction(&self) -> f64 {
@@ -723,6 +715,29 @@ mod tests {
         let filtered = result.expect("layers/disfluency.rs: required value was None/Err");
         // Should still have edges, but "um" edge should be penalized
         assert!(filtered.num_edges() >= 3);
+    }
+
+    #[test]
+    fn test_apply_preserves_declared_end_with_trailing_edges() {
+        let layer = DisfluencyLayer::default();
+        let mut builder: LatticeBuilder<TropicalWeight, HashMapBackend> =
+            LatticeBuilder::new(HashMapBackend::new());
+        builder.add_correction(
+            0,
+            1,
+            "hello",
+            TropicalWeight::one(),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(1, 2, "tail", TropicalWeight::one(), EdgeMetadata::default());
+        let lattice = builder.build(1);
+
+        let filtered = <DisfluencyLayer as CorrectionLayer<TropicalWeight, HashMapBackend>>::apply(
+            &layer, &lattice,
+        )
+        .expect("disfluency layer applies");
+        assert_eq!(filtered.end(), lattice.end());
+        assert_eq!(filtered.num_edges(), lattice.num_edges());
     }
 
     #[test]
