@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 17
+API_REVISION = 18
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -426,6 +426,29 @@ class CorrectionConfig(ctypes.Structure):
         ("keep_original", ctypes.c_uint8),
         ("normalization", ctypes.c_uint8),
         ("reserved_flags", ctypes.c_uint8 * 4),
+    ]
+
+
+class ConfusionConfig(ctypes.Structure):
+    """Revision-18 retained native character-confusion policy."""
+
+    _fields_ = [
+        ("version", ctypes.c_uint32),
+        ("matrix_kind", ctypes.c_uint32),
+        ("max_corrections", ctypes.c_size_t),
+        ("confusion_threshold", ctypes.c_double),
+    ]
+
+
+class ConfusionPair(ctypes.Structure):
+    """Revision-18 custom Unicode-scalar confusion-matrix entry."""
+
+    _fields_ = [
+        ("observed", ctypes.c_uint32),
+        ("intended", ctypes.c_uint32),
+        ("operation", ctypes.c_uint32),
+        ("reserved", ctypes.c_uint32),
+        ("probability", ctypes.c_double),
     ]
 
 
@@ -1365,6 +1388,25 @@ _bind(
 )
 _bind("lling_correction_dictionary_free", [ctypes.c_void_p], None)
 _bind("lling_correction_result_free", [ctypes.c_void_p], None)
+_bind(
+    "lling_confusion_layer_open",
+    [
+        ctypes.POINTER(ConfusionConfig),
+        ctypes.POINTER(ConfusionPair),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_confusion_layer_query",
+    [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind("lling_confusion_layer_free", [ctypes.c_void_p], None)
 
 _bind(
     "lling_llm_session_open_wfst",

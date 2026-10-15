@@ -4,6 +4,52 @@ import Libdictenstein as LD
 import Duallity
 import VinaryTreeInterop as VTI
 
+@testset "retained native confusion layer" begin
+    @test sizeof(LlingLlang.RawConfusionConfig) == 24
+    @test sizeof(LlingLlang.RawConfusionRule) == 24
+    @test_throws ArgumentError ConfusionConfig(matrix=:unknown)
+    @test_throws ArgumentError ConfusionConfig(threshold=NaN)
+    @test_throws ArgumentError ConfusionConfig(:custom, 10, NaN)
+    @test_throws ArgumentError ConfusionRule(:substitution, 'a', nothing, 0.5)
+    @test_throws ArgumentError ConfusionRule(:insertion, 'a', nothing, 0.0)
+    @test_throws ArgumentError confusion_layer(config=ConfusionConfig(matrix=:custom))
+    @test_throws ArgumentError confusion_layer(rules=[
+        ConfusionRule(:substitution, 'α', 'a', 0.4)])
+
+    custom = confusion_layer(config=ConfusionConfig(matrix=:custom, threshold=0.1),
+        rules=[ConfusionRule(:substitution, 'α', 'a', 0.4)])
+    found = corrections(custom, "cαt")
+    @test length(found) == 1
+    @test only(found).word == "cat"
+    @test only(found).cost ≈ -log(0.4)
+    @test_throws NativeError corrections(custom, repeat("é", 257))
+    @test_throws NativeError corrections(custom, repeat("a", 1025))
+    close(custom)
+    @test !isopen(custom)
+    @test_throws NativeError corrections(custom, "cαt")
+
+    builtin = confusion_layer(config=ConfusionConfig(matrix=:qwerty))
+    @test !isempty(corrections(builtin, "cat"))
+    close(builtin)
+
+    tie = confusion_layer(config=ConfusionConfig(matrix=:custom, threshold=0.1),
+        rules=[ConfusionRule(:substitution, 'x', 'b', 0.2),
+            ConfusionRule(:substitution, 'x', 'a', 0.2)])
+    @test [candidate.word for candidate in corrections(tie, "xx")] ==
+        ["ax", "bx", "xa", "xb"]
+    close(tie)
+
+    edits = confusion_layer(config=ConfusionConfig(matrix=:custom, threshold=0.1),
+        rules=[ConfusionRule(:insertion, 'x', nothing, 0.3),
+            ConfusionRule(:deletion, nothing, 'b', 0.4)])
+    costs = Dict(candidate.word => candidate.cost
+        for candidate in corrections(edits, "ax"))
+    @test costs["a"] ≈ -log(0.3)
+    @test Set(keys(costs)) == Set(["a", "abx", "axb", "bax"])
+    @test all(costs[word] ≈ -log(0.4) for word in ("abx", "axb", "bax"))
+    close(edits)
+end
+
 function accepted_language(graph)
     accepted = Dict{String,Float64}()
     stack = [(VTI.start(graph), "", 0.0)]

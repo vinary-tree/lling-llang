@@ -3,12 +3,15 @@
 #[cfg(feature = "levenshtein")]
 use std::sync::Arc;
 
+use crate::layers::{
+    dvorak_keyboard_matrix, mobile_keyboard_matrix, ocr_confusion_matrix, qwerty_keyboard_matrix,
+    ConfusionLayer, ConfusionMatrix,
+};
 #[cfg(feature = "levenshtein")]
 use crate::layers::{
     DictionaryError, EditDistanceLayer, EditDistanceLayerConfig, LayerError, ResourceDictionary,
     ResourceDictionaryNormalization,
 };
-#[cfg(feature = "levenshtein")]
 use crate::semiring::TropicalWeight;
 use vinary_tree_interop::VtResource;
 
@@ -57,6 +60,202 @@ pub struct LlingCorrectionDictionary {
 /// Owned, bounded corrections for one word.
 pub struct LlingCorrectionResult {
     entries: Vec<(String, f64)>,
+}
+
+/// Revision-1 retained confusion-layer policy. Matrix kinds: QWERTY=0,
+/// Dvorak=1, OCR=2, mobile=3, custom=4.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct LlingConfusionConfig {
+    /// Must be one.
+    pub version: u32,
+    /// QWERTY=0, Dvorak=1, OCR=2, mobile=3, custom=4.
+    pub matrix_kind: u32,
+    /// Maximum correction candidates returned by one query.
+    pub max_corrections: usize,
+    /// Minimum confusion probability to include in a query.
+    pub confusion_threshold: f64,
+}
+
+/// One Unicode-scalar custom matrix entry. Operation 0 is a substitution
+/// (observed, intended), 1 is an insertion (observed), and 2 is a deletion
+/// (intended). Unused scalar fields and `reserved` must be zero.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct LlingConfusionPair {
+    /// Observed scalar for substitutions and insertions.
+    pub observed: u32,
+    /// Intended scalar for substitutions and deletions.
+    pub intended: u32,
+    /// Substitution=0, insertion=1, deletion=2.
+    pub operation: u32,
+    /// Must be zero.
+    pub reserved: u32,
+    /// Finite probability in the interval (0, 1].
+    pub probability: f64,
+}
+
+/// Owned native confusion layer, shared by repeated queries.
+pub struct LlingConfusionLayer {
+    layer: ConfusionLayer<TropicalWeight>,
+}
+
+fn scalar(value: u32, name: &str) -> Result<char, LlingLlangStatus> {
+    char::from_u32(value).ok_or_else(|| {
+        set_error(format!("{name} is not a Unicode scalar"));
+        LlingLlangStatus::InvalidArgument
+    })
+}
+
+/// Construct a retained native confusion layer from a built-in or custom
+/// matrix. Custom entries are copied. The output remains null on failure.
+///
+/// # Safety
+/// `config` and `out_layer` must be valid pointers; `pairs` must cover
+/// `pair_count` entries when nonzero. The returned handle is exclusive.
+#[no_mangle]
+pub unsafe extern "C" fn lling_confusion_layer_open(
+    config: *const LlingConfusionConfig,
+    pairs: *const LlingConfusionPair,
+    pair_count: usize,
+    out_layer: *mut *mut LlingConfusionLayer,
+) -> LlingLlangStatus {
+    boundary(|| {
+        let output = required_mut(out_layer, "out_layer")?;
+        *output = std::ptr::null_mut();
+        let config = *unsafe { config.as_ref() }.ok_or_else(|| {
+            set_error("confusion config is null");
+            LlingLlangStatus::NullPointer
+        })?;
+        if config.version != 1 || config.matrix_kind > 4 {
+            set_error("invalid confusion config version or matrix kind");
+            return Err(LlingLlangStatus::InvalidArgument);
+        }
+        if config.max_corrections > 4096 || pair_count > 65_536 {
+            set_error("confusion matrix exceeds native materialization limits");
+            return Err(LlingLlangStatus::LimitExceeded);
+        }
+        if !config.confusion_threshold.is_finite()
+            || !(0.0 < config.confusion_threshold && config.confusion_threshold <= 1.0)
+        {
+            set_error("confusion threshold must be in (0, 1]");
+            return Err(LlingLlangStatus::InvalidArgument);
+        }
+        if (config.matrix_kind == 4) != (pair_count != 0) {
+            set_error("custom confusion matrices require entries; built-ins take none");
+            return Err(LlingLlangStatus::InvalidArgument);
+        }
+        if pair_count != 0 && pairs.is_null() {
+            set_error("confusion pairs are null with nonzero count");
+            return Err(LlingLlangStatus::NullPointer);
+        }
+        let matrix = match config.matrix_kind {
+            0 => qwerty_keyboard_matrix(),
+            1 => dvorak_keyboard_matrix(),
+            2 => ocr_confusion_matrix(),
+            3 => mobile_keyboard_matrix(),
+            4 => {
+                let mut matrix = ConfusionMatrix::new();
+                for pair in unsafe { std::slice::from_raw_parts(pairs, pair_count) } {
+                    if pair.reserved != 0
+                        || !pair.probability.is_finite()
+                        || !(0.0 < pair.probability && pair.probability <= 1.0)
+                    {
+                        set_error("invalid custom confusion probability or reserved field");
+                        return Err(LlingLlangStatus::InvalidArgument);
+                    }
+                    matrix = match pair.operation {
+                        0 => matrix.add_confusion(
+                            scalar(pair.observed, "observed")?,
+                            scalar(pair.intended, "intended")?,
+                            pair.probability,
+                        ),
+                        1 if pair.intended == 0 => matrix
+                            .add_insertion(scalar(pair.observed, "observed")?, pair.probability),
+                        2 if pair.observed == 0 => matrix
+                            .add_deletion(scalar(pair.intended, "intended")?, pair.probability),
+                        _ => {
+                            set_error("invalid custom confusion operation or unused scalar");
+                            return Err(LlingLlangStatus::InvalidArgument);
+                        }
+                    };
+                }
+                matrix
+            }
+            _ => unreachable!("matrix kind checked above"),
+        };
+        let layer = ConfusionLayer::new(matrix)
+            .with_confusion_threshold(config.confusion_threshold)
+            .with_max_corrections(config.max_corrections);
+        *output = Box::into_raw(Box::new(LlingConfusionLayer { layer }));
+        Ok(())
+    })
+}
+
+/// Return owned, probability-ordered confusion candidates with negative-log costs.
+///
+/// # Safety
+/// `layer` must be live, `query` must contain `query_len` UTF-8 bytes when
+/// nonempty, and `out_result` must be writable.
+#[no_mangle]
+pub unsafe extern "C" fn lling_confusion_layer_query(
+    layer: *const LlingConfusionLayer,
+    query: *const u8,
+    query_len: usize,
+    out_result: *mut *mut LlingCorrectionResult,
+) -> LlingLlangStatus {
+    boundary(|| {
+        let output = required_mut(out_result, "out_result")?;
+        *output = std::ptr::null_mut();
+        let layer = unsafe { layer.as_ref() }.ok_or_else(|| {
+            set_error("confusion layer is null");
+            LlingLlangStatus::NullPointer
+        })?;
+        if query_len != 0 && query.is_null() {
+            set_error("query is null with nonzero length");
+            return Err(LlingLlangStatus::NullPointer);
+        }
+        if query_len > 1024 {
+            set_error("confusion query exceeds the 1024-byte limit");
+            return Err(LlingLlangStatus::LimitExceeded);
+        }
+        let bytes = if query_len == 0 {
+            &[][..]
+        } else {
+            unsafe { std::slice::from_raw_parts(query, query_len) }
+        };
+        let word = std::str::from_utf8(bytes).map_err(|_| {
+            set_error("confusion query is not UTF-8");
+            LlingLlangStatus::InvalidArgument
+        })?;
+        if word.chars().count() > 256 {
+            set_error("confusion query exceeds the 256-scalar limit");
+            return Err(LlingLlangStatus::LimitExceeded);
+        }
+        let entries = layer
+            .layer
+            .generate_corrections(word)
+            .into_iter()
+            .map(|(candidate, log_probability)| (candidate, -log_probability))
+            .collect::<Vec<_>>();
+        if entries.iter().any(|(_, cost)| !cost.is_finite()) {
+            set_error("confusion cost overflowed the finite scalar carrier");
+            return Err(LlingLlangStatus::LimitExceeded);
+        }
+        *output = Box::into_raw(Box::new(LlingCorrectionResult { entries }));
+        Ok(())
+    })
+}
+
+/// Release a retained confusion layer. Null is accepted.
+///
+/// # Safety
+/// A non-null pointer must be a live handle and must not be released twice.
+#[no_mangle]
+pub unsafe extern "C" fn lling_confusion_layer_free(layer: *mut LlingConfusionLayer) {
+    if !layer.is_null() {
+        drop(Box::from_raw(layer));
+    }
 }
 
 #[cfg(feature = "levenshtein")]

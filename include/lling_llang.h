@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define LLING_ABI_VERSION 1u
-#define LLING_LLANG_API_REVISION 17u
+#define LLING_LLANG_API_REVISION 18u
 #define LLING_ABI_V2 2u
 
 #define LLING_DESCRIPTOR_SIGNATURE_KNOWN (UINT64_C(1) << 0)
@@ -77,6 +77,25 @@ typedef struct LlingLlmSession LlingLlmSession;
 typedef struct LlingLlmCancellation LlingLlmCancellation;
 typedef struct LlingCorrectionDictionary LlingCorrectionDictionary;
 typedef struct LlingCorrectionResult LlingCorrectionResult;
+typedef struct LlingConfusionLayer LlingConfusionLayer;
+
+/* Revision 18: retained native confusion layer. Matrix kinds: QWERTY=0,
+ * Dvorak=1, OCR=2, mobile=3, custom=4. */
+typedef struct LlingConfusionConfig {
+    uint32_t version; /* Must be one. */
+    uint32_t matrix_kind;
+    size_t max_corrections; /* At most 4096. */
+    double confusion_threshold; /* Finite, in (0, 1]. */
+} LlingConfusionConfig;
+/* Operations: substitution=0 (both scalars), insertion=1 (observed only),
+ * deletion=2 (intended only). Unused scalars and reserved must be zero. */
+typedef struct LlingConfusionPair {
+    uint32_t observed;
+    uint32_t intended;
+    uint32_t operation;
+    uint32_t reserved;
+    double probability; /* Finite, in (0, 1]. */
+} LlingConfusionPair;
 
 /* Revision 17: retained Unicode dictionary correction policy. */
 typedef struct LlingCorrectionConfig {
@@ -954,6 +973,17 @@ LLING_LLANG_API void lling_correction_dictionary_free(
     LlingCorrectionDictionary* dictionary);
 LLING_LLANG_API void lling_correction_result_free(
     LlingCorrectionResult* result);
+
+/* The custom matrix copies at most 65536 entries during open. Built-in
+ * matrices take no entries. Query accepts at most 1024 UTF-8 bytes and 256
+ * Unicode scalars; results use the owned correction-result accessors above. */
+LLING_LLANG_API LlingLlangStatus lling_confusion_layer_open(
+    const LlingConfusionConfig* config, const LlingConfusionPair* pairs,
+    size_t pair_count, LlingConfusionLayer** out_layer);
+LLING_LLANG_API LlingLlangStatus lling_confusion_layer_query(
+    const LlingConfusionLayer* layer, const uint8_t* query,
+    size_t query_len, LlingCorrectionResult** out_result);
+LLING_LLANG_API void lling_confusion_layer_free(LlingConfusionLayer* layer);
 
 #ifdef __cplusplus
 }

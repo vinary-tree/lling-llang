@@ -131,10 +131,14 @@ function corrections(dictionary::CorrectionDictionary, word::AbstractString)
         correction_handle(dictionary),
         isempty(bytes) ? C_NULL : pointer(bytes), length(bytes), output)
     checked(status, :correction_dictionary_query)
+    copied_correction_result(output[])
+end
+
+function copied_correction_result(result::Ptr{Cvoid})
     try
         count = Ref{Csize_t}(0)
         checked(ccall(native(:lling_correction_result_count), UInt32,
-            (Ptr{Cvoid}, Ref{Csize_t}), output[], count),
+            (Ptr{Cvoid}, Ref{Csize_t}), result, count),
             :correction_result_count)
         results = Vector{CorrectionCandidate}(undef, Int(count[]))
         for index in eachindex(results)
@@ -144,14 +148,14 @@ function corrections(dictionary::CorrectionDictionary, word::AbstractString)
             checked(ccall(native(:lling_correction_result_item), UInt32,
                 (Ptr{Cvoid}, Csize_t, Ptr{UInt8}, Csize_t,
                     Ref{Csize_t}, Ref{Csize_t}, Ref{Float64}),
-                output[], index - 1, C_NULL, 0, written, required, cost),
+                result, index - 1, C_NULL, 0, written, required, cost),
                 :correction_result_item)
             buffer = Vector{UInt8}(undef, Int(required[]))
             status = GC.@preserve buffer ccall(
                 native(:lling_correction_result_item), UInt32,
                 (Ptr{Cvoid}, Csize_t, Ptr{UInt8}, Csize_t,
                     Ref{Csize_t}, Ref{Csize_t}, Ref{Float64}),
-                output[], index - 1,
+                result, index - 1,
                 isempty(buffer) ? C_NULL : pointer(buffer), length(buffer),
                 written, required, cost)
             checked(status, :correction_result_item)
@@ -162,8 +166,138 @@ function corrections(dictionary::CorrectionDictionary, word::AbstractString)
         results
     finally
         ccall(native(:lling_correction_result_free), Cvoid,
-            (Ptr{Cvoid},), output[])
+            (Ptr{Cvoid},), result)
     end
+end
+
+"""Configuration for a retained native character-confusion layer."""
+struct ConfusionConfig
+    matrix::Symbol
+    max_corrections::Int
+    threshold::Float64
+    function ConfusionConfig(matrix::Symbol, max_corrections::Integer,
+        threshold::Real)
+        matrix in (:qwerty, :dvorak, :ocr, :mobile, :custom) ||
+            throw(ArgumentError("unknown confusion matrix"))
+        0 <= max_corrections <= 4096 ||
+            throw(ArgumentError("max_corrections must be in 0:4096"))
+        value = Float64(threshold)
+        isfinite(value) && 0 < value <= 1 ||
+            throw(ArgumentError("threshold must be finite and in (0, 1]"))
+        new(matrix, Int(max_corrections), value)
+    end
+end
+
+function ConfusionConfig(; matrix::Symbol=:qwerty,
+    max_corrections::Integer=10, threshold::Real=0.01)
+    ConfusionConfig(matrix, max_corrections, threshold)
+end
+
+struct RawConfusionConfig
+    version::UInt32
+    matrix_kind::UInt32
+    max_corrections::Csize_t
+    threshold::Float64
+end
+RawConfusionConfig(config::ConfusionConfig) = RawConfusionConfig(1,
+    UInt32(findfirst(==(config.matrix),
+        (:qwerty, :dvorak, :ocr, :mobile, :custom)) - 1),
+    config.max_corrections, config.threshold)
+
+"""One substitution, insertion, or deletion probability in a custom matrix.
+
+For substitution, provide both scalars; for insertion, only `observed`; for
+deletion, only `intended`. `probability` is the observed-error probability.
+"""
+struct ConfusionRule
+    operation::Symbol
+    observed::Union{Nothing,Char}
+    intended::Union{Nothing,Char}
+    probability::Float64
+    function ConfusionRule(operation::Symbol,
+        observed::Union{Nothing,Char}, intended::Union{Nothing,Char},
+        probability::Real)
+        valid = (operation == :substitution && observed !== nothing && intended !== nothing) ||
+            (operation == :insertion && observed !== nothing && intended === nothing) ||
+            (operation == :deletion && observed === nothing && intended !== nothing)
+        valid || throw(ArgumentError("confusion rule has an invalid operation or scalar"))
+        value = Float64(probability)
+        isfinite(value) && 0 < value <= 1 ||
+            throw(ArgumentError("confusion probability must be finite and in (0, 1]"))
+        new(operation, observed, intended, value)
+    end
+end
+
+struct RawConfusionRule
+    observed::UInt32
+    intended::UInt32
+    operation::UInt32
+    reserved::UInt32
+    probability::Float64
+end
+RawConfusionRule(rule::ConfusionRule) = RawConfusionRule(
+    isnothing(rule.observed) ? 0 : UInt32(rule.observed),
+    isnothing(rule.intended) ? 0 : UInt32(rule.intended),
+    UInt32(findfirst(==(rule.operation),
+        (:substitution, :insertion, :deletion)) - 1),
+    0, rule.probability)
+
+"""Retained native confusion layer. Queries return owned correction costs."""
+mutable struct ConfusionLayer
+    handle::Ptr{Cvoid}
+    closed::Bool
+end
+
+"""Create a native confusion layer with a built-in or custom matrix.
+
+Custom rules are copied during construction. Built-in matrices accept no
+rules. Calls are exclusive to one layer owner; results outlive the layer.
+"""
+function confusion_layer(; config::ConfusionConfig=ConfusionConfig(),
+    rules::AbstractVector{ConfusionRule}=ConfusionRule[])
+    (config.matrix == :custom) == !isempty(rules) ||
+        throw(ArgumentError("custom matrices require rules; built-ins take none"))
+    length(rules) <= 65_536 ||
+        throw(ArgumentError("custom matrix exceeds 65536 rules"))
+    raw_config = Ref(RawConfusionConfig(config))
+    raw_rules = RawConfusionRule.(rules)
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    status = GC.@preserve raw_config raw_rules ccall(
+        native(:lling_confusion_layer_open), UInt32,
+        (Ref{RawConfusionConfig}, Ptr{RawConfusionRule}, Csize_t,
+            Ref{Ptr{Cvoid}}),
+        raw_config, isempty(raw_rules) ? C_NULL : pointer(raw_rules),
+        length(raw_rules), output)
+    checked(status, :confusion_layer_open)
+    layer = ConfusionLayer(output[], false)
+    finalizer(finalize_close, layer)
+    layer
+end
+
+function close!(layer::ConfusionLayer)
+    layer.closed && return nothing
+    ccall(native(:lling_confusion_layer_free), Cvoid,
+        (Ptr{Cvoid},), layer.handle)
+    layer.handle = C_NULL
+    layer.closed = true
+    nothing
+end
+Base.close(layer::ConfusionLayer) = close!(layer)
+Base.isopen(layer::ConfusionLayer) = !layer.closed
+
+"""Return native confusion candidates ordered by decreasing probability."""
+function corrections(layer::ConfusionLayer, word::AbstractString)
+    layer.closed && throw(NativeError(STATUS_CLOSED, :confusion_layer,
+        "confusion layer is closed"))
+    bytes = Vector{UInt8}(codeunits(String(word)))
+    output = Ref{Ptr{Cvoid}}(C_NULL)
+    status = GC.@preserve layer bytes ccall(
+        native(:lling_confusion_layer_query), UInt32,
+        (Ptr{Cvoid}, Ptr{UInt8}, Csize_t, Ref{Ptr{Cvoid}}),
+        layer.handle, isempty(bytes) ? C_NULL : pointer(bytes),
+        length(bytes), output)
+    checked(status, :confusion_layer_query)
+    copied_correction_result(output[])
 end
 
 """One native decoder over bounded dictionary candidates and their edit costs.

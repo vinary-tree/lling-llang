@@ -85,6 +85,35 @@ that token. A missing vocabulary correction raises an error. The ordinary
 decoder `cancel!`, `llm_hypotheses`, and `llm_stats` methods also accept this
 session; an error in the scorer leaves its prior beam intact.
 
+## Character-confusion correction
+
+`confusion_layer` owns one Rust `ConfusionLayer` and its character-confusion
+matrix. A matrix maps an observed Unicode scalar and an intended Unicode
+scalar to the probability of seeing the observed character when the intended
+one was written. Built-in matrices cover QWERTY, Dvorak, OCR, and mobile
+keyboards. A custom matrix can supply substitutions, observed insertions, and
+intended deletions. Native `corrections` returns independent strings and
+negative-log probability costs in decreasing probability order. Equal scores
+use lexical order for reproducible results.
+
+```julia
+using LlingLlang
+
+layer = confusion_layer(config=ConfusionConfig(matrix=:custom, threshold=0.1),
+    rules=[ConfusionRule(:substitution, 'α', 'a', 0.4)])
+found = corrections(layer, "cαt")
+@assert only(found).word == "cat"
+@assert only(found).cost ≈ -log(0.4)
+close(layer)
+```
+
+The custom entries are copied when the layer opens, and results remain valid
+after `close(layer)`. A query is limited to 1,024 UTF-8 bytes and 256 Unicode
+scalars; a custom matrix has at most 65,536 entries and a query returns at
+most 4,096 candidates. Limits fail explicitly. This native layer generates
+word corrections; lattice-wide filtering and disfluency layers are separate
+APIs.
+
 ## Constrained language-model decoding
 
 `llm_session` captures a `UInt64`/`TropicalWeight` token acceptor as an owned,
