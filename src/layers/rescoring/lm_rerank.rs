@@ -7,7 +7,7 @@
 //!
 //! This module is only available when the `lm-rerank` feature is enabled.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::backend::LatticeBackend;
 use crate::lattice::{Lattice, LatticeBuilder, NodeId};
@@ -18,6 +18,10 @@ use super::super::traits::{CorrectionLayer, LayerError, LayerResult};
 /// Maximum number of words to keep in LM context.
 /// This is typically set to the LM order minus 1 (e.g., 4 for a 5-gram LM).
 const MAX_CONTEXT_LEN: usize = 10;
+const DEFAULT_MAX_CONTEXTS_PER_NODE: usize = 4096;
+const DEFAULT_MAX_CONTEXT_EXPANSIONS: usize = 1_048_576;
+
+type ContextCounts = BTreeMap<Vec<String>, u64>;
 
 /// Trait for language models.
 ///
@@ -57,8 +61,12 @@ pub struct LanguageModelLayer {
     model: Box<dyn LanguageModel>,
     /// Interpolation weight for LM scores (0.0 = ignore LM, 1.0 = only LM).
     weight: f64,
-    /// Whether to normalize LM scores by sequence length.
+    /// Whether to normalize continuation scores by the observed context-window length.
     normalize_by_length: bool,
+    /// Bound distinct LM histories retained at each lattice node.
+    max_contexts_per_node: usize,
+    /// Bound context propagation across lattice edges.
+    max_context_expansions: usize,
 }
 
 impl LanguageModelLayer {
@@ -68,6 +76,8 @@ impl LanguageModelLayer {
             model,
             weight: 0.5,
             normalize_by_length: true,
+            max_contexts_per_node: DEFAULT_MAX_CONTEXTS_PER_NODE,
+            max_context_expansions: DEFAULT_MAX_CONTEXT_EXPANSIONS,
         }
     }
 
@@ -81,11 +91,20 @@ impl LanguageModelLayer {
         self
     }
 
-    /// Set whether to normalize LM scores by sequence length.
+    /// Set whether to normalize each continuation score by its observed
+    /// context-window length plus the next word.
     ///
-    /// Default is true, which prevents bias toward shorter sequences.
+    /// The context window holds at most ten preceding words. Default is true.
     pub fn with_length_normalization(mut self, normalize: bool) -> Self {
         self.normalize_by_length = normalize;
+        self
+    }
+
+    /// Set hard limits on distinct contexts per node and total propagated
+    /// context-edge pairs. Exceeding either limit returns a layer error.
+    pub fn with_context_limits(mut self, per_node: usize, expansions: usize) -> Self {
+        self.max_contexts_per_node = per_node;
+        self.max_context_expansions = expansions;
         self
     }
 
@@ -101,22 +120,29 @@ impl LanguageModelLayer {
 
     /// Compute forward contexts using dynamic programming.
     ///
-    /// For each node, computes all possible word contexts (histories) that can
-    /// reach that node along with their accumulated weights.
+    /// For each node, computes distinct word histories and the number of
+    /// paths that reach each history. Collapsing duplicate histories retains
+    /// the previous path-multiplicity weighting without storing every path.
     ///
-    /// Returns a map from node ID to list of (context_words, accumulated_weight) pairs.
+    /// Returns a map from node ID to bounded context-multiplicity maps.
     fn compute_forward_contexts<W, B>(
         &self,
         lattice: &mut Lattice<W, B>,
-    ) -> LayerResult<HashMap<NodeId, Vec<Vec<String>>>>
+    ) -> LayerResult<HashMap<NodeId, ContextCounts>>
     where
         W: Semiring,
         B: LatticeBackend,
     {
-        let mut context_map: HashMap<NodeId, Vec<Vec<String>>> = HashMap::new();
+        if self.max_contexts_per_node == 0 || self.max_context_expansions == 0 {
+            return Err(LayerError::ConfigError(
+                "LM context limits must be positive".to_string(),
+            ));
+        }
+        let mut context_map: HashMap<NodeId, ContextCounts> = HashMap::new();
+        let mut expansions = 0usize;
 
         // Initialize start node with empty context
-        context_map.insert(lattice.start(), vec![vec![]]);
+        context_map.insert(lattice.start(), BTreeMap::from([(vec![], 1)]));
 
         // Get topological order for forward processing
         let topo_order = lattice
@@ -127,7 +153,7 @@ impl LanguageModelLayer {
         // Process nodes in topological order
         for node_id in topo_order {
             // Get contexts at current node (clone to avoid borrow issues)
-            let current_contexts: Vec<Vec<String>> =
+            let current_contexts: ContextCounts =
                 context_map.get(&node_id).cloned().unwrap_or_default();
 
             if current_contexts.is_empty() {
@@ -145,7 +171,15 @@ impl LanguageModelLayer {
 
             // Process each outgoing edge
             for (target, word) in outgoing_info {
-                for ctx in &current_contexts {
+                for (ctx, count) in &current_contexts {
+                    expansions = expansions.checked_add(1).ok_or_else(|| {
+                        LayerError::Other("LM context expansion counter overflowed".to_string())
+                    })?;
+                    if expansions > self.max_context_expansions {
+                        return Err(LayerError::Other(
+                            "LM context expansion limit exceeded".to_string(),
+                        ));
+                    }
                     let mut new_ctx = ctx.clone();
 
                     // Append word if present
@@ -158,7 +192,18 @@ impl LanguageModelLayer {
                         }
                     }
 
-                    context_map.entry(target).or_default().push(new_ctx);
+                    let target_contexts = context_map.entry(target).or_default();
+                    if !target_contexts.contains_key(&new_ctx)
+                        && target_contexts.len() >= self.max_contexts_per_node
+                    {
+                        return Err(LayerError::Other(
+                            "LM contexts-per-node limit exceeded".to_string(),
+                        ));
+                    }
+                    let multiplicity = target_contexts.entry(new_ctx).or_default();
+                    *multiplicity = multiplicity.checked_add(*count).ok_or_else(|| {
+                        LayerError::Other("LM path multiplicity overflowed".to_string())
+                    })?;
                 }
             }
         }
@@ -184,6 +229,9 @@ impl LanguageModelLayer {
     where
         W: NumericalWeight + From<f64>,
     {
+        if self.weight == 0.0 {
+            return orig_weight;
+        }
         let orig_val = orig_weight.numerical_value();
 
         // Convert LM log prob to cost space (negate it)
@@ -191,7 +239,11 @@ impl LanguageModelLayer {
         let lm_cost = -lm_log_prob;
 
         // Linear interpolation in cost space
-        let interpolated = (1.0 - self.weight) * orig_val + self.weight * lm_cost;
+        let interpolated = if self.weight == 1.0 {
+            lm_cost
+        } else {
+            (1.0 - self.weight) * orig_val + self.weight * lm_cost
+        };
 
         W::from(interpolated)
     }
@@ -207,6 +259,14 @@ where
     }
 
     fn apply(&self, lattice: &Lattice<W, B>) -> LayerResult<Lattice<W, B>> {
+        if !self.weight.is_finite() {
+            return Err(LayerError::ConfigError(
+                "LM interpolation weight must be finite".to_string(),
+            ));
+        }
+        if self.weight == 0.0 {
+            return Ok(lattice.clone());
+        }
         if lattice.is_empty() {
             return Ok(lattice.clone());
         }
@@ -251,33 +311,42 @@ where
             };
 
             // Get contexts reaching the source node
-            let contexts: &[Vec<String>] = context_map
-                .get(&edge.source)
-                .map(|v| v.as_slice())
-                .unwrap_or(&[]);
+            let contexts = context_map.get(&edge.source);
 
             // Compute LM score based on contexts
-            let lm_log_prob = if contexts.is_empty() {
+            let lm_log_prob = if contexts.is_none_or(BTreeMap::is_empty) {
                 // Start node - use unigram probability (no context)
                 self.model.score_continuation(&[], word)
             } else {
-                // Average LM score over all contexts reaching this node
-                // This handles lattice ambiguity by marginalizing over contexts
+                // Average over path histories, preserving multiplicities after
+                // identical contexts were collapsed during propagation.
                 let mut total_score = 0.0;
-                let mut count = 0;
+                let mut count = 0u128;
 
-                for ctx in contexts {
+                for (ctx, multiplicity) in contexts.expect("nonempty contexts checked above") {
                     let ctx_refs: Vec<&str> = ctx.iter().map(|s| s.as_str()).collect();
-                    total_score += self.model.score_continuation(&ctx_refs, word);
-                    count += 1;
+                    let mut score = self.model.score_continuation(&ctx_refs, word);
+                    if self.normalize_by_length {
+                        score /= (ctx.len() + 1) as f64;
+                    }
+                    if score.is_nan() || score == f64::INFINITY {
+                        return Err(LayerError::Other(
+                            "LM returned an invalid continuation score".to_string(),
+                        ));
+                    }
+                    total_score += score * *multiplicity as f64;
+                    count = count
+                        .checked_add(u128::from(*multiplicity))
+                        .ok_or_else(|| LayerError::Other("LM path count overflowed".to_string()))?;
                 }
 
-                if count > 0 {
-                    total_score / count as f64
-                } else {
-                    self.model.score_continuation(&[], word)
-                }
+                total_score / count as f64
             };
+            if lm_log_prob.is_nan() || lm_log_prob == f64::INFINITY {
+                return Err(LayerError::Other(
+                    "LM returned an invalid continuation score".to_string(),
+                ));
+            }
 
             // Interpolate the original weight with the LM score
             let adjusted_weight = self.interpolate_weight(edge.weight, lm_log_prob);
@@ -388,10 +457,13 @@ mod tests {
     fn test_layer_builder() {
         let layer = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel))
             .with_weight(0.7)
-            .with_length_normalization(false);
+            .with_length_normalization(false)
+            .with_context_limits(8, 64);
 
         assert!((layer.weight - 0.7).abs() < 0.001);
         assert!(!layer.normalize_by_length);
+        assert_eq!(layer.max_contexts_per_node, 8);
+        assert_eq!(layer.max_context_expansions, 64);
     }
 
     #[test]
@@ -399,6 +471,15 @@ mod tests {
         let layer = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel)).with_weight(1.5); // Should clamp to 1.0
 
         assert!((layer.weight - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_invalid_weight_is_rejected_before_scoring() {
+        let layer =
+            LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel)).with_weight(f64::NAN);
+        let lattice: Lattice<TropicalWeight, _> =
+            LatticeBuilder::new(HashMapBackend::new()).build(0);
+        assert!(layer.apply(&lattice).is_err());
     }
 
     #[test]
@@ -498,6 +579,85 @@ mod tests {
     }
 
     #[test]
+    fn test_context_length_normalization_changes_following_edge() {
+        let mut builder = LatticeBuilder::new(HashMapBackend::new());
+        builder.add_correction(
+            0,
+            1,
+            "first",
+            TropicalWeight::new(0.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            1,
+            2,
+            "second",
+            TropicalWeight::new(0.0),
+            EdgeMetadata::default(),
+        );
+        let lattice = builder.build(2);
+        let normalized = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel))
+            .with_weight(1.0)
+            .apply(&lattice)
+            .expect("normalized LM applies");
+        let raw = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel))
+            .with_weight(1.0)
+            .with_length_normalization(false)
+            .apply(&lattice)
+            .expect("raw LM applies");
+        assert_eq!(normalized.edges()[0].weight.value(), 1.0);
+        assert_eq!(normalized.edges()[1].weight.value(), 0.5);
+        assert_eq!(raw.edges()[1].weight.value(), 1.0);
+    }
+
+    #[test]
+    fn test_context_limits_reject_branch_explosion() {
+        let mut builder = LatticeBuilder::new(HashMapBackend::new());
+        builder.add_correction(0, 1, "a", TropicalWeight::new(0.0), EdgeMetadata::default());
+        builder.add_correction(0, 1, "b", TropicalWeight::new(0.0), EdgeMetadata::default());
+        builder.add_correction(1, 2, "c", TropicalWeight::new(0.0), EdgeMetadata::default());
+        let lattice = builder.build(2);
+
+        let context_limited = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel))
+            .with_context_limits(1, 100);
+        assert!(context_limited.apply(&lattice).is_err());
+
+        let work_limited = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel))
+            .with_context_limits(8, 1);
+        assert!(work_limited.apply(&lattice).is_err());
+    }
+
+    #[test]
+    fn test_duplicate_contexts_do_not_exhaust_distinct_context_limit() {
+        let mut builder = LatticeBuilder::new(HashMapBackend::new());
+        builder.add_correction(
+            0,
+            1,
+            "same",
+            TropicalWeight::new(0.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            0,
+            1,
+            "same",
+            TropicalWeight::new(0.0),
+            EdgeMetadata::default(),
+        );
+        builder.add_correction(
+            1,
+            2,
+            "next",
+            TropicalWeight::new(0.0),
+            EdgeMetadata::default(),
+        );
+        let lattice = builder.build(2);
+        let layer = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel))
+            .with_context_limits(1, 100);
+        assert!(layer.apply(&lattice).is_ok());
+    }
+
+    #[test]
     fn test_weight_interpolation_formula() {
         // Test the interpolation formula directly
         let layer = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel)).with_weight(0.3); // 30% LM, 70% original
@@ -517,7 +677,15 @@ mod tests {
 
     #[test]
     fn test_lambda_zero_ignores_lm() {
-        let layer = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel)).with_weight(0.0); // Ignore LM completely
+        let layer = LanguageModelLayer::new(Box::new(UniformPenaltyLanguageModel))
+            .with_weight(0.0)
+            .with_context_limits(0, 0); // No LM contexts are needed.
+        assert_eq!(
+            layer
+                .interpolate_weight(TropicalWeight::new(5.0), f64::NEG_INFINITY)
+                .value(),
+            5.0
+        );
 
         let backend = HashMapBackend::new();
         let mut builder = LatticeBuilder::new(backend);
