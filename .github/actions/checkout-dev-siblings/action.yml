@@ -19,6 +19,10 @@ inputs:
     description: Development llattice ref containing the coordinated binding sources.
     required: false
     default: master
+  include-duallity:
+    description: Also clone the duallity Julia integration sibling.
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -29,6 +33,7 @@ runs:
         BASELINE_REF: ${{ inputs.ref }}
         COORDINATED_REF: ${{ inputs.coordinated-ref }}
         LLATTICE_REF: ${{ inputs.llattice-ref }}
+        INCLUDE_DUALLITY: ${{ inputs.include-duallity }}
       run: |
         set -euo pipefail
         parent="$(dirname "$GITHUB_WORKSPACE")"
@@ -39,7 +44,11 @@ runs:
           development_ref="$BASELINE_REF"
         fi
         git check-ref-format --branch "$development_ref" >/dev/null
-        for repo in vinary-tree-interop llattice libdictenstein liblevenshtein-rust; do
+        repos=(vinary-tree-interop llattice libdictenstein liblevenshtein-rust)
+        if [[ "$INCLUDE_DUALLITY" == true ]]; then
+          repos+=(duallity)
+        fi
+        for repo in "${repos[@]}"; do
           destination="$parent/$repo"
           if [[ -e "$destination" ]]; then
             echo "Refusing to replace existing sibling checkout: $destination" >&2

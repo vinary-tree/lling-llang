@@ -13,7 +13,7 @@ from typing import Any
 from vinary_tree_interop import NativeResource, VtResource
 
 ABI_VERSION = 1
-API_REVISION = 15
+API_REVISION = 18
 TYPED_ABI_VERSION = 2
 MAX_LAW_SAMPLES = 16
 
@@ -391,6 +391,89 @@ class LfMmiSummary(ctypes.Structure):
         ("denominator_log_prob", ctypes.c_double),
         ("xent_loss", ctypes.c_double),
     ]
+
+
+class LlmConfig(ctypes.Structure):
+    """Revision-16 bounded token decoder controls."""
+
+    _fields_ = [
+        ("version", ctypes.c_uint32),
+        ("reserved", ctypes.c_uint32),
+        ("beam_width", ctypes.c_size_t),
+        ("max_length", ctypes.c_size_t),
+        ("max_candidates_per_step", ctypes.c_size_t),
+        ("max_vocabulary", ctypes.c_size_t),
+        ("temperature", ctypes.c_double),
+        ("length_penalty", ctypes.c_double),
+    ]
+
+
+class CorrectionConfig(ctypes.Structure):
+    """Revision-17 retained Unicode dictionary correction policy."""
+
+    _fields_ = [
+        ("version", ctypes.c_uint32),
+        ("reserved", ctypes.c_uint32),
+        ("max_distance", ctypes.c_size_t),
+        ("max_corrections_per_word", ctypes.c_size_t),
+        ("min_word_length", ctypes.c_size_t),
+        ("cost_per_edit", ctypes.c_double),
+        ("substitution_multiplier", ctypes.c_double),
+        ("transposition_multiplier", ctypes.c_double),
+        ("exact_match_boost", ctypes.c_double),
+        ("enable_transpositions", ctypes.c_uint8),
+        ("case_insensitive", ctypes.c_uint8),
+        ("keep_original", ctypes.c_uint8),
+        ("normalization", ctypes.c_uint8),
+        ("reserved_flags", ctypes.c_uint8 * 4),
+    ]
+
+
+class ConfusionConfig(ctypes.Structure):
+    """Revision-18 retained native character-confusion policy."""
+
+    _fields_ = [
+        ("version", ctypes.c_uint32),
+        ("matrix_kind", ctypes.c_uint32),
+        ("max_corrections", ctypes.c_size_t),
+        ("confusion_threshold", ctypes.c_double),
+    ]
+
+
+class ConfusionPair(ctypes.Structure):
+    """Revision-18 custom Unicode-scalar confusion-matrix entry."""
+
+    _fields_ = [
+        ("observed", ctypes.c_uint32),
+        ("intended", ctypes.c_uint32),
+        ("operation", ctypes.c_uint32),
+        ("reserved", ctypes.c_uint32),
+        ("probability", ctypes.c_double),
+    ]
+
+
+class LlmStats(ctypes.Structure):
+    """Revision-16 committed decoder work counters."""
+
+    _fields_ = [
+        ("steps", ctypes.c_uint64),
+        ("score_calls", ctypes.c_uint64),
+        ("considered_tokens", ctypes.c_uint64),
+        ("candidates", ctypes.c_uint64),
+        ("hypotheses", ctypes.c_size_t),
+        ("finished", ctypes.c_uint8),
+        ("reserved", ctypes.c_uint8 * 7),
+    ]
+
+
+LlmScoreCallback = ctypes.CFUNCTYPE(
+    ctypes.c_uint32,
+    ctypes.c_void_p,
+    ctypes.POINTER(ctypes.c_uint32),
+    ctypes.c_size_t,
+    ctypes.POINTER(ctypes.c_double),
+    ctypes.c_size_t,
+)
 
 
 class ArcGradient(ctypes.Structure):
@@ -1270,6 +1353,101 @@ _bind(
     "lling_lattice_validate_laws",
     [ctypes.POINTER(ctypes.c_void_p), ctypes.c_size_t],
 )
+
+_bind(
+    "lling_correction_dictionary_open",
+    [
+        ctypes.POINTER(VtResource),
+        ctypes.POINTER(CorrectionConfig),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_correction_dictionary_query",
+    [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_correction_result_count", [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t)]
+)
+_bind(
+    "lling_correction_result_item",
+    [
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_double),
+    ],
+)
+_bind("lling_correction_dictionary_free", [ctypes.c_void_p], None)
+_bind("lling_correction_result_free", [ctypes.c_void_p], None)
+_bind(
+    "lling_confusion_layer_open",
+    [
+        ctypes.POINTER(ConfusionConfig),
+        ctypes.POINTER(ConfusionPair),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_confusion_layer_query",
+    [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind("lling_confusion_layer_free", [ctypes.c_void_p], None)
+
+_bind(
+    "lling_llm_session_open_wfst",
+    [
+        ctypes.POINTER(VtResource),
+        ctypes.c_size_t,
+        ctypes.POINTER(LlmConfig),
+        ctypes.POINTER(Budget),
+        ctypes.POINTER(ctypes.c_void_p),
+    ],
+)
+_bind(
+    "lling_llm_session_step",
+    [
+        ctypes.c_void_p,
+        LlmScoreCallback,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint32),
+    ],
+)
+_bind(
+    "lling_llm_session_cancellation",
+    [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)],
+)
+_bind("lling_llm_cancellation_request", [ctypes.c_void_p])
+_bind("lling_llm_cancellation_free", [ctypes.c_void_p], None)
+_bind("lling_llm_session_stats", [ctypes.c_void_p, ctypes.POINTER(LlmStats)])
+_bind(
+    "lling_llm_session_hypothesis",
+    [
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.POINTER(ctypes.c_uint8),
+    ],
+)
+_bind("lling_llm_session_free", [ctypes.c_void_p], None)
 
 _bind(
     "lling_abi_v2_validate_header",

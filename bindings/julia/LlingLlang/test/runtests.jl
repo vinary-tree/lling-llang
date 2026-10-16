@@ -74,6 +74,7 @@ function scalar_chain(::Type{L}, ::Type{W}, label, arc_weight, final_weight;
 end
 
 include("training.jl")
+include("llm.jl")
 
 @testset "bounded CFG analysis over a scalar WFST lattice" begin
     start = CfgNonterminal("S")

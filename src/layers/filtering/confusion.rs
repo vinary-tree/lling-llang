@@ -546,7 +546,7 @@ impl<W: Semiring> ConfusionLayer<W> {
     ///
     /// Returns a list of (corrected_word, probability) pairs.
     pub fn generate_corrections(&self, word: &str) -> Vec<(String, f64)> {
-        if word.len() < self.config.min_word_length {
+        if word.chars().count() < self.config.min_word_length {
             return vec![];
         }
 
@@ -622,7 +622,11 @@ impl<W: Semiring> ConfusionLayer<W> {
         }
 
         // Sort by probability (highest first) and limit
-        corrections.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        corrections.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
         corrections.truncate(self.config.max_corrections_per_word);
 
         corrections
@@ -717,8 +721,7 @@ where
             }
         }
 
-        let num_nodes = lattice.num_nodes();
-        Ok(builder.build(num_nodes))
+        Ok(builder.build(lattice.end().value() as usize))
     }
 
     fn can_apply(&self, _lattice: &Lattice<W, B>) -> bool {
@@ -892,6 +895,8 @@ mod tests {
 
         // Should have at least the original edge
         assert!(result.num_edges() >= 1);
+        assert_eq!(result.end(), lattice.end());
+        assert_eq!(result.clone().path_count(), Some(result.num_edges()));
     }
 
     #[test]

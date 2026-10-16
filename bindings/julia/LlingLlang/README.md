@@ -16,6 +16,175 @@ Julia code may also implement the weight algebra itself. The native engine
 consumes that algebra through a retained, capability-negotiated semiring
 resource without requiring the weight type to be `isbits` or `Copy`.
 
+## Dictionary correction and query products
+
+`correction_dictionary` retains a Unicode-scalar dictionary resource and
+captures its current immutable revision. It calls Rust's `EditDistanceLayer`
+and `ResourceDictionary` directly; each `corrections` call returns owned Julia
+strings with edit costs. `CorrectionConfig` sets the maximum edit distance,
+maximum returned candidates, minimum word length, edit-cost multipliers,
+transposition behavior, and exact-match boost. Case-insensitive search is
+available only when the producer declares that its stored keys are already
+Unicode lowercase.
+
+```julia
+using LlingLlang
+import Libdictenstein as LD
+import Duallity
+
+producer = LD.DynamicDawg()
+LD.insert_batch!(producer,
+    ["cat" => nothing, "cot" => nothing, "dog" => nothing])
+view = LD.snapshot(producer)
+layer = correction_dictionary(view;
+    config=CorrectionConfig(max_distance=1))
+query = Duallity.wfst(view, "cat"; maximum_distance=1)
+close(view)
+close(producer)
+
+@assert Dict(item.word => item.cost for item in corrections(layer, "cat")) ==
+    Dict("cat" => 0.0, "cot" => 1.0)
+
+builder = WfstBuilder(size_hint=1)
+state = add_state!(builder)
+set_start!(builder, state)
+set_final!(builder, state)
+for character in ['a', 'c', 'o', 't']
+    add_arc!(builder, state, character, uppercase(character), state)
+end
+mapper = build!(builder)
+product = compose(query, mapper)
+close(product)
+close(mapper)
+close(query)
+
+decoder = correction_llm_session(layer, "cat", ["cat", "cot", "dog"];
+    edit_weight=3, config=LlmConfig(beam_width=3))
+@assert llm_step!(decoder, _ -> [-2.0, -0.1, -Inf]) == LLM_COMPLETE
+choice = first(llm_hypotheses(decoder))
+@assert decoder.words[Int(first(choice.tokens)) + 1] == "cat"
+@assert llm_stats(decoder).score_calls == 1
+close(decoder)
+close(layer)
+```
+
+The duallity query graph and the correction layer each pin the dictionary
+revision at construction. `compose` is lling-llang's lazy native weighted
+product; it joins the query's output tape to the mapper's input tape. The
+[cross-package conformance test](test/correction_integration.jl) traverses
+the product and checks its accepted words and costs against the correction
+layer after the producer has been closed.
+
+`correction_llm_session` turns the bounded dictionary results present in the
+model vocabulary into a native one-token acceptor. The decoder imports that
+acceptor and owns it independently of the dictionary. `llm_step!` combines
+each candidate's model log score with its edit cost: it scales the model score
+by `model_weight`, divides it by `LlmConfig.temperature`, and subtracts the
+edit cost scaled by `edit_weight`. Negative infinity from the model excludes
+that token. A missing vocabulary correction raises an error. The ordinary
+decoder `cancel!`, `llm_hypotheses`, and `llm_stats` methods also accept this
+session; an error in the scorer leaves its prior beam intact.
+
+## Character-confusion correction
+
+`confusion_layer` owns one Rust `ConfusionLayer` and its character-confusion
+matrix. A matrix maps an observed Unicode scalar and an intended Unicode
+scalar to the probability of seeing the observed character when the intended
+one was written. Built-in matrices cover QWERTY, Dvorak, OCR, and mobile
+keyboards. A custom matrix can supply substitutions, observed insertions, and
+intended deletions. Native `corrections` returns independent strings and
+negative-log probability costs in decreasing probability order. Equal scores
+use lexical order for reproducible results.
+
+```julia
+using LlingLlang
+
+layer = confusion_layer(config=ConfusionConfig(matrix=:custom, threshold=0.1),
+    rules=[ConfusionRule(:substitution, 'α', 'a', 0.4)])
+found = corrections(layer, "cαt")
+@assert only(found).word == "cat"
+@assert only(found).cost ≈ -log(0.4)
+close(layer)
+```
+
+The custom entries are copied when the layer opens, and results remain valid
+after `close(layer)`. A query is limited to 1,024 UTF-8 bytes and 256 Unicode
+scalars; a custom matrix has at most 65,536 entries and a query returns at
+most 4,096 candidates. Limits fail explicitly. This native layer generates
+word corrections; lattice-wide filtering and disfluency layers are separate
+APIs.
+
+`correction_llm_session` also accepts a `ConfusionLayer`, combining its
+negative-log candidate costs with the native constrained decoder in the same
+way as dictionary edit costs. Once constructed, the decoder owns its token
+constraint and can outlive the confusion layer.
+
+`correction_pipeline` composes retained native word-correction layers in order.
+It adds their costs and keeps the cheapest path to each output word. The Julia
+facade only schedules bounded native queries and merges their owned results;
+the correction algorithms stay in Rust. `keep_original=true` preserves the
+current word at each stage; set it to false to require a correction from every
+layer. Candidate and query limits fail explicitly instead of truncating
+results. The pipeline borrows its layers, so close them after its last query.
+
+```julia
+using LlingLlang
+import Libdictenstein as LD
+
+producer = LD.DynamicDawg()
+LD.insert_batch!(producer, ["cat" => nothing, "cot" => nothing])
+view = LD.snapshot(producer)
+dictionary = correction_dictionary(view; config=CorrectionConfig(max_distance=1))
+confusion = confusion_layer(config=ConfusionConfig(matrix=:custom, threshold=0.1),
+    rules=[ConfusionRule(:substitution, 'α', 'a', 0.4)])
+pipeline = correction_pipeline(confusion, dictionary; keep_original=false)
+@assert first(corrections(pipeline, "cαt")).word == "cat"
+decoder = correction_llm_session(pipeline, "cαt", ["cat", "cot"])
+close(decoder); close(confusion); close(dictionary); close(view); close(producer)
+```
+
+## Constrained language-model decoding
+
+`llm_session` captures a `UInt64`/`TropicalWeight` token acceptor as an owned,
+native decoder. Its arc labels are zero-based vocabulary IDs; each arc must
+read and write the same ID, and each state can have only one outgoing arc per
+ID. The native boundary imports the graph under a `BudgetV2` and rejects
+epsilon arcs, out-of-range IDs, and nondeterministic transitions. The source
+graph can be closed after the session is created. Arc weights do not alter
+model scores: this API uses the graph to constrain legal tokens.
+
+```julia
+using LlingLlang
+
+builder = WfstBuilder{UInt64,TropicalWeight}(size_hint=3)
+root, middle, finish = (add_state!(builder) for _ in 1:3)
+set_start!(builder, root)
+set_final!(builder, finish, TropicalWeight(0))
+add_arc!(builder, root, UInt64(0), UInt64(0), middle, TropicalWeight(0))
+add_arc!(builder, middle, UInt64(1), UInt64(1), finish, TropicalWeight(0))
+constraint = build!(builder)
+
+decoder = llm_session(constraint; vocab_size=2,
+    config=LlmConfig(beam_width=4, max_length=8))
+close(constraint)
+scorer(prefix) = isempty(prefix) ? [0.0, -Inf] : [-Inf, -0.25]
+@assert llm_step!(decoder, scorer) == LLM_ADVANCED
+@assert llm_step!(decoder, scorer) == LLM_COMPLETE
+@assert only(llm_hypotheses(decoder)).tokens == UInt32[0, 1]
+@assert llm_stats(decoder).steps == 2
+close(decoder)
+```
+
+The scorer receives a copied prefix and returns one dense log score per
+vocabulary token. `-Inf` disables a token. `llm_step!` publishes a new beam
+only after every callback and limit check succeeds; a Julia callback exception
+is rethrown with the previous beam intact. `llm_hypotheses` copies each
+partial result and marks accepting paths. `LlmConfig` bounds beam width,
+length, vocabulary, and expansions per step, and controls temperature and
+length penalty. `cancel!(decoder)` uses an independently owned atomic token;
+the caller must keep the decoder open until a concurrent step returns. Read
+statistics and hypotheses after a step, never concurrently with it.
+
 The [published development guide and API reference](https://vinary-tree.github.io/lling-llang/dev/)
 documents the current source; it is not a claim that RC.6 is registered.
 

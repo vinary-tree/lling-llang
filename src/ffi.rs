@@ -34,6 +34,10 @@ mod pda;
 pub use pda::*;
 mod training;
 pub use training::*;
+mod llm;
+pub use llm::*;
+mod correction;
+pub use correction::*;
 mod distance;
 mod graph;
 pub use distance::*;
@@ -48,7 +52,7 @@ pub use sample_path::*;
 /// Stable lling-llang C ABI version.
 pub const LLING_ABI_VERSION: u32 = 1;
 /// Additive project API revision.
-pub const LLING_LLANG_API_REVISION: u32 = 15;
+pub const LLING_LLANG_API_REVISION: u32 = 18;
 
 fn bounded_usize(value: u64, name: &'static str) -> Result<usize, LlingLlangStatus> {
     usize::try_from(value).map_err(|_| {

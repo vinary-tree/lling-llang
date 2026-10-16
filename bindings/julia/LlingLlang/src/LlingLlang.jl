@@ -91,6 +91,33 @@ export ABI_VERSION,
     gradient_page,
     gradient_pages,
     log_gradients,
+    LlmConfig,
+    LlmSession,
+    LlmHypothesis,
+    LlmStats,
+    LlmStep,
+    LLM_ADVANCED,
+    LLM_COMPLETE,
+    LLM_EXHAUSTED,
+    LLM_CANCELLED,
+    llm_session,
+    llm_step!,
+    llm_hypotheses,
+    llm_stats,
+    CorrectionConfig,
+    CorrectionCandidate,
+    CorrectionDictionary,
+    CorrectionLlmSession,
+    ConfusionConfig,
+    ConfusionRule,
+    ConfusionLayer,
+    CorrectionPipeline,
+    confusion_layer,
+    correction_pipeline,
+    correction_dictionary,
+    correction_llm_session,
+    corrections,
+    cancel!,
     ProviderArc,
     ProviderState,
     AbstractWfstProvider,
@@ -903,6 +930,7 @@ function build!(builder::WfstBuilder{L,W}) where {L,W}
 end
 
 raw_resource(resource::VTI.Resource) = VTI.raw_resource(resource)
+raw_resource(dictionary::VTI.Dictionary) = VTI.raw_resource(dictionary.resource)
 raw_resource(wfst::VTI.Wfst) = VTI.raw_resource(wfst.resource)
 raw_resource(wfst::Wfst) = raw_resource(wfst.native)
 
@@ -3856,10 +3884,13 @@ provider(implementation::AbstractWfstProvider; kwargs...) =
 include("Cfg.jl")
 include("Pda.jl")
 include("Training.jl")
+include("Llm.jl")
+include("Correction.jl")
 
 function __init__()
     initialize_callbacks!()
     initialize_semiring_callbacks!()
+    initialize_llm_callback!()
     abi_version() == ABI_VERSION || error(
         "lling-llang ABI $(abi_version()) does not match Julia facade $ABI_VERSION")
     api_revision() >= API_REVISION || error(

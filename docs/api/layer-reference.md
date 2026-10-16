@@ -316,31 +316,54 @@ let corrected = layer.apply(&lattice)?;
 
 ## LanguageModelLayer
 
-Language model scoring layer.
+`LanguageModelLayer` reranks word-labeled lattice edges with a language model.
+It preserves the lattice topology and interpolates each original edge cost
+with the negative model continuation score. The interpolation weight is
+clamped to the interval from zero to one.
+
+```math
+w_{\mathrm{new}}=(1-\lambda)w_{\mathrm{old}}+\lambda(-s_{\mathrm{LM}})
+```
+
+At a node reached by several histories, the layer averages continuation
+scores over those histories, counting paths that share the same history.
+Each history retains at most ten preceding words. With length normalization
+enabled (the default), each continuation score is divided by the number of
+words in its retained history plus one. This is local context-window
+normalization; it does not divide a complete path's score by its total length.
+
+The layer stores at most 4,096 distinct histories per node and propagates at
+most 1,048,576 context-edge pairs by default. Exceeding either bound returns
+an error. `with_context_limits` changes both bounds; zero is rejected when
+the layer runs. Duplicate histories share one entry with a path count, so
+equivalent paths do not multiply retained context memory.
 
 ```rust
-pub struct LanguageModelLayer<LM: LanguageModel> {
-    model: LM,
-    weight: f64,
+use lling_llang::backend::HashMapBackend;
+use lling_llang::lattice::Lattice;
+use lling_llang::layers::{CorrectionLayer, LanguageModel, LanguageModelLayer, LayerResult};
+use lling_llang::semiring::TropicalWeight;
+
+struct Model;
+
+impl LanguageModel for Model {
+    fn score_sequence(&self, words: &[&str]) -> f64 {
+        -(words.len() as f64)
+    }
+
+    fn score_continuation(&self, _history: &[&str], _next: &str) -> f64 {
+        -1.0
+    }
 }
 
-impl<LM: LanguageModel> LanguageModelLayer<LM> {
-    /// Create with language model
-    pub fn new(model: LM) -> Self;
-
-    /// Set LM weight
-    pub fn with_weight(self, weight: f64) -> Self;
-}
-
-pub trait LanguageModel: Send + Sync {
-    /// Score a word given context
-    fn score(&self, context: &[&str], word: &str) -> f64;
-
-    /// Score a sequence
-    fn score_sequence(&self, words: &[&str]) -> f64;
-
-    /// Get vocabulary size
-    fn vocab_size(&self) -> usize;
+fn rerank(
+    lattice: &Lattice<TropicalWeight, HashMapBackend>,
+) -> LayerResult<Lattice<TropicalWeight, HashMapBackend>> {
+    let layer = LanguageModelLayer::new(Box::new(Model))
+        .with_weight(0.5)
+        .with_length_normalization(true)
+        .with_context_limits(4096, 1_048_576);
+    layer.apply(lattice)
 }
 ```
 

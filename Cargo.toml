@@ -115,7 +115,8 @@ fortran-bindings = ["native-bindings-full"]
 ocaml-bindings = ["native-bindings-full"]
 haskell-bindings = ["native-bindings-full"]
 lua-bindings = ["native-bindings-full"]
-julia-bindings = ["native-bindings-full"]
+# Julia exposes the retained dictionary correction layer and LM reranker.
+julia-bindings = ["native-bindings-full", "levenshtein", "lm-rerank"]
 raku-bindings = ["native-bindings-full"]
 
 # === Core Optional Features ===
