@@ -304,6 +304,73 @@ function corrections(layer::ConfusionLayer, word::AbstractString)
     copied_correction_result(output[])
 end
 
+const CorrectionSource = Union{CorrectionDictionary,ConfusionLayer}
+
+"""A bounded sequence of retained native word-correction layers.
+
+The pipeline borrows its layers; the caller closes them after the pipeline is
+no longer used. Intermediate candidates retain the lowest accumulated cost
+for each word. Exceeding either explicit work bound raises an error.
+"""
+struct CorrectionPipeline{L<:Tuple}
+    layers::L
+    max_candidates::Int
+    max_queries::Int
+    keep_original::Bool
+end
+
+function correction_pipeline(layers::CorrectionSource...;
+    max_candidates::Integer=1024, max_queries::Integer=4096,
+    keep_original::Bool=true)
+    isempty(layers) && throw(ArgumentError("correction pipeline needs a layer"))
+    0 < max_candidates <= 4096 ||
+        throw(ArgumentError("max_candidates must be in 1:4096"))
+    0 < max_queries <= 1_048_576 ||
+        throw(ArgumentError("max_queries must be in 1:1048576"))
+    CorrectionPipeline(layers, Int(max_candidates),
+        Int(max_queries), keep_original)
+end
+
+function correction_handle(pipeline::CorrectionPipeline)
+    foreach(correction_handle, pipeline.layers)
+    nothing
+end
+
+Base.isopen(pipeline::CorrectionPipeline) = all(isopen, pipeline.layers)
+
+"""Compose native candidate generations in layer order with additive costs."""
+function corrections(pipeline::CorrectionPipeline, word::AbstractString)
+    correction_handle(pipeline)
+    frontier = Dict(String(word) => 0.0)
+    queries = 0
+    for layer in pipeline.layers
+        next = Dict{String,Float64}()
+        for (candidate, base_cost) in sort!(collect(frontier); by=first)
+            if pipeline.keep_original
+                next[candidate] = min(get(next, candidate, Inf), base_cost)
+                length(next) <= pipeline.max_candidates ||
+                    throw(ArgumentError("correction pipeline candidate limit exceeded"))
+            end
+            queries += 1
+            queries <= pipeline.max_queries ||
+                throw(ArgumentError("correction pipeline query limit exceeded"))
+            for output in corrections(layer, candidate)
+                total = base_cost + output.cost
+                isfinite(total) ||
+                    throw(ArgumentError("correction pipeline cost overflowed"))
+                next[output.word] = min(get(next, output.word, Inf), total)
+                length(next) <= pipeline.max_candidates ||
+                    throw(ArgumentError("correction pipeline candidate limit exceeded"))
+            end
+        end
+        frontier = next
+        isempty(frontier) && break
+    end
+    ordered = [CorrectionCandidate(candidate, cost)
+        for (candidate, cost) in frontier]
+    sort!(ordered; by=value -> (value.cost, value.word))
+end
+
 """One native decoder over bounded correction candidates and their costs.
 
 The vocabulary is copied so token IDs and candidate words remain stable for
@@ -328,7 +395,7 @@ outlive the dictionary or confusion layer. `edit_weight` multiplies correction
 cost; `model_weight`
 multiplies the scorer's log probability. Both must be finite and nonnegative.
 """
-function correction_llm_session(source::Union{CorrectionDictionary,ConfusionLayer},
+function correction_llm_session(source::Union{CorrectionSource,CorrectionPipeline},
     query::AbstractString, words::AbstractVector{<:AbstractString};
     config::LlmConfig=LlmConfig(), edit_weight::Real=1.0,
     model_weight::Real=1.0,
@@ -381,7 +448,7 @@ end
 
 The native decoder supplies the prefix to `scorer`. For each legal candidate,
 the combined score is `model_weight * log_probability / temperature -
-edit_weight * edit_cost`. Callback errors preserve the last committed beam.
+edit_weight * correction_cost`. Callback errors preserve the last committed beam.
 """
 function llm_step!(session::CorrectionLlmSession, scorer)
     llm_step!(session.decoder, prefix -> begin

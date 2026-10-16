@@ -119,6 +119,30 @@ negative-log candidate costs with the native constrained decoder in the same
 way as dictionary edit costs. Once constructed, the decoder owns its token
 constraint and can outlive the confusion layer.
 
+`correction_pipeline` composes retained native word-correction layers in order.
+It adds their costs and keeps the cheapest path to each output word. The Julia
+facade only schedules bounded native queries and merges their owned results;
+the correction algorithms stay in Rust. `keep_original=true` preserves the
+current word at each stage; set it to false to require a correction from every
+layer. Candidate and query limits fail explicitly instead of truncating
+results. The pipeline borrows its layers, so close them after its last query.
+
+```julia
+using LlingLlang
+import Libdictenstein as LD
+
+producer = LD.DynamicDawg()
+LD.insert_batch!(producer, ["cat" => nothing, "cot" => nothing])
+view = LD.snapshot(producer)
+dictionary = correction_dictionary(view; config=CorrectionConfig(max_distance=1))
+confusion = confusion_layer(config=ConfusionConfig(matrix=:custom, threshold=0.1),
+    rules=[ConfusionRule(:substitution, 'α', 'a', 0.4)])
+pipeline = correction_pipeline(confusion, dictionary; keep_original=false)
+@assert first(corrections(pipeline, "cαt")).word == "cat"
+decoder = correction_llm_session(pipeline, "cαt", ["cat", "cot"])
+close(decoder); close(confusion); close(dictionary); close(view); close(producer)
+```
+
 ## Constrained language-model decoding
 
 `llm_session` captures a `UInt64`/`TropicalWeight` token acceptor as an owned,

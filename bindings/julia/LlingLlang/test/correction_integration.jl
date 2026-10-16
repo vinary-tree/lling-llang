@@ -102,6 +102,25 @@ end
     @test all(candidate.cost == 1.0 for candidate in found)
     @test isempty(corrections(layer, ""))
 
+    confusion = confusion_layer(config=ConfusionConfig(matrix=:custom, threshold=0.1),
+        rules=[ConfusionRule(:substitution, 'α', 'a', 0.4)])
+    pipeline = correction_pipeline(confusion, layer; keep_original=false)
+    composed = Dict(candidate.word => candidate.cost
+        for candidate in corrections(pipeline, "cαt"))
+    @test composed["cat"] ≈ -log(0.4)
+    @test composed["cot"] ≈ 1 - log(0.4)
+    @test_throws ArgumentError corrections(
+        correction_pipeline(confusion, layer; max_queries=1), "cαt")
+    @test_throws ArgumentError corrections(
+        correction_pipeline(confusion; max_candidates=1), "cαt")
+    composed_decoder = correction_llm_session(pipeline, "cαt", ["cat", "cot"])
+    close(confusion)
+    @test !isopen(pipeline)
+    @test_throws NativeError corrections(pipeline, "cαt")
+    @test llm_step!(composed_decoder, _ -> [-0.1, -2.0]) == LLM_COMPLETE
+    @test first(llm_hypotheses(composed_decoder)).score ≈ -0.1 + log(0.4)
+    close(composed_decoder)
+
     @test_throws ArgumentError correction_llm_session(layer, "cut", ["cat", "cat"])
     @test_throws ArgumentError correction_llm_session(layer, "cut", ["dog"])
     @test_throws ArgumentError correction_llm_session(layer, "cut", ["cat"];
